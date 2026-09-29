@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
-import socket
 import threading
 import time
 
 import httpx2
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 
 from lectern.app import create_app
@@ -19,29 +16,6 @@ from lectern.core.tables import UserRow
 from .fake_model import FakeHandle, make_runtime, text_reply, tool_reply
 
 BASE = "http://127.0.0.1:8765"
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@contextlib.contextmanager
-def _running(app, port):
-    """A real uvicorn server in a thread: TestClient can't read an open event stream."""
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    for _ in range(200):
-        if server.started:
-            break
-        time.sleep(0.02)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
 
 
 def _app(paths, replies, **kwargs):
@@ -100,13 +74,15 @@ def test_new_chat_and_retitle(api):
     assert [s["title"] for s in items["sessions"]] == ["New chat", "Payment terms"]
 
 
-def test_a_page_attaching_mid_turn_gets_the_turn_so_far_then_the_rest_live(paths):
+def test_a_page_attaching_mid_turn_gets_the_turn_so_far_then_the_rest_live(
+    paths, free_port, live_server
+):
     hold = threading.Event()
-    port = _free_port()
+    port = free_port
     handle = FakeHandle([text_reply("Hel", "lo")], hold=hold)
     app = create_app(paths, port=port, runtime=make_runtime(handle))
 
-    with _running(app, port) as base, httpx2.Client(base_url=base, timeout=10) as client:
+    with live_server(app, port) as base, httpx2.Client(base_url=base, timeout=10) as client:
         headers = {"X-Lectern-Token": app.state.token, "Origin": base}
         pid = client.post("/api/projects", json={}, headers=headers).json()["id"]
         client.post(
