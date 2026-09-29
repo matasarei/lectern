@@ -22,7 +22,9 @@ def run(ctx, **arguments):
 
 def test_offered_only_while_an_engine_runs():
     assert SandboxModule().tools(ToolEnv(sandbox=False)) == []
-    assert [t.name for t in SandboxModule().tools(ToolEnv(sandbox=True))] == ["code.run"]
+    assert [t.name for t in SandboxModule().tools(ToolEnv(sandbox=True))] == [
+        "code.write", "code.run"
+    ]  # fmt: skip
 
 
 def test_runs_a_script_with_its_inputs_and_keeps_the_run(make_ctx):
