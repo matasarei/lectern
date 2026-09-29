@@ -4,19 +4,8 @@ import pytest
 
 from lectern.agent.tools import ToolContext
 from lectern.core.auth import LOCAL_USER
-from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.projects import files
 from lectern.projects.files import Origin
-from lectern.projects.store import ProjectStore
-
-
-@pytest.fixture
-def store(paths):
-    engine = make_engine(paths.app_db)
-    migrate(engine)
-    store = ProjectStore(paths, make_sessionmaker(engine))
-    yield store
-    store.dispose()
 
 
 @pytest.fixture

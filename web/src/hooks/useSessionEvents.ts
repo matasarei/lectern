@@ -11,6 +11,8 @@ export interface LiveTurn {
   model: { model_id: string; ctx: number } | null;
   context: { left_out: number; released: number; stubbed_files: string[] } | null;
   cards: { confirmation_id: number; name: string; text: string; approved: boolean | null }[];
+  // The latest progress of each tool at work, by tool call.
+  progress: Record<string, { label: string; done?: number; total?: number; line?: string; seconds?: number }>;
   stats: { ttft: number | null; tps: number | null } | null;
   error: string | null;
   stopped: boolean;
@@ -23,6 +25,7 @@ export const IDLE: LiveTurn = {
   model: null,
   context: null,
   cards: [],
+  progress: {},
   stats: null,
   error: null,
   stopped: false,
@@ -60,6 +63,16 @@ export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
           c.confirmation_id === event.confirmation_id ? { ...c, approved: event.approved } : c,
         ),
       };
+    case "progress": {
+      const { label, done, total, line, seconds } = event;
+      return { ...next, progress: { ...state.progress, [event.call_id]: { label, done, total, line, seconds } } };
+    }
+    case "tool_result": {
+      // The tool is finished: its result line replaces its progress.
+      const progress = { ...state.progress };
+      delete progress[event.call_id];
+      return { ...next, progress };
+    }
     case "done":
       return { ...next, stats: { ttft: event.ttft, tps: event.tps } };
     case "error":

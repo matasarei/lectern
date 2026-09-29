@@ -209,3 +209,48 @@ def test_disks_without_hard_links_still_never_overwrite(store, monkeypatch):
     assert (first.path, second.path) == ("a.txt", "a (2).txt")
     assert (project.root / "a.txt").read_bytes() == b"one"
     assert list((project.root / ".lectern").glob("*.part")) == []
+
+
+def test_files_can_go_in_a_subfolder_and_are_never_overwritten_there(store):
+    project = store.create(LOCAL_USER, "Scripts")
+    with store.db(project).begin() as session:
+        first = files.write_text(
+            project.root, session, owner_id=LOCAL_USER.id, name="penalty.py",
+            text="print(1)", origin=Origin("session", id=1), folder="scripts",
+        )  # fmt: skip
+        second = files.write_text(
+            project.root, session, owner_id=LOCAL_USER.id, name="penalty.py",
+            text="print(2)", origin=Origin("session", id=1), folder="scripts",
+        )  # fmt: skip
+        out = files.write_bytes(
+            project.root, session, owner_id=LOCAL_USER.id, name="result.csv",
+            data=b"a,b\n1,2\n", origin=Origin("artifact", id=first.id), folder="scripts/out",
+        )  # fmt: skip
+    assert (first.path, second.path, out.path) == (
+        "scripts/penalty.py", "scripts/penalty (2).py", "scripts/out/result.csv"
+    )  # fmt: skip
+    assert (project.root / "scripts" / "penalty.py").read_text() == "print(1)"
+    assert (project.root / "scripts" / "out" / "result.csv").exists()
+
+
+@pytest.mark.parametrize("folder", ["..", "../x", ".lectern", "scripts/.hidden", "a/../../b"])
+def test_a_folder_cannot_leave_the_project_or_reach_its_data(store, folder):
+    project = store.create(LOCAL_USER, "Folders")
+    with store.db(project).begin() as session, pytest.raises(BadName):
+        files.write_text(
+            project.root, session, owner_id=LOCAL_USER.id, name="x.txt", text="x",
+            origin=Origin("import"), folder=folder,
+        )  # fmt: skip
+    assert not (project.root.parent / "x").exists()
+
+
+def test_a_file_in_a_subfolder_can_be_trashed(store):
+    project = store.create(LOCAL_USER, "TrashSub")
+    with store.db(project).begin() as session:
+        row = files.write_text(
+            project.root, session, owner_id=LOCAL_USER.id, name="a.py", text="x",
+            origin=Origin("import"), folder="scripts",
+        )  # fmt: skip
+        files.trash(project.root, session, row.id)
+    assert not (project.root / "scripts" / "a.py").exists()
+    assert (project.root / ".lectern" / "trash" / f"{row.id}-a.py").exists()

@@ -91,13 +91,22 @@ class FakeRunner:
         return self.handle
 
 
-def make_runtime(handle: FakeHandle) -> ModelRuntime:
+def make_runtime(
+    handle: FakeHandle, *, weights: int = 2 * GIB, per_role: bool = False
+) -> ModelRuntime:
+    """A runtime whose every model is `handle`. With per_role=True each role gets its own
+    model id (so main and code are separate residents, and big weights force a swap)."""
     return ModelRuntime(
         budget=8 * GIB,
         unified=False,
         tier=Tier.MINIMUM,
         resolve=lambda role: ModelChoice(
-            role, "qwen3.5-4b", Path("/m/q.gguf"), 2 * GIB, SHAPE, 8192
-        ),
+            role,
+            f"{role}-model" if per_role else "qwen3.5-4b",
+            Path("/m/q.gguf"),
+            weights,
+            SHAPE,
+            8192,
+        ),  # fmt: skip
         runner_for=lambda choice: FakeRunner(handle),
     )

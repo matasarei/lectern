@@ -1,0 +1,78 @@
+# The 20 calculation prompts (blueprint, M1): every one must be answered through code.run,
+# and the answer must contain the expected numbers (or words). Expected values were computed
+# with Python when this file was written, not by hand; see the comment on each.
+#
+# `numbers`: each must appear in the answer (thousands separators and a decimal comma are
+# fine; within 0.005). `text`: each must appear, ignoring case. `files`: imported into the
+# project first, from files/.
+
+files:
+  - payments.csv
+  - hours.xlsx
+
+prompts:
+  - id: percent
+    prompt: "What is 17.5% of 2,340?"
+    numbers: [409.5]                      # 0.175 * 2340
+  - id: sum
+    prompt: "Add these: 1284.50, 377.25, 99.99 and 2410.30."
+    numbers: [4172.04]
+  - id: days-between
+    prompt: "How many days are there from 12 May 1998 to 31 December 1999?"
+    numbers: [598]                        # (date(1999,12,31) - date(1998,5,12)).days
+  - id: penalty
+    prompt: >-
+      Rent is 250.00 UAH a month, due on the 10th. April's rent was paid on 30 May. The
+      penalty is 0.5% of the amount for each day of delay, counted from the due date to the
+      payment date. How much is the penalty?
+    numbers: [62.5]                       # 50 days * 0.5% * 250
+  - id: compound
+    prompt: >-
+      A loan of 12,000 at 7% annual interest, compounded monthly, runs for 3 years. What is
+      the final amount, to the cent?
+    numbers: [14795.11]                   # 12000 * (1 + 0.07/12) ** 36
+  - id: miles
+    prompt: "Convert 72 miles to kilometres (1 mile = 1.609344 km), to two decimals."
+    numbers: [115.87]
+  - id: weekday
+    prompt: "What day of the week was 24 August 1991?"
+    text: [saturday]
+  - id: mean
+    prompt: "What is the average of 13, 27, 8, 41, 19 and 33?"
+    numbers: [23.5]
+  - id: median
+    prompt: "What is the median of 13, 27, 8, 41, 19 and 33?"
+    numbers: [23]
+  - id: stdev
+    prompt: "What is the population standard deviation of 2, 4, 4, 4, 5, 5, 7, 9?"
+    numbers: [2]
+  - id: increase
+    prompt: "A price went from 480 to 552. By what percentage did it increase?"
+    numbers: [15]
+  - id: workdays
+    prompt: "How many working days (Monday to Friday) are there in March 2027?"
+    numbers: [23]
+  - id: durations
+    prompt: "What is 3 hours 47 minutes plus 5 hours 38 minutes?"
+    numbers: [9, 25]
+  - id: vat
+    prompt: "How much 20% VAT is included in a gross price of 1,500.00?"
+    numbers: [250]                        # 1500 - 1500 / 1.2
+  - id: ratio
+    prompt: "Split 1,000 in the ratio 3:5:2. How much is each part?"
+    numbers: [300, 500, 200]
+  - id: power
+    prompt: "What is 2 to the power of 40?"
+    numbers: [1099511627776]
+  - id: csv-sum
+    prompt: "What is the total of the amount column in payments.csv?"
+    numbers: [1313.25]
+  - id: csv-mean
+    prompt: "What is the average amount in payments.csv, to the cent?"
+    numbers: [262.65]
+  - id: csv-count
+    prompt: "In payments.csv, how many payments were made after the 10th day of their month?"
+    numbers: [3]                          # 12 Mar, 30 Apr, 11 May
+  - id: xlsx-sum
+    prompt: "How many hours in total are listed in hours.xlsx?"
+    numbers: [39.25]                      # 7.5 + 8 + 6.25 + 9 + 8.5

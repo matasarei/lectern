@@ -4,10 +4,12 @@ import asyncio
 import json
 
 import pytest
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from lectern.agent import loop
-from lectern.agent.core_tools import core_registry
+from lectern.agent.core_tools import CORE_TOOLS, core_registry
+from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
 from lectern.agent.turns import Busy, TurnManager
 from lectern.core.auth import LOCAL_USER
 from lectern.projects import files
@@ -331,3 +333,54 @@ def test_a_finished_turn_keeps_no_streamed_text_in_memory(setup, store):
     assert not any(e["type"] == "delta" for e in kept)
     assert [e["type"] for e in kept] == ["turn", "model", "usage", "assistant", "done", "turn"]
     assert transcript(store, project)[-1] == ("assistant", "word " * 200, None)
+
+
+class _AskParams(BaseModel):
+    what: str
+
+
+async def _ask_then_work(ctx, params):  # noqa: ANN001
+    ctx.emit({"type": "progress", "label": "preparing", "done": 1, "total": 2})
+    if not await ctx.confirm(f"Prepare {params.what}?"):
+        return ToolResult("The person said no.")
+    await asyncio.sleep(0)
+    ctx.emit({"type": "progress", "label": "preparing", "done": 2, "total": 2})
+    return ToolResult(f"Prepared {params.what}; runtime given: {ctx.runtime is not None}.")
+
+
+ASK_TOOL = AgentTool(
+    name="demo.prepare", description="Prepare something.", params=_AskParams, run=_ask_then_work
+)
+
+
+@pytest.mark.parametrize("approve", [True, False])
+def test_an_async_tool_can_report_progress_and_ask_mid_run(store, approve):
+    handle = FakeHandle([tool_reply("demo_prepare", {"what": "the image"}), text_reply("ok")])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, ASK_TOOL]))
+    project = store.create(LOCAL_USER, "Async")
+
+    async def scenario():
+        await manager.send(project, LOCAL_USER, 1, "prepare", [])
+        key = (project.id, 1)
+        await until(lambda: manager.state(key) == "waiting")
+        card = next(e for e in events(manager, project) if e["type"] == "confirm")
+        assert card["text"] == "Prepare the image?"
+        manager.decide(key, card["confirmation_id"], approve)
+        return await manager.wait(key)
+
+    assert asyncio.run(scenario()) == "done"
+    progress = [e for e in events(manager, project) if e["type"] == "progress"]
+    assert progress[0]["done"] == 1 and progress[0]["call_id"] == "call_1"
+    result = handle.requests[1]["messages"][-1]["content"]
+    if approve:
+        assert result == "Prepared the image; runtime given: True."
+        assert [p["done"] for p in progress] == [1, 2]
+    else:
+        assert result == "The person said no."
+
+
+def test_a_tool_outside_a_turn_is_never_approved(store):
+    project = store.create(LOCAL_USER, "Direct")
+    ctx = ToolContext(project=project, sessions=store.db(project), user=LOCAL_USER, session_id=1)
+    result = asyncio.run(_ask_then_work(ctx, _AskParams(what="x")))
+    assert result.text == "The person said no."

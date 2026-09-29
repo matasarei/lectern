@@ -213,7 +213,11 @@
     "stats": "{{tps}} tokens/s · first token in {{ttft}} s",
     "toolCall": "{{name}}({{args}})",
     "noResult": "…",
-    "attachments": "Attached: {{names}}"
+    "attachments": "Attached: {{names}}",
+    "progressSeconds": "{{label}} · {{seconds}} s",
+    "progressBar": "{{label}}: {{pct}}%",
+    "script": "The script",
+    "scriptLoading": "Loading the script…"
   },
   "file": {
     "details": "Details",

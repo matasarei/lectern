@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Chat, ChatMessage, Tab } from "../api/types";
-import { ChatTab, shortArgs } from "./chat";
+import { ChatTab, shortArgs, writtenScript } from "./chat";
 
 const message = (id: number, over: Partial<ChatMessage>): ChatMessage => ({
   id, role: "user", content: "", tool_calls: null, tool_call_id: null, tool_name: null,
@@ -43,6 +43,12 @@ beforeEach(() => {
             },
           }),
         );
+      }
+      if (url === "/api/projects/1/items") {
+        return new Response(JSON.stringify({ sessions: [], artifacts: [{ id: 11, name: "scripts/penalty.py" }] }));
+      }
+      if (url === "/api/projects/1/artifacts/11/content") {
+        return new Response("print('penalty', 62.5)\n");
       }
       if (init?.method === "POST" || init?.method === "PUT") {
         posts.push({ url, body: init.body instanceof File ? init.body : JSON.parse(String(init.body ?? "null")) });
@@ -197,5 +203,54 @@ describe("shortArgs", () => {
     expect(shortArgs('{"name":"a.md","refs":["#c1"]}')).toBe('name="a.md", refs=["#c1"]');
     expect(shortArgs("{not json")).toBe("{not json");
     expect(shortArgs("")).toBe("");
+  });
+});
+
+describe("Tools at work", () => {
+  it("shows a download bar, then a build line, under the tool that's working", async () => {
+    chat.messages.push(
+      message(5, { content: "What's the penalty?" }),
+      message(6, {
+        role: "assistant",
+        tool_calls: [{ id: "w1", type: "function", function: { name: "code_write", arguments: '{"name":"penalty"}' } }],
+      }),
+    );
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "x", attachments: [] },
+      { type: "progress", call_id: "w1", label: "Downloading Qwen2.5-Coder 1.5B", done: 550, total: 1100 },
+    );
+    expect(screen.getByTestId("progress").textContent).toBe("Downloading Qwen2.5-Coder 1.5B: 50%");
+
+    await act(async () => {
+      push({ seq: 3, type: "progress", call_id: "w1", label: "Building the script sandbox", line: "Step 2/3 : RUN pip install" });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(screen.getByTestId("progress").textContent).toBe("Building the script sandboxStep 2/3 : RUN pip install");
+  });
+
+  it("shows the script code.write saved", async () => {
+    chat.messages.push(
+      message(5, {
+        role: "assistant",
+        tool_calls: [{ id: "w1", type: "function", function: { name: "code_write", arguments: '{"name":"penalty"}' } }],
+      }),
+      message(6, {
+        role: "tool", tool_call_id: "w1", tool_name: "code.write",
+        content: "Wrote scripts/penalty.py (1 lines) with coder; its test run passed in 0.3 s.",
+      }),
+    );
+    renderChat();
+    const block = await screen.findByTestId("script");
+    expect(block.textContent).toContain("scripts/penalty.py");
+    await waitFor(() => expect(block.textContent).toContain("print('penalty', 62.5)"));
+  });
+});
+
+describe("writtenScript", () => {
+  it("finds the script's path in code.write's result", () => {
+    expect(writtenScript("Wrote scripts/penalty (2).py (4 lines) with x")).toBe("scripts/penalty (2).py");
+    expect(writtenScript("Error: couldn't write a working script")).toBeNull();
   });
 });

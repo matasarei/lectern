@@ -9,7 +9,7 @@ result comes back as a page plus a cursor, and calling again with the cursor con
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +21,10 @@ from lectern.projects.store import Project
 
 CHARS_PER_TOKEN = 3  # a rough, cautious estimate; the context builder counts real tokens
 DEFAULT_MAX_TOKENS = 800
+
+
+async def _nobody_to_ask(_question: str) -> bool:
+    return False
 
 
 class ToolError(Exception):
@@ -35,6 +39,14 @@ class ToolContext:
     session_id: int  # the chat running the tool
     # How the chat is doing: "idle" | "running" | "waiting", by session id.
     turn_state: Callable[[int], str] = lambda _session_id: "idle"
+    # For tools that wait: ask the person with a card (True = Allow), and report progress
+    # to the chat ({"type": "progress", ...}). Outside a turn, nobody can answer: refuse.
+    confirm: Callable[[str], Awaitable[bool]] = field(default=_nobody_to_ask)
+    emit: Callable[[dict], None] = lambda _event: None
+    # Services a module's tools use; None where the app doesn't provide them (tests).
+    runtime: Any = None  # lectern.runtime.supervisor.ModelRuntime
+    downloads: Any = None  # lectern.downloads.manager.DownloadManager
+    sandbox: Any = None  # lectern.modules.sandbox.container.Sandbox
 
 
 @dataclass
@@ -53,7 +65,9 @@ class AgentTool:
     name: str
     description: str
     params: type[BaseModel]
-    run: Callable[[ToolContext, Any], ToolResult]  # sync; the loop runs it in a worker thread
+    # Sync (the loop runs it in a worker thread) or async (awaited: tools that wait on a
+    # model, a download or a container).
+    run: Callable[[ToolContext, Any], ToolResult | Awaitable[ToolResult]]
     confirm: bool = False  # ask the person first
     max_tokens: int = DEFAULT_MAX_TOKENS
     # The question on the confirmation card. It runs before the card is shown, so it can

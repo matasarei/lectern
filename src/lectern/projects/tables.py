@@ -123,6 +123,26 @@ class ArtifactRow(ProjectBase):
     trash_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class ScriptRunRow(ProjectBase):
+    """One run of a script in the sandbox. A run with the same script and inputs (by
+    sha256) is returned instead of running again."""
+
+    __tablename__ = "script_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    script_id: Mapped[int] = mapped_column(ForeignKey("artifacts.id"), index=True)
+    script_sha: Mapped[str] = mapped_column(String(64))
+    inputs_sha: Mapped[str] = mapped_column(String(64))  # of the inputs' names and sha256s
+    test_run: Mapped[bool] = mapped_column(default=False)  # made by code.write
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    timed_out: Mapped[bool] = mapped_column(default=False)
+    stdout: Mapped[str] = mapped_column(Text, default="")
+    stderr: Mapped[str] = mapped_column(Text, default="")
+    outputs: Mapped[str] = mapped_column(Text, default="[]")  # JSON artifact ids
+    seconds: Mapped[float] = mapped_column(default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class UiStateRow(ProjectBase):
     """Per-project UI state, such as the open tabs."""
 

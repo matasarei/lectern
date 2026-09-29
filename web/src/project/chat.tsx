@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { apiFetch, apiPost, ApiError } from "../api/client";
-import type { Artifact, Chat, ChatMessage, Tab, ToolCall } from "../api/types";
+import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
+import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall } from "../api/types";
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
@@ -81,7 +81,7 @@ export function ChatTab({
         {chat.data.messages.length === 0 && !live.running && (
           <p className="py-16 text-center text-xl text-muted">{t("chat.empty")}</p>
         )}
-        <Transcript messages={chat.data.messages} live={live} />
+        <Transcript projectId={projectId} messages={chat.data.messages} live={live} />
         <LiveReply live={live} onDecide={(id, approve) => decide.mutate({ id, approve })} />
         {live.error && <ErrorNote message={live.error} />}
         {live.stopped && <p className="text-sm text-muted">{t("chat.stopped")}</p>}
@@ -163,7 +163,15 @@ export function ChatTab({
   );
 }
 
-function Transcript({ messages, live }: { messages: ChatMessage[]; live: LiveTurn }) {
+function Transcript({
+  projectId,
+  messages,
+  live,
+}: {
+  projectId: number;
+  messages: ChatMessage[];
+  live: LiveTurn;
+}) {
   const { t } = useTranslation();
   const results = new Map(
     messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m] as const),
@@ -183,7 +191,13 @@ function Transcript({ messages, live }: { messages: ChatMessage[]; live: LiveTur
           {message.role === "assistant" && (
             <>
               {message.tool_calls?.map((call) => (
-                <ToolLine key={call.id} call={call} result={results.get(call.id)} />
+                <ToolLine
+                  key={call.id}
+                  projectId={projectId}
+                  call={call}
+                  result={results.get(call.id)}
+                  progress={live.progress[call.id]}
+                />
               ))}
               {message.content && (
                 <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
@@ -222,17 +236,82 @@ function UserMessage({ message }: { message: ChatMessage }) {
   );
 }
 
-function ToolLine({ call, result }: { call: ToolCall; result: ChatMessage | undefined }) {
+function ToolLine({
+  projectId,
+  call,
+  result,
+  progress,
+}: {
+  projectId: number;
+  call: ToolCall;
+  result: ChatMessage | undefined;
+  progress: LiveTurn["progress"][string] | undefined;
+}) {
   const { t } = useTranslation();
   const name = result?.tool_name ?? call.function.name;
   const args = shortArgs(call.function.arguments);
   const first = result?.content.split("\n")[0] ?? t("chat.noResult");
+  const script = result && name === "code.write" ? writtenScript(result.content) : null;
   return (
-    <details className="text-xs text-muted" data-testid="tool-line">
-      <summary className="cursor-pointer font-mono">
-        {t("chat.toolCall", { name, args })} → {first.slice(0, RESULT_SHOWN)}
+    <div className="grid gap-1">
+      <details className="text-xs text-muted" data-testid="tool-line">
+        <summary className="cursor-pointer font-mono">
+          {t("chat.toolCall", { name, args })} → {first.slice(0, RESULT_SHOWN)}
+        </summary>
+        {result && <pre className="mt-1 whitespace-pre-wrap rounded bg-paper p-2">{result.content}</pre>}
+      </details>
+      {!result && progress && <Progress progress={progress} />}
+      {script && <ScriptCode projectId={projectId} path={script} />}
+    </div>
+  );
+}
+
+function Progress({ progress }: { progress: LiveTurn["progress"][string] }) {
+  const { t } = useTranslation();
+  const { label, done, total, line, seconds } = progress;
+  if (done !== undefined && total) {
+    const pct = Math.min(100, Math.floor((done / total) * 100));
+    return (
+      <div className="grid gap-1 text-xs text-muted" data-testid="progress">
+        <span>{t("chat.progressBar", { label, pct })}</span>
+        <progress className="h-1.5 w-full" max={100} value={pct} />
+      </div>
+    );
+  }
+  return (
+    <p className="text-xs text-muted" data-testid="progress">
+      {seconds !== undefined ? t("chat.progressSeconds", { label, seconds }) : label}
+      {line ? <span className="block truncate font-mono">{line}</span> : null}
+    </p>
+  );
+}
+
+/** "Wrote scripts/penalty.py (3 lines) …" → "scripts/penalty.py". */
+export function writtenScript(text: string): string | null {
+  return /^Wrote (scripts\/.+?\.py) \(/.exec(text)?.[1] ?? null;
+}
+
+/** The script code.write saved, shown in the chat so the person sees what computed the answer. */
+function ScriptCode({ projectId, path }: { projectId: number; path: string }) {
+  const { t } = useTranslation();
+  const items = useQuery({
+    queryKey: ["items", projectId],
+    queryFn: () => apiFetch<ProjectItems>(`/api/projects/${projectId}/items`),
+  });
+  const id = items.data?.artifacts.find((a) => a.name === path)?.id;
+  const code = useQuery({
+    queryKey: ["file-text", projectId, id],
+    queryFn: async () => (await apiRaw(`/api/projects/${projectId}/artifacts/${id}/content`)).text(),
+    enabled: id !== undefined,
+  });
+  return (
+    <details className="text-xs" data-testid="script">
+      <summary className="cursor-pointer text-muted">
+        {t("chat.script")} · <span className="font-mono">{path}</span>
       </summary>
-      {result && <pre className="mt-1 whitespace-pre-wrap rounded bg-paper p-2">{result.content}</pre>}
+      <pre className="mt-1 overflow-x-auto rounded bg-paper p-2 font-mono">
+        {code.data ?? t("chat.scriptLoading")}
+      </pre>
     </details>
   );
 }
