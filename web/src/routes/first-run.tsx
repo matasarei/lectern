@@ -17,6 +17,8 @@ import { formatBytes } from "../format";
 import { useDownloadEvents } from "../hooks/useDownloadEvents";
 
 const ACTIVE: DownloadState["status"][] = ["queued", "downloading", "verifying"];
+// Keep in step with DISK_HEADROOM in src/lectern/downloads/manager.py (1 GiB).
+const DISK_HEADROOM = 1024 ** 3;
 
 export function FirstRunPage() {
   const { t } = useTranslation();
@@ -60,7 +62,7 @@ export function FirstRunPage() {
   const run = firstRun.data;
   const model = run.chat_model;
   const state = live[model.id] ?? model.download;
-  const enoughDisk = system.data.disk_free >= model.size - state.bytes_done + 1e9;
+  const enoughDisk = system.data.disk_free >= model.size - state.bytes_done + DISK_HEADROOM;
   const sandbox = system.data.sandbox;
 
   return (
