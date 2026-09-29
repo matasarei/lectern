@@ -184,5 +184,35 @@
   },
   "time": {
     "justNow": "just now"
+  },
+  "chat": {
+    "empty": "What are we working on?",
+    "placeholder": "Ask anything, or attach files…",
+    "inputLabel": "Message",
+    "send": "Send",
+    "stop": "Stop",
+    "attach": "Attach",
+    "removeAttachment": "Remove {{name}}",
+    "attaching": "Attaching…",
+    "you": "You",
+    "assistant": "Lectern",
+    "working": "Working…",
+    "waitingModel": "Waiting for the model…",
+    "leftOut_one": "{{count}} older message isn't in what the model sees now. It's still here.",
+    "leftOut_other": "{{count}} older messages aren't in what the model sees now. They're still here.",
+    "released_one": "{{count}} earlier tool result was set aside to make room; the model can fetch it again.",
+    "released_other": "{{count}} earlier tool results were set aside to make room; the model can fetch them again.",
+    "tooLong": "Too long to include whole, so the model reads it in parts: {{names}}.",
+    "confirmTitle": "Allow this?",
+    "allow": "Allow",
+    "deny": "Don't allow",
+    "allowed": "Allowed",
+    "denied": "Not allowed",
+    "stopped": "Stopped. What was written so far is kept.",
+    "model": "main · {{model}} · {{ctx}} tokens of context",
+    "stats": "{{tps}} tokens/s · first token in {{ttft}} s",
+    "toolCall": "{{name}}({{args}})",
+    "noResult": "…",
+    "attachments": "Attached: {{names}}"
   }
 }
