@@ -20,8 +20,16 @@ import httpx2
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
-from lectern.agent import state
-from lectern.agent.context import Attachment, ContextTooSmall, Counter, answer_reserve, build
+from lectern.agent import compaction, state
+from lectern.agent.context import (
+    Attachment,
+    Built,
+    ContextTooSmall,
+    Counter,
+    answer_reserve,
+    build,
+    split_turns,
+)
 from lectern.agent.prompts import system_prompt
 from lectern.agent.state import ChatState
 from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
@@ -144,22 +152,7 @@ async def call_model(run: TurnRun, history: History) -> Reply:
         if not run.stats.get("model_sent"):
             run.emit({"type": "model", "model_id": lease.model_id, "ctx": lease.plan.ctx})
             run.stats["model_sent"] = True
-        counter = Counter(_tokenizer(lease.client))
-        try:
-            built = await build(
-                system=system_prompt(
-                    run.project.name, sandbox=run.registry.get("code_run") is not None
-                ),
-                tools=run.registry.schemas(),
-                attachments=history.attachments,
-                history=history.messages,
-                ctx=lease.plan.ctx,
-                counter=counter,
-                pins=[(p.kind, p.text) for p in history.state.pinned],
-                summary=history.state.summary,
-            )
-        except ContextTooSmall as exc:
-            raise TurnFailed(str(exc)) from None
+        built = await build_context(run, history, lease.plan.ctx, Counter(_tokenizer(lease.client)))
         if built.left_out or built.released or built.stubbed_files:
             run.emit(
                 {
@@ -180,6 +173,75 @@ async def call_model(run: TurnRun, history: History) -> Reply:
             "chat_template_kwargs": {"enable_thinking": False},
         }
         return await _stream(run, lease.client, body)
+
+
+async def build_context(run: TurnRun, history: History, ctx: int, counter: Counter) -> Built:
+    try:
+        return await build(
+            system=system_prompt(
+                run.project.name, sandbox=run.registry.get("code_run") is not None
+            ),
+            tools=run.registry.schemas(),
+            attachments=history.attachments,
+            history=history.messages,
+            ctx=ctx,
+            counter=counter,
+            pins=[(p.kind, p.text) for p in history.state.pinned],
+            summary=history.state.summary,
+        )
+    except ContextTooSmall as exc:
+        raise TurnFailed(str(exc)) from None
+
+
+# --- compaction, after a turn ----------------------------------------------------------------
+
+
+async def maybe_compact(run: TurnRun) -> None:
+    """If the next call would be over COMPACT_AT of the context, fold the oldest turns into
+    the summary. Never fails the turn: a problem is reported and the old summary stays."""
+    try:
+        history = await run_in_threadpool(load_history, run)
+        async with run.runtime.lease("main", Priority.CHAT) as lease:
+            counter = Counter(_tokenizer(lease.client))
+            built = await build_context(run, history, lease.plan.ctx, counter)
+            used = sum(built.parts.values())
+            if used <= compaction.COMPACT_AT * built.budget and not built.left_out:
+                return
+            turns = split_turns(history.messages)
+            sizes = [sum([await counter.message(m) for m in turn]) for turn in turns]
+            fixed = used - built.parts["turns"] - built.parts["summary"]
+            folded_count = compaction.fold_point(sizes, fixed, built.budget)
+            if folded_count == 0:
+                return
+            folded = [m for turn in turns[:folded_count] for m in turn]
+            run.emit({"type": "compacting"})
+            summary = await compaction.write_summary(lease.client, history.state.summary, folded)
+            summary_tokens = await counter.count(summary)  # while the runner is still ours
+        await run_in_threadpool(
+            state.save_summary, run.sessions, run.session_id, summary, folded[-1]["id"]
+        )
+        run.emit(
+            {
+                "type": "compacted",
+                "summarised": len(folded),
+                "before": used,
+                "after": fixed + summary_tokens + sum(sizes[folded_count:]),
+                "budget": built.budget,
+            }
+        )
+    except (
+        compaction.SummaryFailed,
+        TurnFailed,
+        NotAvailable,
+        RunnerError,
+        httpx2.HTTPError,
+    ) as exc:
+        run.emit(
+            {
+                "type": "compaction_failed",
+                "detail": str(exc).splitlines()[0] if str(exc) else type(exc).__name__,
+            }
+        )
 
 
 def _tokenizer(client: httpx2.AsyncClient):  # noqa: ANN202
@@ -379,6 +441,7 @@ async def run_turn(run: TurnRun) -> str:
                         "tokens": tokens,
                     }
                 )
+                await maybe_compact(run)
                 return "done"
             for call in reply.calls:
                 result = await run_tool(run, call, failures)
