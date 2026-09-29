@@ -177,3 +177,33 @@ def bench(
     typer.echo("PASS" if passed else "BELOW TARGET")
     if not passed:
         raise typer.Exit(1)
+
+
+dev_app = typer.Typer(help="Developer tools.", no_args_is_help=True)
+app.add_typer(dev_app, name="dev")
+
+
+@dev_app.command("swap-test")
+def swap_test(
+    pages: int = typer.Option(12, help="Pages per phase."),
+    budget_mb: int | None = typer.Option(None, help="Memory budget for the test, in MiB."),
+    fake_model: bool = typer.Option(False, help="Use the chat model as a stand-in OCR model."),
+    port: int = typer.Option(DEFAULT_PORT, help="Port of the running `lectern serve`."),
+) -> None:
+    """Run a fake OCR job (every page through ocr, then through main) and count the swaps."""
+    body = {"pages": pages, "budget_mb": budget_mb, "fake_model": fake_model}
+    with _server(port) as client:
+        started = client.post("/api/dev/swap-test", json=body)
+        if started.status_code != 202:
+            typer.echo(started.json().get("detail", started.text), err=True)
+            raise typer.Exit(1)
+        while True:
+            result = client.get("/api/dev/swap-test").json()
+            if result["finished"]:
+                break
+            time.sleep(0.5)
+    if result["error"]:
+        typer.echo(f"error: {result['error']}", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"pages: {result['done']}/{pages * 2}")
+    typer.echo(f"swaps: {result['swaps']}")
