@@ -33,6 +33,10 @@ class Paths:
         return self.home / "models"
 
     @property
+    def runners(self) -> Path:
+        return self.home / "runners"
+
+    @property
     def users(self) -> Path:
         return self.home / "users"
 

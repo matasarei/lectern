@@ -17,6 +17,14 @@ dependencies = [
     "nvidia-ml-py>=12.560",
     "pyyaml>=6.0",
     "httpx2>=2.13",
+    "gguf>=0.17",
+]
+
+[project.optional-dependencies]
+# Apple Silicon only, and off by default in the app (the MLX servers can't be keyed yet).
+mlx = [
+    "mlx-lm>=0.31; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "mlx-vlm>=0.7; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [project.scripts]
@@ -53,3 +61,6 @@ ignore = []
 testpaths = ["tests"]
 addopts = "-q --import-mode=importlib"
 filterwarnings = ["error"]
+markers = [
+    "gpu: starts a real llama-server; set LECTERN_TEST_LLAMA_SERVER and LECTERN_TEST_GGUF",
+]

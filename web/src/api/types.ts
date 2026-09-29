@@ -75,3 +75,36 @@ export interface FirstRun {
   };
   can_finish: boolean;
 }
+
+export interface Resident {
+  role: Role;
+  model_id: string;
+  bytes: number;
+  ctx: number;
+  kv_type: string;
+  on_gpu: boolean;
+  leases: number;
+  status: "loaded" | "crashed";
+  pid: number;
+}
+
+export interface RuntimeState {
+  tier: Tier;
+  budget: number;
+  unified: boolean;
+  used: number;
+  swaps: number;
+  waiting: number;
+  residents: Resident[];
+}
+
+export interface RuntimeSettingsValues {
+  mlx_enabled: boolean;
+  when_models_dont_fit: "swap_between_phases" | "keep_one_loaded";
+  chat_during_job: "pause_job_after_current_item" | "chat_waits";
+}
+
+export interface RuntimeSettings {
+  values: RuntimeSettingsValues;
+  implemented: Record<"when_models_dont_fit" | "chat_during_job", string[]>;
+}

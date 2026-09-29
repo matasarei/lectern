@@ -13,7 +13,7 @@ from typing import Literal
 
 import psutil
 
-from lectern.hardware import apple, nvidia
+from lectern.hardware import apple, nvidia, vulkan
 
 GIB = 1024**3
 DISPLAY_MARGIN_BYTES = int(0.6 * GIB)  # kept free on a discrete GPU for the desktop
@@ -66,11 +66,25 @@ def gpu_budget(gpus: list[Gpu], *, apple_budget: int | None = None) -> int:
     return max(best.memory_total - DISPLAY_MARGIN_BYTES, 0)
 
 
+def _installed_vulkan_gpus() -> list[Gpu]:
+    """GPUs the llama.cpp Vulkan build can use, if that build is installed."""
+    from lectern.config import get_paths
+    from lectern.runners.binaries import LlamaCppInstaller
+
+    installer = LlamaCppInstaller(get_paths().runners)
+    for variant in ("linux-vulkan", "windows-vulkan"):
+        server = installer.server_path(variant)
+        if server is not None:
+            return vulkan.gpus_from_devices(list(vulkan.cached_devices(server)))
+    return []
+
+
 def probe(
     *,
     os_name: OsName | None = None,
     nvidia_probe=nvidia.probe,
     apple_probe=apple.probe,
+    vulkan_probe=_installed_vulkan_gpus,
 ) -> HardwareInfo:
     os_name = os_name or current_os()
     memory = psutil.virtual_memory()
@@ -94,7 +108,8 @@ def probe(
                 )
                 apple_budget = mac.gpu_budget
     else:
-        gpus.extend(nvidia_probe())
+        # NVML knows NVIDIA cards; for AMD and Intel, ask the Vulkan build if it's installed.
+        gpus.extend(nvidia_probe() or vulkan_probe())
 
     return HardwareInfo(
         os=os_name,
