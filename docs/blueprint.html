@@ -731,8 +731,8 @@ sequenceDiagram
     <tr><td>anything that overwrites or deletes</td><td>any</td><td>Replace or remove an existing file or session</td><td><b>always</b></td></tr>
   </table></div>
   <p class="why">The rule: reading files and saving new ones run without asking. Starting a session, a job expected to take more than about a minute, overwriting, or deleting always asks, with a card in the chat. A setting can make the agent ask before every tool call.</p>
-  <h3>Exact answers: the sandbox</h3>
-  <p>Small models get arithmetic, date differences and totals wrong, and do so confidently. The system prompt forbids answering those from memory. The agent writes a short script, runs it with <code>code.run</code>, and answers from the script's output. The code stays visible in the chat. The Sandbox module needs <b>Docker or Podman</b>. It detects which one is installed, prefers Podman in rootless mode, and uses its command-line interface directly, with no SDK.</p>
+  <h3>The script sandbox</h3>
+  <p>The sandbox runs the scripts models write, isolated in a container. Exact answers are its first use. Small models get arithmetic, date differences and totals wrong, and do so confidently. The system prompt forbids answering those from memory. The agent writes a short script, runs it with <code>code.run</code>, and answers from the script's output. The code stays visible in the chat. The Sandbox module needs <b>Docker or Podman</b>. It detects which one is installed, prefers Podman in rootless mode, and uses its command-line interface directly, with no SDK.</p>
   <div class="grid2">
     <div class="snip">
       <div class="msg u" style="align-self:flex-end;background:var(--sunk);padding:8px 12px;border-radius:12px 12px 2px 12px">April's rent was paid on 30 May. How much is the penalty?</div>
@@ -1031,7 +1031,7 @@ sequenceDiagram
     <li><b>Check the hardware</b> and show the tier, with a short explanation of what it means.</li>
     <li><b>Download the chat model now,</b> about 2.7 GB on the minimum tier and 6 GB on recommended, showing the size, licence and free disk space. Nothing else is downloaded up front.</li>
     <li><b>Download the rest on first use:</b> the OCR models when the first OCR session starts, the coding model and the sandbox image with the first script. Each asks once and shows its size.</li>
-    <li><b>Check for Docker or Podman.</b> If neither is found, the sandbox stays off and a setup guide is linked. Exact calculations are then marked "not computed".</li>
+    <li><b>Check for Docker or Podman.</b> If neither is found, the sandbox stays off and a setup guide is linked. Scripts can't run then, so answers that need exact numbers are marked "not computed".</li>
     <li><b>Open the first project</b> with one empty chat.</li>
   </ol>
 
