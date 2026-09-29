@@ -1,24 +1,36 @@
-"""GET /api/models: the catalog, with licence notices and the defaults for this machine's tier."""
+"""The model catalog over HTTP: list models, start a download, follow progress."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+import asyncio
+import json
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from lectern.catalog import catalog
+from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.hardware.tiers import tier_for
 
 router = APIRouter()
+KEEPALIVE_SECONDS = 15.0
+
+
+def _manager(request: Request) -> DownloadManager:
+    return request.app.state.downloads
 
 
 @router.get("/models")
-def list_models() -> dict:
+def list_models(request: Request) -> dict:
     cat = catalog.load()
     tier = tier_for(probe())
-    defaults = {role: entry.id for role, entry in cat.defaults_for(tier).items()}
+    downloads = _manager(request)
     return {
         "tier": tier.value,
-        "defaults": defaults,
+        "defaults": {role: entry.id for role, entry in cat.defaults_for(tier).items()},
         "models": [
             {
                 "id": m.id,
@@ -30,7 +42,50 @@ def list_models() -> dict:
                 "licence_notice": m.licence_notice,
                 "notes": m.notes,
                 "repo": m.repo,
+                "download": downloads.state(m).to_dict(),
             }
             for m in cat.models
         ],
     }
+
+
+class DownloadRequest(BaseModel):
+    accept_licence: bool = False
+
+
+@router.post("/models/{model_id}/download", status_code=202)
+async def start_download(
+    model_id: str, request: Request, body: DownloadRequest | None = None
+) -> dict:
+    entry = catalog.load().get(model_id)
+    if entry is None:
+        raise HTTPException(404, f"No model {model_id!r} in the catalog.")
+    if entry.licence_notice and not (body and body.accept_licence):
+        raise HTTPException(
+            409,
+            f"{entry.title} is under {entry.licence}. Read the licence, then download again "
+            "with accept_licence set to true.",
+        )
+    return _manager(request).start(entry).to_dict()
+
+
+@router.get("/models/events")
+async def model_events(request: Request) -> StreamingResponse:
+    """Server-sent events with download progress. Read with fetch(); EventSource can't send
+    the token header."""
+    downloads = _manager(request)
+
+    async def stream() -> AsyncIterator[bytes]:
+        async with downloads.events.listen() as queue:
+            yield b": connected\n\n"
+            while not await request.is_disconnected():
+                try:
+                    event = await asyncio.wait_for(queue.get(), KEEPALIVE_SECONDS)
+                except TimeoutError:
+                    yield b": keepalive\n\n"
+                    continue
+                yield f"data: {json.dumps(event)}\n\n".encode()
+
+    return StreamingResponse(
+        stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store"}
+    )

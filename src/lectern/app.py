@@ -2,18 +2,38 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from lectern import __version__
 from lectern.api import api_router
+from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.security import LocalGuard, load_or_create_token
+from lectern.downloads.manager import DownloadManager
 
 
-def create_app(paths: Paths | None = None, *, port: int = DEFAULT_PORT) -> FastAPI:
+def create_app(
+    paths: Paths | None = None,
+    *,
+    port: int = DEFAULT_PORT,
+    downloads: DownloadManager | None = None,
+) -> FastAPI:
     paths = paths or get_paths()
-    app = FastAPI(title="Lectern", version=__version__, docs_url=None, redoc_url=None)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        entries = {m.id: m for m in catalog.load().models}
+        app.state.downloads.resume_interrupted(entries)
+        yield
+        await app.state.downloads.stop_all()
+
+    app = FastAPI(
+        title="Lectern", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan
+    )
     app.state.paths = paths
     app.state.port = port
     app.state.token = load_or_create_token(paths.token_file)
@@ -22,6 +42,7 @@ def create_app(paths: Paths | None = None, *, port: int = DEFAULT_PORT) -> FastA
     migrate(engine)
     app.state.engine = engine
     app.state.sessions = make_sessionmaker(engine)
+    app.state.downloads = downloads or DownloadManager(paths.models, app.state.sessions)
 
     @app.get("/health")
     def health() -> dict[str, str]:

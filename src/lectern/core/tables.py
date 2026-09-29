@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 LOCAL_USER_ID = 1
@@ -48,3 +48,20 @@ class ProjectRow(Base):
     root_kind: Mapped[str] = mapped_column(String(16), default="managed")
     root_path: Mapped[str] = mapped_column(Text)  # absolute path
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+DOWNLOAD_STATUSES = ("queued", "downloading", "verifying", "done", "failed", "paused")
+
+
+class DownloadRow(Base):
+    __tablename__ = "downloads"
+    __table_args__ = (CheckConstraint(f"status IN {DOWNLOAD_STATUSES!r}", name="status"),)
+
+    model_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    bytes_done: Mapped[int] = mapped_column(BigInteger, default=0)
+    bytes_total: Mapped[int] = mapped_column(BigInteger)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )

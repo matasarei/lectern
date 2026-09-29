@@ -169,6 +169,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "nvidia-ml-py" },
     { name = "platformdirs" },
     { name = "psutil" },
@@ -180,7 +181,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -189,6 +189,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx2", specifier = ">=2.13" },
     { name = "nvidia-ml-py", specifier = ">=12.560" },
     { name = "platformdirs", specifier = ">=4.3" },
     { name = "psutil", specifier = ">=6.1" },
@@ -200,7 +201,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2.13" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.9" },
 ]
