@@ -1,11 +1,19 @@
-/** Sizes as people read them: 2.7 GB, 850 MB. Uses the browser's number formatting. */
+/** Sizes as people read them: 2.7 GB, 850 MB, 37 KB, 619 bytes. Uses the browser's
+ * number formatting. */
 export function formatBytes(bytes: number, locale = "en"): string {
-  const gb = bytes / 1e9;
-  const [value, unit] = gb >= 1 ? [gb, "gigabyte"] : [bytes / 1e6, "megabyte"];
+  const [value, unit] =
+    bytes >= 1e9
+      ? [bytes / 1e9, "gigabyte"]
+      : bytes >= 1e6
+        ? [bytes / 1e6, "megabyte"]
+        : bytes >= 1e3
+          ? [bytes / 1e3, "kilobyte"]
+          : [bytes, "byte"];
   return new Intl.NumberFormat(locale, {
     style: "unit",
     unit,
-    maximumFractionDigits: value >= 100 ? 0 : 1,
+    unitDisplay: unit === "byte" ? "long" : "short",
+    maximumFractionDigits: value >= 100 || unit === "byte" ? 0 : 1,
   }).format(value);
 }
 

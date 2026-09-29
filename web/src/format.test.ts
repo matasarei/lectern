@@ -10,6 +10,11 @@ describe("formatBytes", () => {
   it("uses MB below a gigabyte", () => {
     expect(formatBytes(450_000_000)).toBe("450 MB");
   });
+  it("uses KB and bytes for small files", () => {
+    expect(formatBytes(37_060)).toBe("37.1 kB");
+    expect(formatBytes(619)).toBe("619 bytes");
+    expect(formatBytes(1)).toBe("1 byte");
+  });
 });
 
 describe("percent", () => {
