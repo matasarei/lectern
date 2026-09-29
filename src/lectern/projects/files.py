@@ -28,6 +28,7 @@ IMPORT_LIMIT = 2 * 1024**3
 NAME_MAX = 180
 TRASH_DAYS = 30
 DATA_DIR = ".lectern"
+CLAIM_ATTEMPTS = 50
 
 
 class BadName(ValueError):
@@ -167,8 +168,7 @@ def _place(
     sha256: str,
     origin: Origin,
 ) -> ArtifactRow:
-    final = root / free_name(root, name)
-    os.replace(part, final)  # same folder, so this is a rename
+    final = _claim(root, name, part)
     extracted = extract(final)
     row = ArtifactRow(
         owner_id=owner_id,
@@ -187,6 +187,26 @@ def _place(
     session.flush()
     search.index(session, row.id, extracted.chunks)
     return row
+
+
+def _claim(root: Path, name: str, part: Path) -> Path:
+    """Put `part` in the project under a free name, never replacing a file. The name is
+    taken with an operation that fails if it exists (a hard link, or an exclusive create
+    where the disk has no hard links), so two writes at once can't end up on one name."""
+    for _ in range(CLAIM_ATTEMPTS):
+        final = root / free_name(root, name)
+        try:
+            os.link(part, final)
+        except FileExistsError:
+            continue  # taken since free_name looked: try the next number
+        except OSError:
+            try:
+                with part.open("rb") as source, final.open("xb") as target:
+                    shutil.copyfileobj(source, target)
+            except FileExistsError:
+                continue
+        return final
+    raise BadName(f"Couldn't find a free name for {name!r}.")
 
 
 def live(session: Session) -> list[ArtifactRow]:

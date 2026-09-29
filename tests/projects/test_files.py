@@ -177,3 +177,35 @@ def test_inside_refuses_paths_out_of_the_project(store):
     for relative in ("../x", ".lectern/project.sqlite", "/etc/passwd"):
         with pytest.raises(BadName):
             files.inside(project.root, relative)
+
+
+def test_a_name_taken_between_the_check_and_the_write_is_never_overwritten(store, monkeypatch):
+    project = store.create(LOCAL_USER, "Race")
+    real_free_name = files.free_name
+
+    def racing_free_name(root, name):
+        chosen = real_free_name(root, name)
+        if chosen == "notes.md" and not (root / "notes.md").exists():
+            (root / "notes.md").write_bytes(b"written by someone else meanwhile")
+        return chosen
+
+    monkeypatch.setattr(files, "free_name", racing_free_name)
+    row = _import(store, project, "notes.md", b"mine")
+
+    assert (project.root / "notes.md").read_bytes() == b"written by someone else meanwhile"
+    assert row.path == "notes (2).md"
+    assert (project.root / "notes (2).md").read_bytes() == b"mine"
+
+
+def test_disks_without_hard_links_still_never_overwrite(store, monkeypatch):
+    project = store.create(LOCAL_USER, "NoLinks")
+
+    def no_links(src, dst):
+        raise OSError("hard links not supported")
+
+    monkeypatch.setattr(files.os, "link", no_links)
+    first = _import(store, project, "a.txt", b"one")
+    second = _import(store, project, "a.txt", b"two")
+    assert (first.path, second.path) == ("a.txt", "a (2).txt")
+    assert (project.root / "a.txt").read_bytes() == b"one"
+    assert list((project.root / ".lectern").glob("*.part")) == []
