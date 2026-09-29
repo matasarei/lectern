@@ -112,7 +112,9 @@ def test_a_page_attaching_mid_turn_gets_the_turn_so_far_then_the_rest_live(paths
         client.post(
             f"/api/projects/{pid}/sessions/1/messages", json={"text": "hi"}, headers=headers
         )
+        deadline = time.monotonic() + 5
         while not handle.requests:  # the model has been asked, and is holding its reply
+            assert time.monotonic() < deadline, "the model was never asked"
             time.sleep(0.01)
         seen = []
         with client.stream(

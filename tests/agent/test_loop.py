@@ -47,6 +47,15 @@ async def turn(manager, project, text, attachments=(), session_id=1):
     return await manager.wait((project.id, session_id))
 
 
+async def until(condition, timeout=5.0):
+    """Wait for `condition()` to hold; fail instead of hanging when it never does."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not condition():
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("timed out waiting for the condition")
+        await asyncio.sleep(0.01)
+
+
 async def recorded(manager, project, text, session_id=1):
     """Run a turn while listening, as a page does: every event, as it was sent."""
     seen = []
@@ -142,8 +151,7 @@ def test_dont_allow_tells_the_model_and_moves_nothing(setup, store):
     async def scenario():
         await manager.send(project, LOCAL_USER, 1, "Delete old.md", [])
         key = (project.id, 1)
-        while manager.state(key) != "waiting":
-            await asyncio.sleep(0.01)
+        await until(lambda: manager.state(key) == "waiting")
         card = next(e for e in events(manager, project) if e["type"] == "confirm")
         manager.decide(key, card["confirmation_id"], False)
         return await manager.wait(key)
@@ -211,8 +219,7 @@ def test_stop_during_a_reply_stores_the_partial_text(setup, store, monkeypatch):
 
     async def scenario():
         await manager.send(project, LOCAL_USER, 1, "Write a letter", [])
-        while not any(e["type"] == "delta" for e in events(manager, project)):
-            await asyncio.sleep(0.01)
+        await until(lambda: any(e["type"] == "delta" for e in events(manager, project)))
         await manager.stop((project.id, 1))
 
     asyncio.run(scenario())
@@ -265,8 +272,7 @@ def test_the_card_names_the_file_as_it_is_stored(setup, store):
     async def scenario():
         await manager.send(project, LOCAL_USER, 1, "Delete OLD.MD", [])
         key = (project.id, 1)
-        while manager.state(key) != "waiting":
-            await asyncio.sleep(0.01)
+        await until(lambda: manager.state(key) == "waiting")
         card = next(e for e in events(manager, project) if e["type"] == "confirm")
         manager.decide(key, card["confirmation_id"], False)
         await manager.wait(key)
