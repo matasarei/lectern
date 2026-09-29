@@ -10,6 +10,8 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from lectern import __version__
+from lectern.agent.core_tools import core_registry
+from lectern.agent.turns import TurnManager
 from lectern.api import api_router
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
@@ -38,6 +40,7 @@ def create_app(
         entries = {m.id: m for m in catalog.load().models}
         app.state.downloads.resume_interrupted(entries)
         yield
+        await app.state.turns.stop_all()  # a reply in progress keeps what it wrote
         await app.state.runtime.stop_all()  # every llama-server process ends with the app
         await app.state.downloads.stop_all()
         app.state.projects.dispose()
@@ -59,6 +62,8 @@ def create_app(
     app.state.runtime = runtime or build_runtime(
         paths, app.state.downloads, probe(), app.state.sessions
     )
+
+    app.state.turns = TurnManager(app.state.runtime, app.state.projects, core_registry())
 
     @app.get("/health")
     def health() -> dict[str, str]:
