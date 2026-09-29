@@ -1,0 +1,27 @@
+# task briefs for /gku:implement (local only)
+.tasks/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# Frontend
+node_modules/
+web/dist/
+
+# Local runtime data
+.lectern-dev/
+*.gguf
+*.safetensors
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
