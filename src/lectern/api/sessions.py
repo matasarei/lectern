@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from starlette.concurrency import run_in_threadpool
 
 from lectern.agent.turns import Busy, TurnManager
 from lectern.api.projects import CurrentUser, open_project, store
@@ -37,6 +38,19 @@ def open_session(request: Request, project: Project, session_id: int, user: User
     if row is None or row.owner_id != user.id:
         raise HTTPException(404, "No such session.")
     return row
+
+
+async def open_chat(request: Request, project_id: int, session_id: int, user: User) -> Project:
+    """The project and chat lookups for async routes, in a worker thread: they read SQLite,
+    and a project's first open also migrates its database and empties old trash."""
+
+    def lookup() -> Project:
+        project = open_project(request, project_id, user)
+        open_session(request, project, session_id, user)
+        store(request).db(project)
+        return project
+
+    return await run_in_threadpool(lookup)
 
 
 def session_dict(row: SessionRow, state: str) -> dict:
@@ -143,8 +157,7 @@ def retitle(
 async def send(
     project_id: int, session_id: int, body: Send, request: Request, user: CurrentUser
 ) -> dict:
-    project = open_project(request, project_id, user)
-    open_session(request, project, session_id, user)
+    project = await open_chat(request, project_id, session_id, user)
     try:
         message_id = await turns(request).send(
             project, user, session_id, body.text, body.attachments
@@ -156,8 +169,7 @@ async def send(
 
 @router.get("/projects/{project_id}/sessions/{session_id}/events")
 async def events(project_id: int, session_id: int, request: Request, user: CurrentUser):  # noqa: ANN201
-    project = open_project(request, project_id, user)
-    open_session(request, project, session_id, user)
+    project = await open_chat(request, project_id, session_id, user)
     channel = turns(request).channel((project.id, session_id))
 
     async def stream() -> AsyncIterator[bytes]:
@@ -189,6 +201,5 @@ def decide(
 
 @router.post("/projects/{project_id}/sessions/{session_id}/stop")
 async def stop(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
-    project = open_project(request, project_id, user)
-    open_session(request, project, session_id, user)
+    project = await open_chat(request, project_id, session_id, user)
     return {"stopped": await turns(request).stop((project.id, session_id))}

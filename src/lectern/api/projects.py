@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from starlette.concurrency import run_in_threadpool
 
 from lectern.core.auth import User, current_user
 from lectern.projects import files, search
@@ -111,11 +112,13 @@ async def import_file(
     name: Annotated[str, Query(min_length=1, max_length=1024)],
 ) -> dict:
     """Import one file. The body is the file itself, streamed to disk."""
-    project = open_project(request, project_id, user)
+    # In a worker thread: SQLite lookups, and a project's first open migrates its database.
+    project = await run_in_threadpool(open_project, request, project_id, user)
+    sessions = await run_in_threadpool(store(request).db, project)
     try:
         row = await files.import_stream(
             project.root,
-            store(request).db(project),
+            sessions,
             owner_id=user.id,
             name=name,
             body=request.stream(),

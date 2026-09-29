@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import hashlib
 import json
-import socket
 import threading
 
 import httpx2
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 
 from lectern.app import create_app
@@ -319,31 +316,9 @@ def test_resume_hashes_the_partial_file_off_the_event_loop(paths, sessions, monk
     assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@contextlib.contextmanager
-def _running(app, port):
-    """A real uvicorn server in a thread. TestClient can't read an endless SSE stream: it
-    waits for the whole response body before returning."""
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    for _ in range(200):
-        if server.started:
-            break
-        threading.Event().wait(0.02)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
-
-
-def test_events_endpoint_streams_download_events(paths, sessions, monkeypatch):
+def test_events_endpoint_streams_download_events(
+    paths, sessions, monkeypatch, free_port, live_server
+):
     from lectern.catalog import catalog as catalog_module
 
     entry = _entry()
@@ -351,10 +326,10 @@ def test_events_endpoint_streams_download_events(paths, sessions, monkeypatch):
     monkeypatch.setattr(catalog_module, "load", lambda: real.model_copy(update={"models": [entry]}))
     hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
     manager = _manager(paths, sessions, hub, disk_free=0)  # start() fails at once, and says so
-    port = _free_port()
+    port = free_port
     app = create_app(paths, port=port, downloads=manager)
 
-    with _running(app, port) as base, httpx2.Client(base_url=base, timeout=10) as client:
+    with live_server(app, port) as base, httpx2.Client(base_url=base, timeout=10) as client:
         headers = {"X-Lectern-Token": app.state.token, "Origin": base}
         with client.stream("GET", "/api/models/events", headers=headers) as stream:
             assert stream.headers["content-type"].startswith("text/event-stream")
