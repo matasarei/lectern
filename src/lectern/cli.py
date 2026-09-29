@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import socket
+import threading
+import time
 import webbrowser
 
 import typer
@@ -26,8 +30,25 @@ def serve(
     url = f"http://127.0.0.1:{port}/#token={lectern_app.state.token}"
     typer.echo(f"Lectern is running at {url}")
     if browser:
-        webbrowser.open(url)
+        open_when_listening(url, port)
     uvicorn.run(lectern_app, host="127.0.0.1", port=port)
+
+
+def open_when_listening(url: str, port: int, *, wait_seconds: float = 30.0) -> threading.Thread:
+    """Open the browser once the server accepts connections, not before: a browser that
+    arrives first shows a connection error."""
+
+    def wait_then_open() -> None:
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            with contextlib.suppress(OSError), socket.create_connection(("127.0.0.1", port), 0.2):
+                webbrowser.open(url)
+                return
+            time.sleep(0.1)
+
+    thread = threading.Thread(target=wait_then_open, daemon=True)
+    thread.start()
+    return thread
 
 
 @app.command()
