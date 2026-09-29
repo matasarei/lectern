@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from lectern.agent import core_tools
+from lectern.agent import core_tools, state
 from lectern.agent.core_tools import CORE_TOOLS, core_registry
 from lectern.agent.tools import ToolError, page
 from lectern.projects import files
@@ -186,3 +186,18 @@ def test_trash_needs_the_exact_name_so_the_card_names_the_file_that_moves(ctx):
     with pytest.raises(ToolError, match="No file called exactly 'notes'"):
         run(tool, ctx, name="notes")
     assert (ctx.project.root / "meeting-notes-1998.md").exists()
+
+
+def test_pin_and_unpin_from_the_chat(ctx):
+    pinned = run(core_tools.PIN, ctx, text="Answer in Ukrainian", kind="instruction")
+    assert pinned.text == "Pinned (instruction): Answer in Ukrainian"
+    assert pinned.action == {"type": "pinned"}
+    assert [p.text for p in state.load(ctx.sessions, 1).pinned] == ["Answer in Ukrainian"]
+
+    assert run(core_tools.UNPIN, ctx, text="answer in ukrainian").text == (
+        "Unpinned: Answer in Ukrainian"
+    )
+    with pytest.raises(ToolError, match="Nothing pinned matches"):
+        run(core_tools.UNPIN, ctx, text="Answer in Ukrainian")
+    with pytest.raises(ToolError, match="kind"):
+        core_tools.PIN.validate({"text": "x", "kind": "rule"})

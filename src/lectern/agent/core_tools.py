@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from lectern.agent import state
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult, page
 from lectern.projects import files, search
 from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow
@@ -433,7 +434,62 @@ OPEN = AgentTool(
 )
 
 
-CORE_TOOLS = [LIST, FIND, SEARCH, OUTLINE, READ, WRITE, TRASH, STATUS, OPEN]
+# --- chat.pin / chat.unpin -------------------------------------------------------------------
+
+
+class PinParams(BaseModel):
+    text: str = Field(
+        min_length=1,
+        max_length=state.PIN_CHARS,
+        description='What must hold for the rest of the chat, e.g. "Answer in Ukrainian".',
+    )
+    kind: Literal["instruction", "fact"] = Field(
+        description="instruction: how to work; fact: something the person confirmed."
+    )
+
+
+def _pin(ctx: ToolContext, params: PinParams) -> ToolResult:
+    try:
+        pinned = state.pin(ctx.sessions, ctx.session_id, params.text, params.kind)
+    except state.PinError as exc:
+        raise ToolError(str(exc)) from None
+    return ToolResult(f"Pinned ({pinned.kind}): {pinned.text}", action={"type": "pinned"})
+
+
+PIN = AgentTool(
+    name="chat.pin",
+    description=(
+        "Pin a standing instruction the person gave, or a fact they confirmed, so it holds for "
+        "the rest of this chat, word for word. The person can unpin it."
+    ),
+    params=PinParams,
+    run=_pin,
+    max_tokens=100,
+)
+
+
+class UnpinParams(BaseModel):
+    text: str = Field(min_length=1, description="The pinned item's text (or its id).")
+
+
+def _unpin(ctx: ToolContext, params: UnpinParams) -> ToolResult:
+    try:
+        removed = state.unpin(ctx.sessions, ctx.session_id, params.text)
+    except state.PinError as exc:
+        raise ToolError(str(exc)) from None
+    return ToolResult(f"Unpinned: {removed.text}", action={"type": "pinned"})
+
+
+UNPIN = AgentTool(
+    name="chat.unpin",
+    description="Remove a pinned item when the person says it no longer holds.",
+    params=UnpinParams,
+    run=_unpin,
+    max_tokens=100,
+)
+
+
+CORE_TOOLS = [LIST, FIND, SEARCH, OUTLINE, READ, WRITE, TRASH, STATUS, OPEN, PIN, UNPIN]
 
 
 def core_registry() -> Registry:
