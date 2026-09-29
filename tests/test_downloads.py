@@ -298,7 +298,7 @@ def test_restricted_licence_needs_explicit_acceptance(api):
 
 
 def test_resume_hashes_the_partial_file_off_the_event_loop(paths, sessions, monkeypatch):
-    from lectern.downloads import manager as manager_module
+    from lectern.downloads import fetch as fetch_module
 
     hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
     hub.cut_after["tiny.gguf"] = 40_000
@@ -312,7 +312,7 @@ def test_resume_hashes_the_partial_file_off_the_event_loop(paths, sessions, monk
         offloaded.append(func.__name__)
         return await real_to_thread(func, *args)
 
-    monkeypatch.setattr(manager_module.asyncio, "to_thread", spy)
+    monkeypatch.setattr(fetch_module.asyncio, "to_thread", spy)
     asyncio.run(_finish(manager, entry))
 
     assert offloaded == ["_hash_file"]

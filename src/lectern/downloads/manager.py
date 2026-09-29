@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import shutil
 import time
 from collections.abc import AsyncIterator, Callable
@@ -22,17 +21,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from lectern.catalog.catalog import CatalogEntry, ModelFile
 from lectern.core.tables import DownloadRow
+from lectern.downloads.fetch import DownloadError, fetch_verified
 
 HF_BASE_URL = "https://huggingface.co"
 DISK_HEADROOM = 1024**3  # keep 1 GiB free after the download
-CHUNK = 1024 * 1024
 PROGRESS_EVERY = 0.25  # seconds between progress events
 SAVE_EVERY = 1.0  # seconds between database writes
 ACTIVE = ("queued", "downloading", "verifying")
-
-
-class DownloadError(Exception):
-    pass
 
 
 @dataclass(frozen=True)
@@ -221,52 +216,21 @@ class DownloadManager:
     async def _fetch(
         self, client: httpx2.AsyncClient, entry: CatalogEntry, file: ModelFile, progress: _Progress
     ) -> None:
-        final = self.file_path(entry, file)
-        if final.exists():
-            return
-        final.parent.mkdir(parents=True, exist_ok=True)
-        part = final.with_name(final.name + ".part")
-        start = part.stat().st_size if part.exists() else 0
-        if start > file.size:
-            part.unlink()
-            progress.done -= start - file.size
-            start = 0
+        def advance(delta: int) -> None:
+            progress.done += delta
+            if delta > 0:
+                self._report(progress)
 
-        # Re-hashing gigabytes takes seconds: do it off the event loop so the API stays live.
-        hasher = await asyncio.to_thread(_hash_file, part) if start else hashlib.sha256()
-
-        url = f"{self.base_url}/{entry.repo}/resolve/{entry.revision}/{file.path}"
-        # Plain bytes only: with compression, Range offsets and sizes wouldn't match the file.
-        headers = {"Accept-Encoding": "identity"}
-        if start:
-            headers["Range"] = f"bytes={start}-"
-        async with client.stream("GET", url, headers=headers) as response:
-            if response.status_code == 200 and start:
-                # The server ignored the Range header: start this file again.
-                progress.done -= start
-                start = 0
-                hasher = hashlib.sha256()
-            elif response.status_code not in (200, 206):
-                raise DownloadError(f"{file.path}: HTTP {response.status_code}")
-            mode = "ab" if start else "wb"
-            with part.open(mode) as out:
-                async for chunk in response.aiter_bytes():  # as received: a drop loses nothing
-                    out.write(chunk)
-                    hasher.update(chunk)
-                    progress.done += len(chunk)
-                    self._report(progress)
-
-        self._save(entry.id, status="verifying", bytes_done=progress.done)
-        if part.stat().st_size != file.size:
-            raise DownloadError(
-                f"{file.path}: got {part.stat().st_size} bytes, expected {file.size}. "
-                "Try again to resume."
-            )
-        if hasher.hexdigest() != file.sha256:
-            part.unlink()
-            progress.done -= file.size
-            raise DownloadError(f"{file.path}: checksum mismatch; the partial file was removed.")
-        part.replace(final)
+        await fetch_verified(
+            client,
+            f"{self.base_url}/{entry.repo}/resolve/{entry.revision}/{file.path}",
+            self.file_path(entry, file),
+            size=file.size,
+            sha256=file.sha256,
+            on_bytes=advance,
+            on_verifying=lambda: self._save(entry.id, status="verifying", bytes_done=progress.done),
+            label=file.path,
+        )
         self._save(entry.id, status="downloading")
 
     def _report(self, progress: _Progress) -> None:
@@ -303,14 +267,6 @@ class _Progress:
             self.rate = instant if self.rate == 0 else 0.7 * self.rate + 0.3 * instant
         self._rate_mark = (now, self.done)
         self.last_event = now
-
-
-def _hash_file(path: Path) -> hashlib._Hash:
-    hasher = hashlib.sha256()
-    with path.open("rb") as f:
-        for block in iter(lambda: f.read(CHUNK), b""):
-            hasher.update(block)
-    return hasher
 
 
 def _describe(exc: Exception) -> str:

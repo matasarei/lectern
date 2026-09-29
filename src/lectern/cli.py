@@ -52,9 +52,33 @@ def open_when_listening(url: str, port: int, *, wait_seconds: float = 30.0) -> t
 
 
 @app.command()
-def doctor() -> None:
+def doctor(
+    runners: bool = typer.Option(False, "--runners", help="Also show the llama.cpp build."),
+) -> None:
     """Print what Lectern knows about this machine, as JSON."""
     from lectern.api.system import system_report
     from lectern.config import get_paths
 
-    typer.echo(json.dumps(system_report(get_paths()), indent=2))
+    paths = get_paths()
+    report = system_report(paths)
+    if runners:
+        from lectern.hardware.probe import probe
+        from lectern.runners.binaries import (
+            LLAMA_CPP_BUILD,
+            LlamaCppInstaller,
+            UnsupportedPlatform,
+            select_variant,
+        )
+
+        try:
+            variant = select_variant(probe())
+            server = LlamaCppInstaller(paths.runners).server_path(variant)
+            report["runners"] = {
+                "llama_cpp_build": LLAMA_CPP_BUILD,
+                "variant": variant,
+                "installed": server is not None,
+                "server": str(server) if server else None,
+            }
+        except UnsupportedPlatform as exc:
+            report["runners"] = {"error": str(exc)}
+    typer.echo(json.dumps(report, indent=2))
