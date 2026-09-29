@@ -26,12 +26,13 @@ from lectern.runtime.planner import ModelShape
 VISION_ROLES = frozenset({"ocr", "ocr.hand"})
 
 
+def mlx_supported() -> bool:
+    """MLX exists only for Apple Silicon Macs."""
+    return sys.platform == "darwin" and platform.machine() == "arm64"
+
+
 def mlx_available() -> bool:
-    return (
-        sys.platform == "darwin"
-        and platform.machine() == "arm64"
-        and importlib.util.find_spec("mlx_lm") is not None
-    )
+    return mlx_supported() and importlib.util.find_spec("mlx_lm") is not None
 
 
 def build_args(spec: RunnerSpec, *, vision: bool, port: int, key: str | None) -> list[str]:
