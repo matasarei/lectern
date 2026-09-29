@@ -47,6 +47,8 @@ class FakeNvml:
         return SimpleNamespace(total=total, free=free)
 
     def nvmlDeviceGetCudaComputeCapability(self, handle):
+        if self.capability is None:
+            raise self.NVMLError("not supported")
         return self.capability
 
 
@@ -183,3 +185,12 @@ def test_sandbox_installed_but_not_running():
 def test_sandbox_none_installed():
     result = sandbox.detect(which=lambda n: None, engine_version=lambda b, a: None)
     assert (result.runtime, result.engine_running, result.found) == (None, False, ())
+
+
+def test_a_failed_capability_lookup_keeps_the_card():
+    nvml = FakeNvml([(b"NVIDIA GeForce GTX 1070", 8192 * MIB, 8000 * MIB)], capability=None)
+
+    [gpu] = nvidia.probe(nvml)
+
+    assert gpu.name == "NVIDIA GeForce GTX 1070"
+    assert gpu.compute_capability is None
