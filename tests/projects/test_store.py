@@ -89,3 +89,30 @@ def test_reopening_a_project_uses_the_migrated_database(store, paths):
         "ui_state",
         "artifact_text",
     } <= tables
+
+
+def test_a_project_made_before_m1b_gets_the_script_runs_table(store, paths):
+    from alembic import command
+    from alembic.config import Config
+
+    from lectern.core.db import make_engine
+
+    project = store.create(LOCAL_USER, "Older")
+    store.dispose()
+    # Take it back to M1a's schema, as a project made then would be.
+    engine = make_engine(project.root / ".lectern" / "project.sqlite")
+    config = Config()
+    config.set_main_option("script_location", "lectern:project_migrations")
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, "p0001")
+    engine.dispose()
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    fresh.db(project)
+    fresh.dispose()
+    db = sqlite3.connect(project.root / ".lectern" / "project.sqlite")
+    tables = {r[0] for r in db.execute("select name from sqlite_master where type='table'")}
+    version = db.execute("select version_num from alembic_version").fetchone()[0]
+    db.close()
+    assert "script_runs" in tables and version == "p0002"
