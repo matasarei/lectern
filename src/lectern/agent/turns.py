@@ -73,8 +73,18 @@ class Turn:
 
 
 class TurnManager:
-    def __init__(self, runtime: ModelRuntime, projects: ProjectStore, registry: Registry) -> None:
+    def __init__(
+        self,
+        runtime: ModelRuntime,
+        projects: ProjectStore,
+        registry: Registry,
+        *,
+        downloads: object = None,
+        sandbox: object = None,
+    ) -> None:
         self.runtime = runtime
+        self.downloads = downloads
+        self.sandbox = sandbox
         self.projects = projects
         self.registry = registry
         self._channels: dict[Key, Channel] = {}
@@ -128,6 +138,8 @@ class TurnManager:
             emit=lambda event: None,
             decide=lambda confirmation_id: self._decision(key, confirmation_id),
             turn_state=lambda sid: self.state((project.id, sid)),
+            downloads=self.downloads,
+            sandbox=self.sandbox,
         )
         message_id = await run_in_threadpool(
             lambda: store_message(

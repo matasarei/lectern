@@ -10,6 +10,7 @@ is stored as messages, so a reload shows the same chat.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 from collections.abc import Callable
@@ -48,6 +49,8 @@ class TurnRun:
     emit: Callable[[dict], None]
     decide: Callable[[int], asyncio.Future[bool]]
     turn_state: Callable[[int], str] = lambda _sid: "idle"
+    downloads: object = None  # passed on to tools (the coding model's download)
+    sandbox: object = None  # passed on to tools (the Sandbox module)
     stats: dict = field(default_factory=dict)
 
 
@@ -245,12 +248,21 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         if failures[tool.name] > 1:
             raise TurnFailed(str(exc)) from None
         return ToolResult(f"Error: {exc} Fix the arguments and call it again.")
+
+    async def ask(question: str) -> bool:
+        return await _confirm(run, call, tool.name, question, function["arguments"])
+
     context = ToolContext(
         project=run.project,
         sessions=run.sessions,  # type: ignore[arg-type]
         user=run.user,
         session_id=run.session_id,
         turn_state=run.turn_state,
+        confirm=ask,
+        emit=lambda event: run.emit({**event, "call_id": call["id"]}),
+        runtime=run.runtime,
+        downloads=run.downloads,
+        sandbox=run.sandbox,
     )
     if tool.confirm:
         try:
@@ -265,6 +277,8 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         if not approved:
             return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
     try:
+        if inspect.iscoroutinefunction(tool.run):
+            return await tool.run(context, params)
         return await run_in_threadpool(tool.run, context, params)
     except ToolError as exc:
         return ToolResult(f"Error: {exc}")
