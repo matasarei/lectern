@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI
 
 from lectern import __version__
+from lectern.api import api_router
 from lectern.config import DEFAULT_PORT, Paths, get_paths
-from lectern.core.security import WS_SUBPROTOCOL, LocalGuard, load_or_create_token
+from lectern.core.db import make_engine, make_sessionmaker, migrate
+from lectern.core.security import LocalGuard, load_or_create_token
 
 
 def create_app(paths: Paths | None = None, *, port: int = DEFAULT_PORT) -> FastAPI:
@@ -16,15 +18,15 @@ def create_app(paths: Paths | None = None, *, port: int = DEFAULT_PORT) -> FastA
     app.state.port = port
     app.state.token = load_or_create_token(paths.token_file)
 
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    app.state.engine = engine
+    app.state.sessions = make_sessionmaker(engine)
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
-    @app.websocket("/api/ws/ping")
-    async def ws_ping(websocket: WebSocket) -> None:
-        await websocket.accept(subprotocol=WS_SUBPROTOCOL)
-        await websocket.send_text("pong")
-        await websocket.close()
-
+    app.include_router(api_router())
     app.add_middleware(LocalGuard, port=port, token=app.state.token)
     return app
