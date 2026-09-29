@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import socket
@@ -46,7 +47,14 @@ class LecternServer(uvicorn.Server):
     waiting on connections, so the event streams can end by themselves."""
 
     def handle_exit(self, sig, frame) -> None:  # noqa: ANN001
-        self.config.app.state.shutting_down.set()
+        # uvicorn installs this with signal.signal, so it runs as a plain signal handler, not
+        # as an event-loop callback. Hand the flag to the loop through its thread-safe entry
+        # point, which also wakes it at once (on Windows' event loop too).
+        stopping = self.config.app.state.shutting_down
+        try:
+            asyncio.get_running_loop().call_soon_threadsafe(stopping.set)
+        except RuntimeError:  # no loop running yet or any more
+            stopping.set()
         super().handle_exit(sig, frame)
 
 

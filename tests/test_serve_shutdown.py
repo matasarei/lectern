@@ -85,3 +85,31 @@ def test_ctrl_c_exits_while_the_page_holds_event_streams(tmp_path):
     assert "Application shutdown complete" in output
     assert "Traceback" not in output
     assert "timeout graceful shutdown exceeded" not in output
+
+
+def test_handle_exit_hands_the_flag_to_the_running_loop(paths):
+    import asyncio
+
+    from lectern.app import create_app
+    from lectern.cli import LecternServer
+
+    app = create_app(paths)
+    server = LecternServer(server_config(app, 18765))
+
+    async def go():
+        server.handle_exit(signal.SIGINT, None)
+        # Scheduled on the loop, not set inside the signal handler itself.
+        assert not app.state.shutting_down.is_set()
+        await asyncio.wait_for(app.state.shutting_down.wait(), timeout=1)
+
+    asyncio.run(go())
+    assert server.should_exit
+
+
+def test_handle_exit_without_a_running_loop_sets_the_flag_directly(paths):
+    from lectern.app import create_app
+    from lectern.cli import LecternServer
+
+    app = create_app(paths)
+    LecternServer(server_config(app, 18765)).handle_exit(signal.SIGINT, None)
+    assert app.state.shutting_down.is_set()
