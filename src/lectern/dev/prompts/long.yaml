@@ -7,6 +7,7 @@ files:
 
 conversation:
   turns: 99
+  forbid: [artifact.write]   # nobody asks for a file in the filler
   filler:
     - "Give me one interesting fact about Kyiv, in one sentence."
     - "Name a good book about architecture, with its author, in one line."

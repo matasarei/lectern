@@ -322,8 +322,8 @@ def _write(ctx: ToolContext, params: WriteParams) -> ToolResult:
 WRITE = AgentTool(
     name="artifact.write",
     description=(
-        "Save text you wrote as a new file in the project. Never replaces a file: a taken "
-        "name gets a number."
+        "Save text you wrote as a new file in the project, only when the person asked for a "
+        "file. Never replaces a file: a taken name gets a number."
     ),
     params=WriteParams,
     run=_write,

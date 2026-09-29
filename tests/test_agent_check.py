@@ -103,9 +103,10 @@ def test_the_lease_is_made_at_run_time_with_clause_3_3(tmp_path):
 class StubClient:
     """Answers like a server whose model echoes; every third turn reports a compaction."""
 
-    def __init__(self):
+    def __init__(self, saves_on: int = 0):
         self.sent: list[str] = []
         self.turn = 0
+        self.saves_on = saves_on  # this turn calls artifact.write
 
     def post(self, url, json=None):  # noqa: A002, ANN001
         class R:
@@ -138,6 +139,11 @@ class StubClient:
         self.turn += 1
         text = "…сплачує пеню у розмірі 0,5%…" if self.sent[-1].startswith("Quote") else "ok"
         events = [{"type": "delta", "text": text}]
+        if self.turn == self.saves_on:
+            events[:0] = [
+                {"type": "tool", "call_id": "c1", "name": "artifact.write"},
+                {"type": "tool_result", "call_id": "c1", "error": False},
+            ]
         if self.turn % 3 == 0:
             events.append({"type": "compacted", "summarised": 4})
         events.append({"type": "turn", "status": "done"})
@@ -220,3 +226,24 @@ def test_a_failed_call_doesnt_count_as_using_the_tool():
         forbidden=("artifact.trash",),
     )
     assert not tried_trash.used_tools  # trying a forbidden tool fails, even if it was refused
+
+
+def test_a_conversation_fails_when_a_filler_turn_saves_a_file():
+    from lectern.dev.agent_check import Conversation, run_conversation
+
+    conversation = Conversation(
+        ("Tell me a fact.",),
+        5,
+        Case("long", "Quote 3.3", text=("пеню",)),
+        forbid=("artifact.write",),
+    )
+    said: list[str] = []
+
+    clean = run_conversation(StubClient(), 1, conversation, allow_cards=True, echo=lambda _l: None)
+    saved = run_conversation(
+        StubClient(saves_on=2), 1, conversation, allow_cards=True, echo=said.append
+    )
+
+    assert clean.passed and clean.checks["no forbidden tools in filler"]
+    assert not saved.passed and not saved.checks["no forbidden tools in filler"]
+    assert "  turn 2: called artifact.write" in said

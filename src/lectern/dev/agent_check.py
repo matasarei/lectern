@@ -39,6 +39,7 @@ class Conversation:
     filler: tuple[str, ...]
     turns: int
     final: Case
+    forbid: tuple[str, ...] = ()  # must not be called on any filler turn
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ def load(name: str) -> PromptSet:
             filler=tuple(" ".join(f.split()) for f in spec["filler"]),
             turns=int(spec["turns"]),
             final=_case(spec["final"]),
+            forbid=tuple(spec.get("forbid", [])),
         )
     files = [PROMPTS_DIR / "files" / f for f in data.get("files", [])]
     return PromptSet(name, cases, files, conversation)
@@ -239,16 +241,22 @@ def run_set(client, name: str, *, allow_cards: bool, only: list[str] | None = No
 def run_conversation(client, pid: int, conversation: Conversation, *, allow_cards: bool,
                      echo=print) -> Outcome:  # noqa: ANN001  # fmt: skip
     """`turns` filler prompts in one chat, then the final prompt. Passes when the final answer
-    is right, compaction ran at least once, and the transcript still has every message."""
+    is right, compaction ran at least once, the transcript still has every message, and no
+    filler turn called a forbidden tool."""
     chat = client.post(
         f"/api/projects/{pid}/sessions", json={"title": conversation.final.id}
     ).json()
     compactions = 0
+    forbidden_turns = 0
     started = time.monotonic()
     for i in range(conversation.turns):
         filler = Case(f"turn-{i + 1}", conversation.filler[i % len(conversation.filler)])
         step = _ask(client, pid, chat["id"], filler, allow_cards=allow_cards)
         compactions += step.compactions
+        called = [t for t in step.attempted if t in conversation.forbid]
+        if called:
+            forbidden_turns += 1
+            echo(f"  turn {i + 1}: called {', '.join(called)}")
         if step.error:
             echo(f"  turn {i + 1}: error: {step.error}")
         if (i + 1) % 10 == 0:
@@ -264,6 +272,8 @@ def run_conversation(client, pid: int, conversation: Conversation, *, allow_card
         "compacted": outcome.compactions > 0,
         "transcript kept": asked == conversation.turns + 1,
     }
+    if conversation.forbid:
+        outcome.checks["no forbidden tools in filler"] = forbidden_turns == 0
     return outcome
 
 
