@@ -236,4 +236,14 @@ export type ChatEvent = { seq: number } & (
   | { type: "error"; detail: string }
   | { type: "stopped" }
   | { type: "replayed" } // sent once, where the replay of the current turn ends; seq is 0
+  | {
+      // A tool at work: a download (done/total), an image build (line), a model getting ready.
+      type: "progress";
+      call_id: string;
+      label: string;
+      done?: number;
+      total?: number;
+      line?: string;
+      seconds?: number;
+    }
 );
