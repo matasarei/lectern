@@ -56,7 +56,7 @@ def test_the_calc_set_has_20_prompts_and_its_files():
 
 
 def test_an_unknown_set_names_the_ones_there_are():
-    with pytest.raises(ValueError, match="No prompt set 'nope'. Sets: calc"):
+    with pytest.raises(ValueError, match="No prompt set 'nope'. Sets: calc, long, tools"):
         load_set("nope")
 
 
@@ -166,3 +166,41 @@ def test_a_conversation_run_checks_compaction_and_the_transcript():
         "transcript kept": True,
     }
     assert outcome.passed
+
+
+@pytest.mark.parametrize("name", ["calc", "tools", "long"])
+def test_every_set_loads_and_every_prompt_checks_something(name):
+    from lectern.dev.agent_check import load
+
+    prompt_set = load(name)
+    cases = list(prompt_set.cases)
+    if prompt_set.conversation:
+        cases.append(prompt_set.conversation.final)
+    assert len({c.id for c in cases}) == len(cases)
+    assert all(c.numbers or c.text or c.tools or c.forbid for c in cases)
+    for path in prompt_set.files:
+        assert path.is_file() or path.name == "lease-1998.docx"
+
+
+def test_the_tools_set_has_about_30_prompts_and_ends_with_the_trash():
+    from lectern.dev.agent_check import load
+
+    cases = load("tools").cases
+    assert 28 <= len(cases) <= 32
+    assert cases[-1].tools == ("artifact.trash",)
+    assert not any("artifact.trash" in c.tools for c in cases[:-1])
+
+
+def test_the_long_set_is_100_turns_and_quotes_clause_3_3():
+    from lectern.dev.agent_check import CLAUSE_3_3, load
+
+    conversation = load("long").conversation
+    assert conversation is not None and conversation.turns + 1 == 100
+    assert all(fragment in CLAUSE_3_3 for fragment in conversation.final.text)
+
+
+def test_alternatives_in_required_tools():
+    case = Case("x", "?")
+    either = ("project.find|project.list",)
+    assert Outcome(case, tools=["project.list"], required=either).used_tools
+    assert not Outcome(case, tools=["document.read"], required=either).used_tools

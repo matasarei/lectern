@@ -63,9 +63,10 @@ class Outcome:
 
     @property
     def used_tools(self) -> bool:
-        return all(t in self.tools for t in self.required) and not any(
-            t in self.tools for t in self.forbidden
-        )
+        # A required entry may name alternatives: "project.find|project.list" passes on either.
+        return all(
+            any(option in self.tools for option in needed.split("|")) for needed in self.required
+        ) and not any(t in self.tools for t in self.forbidden)
 
     @property
     def right(self) -> bool:
@@ -79,7 +80,7 @@ class Outcome:
 def load(name: str) -> PromptSet:
     path = PROMPTS_DIR / f"{name}.yaml"
     if not path.is_file():
-        known = ", ".join(p.stem for p in PROMPTS_DIR.glob("*.yaml"))
+        known = ", ".join(sorted(p.stem for p in PROMPTS_DIR.glob("*.yaml")))
         raise ValueError(f"No prompt set {name!r}. Sets: {known}.")
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     cases = [_case(item) for item in data.get("prompts", [])]
