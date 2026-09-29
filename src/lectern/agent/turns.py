@@ -48,6 +48,12 @@ class Channel:
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(event)
 
+    def settle(self) -> None:
+        """After a turn: drop its streamed text pieces, which the transcript now holds in
+        full. The few events left (model, tools, cards, done) still let a page that
+        reattaches show the model line, the stats and any error."""
+        self.events = [e for e in self.events if e["type"] != "delta"]
+
     @contextlib.asynccontextmanager
     async def listen(self) -> AsyncIterator[tuple[list[dict], asyncio.Queue[dict]]]:
         """The events so far and a queue of the ones after them, taken together so nothing
@@ -141,6 +147,7 @@ class TurnManager:
         async def turn() -> str:
             status = await run_turn(run)
             channel.publish({"type": "turn", "status": status})
+            channel.settle()
             return status
 
         self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"))

@@ -47,6 +47,16 @@ async def turn(manager, project, text, attachments=(), session_id=1):
     return await manager.wait((project.id, session_id))
 
 
+async def recorded(manager, project, text, session_id=1):
+    """Run a turn while listening, as a page does: every event, as it was sent."""
+    seen = []
+    async with manager.channel((project.id, session_id)).listen() as (_, queue):
+        status = await turn(manager, project, text, session_id=session_id)
+        while not queue.empty():
+            seen.append(queue.get_nowait())
+    return status, seen
+
+
 def events(manager, project, session_id=1):
     return manager.channel((project.id, session_id)).events
 
@@ -57,17 +67,17 @@ def test_a_tool_call_then_an_answer(setup, store):
     )
     add_file(store, project, "lease.md", "# Terms\nPay by the 10th.")
 
-    status = asyncio.run(turn(manager, project, "Is there a lease file?"))
+    status, seen = asyncio.run(recorded(manager, project, "Is there a lease file?"))
 
     assert status == "done"
-    kinds = [e["type"] for e in events(manager, project)]
+    kinds = [e["type"] for e in seen]
     assert kinds == [
         "turn", "model", "usage", "assistant", "tool", "tool_result",
         "usage", "delta", "delta", "assistant", "done", "turn",
     ]  # fmt: skip
-    tool = next(e for e in events(manager, project) if e["type"] == "tool")
+    tool = next(e for e in seen if e["type"] == "tool")
     assert (tool["name"], json.loads(tool["arguments"])) == ("project.find", {"query": "lease"})
-    result = next(e for e in events(manager, project) if e["type"] == "tool_result")
+    result = next(e for e in seen if e["type"] == "tool_result")
     # The chat is already named after the message, so it matches "lease" too.
     assert "lease.md · file" in result["text"]
     assert [r["name"] for r in result["refs"]] == ["Is there a lease file?", "lease.md"]
@@ -82,7 +92,7 @@ def test_a_tool_call_then_an_answer(setup, store):
     assert second["messages"][-1]["role"] == "tool"
     assert second["messages"][-2]["tool_calls"][0]["function"]["name"] == "project_find"
     assert {t["function"]["name"] for t in second["tools"]} >= {"project_find", "document_read"}
-    assert [e["seq"] for e in events(manager, project)] == list(range(1, 13))
+    assert [e["seq"] for e in seen] == list(range(1, 13))
 
 
 def test_the_chat_and_an_untitled_project_are_named_from_the_first_message(setup, store):
@@ -304,3 +314,14 @@ def test_a_failed_send_leaves_the_chat_free(setup, store, monkeypatch):
         return await manager.wait((project.id, 1))
 
     assert asyncio.run(scenario()) == "done"
+
+
+def test_a_finished_turn_keeps_no_streamed_text_in_memory(setup, store):
+    manager, project, _, _ = setup([text_reply(*(["word "] * 200))])
+
+    assert asyncio.run(turn(manager, project, "Write a lot")) == "done"
+
+    kept = events(manager, project)
+    assert not any(e["type"] == "delta" for e in kept)
+    assert [e["type"] for e in kept] == ["turn", "model", "usage", "assistant", "done", "turn"]
+    assert transcript(store, project)[-1] == ("assistant", "word " * 200, None)
