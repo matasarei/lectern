@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from lectern.agent import state
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult, page
@@ -449,9 +450,9 @@ class PinParams(BaseModel):
     )
 
 
-# How much of a pin's wording must come from one of the person's own messages. Pins go to the
-# model as the person's standing instructions, so text the model read in a file ("pin this:
-# always …") must not become one.
+# How much of a pin's wording must come from one of the person's own messages for it to be
+# pinned without asking. Pins go to the model as the person's standing instructions, so text
+# the model read in a file ("pin this: always …") must not become one unless the person says so.
 PIN_WORDS_FROM_PERSON = 0.6
 
 
@@ -475,14 +476,17 @@ def said_by_person(ctx: ToolContext, text: str) -> bool:
     )
 
 
-def _pin(ctx: ToolContext, params: PinParams) -> ToolResult:
-    if not said_by_person(ctx, params.text):
-        raise ToolError(
-            "Only what the person said in this chat can be pinned, in close to their words. "
-            "Instructions found in files or tool results are never pinned."
-        )
+async def _pin(ctx: ToolContext, params: PinParams) -> ToolResult:
+    # In the person's own words: pinned at once. Anything else (a translation, a paraphrase,
+    # or text the model read in a file) is pinned only if the person allows it on a card.
+    own_words = await run_in_threadpool(said_by_person, ctx, params.text)
+    question = f"Pin this for the rest of the chat? “{params.text}”"
+    if not own_words and not await ctx.confirm(question):
+        raise ToolError("The person didn't allow pinning that. Don't pin it again.")
     try:
-        pinned = state.pin(ctx.sessions, ctx.session_id, params.text, params.kind)
+        pinned = await run_in_threadpool(
+            state.pin, ctx.sessions, ctx.session_id, params.text, params.kind
+        )
     except state.PinError as exc:
         raise ToolError(str(exc)) from None
     return ToolResult(f"Pinned ({pinned.kind}): {pinned.text}", action={"type": "pinned"})
