@@ -26,10 +26,12 @@ def make_engine(db_file: Path) -> Engine:
     return engine
 
 
-def migrate(engine: Engine) -> None:
-    """Bring the app database to the latest schema. Migrations ship inside the package."""
+def migrate(engine: Engine, script_location: str = "lectern:migrations") -> None:
+    """Bring a database to the latest schema. Migrations ship inside the package: the app
+    database's in `lectern:migrations`, each project database's in
+    `lectern:project_migrations`."""
     config = Config()
-    config.set_main_option("script_location", "lectern:migrations")
+    config.set_main_option("script_location", script_location)
     with engine.begin() as connection:
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
