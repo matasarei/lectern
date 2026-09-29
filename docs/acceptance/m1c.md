@@ -56,7 +56,20 @@ Run on 2026-09-29 with `LECTERN_TIER=minimum`: Qwen3.5-4B Q4_K_M with an 8,192-t
 - **Suggested fix:**
   - the prompt should say to save a file only when the person asks for one;
   - the `long` set should forbid `artifact.write` on its filler turns, so the test catches this.
-- It isn't fixed in M1c, because it changes the prompt rules and needs its own check.
+- It wasn't fixed in M1c, because it changes the prompt rules and needs its own check.
+
+### After the fix: saving only when asked (2026-09-30)
+
+- **The fix:** the rule now reads "save a file with artifact_write only when the person asks for a file"; otherwise the model answers in the chat. The tool's description says the same.
+- **New checks:**
+  - the tools set has two filler-style prompts that forbid `artifact.write`: `unasked-fact` and `unasked-name`;
+  - the long set fails if any filler turn calls it.
+- **Before, on the old prompt:** `unasked-name` ("Suggest a name for a small bookshop") saved a file in 3 of 4 runs. `unasked-fact` passed 4 of 4.
+- **After:** both passed 4 of 4. The prompts that do ask for a file still save it: `write-letter` passed 4 of 4 and `write-summary` 8 of 10.
+  - `write-summary` also failed 2 of 6 on the old prompt, so this isn't new. Its misses come from the answer's wording, not from saving.
+- **The 100-turn chat, rerun: passed, with no file saved on any filler turn.**
+  - It quoted clause 3.3 exactly.
+  - Without the 100 tool calls the turns are much shorter: compaction ran once instead of 6 times, and the run took 51 s instead of 162 s.
 
 ## Notes
 
