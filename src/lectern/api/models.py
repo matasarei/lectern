@@ -13,7 +13,6 @@ from lectern.hardware.probe import probe
 from lectern.hardware.tiers import effective_tier
 
 router = APIRouter()
-KEEPALIVE_SECONDS = 15.0
 
 
 def _manager(request: Request) -> DownloadManager:
