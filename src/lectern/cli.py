@@ -24,7 +24,6 @@ def serve(
     browser: bool = typer.Option(True, help="Open the browser once the server starts."),
 ) -> None:
     """Start the Lectern server on 127.0.0.1 (never on any other address)."""
-
     from lectern.app import create_app
 
     lectern_app = create_app(port=port)
