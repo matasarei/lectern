@@ -63,3 +63,106 @@ def test_an_unknown_set_names_the_ones_there_are():
 def test_a_list_of_numbers_stays_a_list():
     assert numbers_in("300, 500 and 200") == [300, 500, 200]
     assert numbers_in("parts: 300,500,200") == [300500200]  # no spaces: read as one number
+
+
+def test_a_forbidden_tool_fails_the_prompt():
+    case = Case("q", "What does notes.md say?", text=("payment",))
+    rules = {"required": ("document.read",), "forbidden": ("artifact.trash",)}
+    safe = Outcome(case, tools=["document.read"], answer="The payment day", **rules)
+    trashed = Outcome(
+        case, tools=["document.read", "artifact.trash"], answer="The payment day", **rules
+    )
+    assert (safe.passed, trashed.passed) == (True, False)
+
+
+def test_extra_checks_must_all_hold():
+    case = Case("long", "Quote 3.3", text=("пеню",))
+    outcome = Outcome(
+        case, answer="…сплачує пеню…", checks={"compacted": True, "transcript kept": False}
+    )
+    assert outcome.right and not outcome.passed
+
+
+def test_the_summary_says_right_tools_when_prompts_need_different_ones():
+    a = Outcome(Case("a", "x"), tools=["project.find"], required=("project.find",))
+    b = Outcome(Case("b", "y"), tools=[], required=("document.read",))
+    assert summary([a, b]) == "1/2 passed · right tools in 1/2 · right answer in 2/2"
+
+
+def test_the_lease_is_made_at_run_time_with_clause_3_3(tmp_path):
+    from lectern.dev.agent_check import CLAUSE_3_3, PROMPTS_DIR, materialise
+    from lectern.projects.text import extract
+
+    (lease,) = materialise([PROMPTS_DIR / "files" / "lease-1998.docx"], tmp_path)
+    text = "\n".join(c.body for c in extract(lease).chunks)
+    assert CLAUSE_3_3 in text
+    with pytest.raises(ValueError, match="needs nope.txt"):
+        materialise([PROMPTS_DIR / "files" / "nope.txt"], tmp_path)
+
+
+class StubClient:
+    """Answers like a server whose model echoes; every third turn reports a compaction."""
+
+    def __init__(self):
+        self.sent: list[str] = []
+        self.turn = 0
+
+    def post(self, url, json=None):  # noqa: A002, ANN001
+        class R:
+            status_code = 202
+            text = ""
+
+            def __init__(self, body):
+                self._body = body
+
+            def json(self):
+                return self._body
+
+        if url.endswith("/sessions"):
+            return R({"id": 7})
+        if url.endswith("/messages"):
+            self.sent.append(json["text"])
+        return R({})
+
+    def get(self, url):  # noqa: ANN001
+        class R:
+            def json(inner):  # noqa: N805
+                return {"messages": [{"role": "user"}] * len(self.sent)}
+
+        return R()
+
+    def stream(self, method, url, timeout=None):  # noqa: ANN001
+        import contextlib
+        import json as j
+
+        self.turn += 1
+        text = "…сплачує пеню у розмірі 0,5%…" if self.sent[-1].startswith("Quote") else "ok"
+        events = [{"type": "delta", "text": text}]
+        if self.turn % 3 == 0:
+            events.append({"type": "compacted", "summarised": 4})
+        events.append({"type": "turn", "status": "done"})
+
+        class S:
+            def iter_lines(inner):  # noqa: N805
+                return [f"data: {j.dumps(e)}" for e in events]
+
+        return contextlib.nullcontext(S())
+
+
+def test_a_conversation_run_checks_compaction_and_the_transcript():
+    from lectern.dev.agent_check import Conversation, run_conversation
+
+    client = StubClient()
+    conversation = Conversation(
+        ("Tell me a fact.", "Another one."), 5, Case("long", "Quote 3.3", text=("пеню",))
+    )
+
+    outcome = run_conversation(client, 1, conversation, allow_cards=True, echo=lambda _l: None)
+
+    assert client.sent[:5] == ["Tell me a fact.", "Another one."] * 2 + ["Tell me a fact."]
+    assert client.sent[-1] == "Quote 3.3"
+    assert outcome.compactions == 2 and outcome.checks == {
+        "compacted": True,
+        "transcript kept": True,
+    }
+    assert outcome.passed
