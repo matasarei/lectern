@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import mimetypes
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,8 @@ TEXT_EXTENSIONS = {
     ".css", ".sql", ".sh", ".ps1", ".bat", ".java", ".kt", ".go", ".rs", ".c", ".h", ".cpp",
     ".hpp", ".cs", ".php", ".rb", ".swift", ".tex",
 }  # fmt: skip
+# One PDFium call at a time, process-wide. The OCR pipeline (M2) must take it too.
+PDFIUM_LOCK = threading.Lock()
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MIME_OVERRIDES = {".md": "text/markdown", ".markdown": "text/markdown", ".docx": DOCX_MIME}
@@ -140,6 +143,12 @@ def _number(pieces: list[tuple[str, str]]) -> list[Chunk]:
 
 
 def _pdf(path: Path) -> Extracted:
+    # PDFium isn't thread-safe (pypdfium2's own docs), and imports run in worker threads.
+    with PDFIUM_LOCK:
+        return _pdf_text(path)
+
+
+def _pdf_text(path: Path) -> Extracted:
     import pypdfium2 as pdfium
 
     try:

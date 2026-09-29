@@ -99,3 +99,35 @@ def test_mime_types():
     assert mime_for("a.docx").endswith("wordprocessingml.document")
     assert mime_for("a.pdf") == "application/pdf"
     assert mime_for("a.unknownext") == "application/octet-stream"
+
+
+def test_pdfs_are_read_one_at_a_time(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    pdfs = [
+        write_pdf(tmp_path / f"{i}.pdf", [f"Page text number {i} for the check"]) for i in range(6)
+    ]
+    inside, most = 0, 0
+    guard = threading.Lock()
+    real = text._pdf_text
+
+    def counting(path):
+        nonlocal inside, most
+        with guard:
+            inside += 1
+            most = max(most, inside)
+        try:
+            time.sleep(0.05)  # hold the section open, so threads without the lock would overlap
+            return real(path)
+        finally:
+            with guard:
+                inside -= 1
+
+    monkeypatch.setattr(text, "_pdf_text", counting)
+    threads = [threading.Thread(target=extract, args=(p,)) for p in pdfs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert most == 1
