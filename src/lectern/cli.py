@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import webbrowser
 
 import typer
 
@@ -12,13 +13,21 @@ app = typer.Typer(help="Lectern: a local, modular AI workbench.", no_args_is_hel
 
 
 @app.command()
-def serve(port: int = typer.Option(DEFAULT_PORT, help="Port on 127.0.0.1.")) -> None:
-    """Start the Lectern server on 127.0.0.1."""
+def serve(
+    port: int = typer.Option(DEFAULT_PORT, help="Port on 127.0.0.1."),
+    browser: bool = typer.Option(True, help="Open the browser once the server starts."),
+) -> None:
+    """Start the Lectern server on 127.0.0.1 (never on any other address)."""
     import uvicorn
 
     from lectern.app import create_app
 
-    uvicorn.run(create_app(), host="127.0.0.1", port=port)
+    lectern_app = create_app(port=port)
+    url = f"http://127.0.0.1:{port}/#token={lectern_app.state.token}"
+    typer.echo(f"Lectern is running at {url}")
+    if browser:
+        webbrowser.open(url)
+    uvicorn.run(lectern_app, host="127.0.0.1", port=port)
 
 
 @app.command()
