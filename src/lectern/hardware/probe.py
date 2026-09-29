@@ -30,6 +30,7 @@ class Gpu:
     memory_free: int | None  # bytes; None where the OS doesn't report it
     unified: bool  # shares system RAM (Apple Silicon)
     cuda_driver: str | None = None  # e.g. "13.0"; NVIDIA only
+    compute_capability: str | None = None  # e.g. "6.1" for Pascal; NVIDIA only
 
 
 @dataclass(frozen=True)

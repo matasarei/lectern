@@ -36,6 +36,7 @@ def probe(nvml: Any | None = None) -> list[Gpu]:
             handle = nvml.nvmlDeviceGetHandleByIndex(index)
             name = nvml.nvmlDeviceGetName(handle)
             memory = nvml.nvmlDeviceGetMemoryInfo(handle)
+            major, minor = nvml.nvmlDeviceGetCudaComputeCapability(handle)
             gpus.append(
                 Gpu(
                     vendor="nvidia",
@@ -44,6 +45,7 @@ def probe(nvml: Any | None = None) -> list[Gpu]:
                     memory_free=int(memory.free),
                     unified=False,
                     cuda_driver=cuda,
+                    compute_capability=f"{major}.{minor}",
                 )
             )
         return gpus

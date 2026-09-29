@@ -124,6 +124,18 @@ VARIANTS: dict[str, tuple[Asset, ...]] = {
 }
 
 
+CUDA13_MIN_CAPABILITY = (7, 5)
+
+
+def _capability(value: str | None) -> tuple[int, int]:
+    """ "6.1" -> (6, 1). Unknown counts as old, so the build that covers more GPUs is chosen."""
+    try:
+        major, minor = (value or "").split(".")
+        return int(major), int(minor)
+    except ValueError:
+        return (0, 0)
+
+
 class UnsupportedPlatform(Exception):
     pass
 
@@ -148,10 +160,15 @@ def select_variant(hw: HardwareInfo, *, has_vulkan: Callable[[], bool] = _has_vu
     prefix = "windows" if hw.os == "windows" else "linux"
     nvidia = [g for g in hw.gpus if g.vendor == "nvidia" and g.cuda_driver]
     if nvidia:
-        major = int(nvidia[0].cuda_driver.split(".")[0])  # type: ignore[union-attr]
-        if major >= 13:
+        gpu = nvidia[0]
+        driver = int(gpu.cuda_driver.split(".")[0])  # type: ignore[union-attr]
+        # llama.cpp's CUDA 13 builds only carry code for compute capability 7.5 (Turing) and
+        # newer; Maxwell, Pascal and Volta are built into the CUDA 12 builds only
+        # (ggml/src/ggml-cuda/CMakeLists.txt @ b11236). A driver that supports CUDA 13 still
+        # runs the CUDA 12 build.
+        if driver >= 13 and _capability(gpu.compute_capability) >= CUDA13_MIN_CAPABILITY:
             return f"{prefix}-cuda13"
-        if major == 12:
+        if driver >= 12:
             return f"{prefix}-cuda12"
     return f"{prefix}-vulkan" if has_vulkan() else f"{prefix}-cpu"
 

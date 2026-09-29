@@ -16,8 +16,9 @@ class FakeNvml:
     class NVMLError(Exception):
         pass
 
-    def __init__(self, cards=(), *, cuda=13000, init_fails=False):
+    def __init__(self, cards=(), *, cuda=13000, init_fails=False, capability=(8, 9)):
         self.cards = list(cards)
+        self.capability = capability
         self.cuda = cuda
         self.init_fails = init_fails
         self.shut_down = False
@@ -45,6 +46,9 @@ class FakeNvml:
         name, total, free = self.cards[handle]
         return SimpleNamespace(total=total, free=free)
 
+    def nvmlDeviceGetCudaComputeCapability(self, handle):
+        return self.capability
+
 
 def test_nvidia_card_is_reported():
     nvml = FakeNvml([(b"NVIDIA GeForce RTX 4060", 8188 * MIB, 7000 * MIB)], cuda=12040)
@@ -58,8 +62,15 @@ def test_nvidia_card_is_reported():
         memory_free=7000 * MIB,
         unified=False,
         cuda_driver="12.4",
+        compute_capability="8.9",
     )
     assert nvml.shut_down
+
+
+def test_pascal_card_reports_its_compute_capability():
+    nvml = FakeNvml([(b"NVIDIA GeForce GTX 1050 Ti", 4096 * MIB, 4022 * MIB)], capability=(6, 1))
+    [gpu] = nvidia.probe(nvml)
+    assert (gpu.cuda_driver, gpu.compute_capability) == ("13.0", "6.1")
 
 
 def test_no_nvidia_driver_means_no_gpus():
