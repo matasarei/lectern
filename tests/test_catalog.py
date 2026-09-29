@@ -109,3 +109,19 @@ def test_models_api_flags_restricted_and_lists_defaults(paths, monkeypatch):
     assert by_id["chandra-ocr-2"]["licence_notice"] is True
     assert by_id["qwen3.5-4b"]["licence_notice"] is False
     assert by_id["qwen3.5-4b"]["size"] == 2740937888
+
+
+@pytest.mark.parametrize(
+    "bad", ["../escape.gguf", "/etc/passwd", "a/../../b.gguf", "dir\\file.gguf", "", "a//b.gguf"]
+)
+def test_file_paths_must_stay_in_the_model_folder(bad):
+    raw = _raw()
+    raw["models"][0]["files"]["model"][0]["path"] = bad
+    with pytest.raises(ValidationError, match="plain relative path"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_a_subfolder_path_is_fine():
+    raw = _raw()
+    raw["models"][0]["files"]["model"][0]["path"] = "Q4_K_M/model-00001-of-00002.gguf"
+    catalog.Catalog.model_validate(raw)

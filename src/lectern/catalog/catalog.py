@@ -11,7 +11,7 @@ from importlib import resources
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lectern.hardware.tiers import Tier
 
@@ -22,6 +22,20 @@ class ModelFile(BaseModel):
     path: str
     size: int = Field(gt=0)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("path")
+    @classmethod
+    def _stays_in_the_model_folder(cls, path: str) -> str:
+        # Downloads are written to <models>/<id>/<path>; nothing may point outside that.
+        parts = path.split("/")
+        if (
+            not path
+            or path.startswith("/")
+            or "\\" in path
+            or any(p in ("", ".", "..") for p in parts)
+        ):
+            raise ValueError(f"file path must be a plain relative path: {path!r}")
+        return path
 
 
 class ModelFiles(BaseModel):
