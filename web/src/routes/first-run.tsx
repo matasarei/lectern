@@ -156,6 +156,11 @@ function SandboxCard({ initial }: { initial: SandboxStatus }) {
           </button>
         </>
       )}
+      {check.isError && !check.isFetching && (
+        <ErrorNote
+          message={check.error instanceof ApiError ? check.error.detail : t("common.loadFailed")}
+        />
+      )}
     </Card>
   );
 }

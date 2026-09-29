@@ -14,6 +14,7 @@ const stopped = { runtime: "docker", version: null, engine_running: false, found
 const running = { runtime: "docker", version: "28.1", engine_running: true, found: ["docker"] };
 
 let sandboxAnswer: unknown;
+let sandboxFails = false;
 let sandboxChecks = 0;
 
 const responses = (): Record<string, unknown> => ({
@@ -37,6 +38,7 @@ const responses = (): Record<string, unknown> => ({
 
 beforeEach(() => {
   sandboxAnswer = stopped;
+  sandboxFails = false;
   sandboxChecks = 0;
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
@@ -45,6 +47,7 @@ beforeEach(() => {
       if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/system/sandbox") {
         sandboxChecks += 1;
+        if (sandboxFails) throw new TypeError("Failed to fetch");
         return new Response(JSON.stringify(sandboxAnswer));
       }
       return new Response(JSON.stringify(responses()[url]));
@@ -93,5 +96,16 @@ describe("First run: the sandbox card", () => {
 
     expect(await screen.findByText(/Docker 28.1 is running/)).toBeTruthy();
     expect(sandboxChecks).toBe(1);
+  });
+
+  it("says so when a check fails", async () => {
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Check again" });
+
+    sandboxFails = true;
+    fireEvent.click(button);
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Lectern didn't answer/);
+    expect(screen.getByTestId("sandbox-status").textContent).toMatch(/not running/);
   });
 });
