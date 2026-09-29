@@ -6,8 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from lectern.app import create_app
-from lectern.core.auth import User
+from lectern.core.auth import LOCAL_USER, User
 from lectern.core.tables import UserRow
+from lectern.projects import files
+from lectern.projects.files import Origin
 
 BASE = "http://127.0.0.1:8765"
 
@@ -132,3 +134,97 @@ def test_import_needs_the_token(api):
     client, _, _ = api
     response = client.put("/api/projects/1/files", params={"name": "a.txt"}, content=b"x")
     assert response.status_code == 401
+
+
+def test_overview_lists_sessions_and_files_with_their_origin(api):
+    client, headers, app = api
+    pid = _project(client, headers)
+    imported = client.put(
+        f"/api/projects/{pid}/files", params={"name": "scan.txt"}, content=b"lease text",
+        headers=headers,
+    ).json()  # fmt: skip
+    project = app.state.projects.get(LOCAL_USER, pid)
+    with app.state.projects.db(project).begin() as session:
+        files.write_text(
+            project.root, session, owner_id=LOCAL_USER.id, name="reply.md", text="# Reply",
+            origin=Origin("session", id=1),
+        )  # fmt: skip
+
+    items = client.get(f"/api/projects/{pid}/items", headers=headers).json()
+
+    assert [(s["id"], s["kind"], s["title"], s["messages"]) for s in items["sessions"]] == [
+        (1, "chat", "New chat", 0)
+    ]
+    by_name = {a["name"]: a for a in items["artifacts"]}
+    assert by_name["scan.txt"]["from"] == {
+        "kind": "import",
+        "id": None,
+        "note": None,
+        "title": None,
+    }
+    assert by_name["reply.md"]["from"]["title"] == "New chat"
+    assert by_name["reply.md"]["kind"] == "generated"
+    assert imported["id"] == by_name["scan.txt"]["id"]
+
+
+def test_project_search_returns_file_names_and_block_refs(api):
+    client, headers, _ = api
+    pid = _project(client, headers)
+    client.put(
+        f"/api/projects/{pid}/files", params={"name": "terms.md"},
+        content="# Пеня\n0,5% за кожен день прострочення".encode(), headers=headers,
+    )  # fmt: skip
+
+    hits = client.get(f"/api/projects/{pid}/search", params={"q": "простроч"}, headers=headers)
+
+    assert [(h["name"], h["ref"], h["heading"]) for h in hits.json()] == [
+        ("terms.md", "#c1", "Пеня")
+    ]
+    assert "прострочення" in hits.json()[0]["snippet"]
+
+
+def test_tabs_default_to_the_first_chat_and_are_remembered(api):
+    client, headers, _ = api
+    pid = _project(client, headers)
+
+    assert client.get(f"/api/projects/{pid}/tabs", headers=headers).json() == {
+        "open": [{"kind": "session", "id": 1}],
+        "active": {"kind": "session", "id": 1},
+    }
+    row = client.put(
+        f"/api/projects/{pid}/files", params={"name": "a.txt"}, content=b"a", headers=headers
+    ).json()
+    saved = {"open": [{"kind": "artifact", "id": row["id"]}], "active": None}
+    assert client.put(f"/api/projects/{pid}/tabs", json=saved, headers=headers).status_code == 200
+    assert client.get(f"/api/projects/{pid}/tabs", headers=headers).json() == saved
+
+
+def test_tabs_for_things_that_are_gone_are_dropped(api):
+    client, headers, app = api
+    pid = _project(client, headers)
+    row = client.put(
+        f"/api/projects/{pid}/files", params={"name": "a.txt"}, content=b"a", headers=headers
+    ).json()
+    tab = {"kind": "artifact", "id": row["id"]}
+    client.put(
+        f"/api/projects/{pid}/tabs",
+        json={"open": [tab, {"kind": "session", "id": 99}], "active": tab},
+        headers=headers,
+    )
+    project = app.state.projects.get(LOCAL_USER, pid)
+    with app.state.projects.db(project).begin() as session:
+        files.trash(project.root, session, row["id"])
+
+    assert client.get(f"/api/projects/{pid}/tabs", headers=headers).json() == {
+        "open": [],
+        "active": None,
+    }
+
+
+def test_tabs_are_validated(api):
+    client, headers, _ = api
+    pid = _project(client, headers)
+    bad = {"open": [{"kind": "terminal", "id": 1}]}
+    assert client.put(f"/api/projects/{pid}/tabs", json=bad, headers=headers).status_code == 422
+    many = {"open": [{"kind": "session", "id": i} for i in range(31)]}
+    assert client.put(f"/api/projects/{pid}/tabs", json=many, headers=headers).status_code == 422

@@ -7,17 +7,17 @@ project both answer 404, so ids can't be probed.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from lectern.core.auth import User, current_user
-from lectern.projects import files
+from lectern.projects import files, search
 from lectern.projects.store import UNTITLED, Project, ProjectNotFound, ProjectStore
-from lectern.projects.tables import ArtifactRow, SessionRow
+from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow, UiStateRow
 
 router = APIRouter()
 
@@ -83,7 +83,7 @@ def rename_project(project_id: int, body: Rename, request: Request, user: Curren
 # --- files ---------------------------------------------------------------------------------
 
 
-def artifact_dict(row: ArtifactRow) -> dict:
+def artifact_dict(row: ArtifactRow, from_title: str | None = None) -> dict:
     return {
         "id": row.id,
         "name": row.path,
@@ -92,7 +92,12 @@ def artifact_dict(row: ArtifactRow) -> dict:
         "size": row.size,
         "text": row.text_status,
         "text_note": row.text_note,
-        "from": {"kind": row.from_kind, "id": row.from_id, "note": row.from_note},
+        "from": {
+            "kind": row.from_kind,
+            "id": row.from_id,
+            "note": row.from_note,
+            "title": from_title,
+        },
         "created_at": row.created_at.isoformat(),
         "modified_at": row.modified_at.isoformat(),
     }
@@ -149,3 +154,126 @@ def artifact_content(
         content_disposition_type="inline" if inline else "attachment",
         headers={"Cache-Control": "no-store"},  # LocalGuard adds nosniff and the CSP
     )
+
+
+# --- Overview, search and tabs -------------------------------------------------------------
+
+
+@router.get("/projects/{project_id}/items")
+def project_items(project_id: int, request: Request, user: CurrentUser) -> dict:
+    """Everything Overview lists: sessions, and files with where each came from."""
+    project = open_project(request, project_id, user)
+    with store(request).db(project)() as session:
+        counts = dict(
+            session.execute(
+                select(MessageRow.session_id, func.count())
+                .where(MessageRow.role != "tool")
+                .group_by(MessageRow.session_id)
+            ).all()
+        )
+        chats = session.scalars(
+            select(SessionRow).where(SessionRow.owner_id == user.id).order_by(SessionRow.id)
+        ).all()
+        titles = {c.id: c.title for c in chats}
+        rows = [r for r in files.live(session) if r.owner_id == user.id]
+        names = {r.id: r.path for r in rows}
+    return {
+        "sessions": [
+            {
+                "id": c.id,
+                "kind": c.kind,
+                "title": c.title,
+                "messages": counts.get(c.id, 0),
+                "created_at": c.created_at.isoformat(),
+                "updated_at": c.updated_at.isoformat(),
+            }
+            for c in chats
+        ],
+        "artifacts": [artifact_dict(r, _from_title(r, titles, names)) for r in rows],
+    }
+
+
+def _from_title(
+    row: ArtifactRow, sessions: dict[int, str], artifacts: dict[int, str]
+) -> str | None:
+    if row.from_kind == "session" and row.from_id is not None:
+        return sessions.get(row.from_id)
+    if row.from_kind == "artifact" and row.from_id is not None:
+        return artifacts.get(row.from_id)
+    return None
+
+
+@router.get("/projects/{project_id}/search")
+def search_project(
+    project_id: int,
+    request: Request,
+    user: CurrentUser,
+    q: Annotated[str, Query(max_length=500)],
+) -> list[dict]:
+    project = open_project(request, project_id, user)
+    with store(request).db(project)() as session:
+        names = {r.id: r.path for r in files.live(session) if r.owner_id == user.id}
+        hits = search.search(session, q, limit=20, artifact_ids=list(names))
+    return [
+        {
+            "artifact_id": h.artifact_id,
+            "name": names[h.artifact_id],
+            "ref": h.ref,
+            "heading": h.heading,
+            "snippet": h.snippet,
+        }
+        for h in hits
+    ]
+
+
+TABS_KEY = "tabs"
+MAX_TABS = 30
+
+
+class Tab(BaseModel):
+    kind: Literal["session", "artifact"]
+    id: int
+
+
+class Tabs(BaseModel):
+    open: list[Tab] = Field(max_length=MAX_TABS)
+    active: Tab | None = None  # None: Overview
+
+
+@router.get("/projects/{project_id}/tabs")
+def get_tabs(project_id: int, request: Request, user: CurrentUser) -> dict:
+    """The open tabs, as last saved. Tabs for things that no longer exist are dropped. A
+    project nobody has opened yet shows its first chat."""
+    project = open_project(request, project_id, user)
+    with store(request).db(project)() as session:
+        chats = set(
+            session.scalars(select(SessionRow.id).where(SessionRow.owner_id == user.id)).all()
+        )
+        live = {r.id for r in files.live(session) if r.owner_id == user.id}
+        row = session.get(UiStateRow, TABS_KEY)
+    if row is None:
+        first = min(chats) if chats else None
+        tabs = Tabs(open=[Tab(kind="session", id=first)] if first else [])
+        tabs.active = tabs.open[0] if tabs.open else None
+    else:
+        tabs = Tabs.model_validate_json(row.value)
+
+    def exists(tab: Tab) -> bool:
+        return tab.id in (chats if tab.kind == "session" else live)
+
+    tabs.open = [t for t in tabs.open if exists(t)]
+    if tabs.active is not None and not exists(tabs.active):
+        tabs.active = None
+    return tabs.model_dump()
+
+
+@router.put("/projects/{project_id}/tabs")
+def put_tabs(project_id: int, body: Tabs, request: Request, user: CurrentUser) -> dict:
+    project = open_project(request, project_id, user)
+    with store(request).db(project).begin() as session:
+        row = session.get(UiStateRow, TABS_KEY)
+        if row is None:
+            session.add(UiStateRow(key=TABS_KEY, value=body.model_dump_json()))
+        else:
+            row.value = body.model_dump_json()
+    return body.model_dump()
