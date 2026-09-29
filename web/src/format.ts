@@ -60,3 +60,10 @@ export function fileType(name: string, mime: string): string {
   const ext = name.includes(".") ? name.split(".").pop()!.toUpperCase() : "";
   return ext || "file";
 }
+
+/** Token counts the way the context line shows them: 950, 5.1k, 12k. */
+export function formatTokens(tokens: number): string {
+  if (tokens < 1000) return String(Math.round(tokens));
+  const k = tokens / 1000;
+  return `${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+}

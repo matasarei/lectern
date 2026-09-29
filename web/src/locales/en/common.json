@@ -217,7 +217,27 @@
     "progressSeconds": "{{label}} · {{seconds}} s",
     "progressBar": "{{label}}: {{pct}}%",
     "script": "The script",
-    "scriptLoading": "Loading the script…"
+    "scriptLoading": "Loading the script…",
+    "pinned": "Pinned",
+    "unpin": "Unpin: {{text}}",
+    "pinnedKind": {
+      "instruction": "instruction",
+      "fact": "fact"
+    },
+    "summarised_one": "{{count}} earlier message is summarised for the model. It's still here.",
+    "summarised_other": "{{count}} earlier messages are summarised for the model. They're all still here.",
+    "compacting": "Tidying up the context…",
+    "compacted_one": "Folded {{count}} older message into the summary.",
+    "compacted_other": "Folded {{count}} older messages into the summary.",
+    "compactionFailed": "Couldn't update the summary ({{detail}}); older messages are left out instead.",
+    "usage": "Context {{used}} of {{budget}}",
+    "usagePart": "{{name}} {{tokens}}",
+    "usageParts": {
+      "pinned": "pinned",
+      "files": "files",
+      "summary": "summary",
+      "turns": "recent"
+    }
   },
   "file": {
     "details": "Details",

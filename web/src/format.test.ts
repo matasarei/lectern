@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fileType, formatAgo, formatBytes, formatMemory, percent } from "./format";
+import { fileType, formatAgo, formatBytes, formatMemory, formatTokens, percent } from "./format";
 
 describe("formatBytes", () => {
   it("uses GB from one gigabyte up", () => {
@@ -51,5 +51,13 @@ describe("fileType", () => {
     expect(fileType("scan.pdf", "application/pdf")).toBe("PDF");
     expect(fileType("stamp.jpg", "image/jpeg")).toBe("image");
     expect(fileType("README", "text/plain")).toBe("file");
+  });
+});
+
+describe("formatTokens", () => {
+  it("shows small counts whole and larger ones in k", () => {
+    expect(formatTokens(950)).toBe("950");
+    expect(formatTokens(5100)).toBe("5.1k");
+    expect(formatTokens(12400)).toBe("12k");
   });
 });
