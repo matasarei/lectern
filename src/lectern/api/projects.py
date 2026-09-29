@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from lectern.core.auth import User, current_user
 from lectern.projects import files, search
 from lectern.projects.store import UNTITLED, Project, ProjectNotFound, ProjectStore
-from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow, UiStateRow
+from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow, UiStateRow, iso
 
 router = APIRouter()
 
@@ -42,7 +42,7 @@ def project_dict(project: Project) -> dict:
         "id": project.id,
         "name": project.name,
         "folder": str(project.root),
-        "created_at": created.isoformat() if isinstance(created, datetime) else None,
+        "created_at": iso(created) if isinstance(created, datetime) else None,
     }
 
 
@@ -98,8 +98,8 @@ def artifact_dict(row: ArtifactRow, from_title: str | None = None) -> dict:
             "note": row.from_note,
             "title": from_title,
         },
-        "created_at": row.created_at.isoformat(),
-        "modified_at": row.modified_at.isoformat(),
+        "created_at": iso(row.created_at),
+        "modified_at": iso(row.modified_at),
     }
 
 
@@ -167,7 +167,12 @@ def project_items(project_id: int, request: Request, user: CurrentUser) -> dict:
         counts = dict(
             session.execute(
                 select(MessageRow.session_id, func.count())
-                .where(MessageRow.role != "tool")
+                # What the person sees as messages: theirs, and replies with text (not the
+                # model's tool-call steps or the tools' results).
+                .where(
+                    (MessageRow.role == "user")
+                    | ((MessageRow.role == "assistant") & (MessageRow.content != ""))
+                )
                 .group_by(MessageRow.session_id)
             ).all()
         )
@@ -184,8 +189,8 @@ def project_items(project_id: int, request: Request, user: CurrentUser) -> dict:
                 "kind": c.kind,
                 "title": c.title,
                 "messages": counts.get(c.id, 0),
-                "created_at": c.created_at.isoformat(),
-                "updated_at": c.updated_at.isoformat(),
+                "created_at": iso(c.created_at),
+                "updated_at": iso(c.updated_at),
             }
             for c in chats
         ],

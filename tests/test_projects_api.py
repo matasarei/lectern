@@ -10,6 +10,7 @@ from lectern.core.auth import LOCAL_USER, User
 from lectern.core.tables import UserRow
 from lectern.projects import files
 from lectern.projects.files import Origin
+from lectern.projects.tables import MessageRow
 
 BASE = "http://127.0.0.1:8765"
 
@@ -228,3 +229,26 @@ def test_tabs_are_validated(api):
     assert client.put(f"/api/projects/{pid}/tabs", json=bad, headers=headers).status_code == 422
     many = {"open": [{"kind": "session", "id": i} for i in range(31)]}
     assert client.put(f"/api/projects/{pid}/tabs", json=many, headers=headers).status_code == 422
+
+
+def test_times_carry_their_zone_and_counts_leave_out_tool_steps(api):
+    client, headers, app = api
+    pid = _project(client, headers)
+    project = app.state.projects.get(LOCAL_USER, pid)
+    with app.state.projects.db(project).begin() as session:
+        for role, content in [
+            ("user", "Find the lease"),
+            ("assistant", ""),  # a tool-call step
+            ("tool", "lease.md · file"),
+            ("assistant", "It's lease.md."),
+        ]:
+            session.add(MessageRow(session_id=1, role=role, content=content))
+
+    items = client.get(f"/api/projects/{pid}/items", headers=headers).json()
+
+    chat = items["sessions"][0]
+    assert chat["messages"] == 2
+    assert chat["updated_at"].endswith("+00:00")
+    assert (
+        client.get(f"/api/projects/{pid}", headers=headers).json()["created_at"].endswith("+00:00")
+    )

@@ -18,6 +18,14 @@ def now() -> datetime:
     return datetime.now(UTC)
 
 
+def iso(moment: datetime) -> str:
+    """A stored time as ISO 8601 in UTC. SQLite hands times back without their zone, and a
+    browser would read those as local time."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.isoformat()
+
+
 def one_of(column: str, values: tuple[str, ...]) -> str:
     """A CHECK expression; also right for a single value, where a tuple's repr isn't SQL."""
     return f"{column} IN ({', '.join(repr(v) for v in values)})"
