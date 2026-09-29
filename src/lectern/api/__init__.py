@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, WebSocket
 
+from lectern.api import system
 from lectern.core.auth import current_user
 from lectern.core.security import WS_SUBPROTOCOL
 
@@ -17,4 +18,5 @@ def api_router() -> APIRouter:
         await websocket.send_text("pong")
         await websocket.close()
 
+    router.include_router(system.router)
     return router

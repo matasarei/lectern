@@ -13,6 +13,8 @@ dependencies = [
     "platformdirs>=4.3",
     "sqlalchemy>=2.0",
     "alembic>=1.14",
+    "psutil>=6.1",
+    "nvidia-ml-py>=12.560",
 ]
 
 [project.scripts]
@@ -46,5 +48,5 @@ ignore = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --import-mode=importlib"
 filterwarnings = ["error"]

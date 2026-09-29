@@ -33,4 +33,7 @@ def serve(
 @app.command()
 def doctor() -> None:
     """Print what Lectern knows about this machine, as JSON."""
-    typer.echo(json.dumps({"status": "not implemented yet"}, indent=2))
+    from lectern.api.system import system_report
+    from lectern.config import get_paths
+
+    typer.echo(json.dumps(system_report(get_paths()), indent=2))
