@@ -131,3 +131,73 @@ def test_real_server_starts_needs_its_key_reports_memory_and_stops(tmp_path):
 
     handle = asyncio.run(go())
     assert not handle.is_running()
+
+
+FAKE_SERVER = """#!/usr/bin/env python3
+# Stands in for llama-server: fails to bind the first N times, then answers /health.
+import http.server, pathlib, sys
+args = sys.argv[1:]
+port = int(args[args.index("--port") + 1])
+count_file = pathlib.Path(__file__).with_name("starts")
+count = int(count_file.read_text()) + 1 if count_file.exists() else 1
+count_file.write_text(str(count))
+if count <= {fail_binds}:
+    print("E srv start: couldn't bind HTTP server socket, port: %d" % port, flush=True)
+    sys.exit(1)
+if {other_failure}:
+    print("error: failed to load model", flush=True)
+    sys.exit(1)
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+    def log_message(self, *a): pass
+http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
+"""
+
+
+def _fake_server(tmp_path, *, fail_binds=0, other_failure=False):
+    server = tmp_path / "bin" / "llama-server"
+    server.parent.mkdir()
+    server.write_text(FAKE_SERVER.format(fail_binds=fail_binds, other_failure=other_failure))
+    server.chmod(0o755)
+    return server
+
+
+def _starts(server):
+    return int((server.parent / "starts").read_text())
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="shebang script")
+def test_a_port_taken_before_binding_is_retried_on_a_new_port(tmp_path):
+    server = _fake_server(tmp_path, fail_binds=1)
+    runner = LlamaCppRunner(server, tmp_path / "work", ready_timeout=20)
+
+    async def go():
+        handle = await runner.start(_spec())
+        try:
+            return handle.is_running()
+        finally:
+            await handle.stop()
+
+    assert asyncio.run(go()) is True
+    assert _starts(server) == 2
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="shebang script")
+def test_other_start_failures_are_not_retried(tmp_path):
+    server = _fake_server(tmp_path, other_failure=True)
+    runner = LlamaCppRunner(server, tmp_path / "work", ready_timeout=20)
+
+    with pytest.raises(RunnerError, match="failed to load model"):
+        asyncio.run(runner.start(_spec()))
+    assert _starts(server) == 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="shebang script")
+def test_bind_failures_give_up_after_three_attempts(tmp_path):
+    server = _fake_server(tmp_path, fail_binds=5)
+    runner = LlamaCppRunner(server, tmp_path / "work", ready_timeout=20)
+
+    with pytest.raises(RunnerError, match="couldn't bind"):
+        asyncio.run(runner.start(_spec()))
+    assert _starts(server) == 3

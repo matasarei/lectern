@@ -28,6 +28,8 @@ MIB = 1024**2
 READY_TIMEOUT = 120.0
 STOP_GRACE = 10.0
 LOG_VERBOSITY = "4"
+PORT_ATTEMPTS = 3
+BIND_FAILED = "couldn't bind HTTP server socket"  # llama-server b11236, server.cpp
 
 _PROJECTED = re.compile(r"projected to use (\d+) MiB of device memory")
 _BUFFER = re.compile(
@@ -147,7 +149,6 @@ class LlamaCppRunner:
         slot_dir = run_dir / "slots"
         slot_dir.mkdir(exist_ok=True)
         log_file = run_dir / "server.log"
-        port = free_port()
 
         env = dict(os.environ)
         if sys.platform.startswith("linux"):
@@ -155,24 +156,35 @@ class LlamaCppRunner:
             env["LD_LIBRARY_PATH"] = os.pathsep.join(
                 p for p in (str(self.server.parent), env.get("LD_LIBRARY_PATH")) if p
             )
-        with log_file.open("wb") as log:
-            process = await asyncio.create_subprocess_exec(
-                str(self.server),
-                *build_args(spec, port=port, key_file=key_file, slot_dir=slot_dir),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=log,
-                stderr=asyncio.subprocess.STDOUT,
-                env=env,
+        # free_port() can't reserve the port: another program may take it before llama-server
+        # binds. llama-server binds before loading the model, so that failure is quick and
+        # recognisable; try again on a new port.
+        for attempt in range(1, PORT_ATTEMPTS + 1):
+            port = free_port()
+            with log_file.open("wb") as log:
+                process = await asyncio.create_subprocess_exec(
+                    str(self.server),
+                    *build_args(spec, port=port, key_file=key_file, slot_dir=slot_dir),
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=asyncio.subprocess.STDOUT,
+                    env=env,
+                )
+            handle = LlamaCppHandle(
+                model_id=spec.model_id, process=process, port=port, key=key, log_file=log_file
             )
-        handle = LlamaCppHandle(
-            model_id=spec.model_id, process=process, port=port, key=key, log_file=log_file
-        )
-        try:
-            await self._wait_ready(handle)
-        except BaseException:
-            await handle.stop()
-            raise
-        return handle
+            try:
+                await self._wait_ready(handle)
+            except RunnerError:
+                await handle.stop()
+                if attempt < PORT_ATTEMPTS and BIND_FAILED in handle.log_tail():
+                    continue
+                raise
+            except BaseException:
+                await handle.stop()
+                raise
+            return handle
+        raise AssertionError("unreachable")  # the last attempt returns or raises
 
     async def _wait_ready(self, handle: LlamaCppHandle) -> None:
         loop = asyncio.get_running_loop()
