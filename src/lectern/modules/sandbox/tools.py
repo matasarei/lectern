@@ -25,7 +25,8 @@ from lectern.catalog import catalog
 from lectern.modules.sandbox.container import IMAGE, RunResult, Sandbox, SandboxError
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow, ScriptRunRow
-from lectern.runtime.supervisor import Priority
+from lectern.runners.base import RunnerError
+from lectern.runtime.supervisor import NotAvailable, Priority
 
 SCRIPTS = "scripts"
 OUTPUTS = "scripts/out"
@@ -306,6 +307,14 @@ async def _code_write(ctx: ToolContext, params: WriteParams) -> ToolResult:
     job_dir = ctx.project.root / files.DATA_DIR / "jobs" / uuid.uuid4().hex[:12]
     try:
         return await _write_and_test(ctx, box, params, inputs, job_dir)
+    except (NotAvailable, RunnerError) as exc:
+        # The coding model couldn't be loaded (too big for the memory left, or its server
+        # didn't start). The chat carries on, and the model says the result isn't computed.
+        reason = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        raise ToolError(
+            f"The coding model couldn't start: {reason} Show the formula and say the result "
+            "is not computed."
+        ) from None
     finally:
         shutil.rmtree(job_dir, ignore_errors=True)
 

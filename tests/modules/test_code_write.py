@@ -6,16 +6,21 @@ import json
 import pytest
 from sqlalchemy import select
 
-from lectern.agent.tools import ToolError
+from lectern.agent.core_tools import CORE_TOOLS
+from lectern.agent.tools import Registry, ToolError
+from lectern.agent.turns import TurnManager
 from lectern.catalog import catalog
+from lectern.core.auth import LOCAL_USER
 from lectern.downloads.manager import DownloadState, EventHub
 from lectern.hardware.tiers import Tier
 from lectern.modules.sandbox.container import RunResult
 from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code
 from lectern.projects import files
 from lectern.projects.tables import ScriptRunRow
+from lectern.runners.base import RunnerError
+from lectern.runtime.supervisor import NotAvailable
 
-from ..agent.fake_model import GIB, FakeHandle, make_runtime
+from ..agent.fake_model import GIB, FakeHandle, make_runtime, text_reply, tool_reply
 from .conftest import FakeSandbox, add
 
 GOOD = "```python\nprint('penalty', round(250 * 0.005 * 50, 2))\n```"
@@ -206,3 +211,54 @@ def test_extract_code(text, code):
 def test_script_names_are_plain_slugs(name):
     with pytest.raises(ToolError):
         CODE_WRITE.validate({**BRIEF, "name": name})
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (NotAvailable("Qwen2.5-Coder 1.5B doesn't fit next to the chat model."), "doesn't fit"),
+        (RunnerError("llama-server exited with code 1\nlong log"), "exited with code 1"),
+    ],
+)
+def test_a_coding_model_that_cannot_start_means_not_computed(make_ctx, failure, reason):
+    class Failing:
+        tier = Tier.MINIMUM
+
+        def lease(self, role, priority):  # noqa: ANN001
+            raise failure
+
+    ctx, _ = ctx_for(make_ctx, [], runtime=Failing())
+    with pytest.raises(ToolError, match=f"coding model couldn't start: .*{reason}.*not computed"):
+        write(ctx)
+    assert not (ctx.project.root / "scripts").exists()
+    assert not any((ctx.project.root / ".lectern" / "jobs").glob("*"))
+
+
+def test_in_a_turn_the_model_gets_the_error_and_the_turn_goes_on(store):
+    handle = FakeHandle(
+        [tool_reply("code_write", BRIEF), text_reply("Not computed: 250 × 0.5% × days.")]
+    )
+    runtime = make_runtime(handle)
+    real_lease = runtime.lease
+
+    def lease(role, priority=None):  # noqa: ANN001
+        if role == "code":
+            raise NotAvailable("The coding model doesn't fit.")
+        return real_lease(role, priority) if priority is not None else real_lease(role)
+
+    runtime.lease = lease  # type: ignore[method-assign]
+    manager = TurnManager(
+        runtime, store, Registry([*CORE_TOOLS, CODE_WRITE]),
+        downloads=FakeDownloads(), sandbox=FakeSandbox(),
+    )  # fmt: skip
+    project = store.create(LOCAL_USER, "Turn")
+
+    async def scenario():
+        await manager.send(project, LOCAL_USER, 1, "What's the penalty?", [])
+        return await manager.wait((project.id, 1))
+
+    assert asyncio.run(scenario()) == "done"
+    tool_result = handle.requests[1]["messages"][-1]["content"]
+    assert tool_result.startswith(
+        "Error: The coding model couldn't start: The coding model doesn't"
+    )
