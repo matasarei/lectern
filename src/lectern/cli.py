@@ -132,6 +132,9 @@ def _stream_chat(client, prompt: str, *, echo: bool, max_tokens: int = 512) -> d
                 done = event
     if echo:
         typer.echo()
+    if not done:
+        typer.echo("Error: the server ended the reply before it finished.", err=True)
+        raise typer.Exit(1)
     return done
 
 

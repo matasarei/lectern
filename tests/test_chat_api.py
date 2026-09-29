@@ -8,8 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from lectern.app import create_app
+from lectern.downloads.fetch import DownloadError
 from lectern.hardware.tiers import Tier
-from lectern.runners.base import MeasuredMemory
+from lectern.runners.base import MeasuredMemory, RunnerError
 from lectern.runtime.planner import ModelShape
 from lectern.runtime.supervisor import ModelChoice, ModelRuntime, NotAvailable
 
@@ -198,3 +199,50 @@ def test_routes_reading_runtime_state_run_on_the_event_loop():
     # A sync route would run in a worker thread while the loop changes the runtime's dicts.
     assert inspect.iscoroutinefunction(runtime_api.get_runtime)
     assert inspect.iscoroutinefunction(runtime_api.runtime_events)
+
+
+class _FailingRunner:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    async def start(self, spec):  # noqa: ANN001
+        raise self.exc
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (
+            RunnerError("llama-server for qwen3.5-4b exited with code 1.\nerror: bad magic"),
+            "exited with code 1.",
+        ),
+        (
+            DownloadError("llama.tar.gz: HTTP 503"),
+            "HTTP 503",
+        ),
+    ],
+)
+def test_a_model_that_cannot_start_is_an_error_event(paths, exc, expected):
+    def resolve(role):
+        return ModelChoice(role, "qwen3.5-4b", Path("/m/q.gguf"), 2 * GIB, SHAPE, 8192)
+
+    runtime = ModelRuntime(
+        budget=8 * GIB,
+        unified=False,
+        tier=Tier.MINIMUM,
+        resolve=resolve,
+        runner_for=lambda c: _FailingRunner(exc),
+    )
+    app = create_app(paths, runtime=runtime)
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+    client = TestClient(app, base_url=BASE)
+
+    events = _events(
+        client.post(
+            "/api/chat", json={"messages": [{"role": "user", "content": "x"}]}, headers=headers
+        )
+    )
+
+    assert events[-1]["type"] == "error"
+    assert events[-1]["detail"].endswith(expected)
+    assert runtime.state()["waiting"] == 0

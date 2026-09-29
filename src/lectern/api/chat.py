@@ -11,11 +11,14 @@ import json
 import time
 from collections.abc import AsyncIterator
 
+import httpx2
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from lectern.api.sse import encode
+from lectern.downloads.fetch import DownloadError
+from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable, Priority
 
 router = APIRouter()
@@ -81,6 +84,13 @@ async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
                                 yield encode({"type": "delta", "text": text})
         except NotAvailable as exc:
             yield encode({"type": "error", "detail": str(exc)})
+            return
+        except (RunnerError, DownloadError) as exc:
+            # The model couldn't start, or its llama.cpp build couldn't be installed.
+            yield encode({"type": "error", "detail": str(exc).splitlines()[0]})
+            return
+        except httpx2.HTTPError as exc:
+            yield encode({"type": "error", "detail": f"Lost the model server: {exc}"})
             return
         ended = time.perf_counter()
         own_tps = tokens / (ended - first) if first and tokens and ended > first else None
