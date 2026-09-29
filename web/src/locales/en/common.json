@@ -214,5 +214,19 @@
     "toolCall": "{{name}}({{args}})",
     "noResult": "…",
     "attachments": "Attached: {{names}}"
+  },
+  "file": {
+    "details": "Details",
+    "type": "Type",
+    "size": "Size",
+    "text": "Text",
+    "from": "Where it came from",
+    "openSource": "Open {{title}}",
+    "download": "Download",
+    "tooLarge": "This file is too large to show here. Download it to open it.",
+    "noPreview": "This kind of file can't be shown here yet.",
+    "gone": "This file is no longer in the project.",
+    "textIndexed": "readable by the chat and search",
+    "imageAlt": "Preview of {{name}}"
   }
 }
