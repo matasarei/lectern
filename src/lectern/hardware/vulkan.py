@@ -7,6 +7,7 @@ the Vulkan backend can use, in one format for every backend (llama.cpp common/ar
 
 from __future__ import annotations
 
+import functools
 import re
 import subprocess
 from dataclasses import dataclass
@@ -54,6 +55,13 @@ def list_devices(server: Path) -> list[Device]:
     except (OSError, subprocess.SubprocessError):
         return []
     return parse_devices(result.stdout + result.stderr)
+
+
+@functools.cache
+def cached_devices(server: Path) -> tuple[Device, ...]:
+    """The device list for one llama-server build, asked once per process: asking starts
+    llama-server and initialises Vulkan, and the GPUs don't change while the app runs."""
+    return tuple(list_devices(server))
 
 
 def _vendor(description: str) -> str:

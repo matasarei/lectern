@@ -71,3 +71,22 @@ def test_probe_asks_vulkan_only_without_nvidia():
 def test_probe_without_a_vulkan_build_is_cpu_only(paths):
     hw = probe(os_name="linux", nvidia_probe=lambda: [])
     assert hw.gpus == []
+
+
+def test_device_list_is_asked_once_per_build(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return type("R", (), {"stdout": VULKAN_OUTPUT, "stderr": ""})()
+
+    monkeypatch.setattr(vulkan.subprocess, "run", fake_run)
+    vulkan.cached_devices.cache_clear()
+    server = tmp_path / "llama-server"
+
+    first = vulkan.cached_devices(server)
+    second = vulkan.cached_devices(server)
+
+    assert first == second and len(first) == 2
+    assert len(calls) == 1
+    vulkan.cached_devices.cache_clear()

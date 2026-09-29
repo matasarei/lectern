@@ -75,7 +75,7 @@ def _installed_vulkan_gpus() -> list[Gpu]:
     for variant in ("linux-vulkan", "windows-vulkan"):
         server = installer.server_path(variant)
         if server is not None:
-            return vulkan.gpus_from_devices(vulkan.list_devices(server))
+            return vulkan.gpus_from_devices(list(vulkan.cached_devices(server)))
     return []
 
 
