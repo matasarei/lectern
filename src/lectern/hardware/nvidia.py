@@ -36,6 +36,12 @@ def probe(nvml: Any | None = None) -> list[Gpu]:
             handle = nvml.nvmlDeviceGetHandleByIndex(index)
             name = nvml.nvmlDeviceGetName(handle)
             memory = nvml.nvmlDeviceGetMemoryInfo(handle)
+            capability = None
+            # Only used to choose the llama.cpp build; if NVML can't say, the card still counts
+            # and gets the build that covers the most GPUs.
+            with contextlib.suppress(nvml.NVMLError):
+                major, minor = nvml.nvmlDeviceGetCudaComputeCapability(handle)
+                capability = f"{major}.{minor}"
             gpus.append(
                 Gpu(
                     vendor="nvidia",
@@ -44,6 +50,7 @@ def probe(nvml: Any | None = None) -> list[Gpu]:
                     memory_free=int(memory.free),
                     unified=False,
                     cuda_driver=cuda,
+                    compute_capability=capability,
                 )
             )
         return gpus

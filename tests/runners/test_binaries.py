@@ -36,8 +36,16 @@ def _hw(os_name="linux", arch="x86_64", gpus=()):
     )
 
 
-def _nvidia(cuda):
-    return Gpu("nvidia", "RTX", 8 * GIB, 8 * GIB, unified=False, cuda_driver=cuda)
+def _nvidia(cuda, capability="8.9"):
+    return Gpu(
+        "nvidia",
+        "card",
+        8 * GIB,
+        8 * GIB,
+        unified=False,
+        cuda_driver=cuda,
+        compute_capability=capability,
+    )
 
 
 @pytest.mark.parametrize(
@@ -46,6 +54,12 @@ def _nvidia(cuda):
         (_hw(gpus=[_nvidia("13.0")]), False, "linux-cuda13"),
         (_hw(gpus=[_nvidia("12.4")]), False, "linux-cuda12"),
         (_hw(gpus=[_nvidia("11.8")]), True, "linux-vulkan"),  # too old for the CUDA builds
+        # GTX 1050 Ti (Pascal, 6.1) on a CUDA 13 driver, as on archive.local: the CUDA 13
+        # build has no Pascal code, so it gets the CUDA 12 build.
+        (_hw(gpus=[_nvidia("13.0", "6.1")]), False, "linux-cuda12"),
+        (_hw(gpus=[_nvidia("13.0", "7.0")]), False, "linux-cuda12"),  # Volta
+        (_hw(gpus=[_nvidia("13.0", "7.5")]), False, "linux-cuda13"),  # Turing, e.g. GTX 1650
+        (_hw(gpus=[_nvidia("13.0", None)]), False, "linux-cuda12"),  # unknown: widest build
         (_hw(), True, "linux-vulkan"),
         (_hw(), False, "linux-cpu"),
         (
@@ -55,6 +69,7 @@ def _nvidia(cuda):
         ),
         (_hw("windows", "AMD64", [_nvidia("13.0")]), False, "windows-cuda13"),
         (_hw("windows", "AMD64", [_nvidia("12.8")]), False, "windows-cuda12"),
+        (_hw("windows", "AMD64", [_nvidia("13.0", "6.1")]), False, "windows-cuda12"),
         (_hw("windows", "AMD64"), True, "windows-vulkan"),
         (_hw("windows", "AMD64"), False, "windows-cpu"),
     ],

@@ -16,8 +16,9 @@ class FakeNvml:
     class NVMLError(Exception):
         pass
 
-    def __init__(self, cards=(), *, cuda=13000, init_fails=False):
+    def __init__(self, cards=(), *, cuda=13000, init_fails=False, capability=(8, 9)):
         self.cards = list(cards)
+        self.capability = capability
         self.cuda = cuda
         self.init_fails = init_fails
         self.shut_down = False
@@ -45,6 +46,11 @@ class FakeNvml:
         name, total, free = self.cards[handle]
         return SimpleNamespace(total=total, free=free)
 
+    def nvmlDeviceGetCudaComputeCapability(self, handle):
+        if self.capability is None:
+            raise self.NVMLError("not supported")
+        return self.capability
+
 
 def test_nvidia_card_is_reported():
     nvml = FakeNvml([(b"NVIDIA GeForce RTX 4060", 8188 * MIB, 7000 * MIB)], cuda=12040)
@@ -58,8 +64,15 @@ def test_nvidia_card_is_reported():
         memory_free=7000 * MIB,
         unified=False,
         cuda_driver="12.4",
+        compute_capability="8.9",
     )
     assert nvml.shut_down
+
+
+def test_pascal_card_reports_its_compute_capability():
+    nvml = FakeNvml([(b"NVIDIA GeForce GTX 1050 Ti", 4096 * MIB, 4022 * MIB)], capability=(6, 1))
+    [gpu] = nvidia.probe(nvml)
+    assert (gpu.cuda_driver, gpu.compute_capability) == ("13.0", "6.1")
 
 
 def test_no_nvidia_driver_means_no_gpus():
@@ -172,3 +185,12 @@ def test_sandbox_installed_but_not_running():
 def test_sandbox_none_installed():
     result = sandbox.detect(which=lambda n: None, engine_version=lambda b, a: None)
     assert (result.runtime, result.engine_running, result.found) == (None, False, ())
+
+
+def test_a_failed_capability_lookup_keeps_the_card():
+    nvml = FakeNvml([(b"NVIDIA GeForce GTX 1070", 8192 * MIB, 8000 * MIB)], capability=None)
+
+    [gpu] = nvidia.probe(nvml)
+
+    assert gpu.name == "NVIDIA GeForce GTX 1070"
+    assert gpu.compute_capability is None
