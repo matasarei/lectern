@@ -69,8 +69,9 @@ uv run lectern doctor --runners
 ```
 
 **Expected:** `"tier": "recommended"`, your card with its `compute_capability`, and `runners`
-with `"variant": "windows-cuda13"` for compute capability 7.5 or newer (GTX 16xx, RTX), or
-`"windows-cuda12"` for older cards. If the tier or variant looks wrong, stop here and send the
+with `"variant": "windows-cuda13"` when the card is compute capability 7.5 or newer (GTX 16xx,
+RTX) **and** the NVIDIA driver reports CUDA 13 (`cuda_driver` in the output). Older cards, or any
+card on a CUDA 12 driver, get `"windows-cuda12"`, which is also correct. If the tier or variant looks wrong, stop here and send the
 output: the rest depends on it.
 
 ## 3. Start the app and finish first run
