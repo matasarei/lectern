@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-from collections.abc import AsyncIterator
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from lectern.api.sse import hub_stream
 from lectern.catalog import catalog
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
@@ -73,19 +70,4 @@ async def start_download(
 async def model_events(request: Request) -> StreamingResponse:
     """Server-sent events with download progress. Read with fetch(); EventSource can't send
     the token header."""
-    downloads = _manager(request)
-
-    async def stream() -> AsyncIterator[bytes]:
-        async with downloads.events.listen() as queue:
-            yield b": connected\n\n"
-            while not await request.is_disconnected():
-                try:
-                    event = await asyncio.wait_for(queue.get(), KEEPALIVE_SECONDS)
-                except TimeoutError:
-                    yield b": keepalive\n\n"
-                    continue
-                yield f"data: {json.dumps(event)}\n\n".encode()
-
-    return StreamingResponse(
-        stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store"}
-    )
+    return hub_stream(request, _manager(request).events)
