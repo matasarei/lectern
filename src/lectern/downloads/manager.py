@@ -236,7 +236,10 @@ class DownloadManager:
         hasher = await asyncio.to_thread(_hash_file, part) if start else hashlib.sha256()
 
         url = f"{self.base_url}/{entry.repo}/resolve/{entry.revision}/{file.path}"
-        headers = {"Range": f"bytes={start}-"} if start else {}
+        # Plain bytes only: with compression, Range offsets and sizes wouldn't match the file.
+        headers = {"Accept-Encoding": "identity"}
+        if start:
+            headers["Range"] = f"bytes={start}-"
         async with client.stream("GET", url, headers=headers) as response:
             if response.status_code == 200 and start:
                 # The server ignored the Range header: start this file again.

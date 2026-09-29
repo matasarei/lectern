@@ -145,6 +145,7 @@ def test_resumes_after_a_dropped_connection(paths, sessions):
     asyncio.run(_finish(manager, entry))
 
     assert hub.requests[-2].headers["range"] == "bytes=40000-"
+    assert {r.headers["accept-encoding"] for r in hub.requests} == {"identity"}
     assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
     assert manager.state(entry).status == "done"
 
