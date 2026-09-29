@@ -84,11 +84,18 @@ def test_key_file_is_owner_only(tmp_path):
     ("model_id", "expected"),
     [
         ("qwen3.5-9b", "qwen3.5-9b"),  # catalog ids stay as they are
-        ("Qwen3.5-9B_Q4", "Qwen3.5-9B_Q4"),
+        ("coder_7b", "coder_7b"),
     ],
 )
 def test_run_dir_keeps_plain_ids(model_id, expected):
     assert run_dir_name(model_id) == expected
+
+
+def test_run_dir_tells_ids_apart_that_differ_only_in_case():
+    names = {run_dir_name(i) for i in ("qwen", "Qwen", "QWEN")}
+    # Distinct even where the disk ignores case (macOS, Windows).
+    assert len({n.lower() for n in names}) == 3
+    assert run_dir_name("Qwen").startswith("qwen-")
 
 
 def test_run_dir_has_no_spaces_or_parentheses():

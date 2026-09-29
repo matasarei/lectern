@@ -37,10 +37,11 @@ class RunnerError(Exception):
 
 
 def run_dir_name(model_id: str) -> str:
-    """The folder a runner keeps its key and log in: the model id, with anything but letters,
-    digits, dots, dashes and underscores replaced, so the path never needs quoting. A hash of
-    the original is added when something was replaced, so two ids can't share a folder."""
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", model_id).strip("-.")
+    """The folder a runner keeps its key and log in: the model id in lower case, with anything
+    but letters, digits, dots, dashes and underscores replaced, so the path never needs quoting.
+    A hash of the original is added when anything changed, so two ids can't share a folder,
+    not even on macOS and Windows disks, where "Qwen" and "qwen" are the same name."""
+    safe = re.sub(r"[^a-z0-9._-]+", "-", model_id.lower()).strip("-.")
     if safe == model_id:
         return safe
     return f"{safe or 'model'}-{hashlib.sha256(model_id.encode()).hexdigest()[:8]}"
