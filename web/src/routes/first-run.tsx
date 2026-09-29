@@ -42,7 +42,7 @@ export function FirstRunPage() {
     mutationFn: (to: FirstRun["step"]) => apiPost<FirstRun>("/api/first-run", { to }),
     onSuccess: (data) => {
       queryClient.setQueryData(["first-run"], data);
-      if (data.step === "done") void navigate({ to: "/settings/models" });
+      if (data.step === "done") void navigate({ to: "/projects" });
     },
   });
   const download = useMutation({

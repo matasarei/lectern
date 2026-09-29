@@ -61,6 +61,13 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await response.json()) as T;
 }
 
+/** A raw response (for file contents), with the token, throwing ApiError when not OK. */
+export async function apiRaw(path: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(path, withToken(init));
+  if (!response.ok) throw new ApiError(response.status, response.statusText);
+  return response;
+}
+
 export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, {
     method: "POST",

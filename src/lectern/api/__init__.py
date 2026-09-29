@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, WebSocket
 
-from lectern.api import chat, dev, firstrun, models, runtime, system
+from lectern.api import chat, dev, firstrun, models, projects, runtime, sessions, system
 from lectern.core.auth import current_user
 from lectern.core.security import WS_SUBPROTOCOL
 
@@ -23,5 +23,7 @@ def api_router() -> APIRouter:
     router.include_router(firstrun.router)
     router.include_router(runtime.router)
     router.include_router(chat.router)
+    router.include_router(projects.router)
+    router.include_router(sessions.router)
     router.include_router(dev.router)
     return router
