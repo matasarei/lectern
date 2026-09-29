@@ -1,0 +1,51 @@
+"""Where Lectern keeps its files.
+
+Everything lives under one home directory: the OS app-data folder by default, or
+``LECTERN_HOME`` when set (tests and development use that to stay out of the real one).
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from platformdirs import user_data_path
+
+APP_NAME = "Lectern"
+DEFAULT_PORT = 8765
+
+
+@dataclass(frozen=True)
+class Paths:
+    home: Path
+
+    @property
+    def token_file(self) -> Path:
+        return self.home / "token"
+
+    @property
+    def app_db(self) -> Path:
+        return self.home / "lectern.sqlite"
+
+    @property
+    def models(self) -> Path:
+        return self.home / "models"
+
+    @property
+    def users(self) -> Path:
+        return self.home / "users"
+
+    def projects_root(self, user_name: str) -> Path:
+        return self.users / user_name / "projects"
+
+
+def lectern_home() -> Path:
+    override = os.environ.get("LECTERN_HOME")
+    if override:
+        return Path(override).expanduser().resolve()
+    return user_data_path(APP_NAME, appauthor=False)
+
+
+def get_paths() -> Paths:
+    return Paths(home=lectern_home())

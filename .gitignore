@@ -25,3 +25,12 @@ web/dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Built web UI (npm --prefix web run build writes here; shipped in the wheel)
+src/lectern/web_dist/
+
+# TypeScript build cache (tsc -b)
+*.tsbuildinfo
+
+# gku skills: local notes and reports
+.gku/

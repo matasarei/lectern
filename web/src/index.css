@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #18201d;
+  --color-paper: #eef1ef;
+  --color-surface: #ffffff;
+  --color-line: #d3d9d5;
+  --color-muted: #5a6863;
+  --color-accent: #2c6a58;
+  --color-accent-soft: #dcebe5;
+  --color-doubt: #f4d548;
+  --font-sans: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white;
+    @apply hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}

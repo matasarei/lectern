@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "Lectern",
+    "tagline": "A local workbench for chat and OCR."
+  },
+  "common": {
+    "loading": "Loading…",
+    "loadFailed": "Lectern didn't answer. Check that `lectern serve` is still running, then reload."
+  },
+  "errors": {
+    "noToken": "Open Lectern from the link that `lectern serve` printed. That link contains the access key this page needs."
+  },
+  "hardware": {
+    "os": "System",
+    "osNames": {
+      "linux": "Linux",
+      "macos": "macOS",
+      "windows": "Windows"
+    },
+    "cpu": "Processor",
+    "ram": "Memory",
+    "gpu": "Graphics",
+    "noGpu": "None usable",
+    "gpuBudget": "Video memory for models",
+    "gpuBudgetUnified": "Memory the GPU can use"
+  },
+  "tiers": {
+    "below_minimum": {
+      "name": "Below minimum",
+      "summary": "No usable GPU. Models run on the processor: it works, but slowly."
+    },
+    "minimum": {
+      "name": "Minimum",
+      "summary": "A 4B chat model. One model sits on the GPU at a time, so OCR and chat take turns."
+    },
+    "recommended": {
+      "name": "Recommended",
+      "summary": "A 9B chat model. OCR and chat swap on the GPU while a document is processed."
+    },
+    "comfortable": {
+      "name": "Comfortable",
+      "summary": "Larger models, and chat and OCR can stay loaded together."
+    }
+  },
+  "models": {
+    "role": "Role",
+    "model": "Model",
+    "size": "Size",
+    "licence": "Licence",
+    "status": "Status"
+  },
+  "download": {
+    "progressLabel": "Download progress",
+    "progress": "{{done}} of {{total}} ({{pct}}%)",
+    "rate": "{{rate}}/s",
+    "status": {
+      "none": "Not downloaded",
+      "queued": "Waiting to start",
+      "downloading": "Downloading",
+      "verifying": "Checking the file",
+      "done": "Downloaded",
+      "failed": "Download stopped",
+      "paused": "Paused"
+    }
+  },
+  "firstRun": {
+    "title": "Set up Lectern",
+    "intro": "Lectern runs every model on this computer. First, here's what it found, and the chat model that suits it.",
+    "hardwareCard": "This computer",
+    "modelCard": "Chat model",
+    "diskFree": "Free disk space",
+    "continue": "Continue",
+    "download": "Download",
+    "resume": "Resume download",
+    "finish": "Finish setup",
+    "notEnoughDisk": "There isn't enough free disk space for this model, plus 1 GB to spare. Free some space, then reload.",
+    "sandboxCard": "Exact calculations",
+    "sandboxFound": "{{runtime}} {{version}} is running. Lectern will use it to run calculation scripts in isolation.",
+    "sandboxStopped": "{{runtime}} is installed but not running. Start it to let Lectern run calculation scripts.",
+    "sandboxMissing": "Neither Podman nor Docker is installed.",
+    "sandboxWhy": "Without one, Lectern can't run calculation scripts, and marks exact numbers as not computed. Everything else works."
+  },
+  "modelsPage": {
+    "title": "Models & memory",
+    "machine": "This computer",
+    "roles": "Models by role",
+    "onFirstUse": "Only the chat model is downloaded during setup. The others download the first time they're needed."
+  },
+  "sandbox": {
+    "podman": "Podman",
+    "docker": "Docker"
+  }
+}
