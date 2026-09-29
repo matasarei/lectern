@@ -125,19 +125,54 @@ async def import_stream(
         part.unlink(missing_ok=True)
 
 
+def safe_folder(folder: str) -> str:
+    """A folder inside the project, such as "scripts" or "scripts/out": plain names only,
+    no "..", no hidden parts (so never `.lectern`)."""
+    parts = [p for p in folder.replace("\\", "/").split("/") if p]
+    for part in parts:
+        if part != safe_name(part) or part in {".", ".."}:
+            raise BadName(f"{folder!r} isn't a folder name Lectern can use.")
+    return "/".join(parts)
+
+
 def write_text(
-    root: Path, session: Session, *, owner_id: int, name: str, text: str, origin: Origin
+    root: Path,
+    session: Session,
+    *,
+    owner_id: int,
+    name: str,
+    text: str,
+    origin: Origin,
+    folder: str = "",
 ) -> ArtifactRow:
     """A new text file written by a model. Never replaces an existing file."""
-    name = safe_name(name)
-    part = root / DATA_DIR / f"write-{os.getpid()}-{id(text)}.part"
-    part.parent.mkdir(exist_ok=True)
     data = text.encode("utf-8")
+    return write_bytes(
+        root, session, owner_id=owner_id, name=name, data=data, origin=origin, folder=folder
+    )
+
+
+def write_bytes(
+    root: Path,
+    session: Session,
+    *,
+    owner_id: int,
+    name: str,
+    data: bytes,
+    origin: Origin,
+    folder: str = "",
+) -> ArtifactRow:
+    """A new file from bytes (a script's output, a manifest). Never replaces a file."""
+    name = safe_name(name)
+    folder = safe_folder(folder)
+    part = root / DATA_DIR / f"write-{os.getpid()}-{id(data)}.part"
+    part.parent.mkdir(exist_ok=True)
     part.write_bytes(data)
     try:
         return _place(
-            root, session, part, name, owner_id, len(data), hashlib.sha256(data).hexdigest(), origin
-        )
+            root, session, part, name, owner_id, len(data), hashlib.sha256(data).hexdigest(),
+            origin, folder,
+        )  # fmt: skip
     finally:
         part.unlink(missing_ok=True)
 
@@ -167,12 +202,15 @@ def _place(
     size: int,
     sha256: str,
     origin: Origin,
+    folder: str = "",
 ) -> ArtifactRow:
-    final = _claim(root, name, part)
+    directory = root / folder if folder else root
+    directory.mkdir(parents=True, exist_ok=True)
+    final = _claim(directory, name, part)
     extracted = extract(final)
     row = ArtifactRow(
         owner_id=owner_id,
-        path=final.name,
+        path=final.relative_to(root).as_posix(),
         kind="imported" if origin.kind == "import" else "generated",
         mime=mime_for(final.name),
         size=size,
@@ -189,12 +227,12 @@ def _place(
     return row
 
 
-def _claim(root: Path, name: str, part: Path) -> Path:
+def _claim(directory: Path, name: str, part: Path) -> Path:
     """Put `part` in the project under a free name, never replacing a file. The name is
     taken with an operation that fails if it exists (a hard link, or an exclusive create
     where the disk has no hard links), so two writes at once can't end up on one name."""
     for _ in range(CLAIM_ATTEMPTS):
-        final = root / free_name(root, name)
+        final = directory / free_name(directory, name)
         try:
             os.link(part, final)
         except FileExistsError:
