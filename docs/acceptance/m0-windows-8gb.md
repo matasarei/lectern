@@ -119,8 +119,8 @@ It should print nothing.
 
 ## What to send back
 
-Copy this, fill it in, and paste it into the chat (or commit it into `m0.md` under "Linux PC,
-8 GB NVIDIA", renamed to Windows):
+Copy this, fill it in, and paste it into the chat (or commit it into `m0.md` under "Windows PC,
+8 GB NVIDIA"):
 
 ````text
 Machine: <CPU>, <GPU and its VRAM>, <RAM>, Windows <version>, NVIDIA driver <version>
