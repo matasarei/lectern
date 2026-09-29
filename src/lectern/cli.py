@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import socket
@@ -10,6 +11,7 @@ import time
 import webbrowser
 
 import typer
+import uvicorn
 
 from lectern.config import DEFAULT_PORT
 
@@ -22,8 +24,6 @@ def serve(
     browser: bool = typer.Option(True, help="Open the browser once the server starts."),
 ) -> None:
     """Start the Lectern server on 127.0.0.1 (never on any other address)."""
-    import uvicorn
-
     from lectern.app import create_app
 
     lectern_app = create_app(port=port)
@@ -31,7 +31,39 @@ def serve(
     typer.echo(f"Lectern is running at {url}")
     if browser:
         open_when_listening(url, port)
-    uvicorn.run(lectern_app, host="127.0.0.1", port=port)
+    LecternServer(server_config(lectern_app, port)).run()
+
+
+# The page keeps event streams open (runtime and download progress). Uvicorn's graceful
+# shutdown waits for every connection to close before it runs the app's shutdown hook, so an
+# open browser tab would keep `lectern serve` alive forever after Ctrl+C. After this many
+# seconds it drops them, then the shutdown hook stops the model runners.
+SHUTDOWN_GRACE_SECONDS = 3
+
+
+class LecternServer(uvicorn.Server):
+    """Tells the app it's shutting down the moment Ctrl+C arrives, before uvicorn starts
+    waiting on connections, so the event streams can end by themselves."""
+
+    def handle_exit(self, sig, frame) -> None:  # noqa: ANN001
+        # uvicorn installs this with signal.signal, so it runs as a plain signal handler, not
+        # as an event-loop callback. Hand the flag to the loop through its thread-safe entry
+        # point, which also wakes it at once (on Windows' event loop too).
+        stopping = self.config.app.state.shutting_down
+        try:
+            asyncio.get_running_loop().call_soon_threadsafe(stopping.set)
+        except RuntimeError:  # no loop running yet or any more
+            stopping.set()
+        super().handle_exit(sig, frame)
+
+
+def server_config(lectern_app, port: int) -> uvicorn.Config:  # noqa: ANN001
+    return uvicorn.Config(
+        lectern_app,
+        host="127.0.0.1",
+        port=port,
+        timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
+    )
 
 
 def open_when_listening(url: str, port: int, *, wait_seconds: float = 30.0) -> threading.Thread:
@@ -88,7 +120,9 @@ def doctor(
 
 TARGETS = {  # tier -> (minimum tokens/s, maximum seconds to the first token after a load)
     "minimum": (10.0, 8.0),
-    "recommended": (30.0, 5.0),
+    # 10 s, not 5: llama.cpp alone spends ~4.7 s loading the 9B model and setting up its context
+    # on an 8 GB card (M0 acceptance on Windows, docs/acceptance/m0-windows-8gb-results.md).
+    "recommended": (30.0, 10.0),
     "comfortable": (30.0, 5.0),
 }
 BENCH_PROMPTS = (

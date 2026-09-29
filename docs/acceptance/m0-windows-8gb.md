@@ -9,7 +9,7 @@ Targets for the recommended tier:
 | Check | Target |
 |---|---|
 | Chat speed (median of 3) | ≥ 30 tokens/s |
-| First token after a model load | ≤ 5 s |
+| First token after a model load | ≤ 10 s (5 s until the first Windows run showed a 9B model can't load that fast) |
 | Swap test, 12 pages, 7000 MiB budget | exactly 1 swap |
 
 ## What it downloads and where it puts things
@@ -110,13 +110,19 @@ Don't run the swap test with a larger budget (like 40000). That tells the app th
 
 ## 5. Stop
 
-Press `Ctrl+C` in the `lectern serve` window, then check nothing is left running:
+Press `Ctrl+C` in the `lectern serve` window. It should return to the prompt within a few
+seconds. Then check that neither the model runner nor Lectern itself is still running:
 
 ```powershell
-Get-Process llama-server -ErrorAction SilentlyContinue
+Get-Process llama-server, lectern, uv -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like "*lectern*" }
 ```
 
-It should print nothing.
+Both should print nothing. The first line covers the model runner and the `lectern.exe` / `uv.exe`
+launchers that `uv run` starts; the second covers the Python process behind them. (Checking only `llama-server` isn't enough: the first Windows run
+found `lectern serve` itself could keep running after Ctrl+C. That's fixed, and this check
+catches it if it ever comes back.)
 
 ## What to send back
 
@@ -138,8 +144,8 @@ Machine: <CPU>, <GPU and its VRAM>, <RAM>, Windows <version>, NVIDIA driver <ver
 ## nvidia-smi while loaded
 <paste the process table, or just "llama-server.exe: N MiB">
 
-## Get-Process llama-server after Ctrl+C
-<empty, or what it printed>
+## After Ctrl+C: did the prompt come back, and what did the two checks print?
+<yes/no, then empty, or what they printed>
 
 ## Anything that went wrong
 <the command, the error, and the last ~30 lines of

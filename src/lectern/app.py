@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -43,6 +44,7 @@ def create_app(
         title="Lectern", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan
     )
     app.state.paths = paths
+    app.state.shutting_down = asyncio.Event()  # set by `lectern serve` on Ctrl+C
     app.state.port = port
     app.state.token = load_or_create_token(paths.token_file)
 
