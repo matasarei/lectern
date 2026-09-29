@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from lectern.runners.base import RunnerError, RunnerSpec
+from lectern.runners.base import RunnerError, RunnerSpec, run_dir_name
 from lectern.runners.llamacpp import LlamaCppRunner, _write_key, build_args, parse_memory
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -80,6 +80,26 @@ def test_key_file_is_owner_only(tmp_path):
     assert stat.S_IMODE((tmp_path / "run" / "key").stat().st_mode) == 0o600
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        ("qwen3.5-9b", "qwen3.5-9b"),  # catalog ids stay as they are
+        ("Qwen3.5-9B_Q4", "Qwen3.5-9B_Q4"),
+    ],
+)
+def test_run_dir_keeps_plain_ids(model_id, expected):
+    assert run_dir_name(model_id) == expected
+
+
+def test_run_dir_has_no_spaces_or_parentheses():
+    name = run_dir_name("qwen3.5-4b (as ocr)")
+    assert name.startswith("qwen3.5-4b-as-ocr-")
+    assert all(c.isalnum() or c in "._-" for c in name)
+    # Ids that differ only in the replaced characters get different folders.
+    assert run_dir_name("a b") != run_dir_name("a/b")
+    assert run_dir_name("..") not in ("", ".", "..")
+
+
 def test_a_server_that_exits_is_reported_with_its_log(tmp_path):
     fake = tmp_path / "llama-server"
     fake.write_text("#!/bin/sh\necho 'error: model file not found'\nexit 3\n")
@@ -89,6 +109,19 @@ def test_a_server_that_exits_is_reported_with_its_log(tmp_path):
     with pytest.raises(RunnerError, match="exited with code 3") as info:
         asyncio.run(runner.start(_spec()))
     assert "model file not found" in str(info.value)
+
+
+def test_the_run_folder_name_is_safe(tmp_path):
+    fake = tmp_path / "llama-server"
+    fake.write_text("#!/bin/sh\nexit 3\n")
+    fake.chmod(0o755)
+    runner = LlamaCppRunner(fake, tmp_path / "work", ready_timeout=10)
+
+    with pytest.raises(RunnerError):
+        asyncio.run(runner.start(_spec(model_id="main-model (as ocr)")))
+    (folder,) = (tmp_path / "work").iterdir()
+    assert folder.name == run_dir_name("main-model (as ocr)")
+    assert (folder / "server.log").exists()
 
 
 def test_a_server_that_never_answers_times_out_and_is_stopped(tmp_path):

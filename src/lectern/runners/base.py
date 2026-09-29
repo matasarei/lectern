@@ -6,6 +6,8 @@ One process per model: stopping the process is what gives the memory back.
 
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -32,6 +34,16 @@ class MeasuredMemory:
 
 class RunnerError(Exception):
     pass
+
+
+def run_dir_name(model_id: str) -> str:
+    """The folder a runner keeps its key and log in: the model id, with anything but letters,
+    digits, dots, dashes and underscores replaced, so the path never needs quoting. A hash of
+    the original is added when something was replaced, so two ids can't share a folder."""
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", model_id).strip("-.")
+    if safe == model_id:
+        return safe
+    return f"{safe or 'model'}-{hashlib.sha256(model_id.encode()).hexdigest()[:8]}"
 
 
 class RunnerHandle(Protocol):
