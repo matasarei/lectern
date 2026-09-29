@@ -72,8 +72,11 @@ def test_writes_tests_and_saves_the_script_with_its_manifest(make_ctx):
 
     result = write(ctx, inputs=["rent.csv"])
 
-    assert result.text.startswith("Wrote scripts/penalty.py (1 lines) with qwen3.5-4b; its test")
-    assert "penalty 62.5" in result.text and 'code.run(name="penalty")' in result.text
+    assert result.text == (
+        "Wrote scripts/penalty.py (1 lines) with qwen3.5-4b; its test run passed. "
+        'Now call code.run(name="penalty") and answer from its output.'
+    )
+    assert "62.5" not in result.text  # the answer comes from code.run, not from here
     script = (ctx.project.root / "scripts" / "penalty.py").read_text()
     assert script == "print('penalty', round(250 * 0.005 * 50, 2))\n"
     manifest = json.loads((ctx.project.root / "scripts" / "penalty.json").read_text())

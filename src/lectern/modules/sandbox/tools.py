@@ -462,11 +462,11 @@ def _save_script(
         )  # fmt: skip
     _store_run(ctx, script, inputs, result, test_run=True)
     lines = code.count("\n")
-    body, _ = page(result.stdout or "(no output)", None, 400)
+    # The output isn't given here, only that the test passed: the answer must come from
+    # code.run, the one place results are read from (and which returns this test run at once).
     return ToolResult(
-        f"Wrote {script.path} ({lines} lines) with {model_id}; its test run passed in "
-        f"{result.seconds:g} s.\nTest output:\n{body}\n"
-        f'Run it with code.run(name="{Path(script.path).stem}") and answer from that output.',
+        f"Wrote {script.path} ({lines} lines) with {model_id}; its test run passed. "
+        f'Now call code.run(name="{Path(script.path).stem}") and answer from its output.',
         refs=[{"kind": "artifact", "id": script.id, "name": script.path, "ref": None}],
     )
 
