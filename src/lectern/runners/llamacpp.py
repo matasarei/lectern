@@ -192,3 +192,16 @@ class LlamaCppRunner:
             f"llama-server for {handle.model_id} wasn't ready after {self.ready_timeout:.0f} s."
             f"\n{handle.log_tail()}"
         )
+
+
+class InstallingLlamaCppRunner:
+    """A LlamaCppRunner that installs its llama.cpp build on first use."""
+
+    def __init__(self, installer, variant: str, work_dir: Path) -> None:  # noqa: ANN001
+        self.installer = installer
+        self.variant = variant
+        self.work_dir = work_dir
+
+    async def start(self, spec: RunnerSpec) -> LlamaCppHandle:
+        server = await self.installer.install(self.variant)
+        return await LlamaCppRunner(server, self.work_dir).start(spec)

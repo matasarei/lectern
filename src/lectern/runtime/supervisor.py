@@ -231,6 +231,17 @@ class ModelRuntime:
         await resident.handle.stop()
         self._emit("unloaded", role=role, model_id=resident.choice.model_id, reason=reason)
 
+    async def unload_idle(self, role: str | None = None) -> list[str]:
+        """Unload idle models (all, or one role). Used to measure a cold first reply."""
+        async with self._cond:
+            roles = [r for r, res in self._residents.items() if res.leases == 0]
+            if role is not None:
+                roles = [r for r in roles if r == role]
+            for r in roles:
+                await self._unload(r, reason="requested")
+            self._cond.notify_all()
+            return roles
+
     async def stop_all(self) -> None:
         async with self._cond:
             for role in list(self._residents):

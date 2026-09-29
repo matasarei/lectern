@@ -82,3 +82,98 @@ def doctor(
         except UnsupportedPlatform as exc:
             report["runners"] = {"error": str(exc)}
     typer.echo(json.dumps(report, indent=2))
+
+
+# --- talking to a running server ------------------------------------------------------------
+
+TARGETS = {  # tier -> (minimum tokens/s, maximum seconds to the first token after a load)
+    "minimum": (10.0, 8.0),
+    "recommended": (30.0, 5.0),
+    "comfortable": (30.0, 5.0),
+}
+BENCH_PROMPTS = (
+    "Explain in three sentences what a lectern is.",
+    "List five things a local OCR tool is useful for, one line each.",
+    "Write a four-line poem about memory.",
+)
+
+
+def _server(port: int):  # noqa: ANN202
+    import httpx2
+
+    from lectern.config import get_paths
+    from lectern.core.security import load_or_create_token
+
+    token = load_or_create_token(get_paths().token_file)
+    base = f"http://127.0.0.1:{port}"
+    return httpx2.Client(
+        base_url=base,
+        headers={"X-Lectern-Token": token, "Origin": base},
+        timeout=httpx2.Timeout(600.0, connect=5.0),
+    )
+
+
+def _stream_chat(client, prompt: str, *, echo: bool, max_tokens: int = 512) -> dict:  # noqa: ANN001
+    body = {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}
+    done: dict = {}
+    with client.stream("POST", "/api/chat", json=body) as response:
+        if response.status_code != 200:
+            raise typer.BadParameter(f"The server answered {response.status_code}.")
+        for line in response.iter_lines():
+            if not line.startswith("data: "):
+                continue
+            event = json.loads(line.removeprefix("data: "))
+            if event["type"] == "delta" and echo:
+                typer.echo(event["text"], nl=False)
+            elif event["type"] == "error":
+                typer.echo(f"\nError: {event['detail']}", err=True)
+                raise typer.Exit(1)
+            elif event["type"] == "done":
+                done = event
+    if echo:
+        typer.echo()
+    return done
+
+
+@app.command()
+def chat(
+    prompt: str,
+    port: int = typer.Option(DEFAULT_PORT, help="Port of the running `lectern serve`."),
+) -> None:
+    """Send one message to the main model of a running server; print the reply and its speed."""
+    with _server(port) as client:
+        done = _stream_chat(client, prompt, echo=True)
+    typer.echo(
+        f"[first token {done.get('ttft')} s · {done.get('tps')} tokens/s · "
+        f"{done.get('tokens')} tokens]"
+    )
+
+
+@app.command()
+def bench(
+    port: int = typer.Option(DEFAULT_PORT, help="Port of the running `lectern serve`."),
+) -> None:
+    """Measure chat against this tier's targets: first reply after a load, then speed."""
+    with _server(port) as client:
+        tier = client.get("/api/runtime").json()["tier"]
+        client.post("/api/runtime/unload", json={})
+        cold = _stream_chat(client, BENCH_PROMPTS[0], echo=False, max_tokens=128)
+        warm = [_stream_chat(client, p, echo=False, max_tokens=200) for p in BENCH_PROMPTS]
+        state = client.get("/api/runtime").json()
+    speeds = sorted(w["tps"] for w in warm)
+    median = speeds[len(speeds) // 2]
+    min_tps, max_ttft = TARGETS.get(tier, (None, None))
+    rows = [
+        ("tier", tier, ""),
+        ("first token after a load", f"{cold['ttft']} s", f"≤ {max_ttft} s" if max_ttft else "—"),
+        ("chat speed (median of 3)", f"{median} tokens/s", f"≥ {min_tps}" if min_tps else "—"),
+        ("model", ", ".join(r["model_id"] for r in state["residents"]), ""),
+    ]
+    for name, value, target in rows:
+        typer.echo(f"{name:<28} {value:<22} {target}")
+    passed = (min_tps is None or median >= min_tps) and (
+        max_ttft is None or (cold["ttft"] or 1e9) <= max_ttft
+    )
+    typer.echo("PASS" if passed else "BELOW TARGET")
+    if not passed:
+        raise typer.Exit(1)

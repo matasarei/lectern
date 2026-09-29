@@ -15,6 +15,9 @@ from lectern.config import DEFAULT_PORT, Paths, get_paths
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.security import LocalGuard, load_or_create_token
 from lectern.downloads.manager import DownloadManager
+from lectern.hardware.probe import probe
+from lectern.runtime.supervisor import ModelRuntime
+from lectern.runtime.wiring import build_runtime
 from lectern.web import WEB_DIST, mount_web
 
 
@@ -23,6 +26,7 @@ def create_app(
     *,
     port: int = DEFAULT_PORT,
     downloads: DownloadManager | None = None,
+    runtime: ModelRuntime | None = None,
     web_dist: Path = WEB_DIST,
 ) -> FastAPI:
     paths = paths or get_paths()
@@ -32,6 +36,7 @@ def create_app(
         entries = {m.id: m for m in catalog.load().models}
         app.state.downloads.resume_interrupted(entries)
         yield
+        await app.state.runtime.stop_all()  # every llama-server process ends with the app
         await app.state.downloads.stop_all()
 
     app = FastAPI(
@@ -46,6 +51,7 @@ def create_app(
     app.state.engine = engine
     app.state.sessions = make_sessionmaker(engine)
     app.state.downloads = downloads or DownloadManager(paths.models, app.state.sessions)
+    app.state.runtime = runtime or build_runtime(paths, app.state.downloads, probe())
 
     @app.get("/health")
     def health() -> dict[str, str]:
