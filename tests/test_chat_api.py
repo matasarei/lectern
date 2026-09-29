@@ -246,3 +246,17 @@ def test_a_model_that_cannot_start_is_an_error_event(paths, exc, expected):
     assert events[-1]["type"] == "error"
     assert events[-1]["detail"].endswith(expected)
     assert runtime.state()["waiting"] == 0
+
+
+def test_a_malformed_chunk_ends_the_reply_with_an_error(paths):
+    body = b'data: {"choices": [{"delta": {"content": "Hi"}}]}\n\ndata: {not json\n\n'
+    client, headers, _ = _app(paths, FakeHandle(body=body))
+
+    events = _events(
+        client.post(
+            "/api/chat", json={"messages": [{"role": "user", "content": "x"}]}, headers=headers
+        )
+    )
+
+    assert [e["type"] for e in events] == ["model", "delta", "error"]
+    assert events[-1]["detail"] == "The model server sent a malformed reply."

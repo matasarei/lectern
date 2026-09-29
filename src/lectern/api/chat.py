@@ -69,7 +69,16 @@ async def chat(req: ChatRequest, request: Request) -> StreamingResponse:
                     async for line in response.aiter_lines():
                         if not line.startswith("data: ") or line == "data: [DONE]":
                             continue
-                        chunk = json.loads(line.removeprefix("data: "))
+                        try:
+                            chunk = json.loads(line.removeprefix("data: "))
+                        except json.JSONDecodeError:
+                            yield encode(
+                                {
+                                    "type": "error",
+                                    "detail": "The model server sent a malformed reply.",
+                                }
+                            )
+                            return
                         timings = chunk.get("timings") or {}
                         if timings.get("predicted_per_second"):
                             server_tps = float(timings["predicted_per_second"])
