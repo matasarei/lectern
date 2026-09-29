@@ -28,7 +28,8 @@ class Handle:
         self.model_id, self.bodies, self.alive = model_id, bodies, True
 
     def client(self) -> httpx2.AsyncClient:
-        def handler(request):
+        async def handler(request):
+            await asyncio.sleep(0)  # a real model call waits on the network and yields
             self.bodies.append((self.model_id, json.loads(request.content)))
             return httpx2.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
 
@@ -104,7 +105,7 @@ def test_fake_model_loads_the_main_file_as_a_second_process():
 
 def test_a_chat_during_the_job_is_served_between_pages():
     runtime, runner = _runtime(6)
-    order: list[str] = []
+    served_at: list[tuple[str, int]] = []
 
     async def go():
         result = SwapTestResult(pages=6)
@@ -112,13 +113,16 @@ def test_a_chat_during_the_job_is_served_between_pages():
         while result.done < 2:
             await asyncio.sleep(0)
         async with runtime.lease("main", Priority.CHAT):
-            order.append(f"chat after {result.done} pages")
+            served_at.append((result.phase, result.done))
         await job
         return result
 
     result = asyncio.run(go())
     assert result.done == 12 and result.error is None
-    assert order and order[0] != "chat after 12 pages"  # it didn't wait for the whole job
+    # Served during the OCR phase, one page after it arrived: not at the end of the phase,
+    # and not after the whole job.
+    assert served_at == [("ocr", 3)]
+    assert result.swaps == 3  # ocr out for the chat, main out for the job, then the phase swap
 
 
 def test_tiny_png_is_a_png():
