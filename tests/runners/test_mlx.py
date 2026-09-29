@@ -69,7 +69,8 @@ def test_read_shape_without_head_dim(tmp_path):
 
 
 @pytest.fixture
-def runtime(paths):
+def runtime(paths, monkeypatch):
+    monkeypatch.setattr(mlx, "mlx_supported", lambda: True)  # this fixture is an Apple Silicon Mac
     engine = make_engine(paths.app_db)
     migrate(engine)
     sessions = make_sessionmaker(engine)
@@ -95,6 +96,15 @@ def test_mlx_is_never_chosen_while_the_setting_is_off(runtime, monkeypatch):
     rt, _ = runtime
     monkeypatch.setattr(mlx, "mlx_available", lambda: True)
     with pytest.raises(NotAvailable, match="MLX is off"):
+        rt.runner_for(_choice("mlx"))
+
+
+def test_mlx_models_are_refused_off_apple_silicon(runtime, monkeypatch):
+    rt, sessions = runtime
+    settings.put(sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
+    monkeypatch.setattr(mlx, "mlx_supported", lambda: False)
+    # Not "turn it on in Models & memory": the switch isn't shown there.
+    with pytest.raises(NotAvailable, match="only runs on Apple Silicon"):
         rt.runner_for(_choice("mlx"))
 
 

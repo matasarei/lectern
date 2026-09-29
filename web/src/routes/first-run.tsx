@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, ApiError } from "../api/client";
-import type { DownloadState, FirstRun, SystemReport } from "../api/types";
+import type { DownloadState, FirstRun, SandboxStatus, SystemReport } from "../api/types";
 import {
   Card,
   DownloadProgress,
@@ -19,6 +19,9 @@ import { useDownloadEvents } from "../hooks/useDownloadEvents";
 const ACTIVE: DownloadState["status"][] = ["queued", "downloading", "verifying"];
 // Keep in step with DISK_HEADROOM in src/lectern/downloads/manager.py (1 GiB).
 const DISK_HEADROOM = 1024 ** 3;
+// While no engine is running, check again this often, so starting Docker or Podman shows up
+// without a reload.
+const SANDBOX_POLL_MS = 10_000;
 
 export function FirstRunPage() {
   const { t } = useTranslation();
@@ -63,7 +66,6 @@ export function FirstRunPage() {
   const model = run.chat_model;
   const state = live[model.id] ?? model.download;
   const enoughDisk = system.data.disk_free >= model.size - state.bytes_done + DISK_HEADROOM;
-  const sandbox = system.data.sandbox;
 
   return (
     <Page>
@@ -111,18 +113,7 @@ export function FirstRunPage() {
         </Card>
       )}
 
-      <Card title={t("firstRun.sandboxCard")}>
-        <p className="text-sm">
-          {sandbox.engine_running
-            ? t("firstRun.sandboxFound", { runtime: t(`sandbox.${sandbox.runtime}`), version: sandbox.version })
-            : sandbox.runtime
-              ? t("firstRun.sandboxStopped", { runtime: t(`sandbox.${sandbox.runtime}`) })
-              : t("firstRun.sandboxMissing")}
-        </p>
-        {!sandbox.engine_running && (
-          <p className="text-sm text-muted">{t("firstRun.sandboxWhy")}</p>
-        )}
-      </Card>
+      <SandboxCard initial={system.data.sandbox} />
 
       {advance.error && (
         <ErrorNote
@@ -130,6 +121,47 @@ export function FirstRunPage() {
         />
       )}
     </Page>
+  );
+}
+
+function SandboxCard({ initial }: { initial: SandboxStatus }) {
+  const { t } = useTranslation();
+  const check = useQuery({
+    queryKey: ["system", "sandbox"],
+    queryFn: () => apiFetch<SandboxStatus>("/api/system/sandbox"),
+    initialData: initial,
+    staleTime: SANDBOX_POLL_MS,
+    refetchInterval: (query) => (query.state.data?.engine_running ? false : SANDBOX_POLL_MS),
+  });
+  const sandbox = check.data;
+
+  return (
+    <Card title={t("firstRun.sandboxCard")}>
+      <p className="text-sm" data-testid="sandbox-status">
+        {sandbox.engine_running
+          ? t("firstRun.sandboxFound", { runtime: t(`sandbox.${sandbox.runtime}`), version: sandbox.version })
+          : sandbox.runtime
+            ? t("firstRun.sandboxStopped", { runtime: t(`sandbox.${sandbox.runtime}`) })
+            : t("firstRun.sandboxMissing")}
+      </p>
+      {!sandbox.engine_running && (
+        <>
+          <p className="text-sm text-muted">{t("firstRun.sandboxWhy")}</p>
+          <button
+            className="btn-secondary mt-2 w-fit"
+            disabled={check.isFetching}
+            onClick={() => void check.refetch()}
+          >
+            {check.isFetching ? t("firstRun.sandboxChecking") : t("firstRun.sandboxCheck")}
+          </button>
+        </>
+      )}
+      {check.isError && !check.isFetching && (
+        <ErrorNote
+          message={check.error instanceof ApiError ? check.error.detail : t("common.loadFailed")}
+        />
+      )}
+    </Card>
   );
 }
 

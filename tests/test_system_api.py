@@ -65,3 +65,32 @@ def test_container_check_is_cached_between_requests(paths, monkeypatch):
     body = client.get("/api/system", headers=headers).json()
     assert len(calls) == 2
     assert body["sandbox"]["runtime"] == "podman"
+
+
+def test_sandbox_check_skips_the_cache_and_refreshes_it(paths, monkeypatch):
+    answers = iter(
+        [
+            SandboxRuntime(runtime="docker", version=None, engine_running=False, found=("docker",)),
+            SandboxRuntime(
+                runtime="docker", version="28.1", engine_running=True, found=("docker",)
+            ),
+        ]
+    )
+    monkeypatch.setattr(system.sandbox, "detect", lambda: next(answers))
+    app = create_app(paths)
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
+    headers = {"X-Lectern-Token": app.state.token}
+
+    assert client.get("/api/system", headers=headers).json()["sandbox"]["engine_running"] is False
+    # Docker started: the check sees it at once, although the cache is still fresh.
+    checked = client.get("/api/system/sandbox", headers=headers).json()
+    assert checked == {
+        "runtime": "docker", "version": "28.1", "engine_running": True, "found": ["docker"]
+    }  # fmt: skip
+    # …and /system gives the new answer too, without another check.
+    assert client.get("/api/system", headers=headers).json()["sandbox"]["engine_running"] is True
+
+
+def test_sandbox_check_needs_the_token(paths):
+    client = TestClient(create_app(paths), base_url="http://127.0.0.1:8765")
+    assert client.get("/api/system/sandbox").status_code == 401

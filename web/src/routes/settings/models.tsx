@@ -237,7 +237,7 @@ function SettingsCard() {
     onSuccess: (data) => queryClient.setQueryData(["runtime-settings"], data),
   });
   if (!current.data) return null;
-  const { values, implemented } = current.data;
+  const { values, implemented, mlx_supported } = current.data;
   const set = (patch: Partial<RuntimeSettingsValues>) => save.mutate({ ...values, ...patch });
 
   const group = (key: "when_models_dont_fit" | "chat_during_job", options: string[]) => (
@@ -271,18 +271,20 @@ function SettingsCard() {
         {group("when_models_dont_fit", ["swap_between_phases", "keep_one_loaded"])}
         {group("chat_during_job", ["pause_job_after_current_item", "chat_waits"])}
       </div>
-      <label className="flex gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={values.mlx_enabled}
-          disabled={save.isPending}
-          onChange={(e) => set({ mlx_enabled: e.target.checked })}
-        />
-        <span>
-          {t("policy.mlx")}
-          <span className="block text-muted">{t("policy.mlxWhy")}</span>
-        </span>
-      </label>
+      {mlx_supported && (
+        <label className="flex gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={values.mlx_enabled}
+            disabled={save.isPending}
+            onChange={(e) => set({ mlx_enabled: e.target.checked })}
+          />
+          <span>
+            {t("policy.mlx")}
+            <span className="block text-muted">{t("policy.mlxWhy")}</span>
+          </span>
+        </label>
+      )}
       {save.error && (
         <ErrorNote
           message={save.error instanceof ApiError ? save.error.detail : t("common.loadFailed")}

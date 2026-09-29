@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from lectern.app import create_app
+from lectern.core import settings
 from lectern.downloads.fetch import DownloadError
 from lectern.hardware.tiers import Tier
 from lectern.runners.base import MeasuredMemory, RunnerError
@@ -170,7 +171,8 @@ def test_chat_needs_the_token(paths):
     assert response.status_code == 401
 
 
-def test_runtime_settings_default_save_and_refuse_unimplemented(paths):
+def test_runtime_settings_default_save_and_refuse_unimplemented(paths, monkeypatch):
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
     client, headers, _ = _app(paths)
 
     body = client.get("/api/runtime/settings", headers=headers).json()
@@ -189,6 +191,25 @@ def test_runtime_settings_default_save_and_refuse_unimplemented(paths):
     later = {**body["values"], "chat_during_job": "chat_waits"}
     refused = client.put("/api/runtime/settings", json=later, headers=headers)
     assert refused.status_code == 409 and "isn't available yet" in refused.json()["detail"]
+
+
+def test_mlx_switch_is_refused_off_apple_silicon(paths, monkeypatch):
+    client, headers, _ = _app(paths)
+    values = client.get("/api/runtime/settings", headers=headers).json()["values"]
+    # Saved on before the switch was limited to Apple Silicon.
+    settings.put(client.app.state.sessions, settings.RUNTIME_KEY, {**values, "mlx_enabled": True})
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: False)
+
+    body = client.get("/api/runtime/settings", headers=headers).json()
+    assert body["mlx_supported"] is False
+    assert body["values"]["mlx_enabled"] is False  # reported off, so other saves still work
+
+    refused = client.put(
+        "/api/runtime/settings", json={**values, "mlx_enabled": True}, headers=headers
+    )
+    assert refused.status_code == 409 and "Apple Silicon" in refused.json()["detail"]
+    saved = client.put("/api/runtime/settings", json=body["values"], headers=headers)
+    assert saved.status_code == 200
 
 
 def test_routes_reading_runtime_state_run_on_the_event_loop():

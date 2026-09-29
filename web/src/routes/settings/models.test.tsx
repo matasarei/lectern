@@ -49,13 +49,16 @@ const RESPONSES: Record<string, unknown> = {
               chat_during_job: "pause_job_after_current_item" },
     implemented: { when_models_dont_fit: ["swap_between_phases"],
                    chat_during_job: ["pause_job_after_current_item"] },
+    mlx_supported: true,
   },
 };
 
 let puts: unknown[] = [];
+let overrides: Record<string, unknown> = {};
 
 beforeEach(() => {
   puts = [];
+  overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
@@ -64,10 +67,9 @@ beforeEach(() => {
       if (init?.method === "PUT") {
         const body = JSON.parse(String(init.body));
         puts.push(body);
-        const current = RESPONSES["/api/runtime/settings"] as { implemented: unknown };
-        return new Response(JSON.stringify({ values: body, implemented: current.implemented }));
+        return new Response(JSON.stringify({ ...(RESPONSES["/api/runtime/settings"] as object), values: body }));
       }
-      return new Response(JSON.stringify(RESPONSES[url]));
+      return new Response(JSON.stringify(overrides[url] ?? RESPONSES[url]));
     }),
   );
 });
@@ -113,5 +115,16 @@ describe("Models & memory", () => {
 
     await waitFor(() => expect(puts).toHaveLength(1));
     expect(puts[0]).toMatchObject({ mlx_enabled: true, chat_during_job: "pause_job_after_current_item" });
+  });
+
+  it("hides the MLX switch where MLX can't run", async () => {
+    overrides["/api/runtime/settings"] = {
+      ...(RESPONSES["/api/runtime/settings"] as object),
+      mlx_supported: false,
+    };
+    renderPage();
+
+    await screen.findByLabelText(/Pause the job after the current page/);
+    expect(screen.queryByLabelText(/Use MLX for MLX models/)).toBeNull();
   });
 });

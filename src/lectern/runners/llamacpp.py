@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx2
 
-from lectern.runners.base import MeasuredMemory, RunnerError, RunnerSpec
+from lectern.runners.base import MeasuredMemory, RunnerError, RunnerSpec, run_dir_name
 
 MIB = 1024**2
 READY_TIMEOUT = 120.0
@@ -142,7 +142,7 @@ class LlamaCppRunner:
         self.ready_timeout = ready_timeout
 
     async def start(self, spec: RunnerSpec) -> LlamaCppHandle:
-        run_dir = self.work_dir / spec.model_id
+        run_dir = self.work_dir / run_dir_name(spec.model_id)
         run_dir.mkdir(parents=True, exist_ok=True)
         key_file = run_dir / "key"
         key = _write_key(key_file)

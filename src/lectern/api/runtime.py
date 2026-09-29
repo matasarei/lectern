@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from lectern.api.sse import hub_stream
 from lectern.core import settings
+from lectern.runners import mlx
 from lectern.runtime.supervisor import ModelRuntime
 
 router = APIRouter()
@@ -62,7 +63,15 @@ def get_settings(request: Request) -> dict:
     values = settings.get(
         request.app.state.sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
     )
-    return {"values": values, "implemented": {k: sorted(v) for k, v in IMPLEMENTED.items()}}
+    supported = mlx.mlx_supported()
+    # Switched on before the switch was hidden elsewhere: it does nothing there, so report it
+    # off, and the next save stores it off.
+    values = {**values, "mlx_enabled": values["mlx_enabled"] and supported}
+    return {
+        "values": values,
+        "implemented": {k: sorted(v) for k, v in IMPLEMENTED.items()},
+        "mlx_supported": supported,
+    }
 
 
 @router.put("/runtime/settings")
@@ -70,5 +79,7 @@ def put_settings(body: RuntimeSettings, request: Request) -> dict:
     for key, allowed in IMPLEMENTED.items():
         if getattr(body, key) not in allowed:
             raise HTTPException(409, f"{getattr(body, key)!r} for {key} isn't available yet.")
+    if body.mlx_enabled and not mlx.mlx_supported():
+        raise HTTPException(409, "MLX only runs on Apple Silicon Macs.")
     settings.put(request.app.state.sessions, settings.RUNTIME_KEY, body.model_dump())
     return get_settings(request)

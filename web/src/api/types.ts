@@ -23,7 +23,13 @@ export interface SystemReport {
   };
   tier: Tier;
   disk_free: number;
-  sandbox: { runtime: "podman" | "docker" | null; version: string | null; engine_running: boolean };
+  sandbox: SandboxStatus;
+}
+
+export interface SandboxStatus {
+  runtime: "podman" | "docker" | null;
+  version: string | null;
+  engine_running: boolean;
 }
 
 export type DownloadStatus =
@@ -107,4 +113,6 @@ export interface RuntimeSettingsValues {
 export interface RuntimeSettings {
   values: RuntimeSettingsValues;
   implemented: Record<"when_models_dont_fit" | "chat_during_job", string[]>;
+  /** MLX runs only on Apple Silicon Macs; the switch is hidden elsewhere. */
+  mlx_supported: boolean;
 }

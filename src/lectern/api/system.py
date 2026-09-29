@@ -38,11 +38,18 @@ def get_system(request: Request) -> dict:
     return system_report(request.app.state.paths, _cached_sandbox(request))
 
 
-def _cached_sandbox(request: Request) -> sandbox.SandboxRuntime:
+@router.get("/system/sandbox")
+def check_sandbox(request: Request) -> dict:
+    """A fresh container runtime check, for the first-run card after Docker or Podman is
+    started. It also refreshes the cached answer /system gives."""
+    return _cached_sandbox(request, fresh=True).to_dict()
+
+
+def _cached_sandbox(request: Request, *, fresh: bool = False) -> sandbox.SandboxRuntime:
     """The container runtime check, cached per running app for SANDBOX_TTL_SECONDS."""
     now = time.monotonic()
     cached = getattr(request.app.state, "sandbox_cache", None)
-    if cached is not None and now - cached[0] < SANDBOX_TTL_SECONDS:
+    if not fresh and cached is not None and now - cached[0] < SANDBOX_TTL_SECONDS:
         return cached[1]
     result = sandbox.detect()
     request.app.state.sandbox_cache = (now, result)

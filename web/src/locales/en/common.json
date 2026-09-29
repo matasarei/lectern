@@ -74,11 +74,13 @@
     "resume": "Resume download",
     "finish": "Finish setup",
     "notEnoughDisk": "There isn't enough free disk space for this model, plus 1 GB to spare. Free some space, then reload.",
-    "sandboxCard": "Exact calculations",
-    "sandboxFound": "{{runtime}} {{version}} is running. Lectern will use it to run calculation scripts in isolation.",
-    "sandboxStopped": "{{runtime}} is installed but not running. Start it to let Lectern run calculation scripts.",
+    "sandboxCard": "Script sandbox",
+    "sandboxFound": "{{runtime}} {{version}} is running. Lectern will use it to run the scripts its models write, each in an isolated container.",
+    "sandboxStopped": "{{runtime}} is installed but not running. Start it so Lectern can run the scripts its models write.",
     "sandboxMissing": "Neither Podman nor Docker is installed.",
-    "sandboxWhy": "Without one, Lectern can't run calculation scripts, and marks exact numbers as not computed. Everything else works."
+    "sandboxWhy": "Without one, Lectern can't run scripts, so answers that need exact numbers are marked not computed. Everything else works.",
+    "sandboxCheck": "Check again",
+    "sandboxChecking": "Checking…"
   },
   "modelsPage": {
     "title": "Models & memory",
