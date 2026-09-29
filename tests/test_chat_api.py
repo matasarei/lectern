@@ -167,3 +167,24 @@ def test_chat_needs_the_token(paths):
     client, _, _ = _app(paths)
     response = client.post("/api/chat", json={"messages": [{"role": "user", "content": "x"}]})
     assert response.status_code == 401
+
+
+def test_runtime_settings_default_save_and_refuse_unimplemented(paths):
+    client, headers, _ = _app(paths)
+
+    body = client.get("/api/runtime/settings", headers=headers).json()
+    assert body["values"] == {
+        "mlx_enabled": False,
+        "when_models_dont_fit": "swap_between_phases",
+        "chat_during_job": "pause_job_after_current_item",
+    }
+
+    saved = client.put(
+        "/api/runtime/settings", json={**body["values"], "mlx_enabled": True}, headers=headers
+    ).json()
+    assert saved["values"]["mlx_enabled"] is True
+    assert client.get("/api/runtime/settings", headers=headers).json()["values"]["mlx_enabled"]
+
+    later = {**body["values"], "chat_during_job": "chat_waits"}
+    refused = client.put("/api/runtime/settings", json=later, headers=headers)
+    assert refused.status_code == 409 and "isn't available yet" in refused.json()["detail"]

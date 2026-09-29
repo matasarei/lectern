@@ -89,5 +89,40 @@
   "sandbox": {
     "podman": "Podman",
     "docker": "Docker"
+  },
+  "memory": {
+    "title": "Memory",
+    "vramBudget": "Video memory for models",
+    "unifiedBudget": "Memory the GPU can use",
+    "used": "{{used}} of {{budget}} in use",
+    "gaugeLabel": "{{pct}}% of the memory for models in use",
+    "legend": "{{role}}: {{model}}, {{size}}, {{ctx}}-token context",
+    "nothingLoaded": "No model is loaded. The first chat or job loads one.",
+    "swaps_one": "{{count}} swap since start",
+    "swaps_other": "{{count}} swaps since start",
+    "waiting_one": "{{count}} request waiting for memory",
+    "waiting_other": "{{count}} requests waiting for memory"
+  },
+  "roleState": {
+    "loaded": "Loaded",
+    "inUse": "Loaded, in use",
+    "crashed": "Stopped unexpectedly; restarts on next use",
+    "onDisk": "Downloaded, not loaded"
+  },
+  "policy": {
+    "title": "Sharing the GPU",
+    "later": "not available yet",
+    "when_models_dont_fit": {
+      "title": "When two models don't fit together",
+      "swap_between_phases": "Swap between phases: finish the current phase for every page, then swap",
+      "keep_one_loaded": "Keep one model loaded: jobs that need another model wait"
+    },
+    "chat_during_job": {
+      "title": "If you chat during a job",
+      "pause_job_after_current_item": "Pause the job after the current page",
+      "chat_waits": "Chat waits until the job has finished"
+    },
+    "mlx": "Use MLX for MLX models (Apple Silicon)",
+    "mlxWhy": "MLX can be faster on a Mac, but its servers can't be protected with a key yet, so websites you visit could reach them. Leave off unless you're testing."
   }
 }
