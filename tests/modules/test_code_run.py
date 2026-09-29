@@ -154,3 +154,18 @@ def test_a_file_outside_scripts_is_not_a_script(make_ctx):
     add(ctx, "evil.py", "import os")
     with pytest.raises(ToolError, match="No script 'evil'"):
         run(ctx, name="evil", inputs=[])
+
+
+def test_a_script_edited_on_disk_runs_again_instead_of_returning_the_old_result(make_ctx):
+    box = FakeSandbox()
+    ctx = make_ctx(box)
+    add(ctx, "a.py", "print(1)", folder="scripts")
+    run(ctx, name="a", inputs=[])
+
+    (ctx.project.root / "scripts" / "a.py").write_text("print(2)")  # edited by hand
+    again = run(ctx, name="a", inputs=[])
+
+    assert len(box.runs) == 2 and box.runs[1]["code"] == "print(2)"
+    assert "stored result" not in again.text
+    run(ctx, name="a", inputs=[])  # unchanged since: stored
+    assert len(box.runs) == 2

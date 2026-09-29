@@ -130,14 +130,13 @@ class TurnManager:
     ) -> int:
         sessions = await run_in_threadpool(self.projects.db, project)
         valid = await run_in_threadpool(_live_attachments, sessions, user, attachments)
-        registry = await run_in_threadpool(self._registry)
         run = TurnRun(
             project=project,
             sessions=sessions,
             user=user,
             session_id=session_id,
             runtime=self.runtime,
-            registry=registry,
+            registry=Registry([]),  # built in the turn: checking the engine can take seconds
             emit=lambda event: None,
             decide=lambda confirmation_id: self._decision(key, confirmation_id),
             turn_state=lambda sid: self.state((project.id, sid)),
@@ -160,6 +159,7 @@ class TurnManager:
         )  # fmt: skip
 
         async def turn() -> str:
+            run.registry = await run_in_threadpool(self._registry)
             status = await run_turn(run)
             channel.publish({"type": "turn", "status": status})
             channel.settle()

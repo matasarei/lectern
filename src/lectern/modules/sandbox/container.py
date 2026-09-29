@@ -143,7 +143,11 @@ class Sandbox:
         engine = await self.engine()
         out_dir = job_dir / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_dir.chmod(0o777)  # the container's user (65534) must be able to write here
+        # The container's user (65534) must be able to write to /out, so the folder is open to
+        # all; its parent is ours alone, so no other account on this machine can reach it.
+        # (The engine resolves the mount itself; the container never walks the parent.)
+        job_dir.chmod(0o700)
+        out_dir.chmod(0o777)
         name = f"lectern-job-{uuid.uuid4().hex[:12]}"
         argv = self.run_argv(engine, name, script, inputs, out_dir)
         loop = asyncio.get_running_loop()

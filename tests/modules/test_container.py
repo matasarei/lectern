@@ -97,6 +97,7 @@ def test_a_run_is_locked_down_and_mounts_only_what_it_was_given(tmp_path):
     assert argv[-3:] == ("lectern-sandbox:1", "python", "/job/main.py")
     assert (result.ok, result.stdout, result.exit_code) == (True, "42\n", 0)
     assert oct((job_dir / "out").stat().st_mode & 0o777) == "0o777"
+    assert oct(job_dir.stat().st_mode & 0o777) == "0o700"  # other accounts can't get to it
 
 
 def test_a_run_that_takes_too_long_is_killed(tmp_path):

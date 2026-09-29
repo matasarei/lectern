@@ -156,7 +156,7 @@ def _store_run(
             outputs.append(row.id)
         run = ScriptRunRow(
             script_id=script.id,
-            script_sha=script.sha256,
+            script_sha=script_sha(ctx, script),
             inputs_sha=inputs_sha(inputs),
             test_run=test_run,
             exit_code=result.exit_code,
@@ -171,6 +171,13 @@ def _store_run(
         return run
 
 
+def script_sha(ctx: ToolContext, script: ArtifactRow) -> str:
+    """The script as it is on disk now: someone may have edited it since it was written, and
+    a stored run of the old text mustn't be returned for the new one."""
+    path = files.inside(ctx.project.root, script.path)
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def stored_run(ctx: ToolContext, script: ArtifactRow, inputs: list[Input]) -> ScriptRunRow | None:
     """The latest successful run of this exact script on these exact inputs."""
     with ctx.sessions() as session:
@@ -178,7 +185,7 @@ def stored_run(ctx: ToolContext, script: ArtifactRow, inputs: list[Input]) -> Sc
             select(ScriptRunRow)
             .where(
                 ScriptRunRow.script_id == script.id,
-                ScriptRunRow.script_sha == script.sha256,
+                ScriptRunRow.script_sha == script_sha(ctx, script),
                 ScriptRunRow.inputs_sha == inputs_sha(inputs),
                 ScriptRunRow.exit_code == 0,
             )
@@ -504,7 +511,8 @@ async def ensure_coder(ctx: ToolContext) -> None:
         )
     async with downloads.events.listen() as queue:
         state = downloads.start(entry)
-        while state.status not in ("done", "failed"):
+        # "paused" too: a download that stopped (the app shutting down) won't finish by itself.
+        while state.status not in ("done", "failed", "paused"):
             event = await queue.get()
             if event.get("type") != "download" or event.get("model_id") != entry.id:
                 continue
@@ -519,6 +527,11 @@ async def ensure_coder(ctx: ToolContext) -> None:
             )
     if state.status == "failed":
         raise ToolError(f"The coding model's download failed: {state.error}")
+    if state.status == "paused":
+        raise ToolError(
+            "The coding model's download was stopped before it finished. Show the formula and "
+            "say the result is not computed; asking again resumes the download."
+        )
 
 
 CODE_WRITE = AgentTool(
