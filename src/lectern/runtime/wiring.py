@@ -78,6 +78,11 @@ def build_runtime(
 
     def runner_for(choice: ModelChoice) -> Runner:
         if choice.format == "mlx":
+            if not mlx.mlx_supported():
+                raise NotAvailable(
+                    f"{choice.model_id} is an MLX model, and MLX only runs on Apple Silicon "
+                    "Macs. Choose a GGUF model."
+                )
             if not settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
                 "mlx_enabled"
             ]:
