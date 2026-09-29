@@ -116,7 +116,8 @@ class DownloadManager:
     def state(self, entry: CatalogEntry) -> DownloadState:
         with self.sessions() as session:
             row = session.get(DownloadRow, entry.id)
-        if row is None:
+        if row is None or (row.status == "done" and not self.is_downloaded(entry)):
+            # No record, or the files were removed after a finished download: trust the disk.
             status = "done" if self.is_downloaded(entry) else "none"
             return DownloadState(entry.id, status, self._bytes_on_disk(entry), entry.size)
         return DownloadState(entry.id, row.status, row.bytes_done, row.bytes_total, error=row.error)

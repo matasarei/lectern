@@ -371,3 +371,18 @@ def test_events_endpoint_needs_the_token(paths):
     app = create_app(paths)
     client = TestClient(app, base_url="http://127.0.0.1:8765")
     assert client.get("/api/models/events").status_code == 401
+
+
+def test_a_deleted_model_no_longer_counts_as_downloaded(paths, sessions):
+    hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
+    manager = _manager(paths, sessions, hub)
+    entry = _entry()
+    asyncio.run(_finish(manager, entry))
+    assert manager.state(entry).status == "done"
+
+    (paths.models / "tiny" / "tiny.gguf").unlink()
+
+    state = manager.state(entry)
+    assert (state.status, state.bytes_done) == ("none", len(MMPROJ))
+    asyncio.run(_finish(manager, entry))
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
