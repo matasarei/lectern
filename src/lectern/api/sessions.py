@@ -1,0 +1,191 @@
+"""/api/projects/{id}/sessions: chats — the transcript, sending a message, following the
+reply, answering confirmation cards, and stopping.
+
+Sending returns at once (202); the turn runs on the server and the page follows it on the
+events stream. A page that reloads reads the transcript, then the events stream, which
+starts with the current turn's events so far.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from lectern.agent.turns import Busy, TurnManager
+from lectern.api.projects import CurrentUser, open_project, store
+from lectern.api.sse import event_response, pump
+from lectern.core.auth import User
+from lectern.projects.store import NEW_CHAT, Project, clean_name
+from lectern.projects.tables import ArtifactRow, ConfirmationRow, MessageRow, SessionRow
+
+router = APIRouter()
+MESSAGE_LIMIT = 100_000
+ATTACH_LIMIT = 20
+
+
+def turns(request: Request) -> TurnManager:
+    return request.app.state.turns
+
+
+def open_session(request: Request, project: Project, session_id: int, user: User) -> SessionRow:
+    with store(request).db(project)() as session:
+        row = session.get(SessionRow, session_id)
+    if row is None or row.owner_id != user.id:
+        raise HTTPException(404, "No such session.")
+    return row
+
+
+def session_dict(row: SessionRow, state: str) -> dict:
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "title": row.title,
+        "state": state,
+        "created_at": row.created_at.isoformat(),
+        "updated_at": row.updated_at.isoformat(),
+    }
+
+
+class NewSession(BaseModel):
+    title: str = Field(default=NEW_CHAT, max_length=200)
+
+
+class Retitle(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class Send(BaseModel):
+    text: str = Field(min_length=1, max_length=MESSAGE_LIMIT)
+    attachments: list[int] = Field(default_factory=list, max_length=ATTACH_LIMIT)
+
+
+class Decision(BaseModel):
+    approve: bool
+
+
+@router.post("/projects/{project_id}/sessions", status_code=201)
+def new_chat(project_id: int, body: NewSession, request: Request, user: CurrentUser) -> dict:
+    project = open_project(request, project_id, user)
+    title = clean_name(body.title) if body.title.strip() else NEW_CHAT
+    with store(request).db(project).begin() as session:
+        row = SessionRow(owner_id=user.id, kind="chat", title=title, titled=title != NEW_CHAT)
+        session.add(row)
+        session.flush()
+    return session_dict(row, "idle")
+
+
+@router.get("/projects/{project_id}/sessions/{session_id}")
+def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
+    """The session and its whole transcript, with any card still waiting for an answer."""
+    project = open_project(request, project_id, user)
+    row = open_session(request, project, session_id, user)
+    with store(request).db(project)() as session:
+        messages = session.scalars(
+            select(MessageRow).where(MessageRow.session_id == session_id).order_by(MessageRow.id)
+        ).all()
+        attached = {
+            i for m in messages for i in json.loads(m.attachments or "[]")
+        }  # fmt: skip
+        names = {
+            a.id: a.path
+            for a in session.scalars(select(ArtifactRow).where(ArtifactRow.id.in_(attached)))
+        }
+        pending = session.scalars(
+            select(ConfirmationRow).where(
+                ConfirmationRow.session_id == session_id, ConfirmationRow.status == "pending"
+            )
+        ).all()
+    state = turns(request).state((project.id, session_id))
+    return {
+        **session_dict(row, state),
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "tool_calls": json.loads(m.tool_calls) if m.tool_calls else None,
+                "tool_call_id": m.tool_call_id,
+                "tool_name": m.tool_name,
+                "attachments": [
+                    {"id": i, "name": names.get(i)} for i in json.loads(m.attachments or "[]")
+                ],
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in messages
+        ],
+        # A card only counts while its turn is still waiting on it.
+        "pending": [
+            {"confirmation_id": p.id, "call_id": p.tool_call_id, "name": p.tool}
+            for p in pending
+            if state == "waiting"
+        ],
+    }
+
+
+@router.patch("/projects/{project_id}/sessions/{session_id}")
+def retitle(
+    project_id: int, session_id: int, body: Retitle, request: Request, user: CurrentUser
+) -> dict:
+    project = open_project(request, project_id, user)
+    open_session(request, project, session_id, user)
+    with store(request).db(project).begin() as session:
+        row = session.get(SessionRow, session_id)
+        row.title, row.titled = clean_name(body.title), True  # type: ignore[union-attr]
+        session.flush()
+        return session_dict(row, turns(request).state((project.id, session_id)))  # type: ignore[arg-type]
+
+
+@router.post("/projects/{project_id}/sessions/{session_id}/messages", status_code=202)
+async def send(
+    project_id: int, session_id: int, body: Send, request: Request, user: CurrentUser
+) -> dict:
+    project = open_project(request, project_id, user)
+    open_session(request, project, session_id, user)
+    try:
+        message_id = await turns(request).send(
+            project, user, session_id, body.text, body.attachments
+        )
+    except Busy:
+        raise HTTPException(409, "This chat is still answering. Wait, or press Stop.") from None
+    return {"message_id": message_id}
+
+
+@router.get("/projects/{project_id}/sessions/{session_id}/events")
+async def events(project_id: int, session_id: int, request: Request, user: CurrentUser):  # noqa: ANN201
+    project = open_project(request, project_id, user)
+    open_session(request, project, session_id, user)
+    channel = turns(request).channel((project.id, session_id))
+
+    async def stream() -> AsyncIterator[bytes]:
+        async with channel.listen() as (so_far, queue):
+            async for chunk in pump(request, queue, so_far):
+                yield chunk
+
+    return event_response(stream())
+
+
+@router.post("/projects/{project_id}/sessions/{session_id}/confirmations/{confirmation_id}")
+def decide(
+    project_id: int,
+    session_id: int,
+    confirmation_id: int,
+    body: Decision,
+    request: Request,
+    user: CurrentUser,
+) -> dict:
+    project = open_project(request, project_id, user)
+    open_session(request, project, session_id, user)
+    if not turns(request).decide((project.id, session_id), confirmation_id, body.approve):
+        raise HTTPException(404, "Nothing is waiting for that answer.")
+    return {"approved": body.approve}
+
+
+@router.post("/projects/{project_id}/sessions/{session_id}/stop")
+async def stop(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
+    project = open_project(request, project_id, user)
+    open_session(request, project, session_id, user)
+    return {"stopped": await turns(request).stop((project.id, session_id))}
