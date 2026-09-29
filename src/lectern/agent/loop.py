@@ -20,8 +20,10 @@ import httpx2
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
+from lectern.agent import state
 from lectern.agent.context import Attachment, ContextTooSmall, Counter, answer_reserve, build
 from lectern.agent.prompts import system_prompt
+from lectern.agent.state import ChatState
 from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
 from lectern.core.auth import User
 from lectern.downloads.fetch import DownloadError
@@ -61,8 +63,19 @@ class TurnFailed(Exception):
 # --- the transcript ------------------------------------------------------------------------
 
 
-def load_history(run: TurnRun) -> tuple[list[dict], list[Attachment]]:
-    """The whole transcript in OpenAI form, and the files attached anywhere in this chat."""
+@dataclass
+class History:
+    """What the next model call is built from."""
+
+    messages: list[dict]  # the turns after the summary, oldest first (each with its "id")
+    attachments: list[Attachment]
+    state: ChatState
+
+
+def load_history(run: TurnRun) -> History:
+    """The transcript after the summary (all of it when there is none), the files attached
+    anywhere in this chat, and the chat's state record."""
+    chat_state = state.load(run.sessions, run.session_id)  # type: ignore[arg-type]
     with run.sessions() as session:
         rows = session.scalars(
             select(MessageRow)
@@ -84,18 +97,20 @@ def load_history(run: TurnRun) -> tuple[list[dict], list[Attachment]]:
                 f"### {c.heading}\n{c.body}" if c.heading else c.body for c in chunks
             )
             attachments.append(Attachment(artifact_id, artifact.path, text, artifact.text_note))
-    return [as_openai(r) for r in rows], attachments
+    recent = [r for r in rows if r.id > chat_state.summary_upto]
+    return History([as_openai(r) for r in recent], attachments, chat_state)
 
 
 def as_openai(row: MessageRow) -> dict:
     if row.role == "tool":
         return {
+            "id": row.id,
             "role": "tool",
             "tool_call_id": row.tool_call_id,
             "content": row.content,
             "name": row.tool_name,
         }
-    message: dict = {"role": row.role, "content": row.content}
+    message: dict = {"id": row.id, "role": row.role, "content": row.content}
     if row.tool_calls:
         message["tool_calls"] = json.loads(row.tool_calls)
     return message
@@ -124,7 +139,7 @@ class Reply:
     tps: float | None = None
 
 
-async def call_model(run: TurnRun, history: list[dict], attachments: list[Attachment]) -> Reply:
+async def call_model(run: TurnRun, history: History) -> Reply:
     async with run.runtime.lease("main", Priority.CHAT) as lease:
         if not run.stats.get("model_sent"):
             run.emit({"type": "model", "model_id": lease.model_id, "ctx": lease.plan.ctx})
@@ -136,10 +151,12 @@ async def call_model(run: TurnRun, history: list[dict], attachments: list[Attach
                     run.project.name, sandbox=run.registry.get("code_run") is not None
                 ),
                 tools=run.registry.schemas(),
-                attachments=attachments,
-                history=history,
+                attachments=history.attachments,
+                history=history.messages,
                 ctx=lease.plan.ctx,
                 counter=counter,
+                pins=[(p.kind, p.text) for p in history.state.pinned],
+                summary=history.state.summary,
             )
         except ContextTooSmall as exc:
             raise TurnFailed(str(exc)) from None
@@ -338,8 +355,8 @@ async def run_turn(run: TurnRun) -> str:
     failures: dict[str, int] = {}
     try:
         for _ in range(MAX_MODEL_CALLS):
-            history, attachments = await run_in_threadpool(load_history, run)
-            reply = await _call(run, history, attachments)
+            history = await run_in_threadpool(load_history, run)
+            reply = await _call(run, history)
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
             tps = reply.tps or tps
@@ -414,7 +431,7 @@ class _Unknown:
     name = "unknown"
 
 
-async def _call(run: TurnRun, history: list[dict], attachments: list[Attachment]) -> Reply:
+async def _call(run: TurnRun, history: History) -> Reply:
     """call_model, keeping the text streamed so far in `stats["partial"]`, so a stop in the
     middle of a reply can still store it."""
     original = run.emit
@@ -427,6 +444,6 @@ async def _call(run: TurnRun, history: list[dict], attachments: list[Attachment]
 
     run.emit = emit
     try:
-        return await call_model(run, history, attachments)
+        return await call_model(run, history)
     finally:
         run.emit = original

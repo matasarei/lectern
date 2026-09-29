@@ -106,19 +106,31 @@ async def build(
     history: list[dict],
     ctx: int,
     counter: Counter,
+    pins: list[tuple[str, str]] = (),  # (kind, text), in the order they were pinned
+    summary: str = "",
 ) -> Built:
     """`history` is the transcript in OpenAI message form, oldest first, ending with the
-    current turn (its user message, and any tool calls made so far in it)."""
+    current turn (its user message, and any tool calls made so far in it). When the chat has
+    a summary, `history` holds only the turns after it."""
     budget = ctx - answer_reserve(ctx)
     tools_tokens = await counter.count(json.dumps(tools, ensure_ascii=False)) if tools else 0
     system_tokens = await counter.count(system) + TOOL_OVERHEAD_TOKENS
-    room = budget - tools_tokens - system_tokens
+    # Pinned items and the summary always go in whole: pins are short by rule, and the
+    # summary is written to a fixed size (see compaction.py).
+    pinned = _pins_section(pins)
+    summarised = (
+        f"\n\n# Earlier in this chat (summary)\n{summary.strip()}" if summary.strip() else ""
+    )
+    pins_tokens = await counter.count(pinned)
+    summary_tokens = await counter.count(summarised)
+    room = budget - tools_tokens - system_tokens - pins_tokens - summary_tokens
     if room <= 0:
         raise ContextTooSmall("The system prompt and tools don't fit this model's context.")
 
-    pinned, stubbed, pinned_tokens = await _pinned(attachments, int(room * PINNED_SHARE), counter)
-    system_message = {"role": "system", "content": system + pinned}
-    room -= pinned_tokens
+    files, stubbed, files_tokens = await _pinned(attachments, int(room * PINNED_SHARE), counter)
+    # Most stable first, so the runner can reuse its cache: rules, pins, files, summary.
+    system_message = {"role": "system", "content": system + pinned + files + summarised}
+    room -= files_tokens
 
     turns = split_turns(history)
     sizes = [[await counter.message(m) for m in turn] for turn in turns]
@@ -155,10 +167,10 @@ async def build(
             "The current message and its tool results don't fit this model's context."
         )
 
-    # "name" is Lectern's own note of which tool a result came from; the model gets the
-    # plain OpenAI fields.
+    # "name" (which tool a result came from) and "id" (the stored message) are Lectern's
+    # own notes; the model gets the plain OpenAI fields.
     messages = [system_message] + [
-        {k: v for k, v in m.items() if k != "name"} for turn in turns for m in turn
+        {k: v for k, v in m.items() if k not in ("name", "id")} for turn in turns for m in turn
     ]
     return Built(
         messages=messages,
@@ -168,11 +180,20 @@ async def build(
         parts={
             "system": system_tokens,
             "tools": tools_tokens,
-            "pinned": pinned_tokens,
+            "pinned": pins_tokens,
+            "files": files_tokens,
+            "summary": summary_tokens,
             "turns": total(),
         },
         budget=budget,
     )
+
+
+def _pins_section(pins: list[tuple[str, str]]) -> str:
+    if not pins:
+        return ""
+    lines = "\n".join(f"- ({kind}) {text}" for kind, text in pins)
+    return f"\n\n# Pinned by the person (these hold; follow them)\n{lines}"
 
 
 async def _pinned(
