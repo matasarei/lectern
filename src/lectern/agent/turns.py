@@ -73,11 +73,16 @@ class TurnManager:
         self.registry = registry
         self._channels: dict[Key, Channel] = {}
         self._turns: dict[Key, Turn] = {}
+        # Chats whose message is being stored and whose turn hasn't started yet: a second
+        # send in that gap must see the chat as busy.
+        self._starting: set[Key] = set()
 
     def channel(self, key: Key) -> Channel:
         return self._channels.setdefault(key, Channel())
 
     def state(self, key: Key) -> str:
+        if key in self._starting:
+            return "running"
         turn = self._turns.get(key)
         if turn is None or turn.task.done():
             return "idle"
@@ -90,6 +95,21 @@ class TurnManager:
         key = (project.id, session_id)
         if self.state(key) != "idle":
             raise Busy()
+        self._starting.add(key)  # before the first await, so nothing can slip in between
+        try:
+            return await self._start(key, project, user, session_id, text, attachments)
+        finally:
+            self._starting.discard(key)
+
+    async def _start(
+        self,
+        key: Key,
+        project: Project,
+        user: User,
+        session_id: int,
+        text: str,
+        attachments: list[int],
+    ) -> int:
         sessions = self.projects.db(project)
         valid = await run_in_threadpool(_live_attachments, sessions, user, attachments)
         run = TurnRun(

@@ -263,3 +263,44 @@ def test_the_card_names_the_file_as_it_is_stored(setup, store):
         return card["text"]
 
     assert asyncio.run(scenario()) == "Move old.md to the trash?"
+
+
+def test_two_sends_at_once_start_only_one_turn(setup, store):
+    manager, project, handle, _ = setup([text_reply("One answer.")])
+
+    async def scenario():
+        results = await asyncio.gather(
+            manager.send(project, LOCAL_USER, 1, "first", []),
+            manager.send(project, LOCAL_USER, 1, "second", []),
+            return_exceptions=True,
+        )
+        await manager.wait((project.id, 1))
+        return results
+
+    results = asyncio.run(scenario())
+    assert sum(isinstance(r, Busy) for r in results) == 1
+    assert len(handle.requests) == 1
+    assert [row[0] for row in transcript(store, project)] == ["user", "assistant"]
+
+
+def test_a_failed_send_leaves_the_chat_free(setup, store, monkeypatch):
+    manager, project, _, _ = setup([text_reply("ok")])
+    real = loop.store_message
+    calls = {"n": 0}
+
+    def failing_once(run, **fields):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("disk full")
+        return real(run, **fields)
+
+    monkeypatch.setattr("lectern.agent.turns.store_message", failing_once)
+
+    async def scenario():
+        with pytest.raises(RuntimeError):
+            await manager.send(project, LOCAL_USER, 1, "first", [])
+        assert manager.state((project.id, 1)) == "idle"
+        await manager.send(project, LOCAL_USER, 1, "again", [])
+        return await manager.wait((project.id, 1))
+
+    assert asyncio.run(scenario()) == "done"
