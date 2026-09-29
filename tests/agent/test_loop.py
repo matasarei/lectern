@@ -384,3 +384,28 @@ def test_a_tool_outside_a_turn_is_never_approved(store):
     ctx = ToolContext(project=project, sessions=store.db(project), user=LOCAL_USER, session_id=1)
     result = asyncio.run(_ask_then_work(ctx, _AskParams(what="x")))
     assert result.text == "The person said no."
+
+
+def test_a_slow_tool_list_doesnt_delay_sending(store):
+    import threading
+
+    release = threading.Event()
+
+    def slow_registry():
+        release.wait(timeout=5)  # a cold `podman info`
+        return core_registry()
+
+    handle = FakeHandle([text_reply("ok")])
+    manager = TurnManager(make_runtime(handle), store, slow_registry)
+    project = store.create(LOCAL_USER, "Slow")
+
+    async def scenario():
+        started = asyncio.get_running_loop().time()
+        await manager.send(project, LOCAL_USER, 1, "hi", [])
+        sent_in = asyncio.get_running_loop().time() - started
+        assert manager.state((project.id, 1)) == "running"
+        release.set()
+        return sent_in, await manager.wait((project.id, 1))
+
+    sent_in, status = asyncio.run(scenario())
+    assert sent_in < 1 and status == "done"
