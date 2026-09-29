@@ -52,7 +52,8 @@ class PromptSet:
 @dataclass
 class Outcome:
     case: Case
-    tools: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)  # calls that worked
+    attempted: list[str] = field(default_factory=list)  # every call, worked or not
     answer: str = ""
     seconds: float = 0.0
     error: str | None = None
@@ -66,7 +67,7 @@ class Outcome:
         # A required entry may name alternatives: "project.find|project.list" passes on either.
         return all(
             any(option in self.tools for option in needed.split("|")) for needed in self.required
-        ) and not any(t in self.tools for t in self.forbidden)
+        ) and not any(t in (self.attempted or self.tools) for t in self.forbidden)
 
     @property
     def right(self) -> bool:
@@ -270,6 +271,7 @@ def _ask(client, pid: int, session_id: int, case: Case, *, allow_cards: bool) ->
     """Send one message to a chat and follow the turn to its end."""
     base = f"/api/projects/{pid}/sessions/{session_id}"
     outcome = Outcome(case)
+    calls: dict[str, str] = {}  # call id → tool, until its result arrives
     started = time.monotonic()
     sent = client.post(f"{base}/messages", json={"text": case.prompt})
     if sent.status_code != 202:
@@ -284,7 +286,14 @@ def _ask(client, pid: int, session_id: int, case: Case, *, allow_cards: bool) ->
             event = json.loads(line.removeprefix("data: "))
             kind = event.get("type")
             if kind == "tool":
-                outcome.tools.append(event["name"])
+                outcome.attempted.append(event["name"])
+                calls[event["call_id"]] = event["name"]
+            elif kind == "tool_result":
+                # Only a call that worked counts as using the tool; a refused or failed one
+                # still counts as trying it (a forbidden tool fails the prompt either way).
+                name = calls.pop(event.get("call_id"), None)
+                if name and not event.get("error"):
+                    outcome.tools.append(name)
             elif kind == "delta":
                 outcome.answer += event["text"]
             elif kind == "assistant" and event.get("tool_calls"):
@@ -311,9 +320,12 @@ def _ask(client, pid: int, session_id: int, case: Case, *, allow_cards: bool) ->
 def _line(o: Outcome) -> str:
     mark = "PASS" if o.passed else "FAIL"
     failed = [name for name, ok in o.checks.items() if not ok]
-    if o.forbidden and any(t in o.tools for t in o.forbidden):
+    if o.forbidden and any(t in (o.attempted or o.tools) for t in o.forbidden):
         failed.append("called a forbidden tool")
     tools = ",".join(t.split(".")[-1] if t.startswith("code.") else t for t in o.tools) or "-"
+    failed_calls = len(o.attempted) - len(o.tools)
+    if failed_calls > 0:
+        tools += f" (+{failed_calls} failed)"
     answer = " ".join(o.answer.split())[:90]
     note = f" · error: {o.error}" if o.error else ""
     if failed:

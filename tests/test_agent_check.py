@@ -204,3 +204,19 @@ def test_alternatives_in_required_tools():
     either = ("project.find|project.list",)
     assert Outcome(case, tools=["project.list"], required=either).used_tools
     assert not Outcome(case, tools=["document.read"], required=either).used_tools
+
+
+def test_a_failed_call_doesnt_count_as_using_the_tool():
+    from lectern.dev.agent_check import _line
+
+    case = Case("pin", "Always answer in Ukrainian")
+    refused = Outcome(case, tools=[], attempted=["chat.pin"] * 3, required=("chat.pin",))
+    assert not refused.used_tools
+    assert "(+3 failed)" in _line(refused)
+    tried_trash = Outcome(
+        Case("memo", "?"),
+        tools=["document.read"],
+        attempted=["document.read", "artifact.trash"],
+        forbidden=("artifact.trash",),
+    )
+    assert not tried_trash.used_tools  # trying a forbidden tool fails, even if it was refused
