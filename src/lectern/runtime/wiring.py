@@ -28,6 +28,10 @@ def budget_for(hw: HardwareInfo) -> tuple[int, str]:
     """Bytes models may use, and where the number came from."""
     forced = os.environ.get("LECTERN_BUDGET_MB")
     if forced:
+        if not forced.strip().isdigit() or int(forced) <= 0:
+            raise ValueError(
+                f"LECTERN_BUDGET_MB must be a whole number of MiB above 0, got {forced!r}."
+            )
         return int(forced) * 1024**2, "LECTERN_BUDGET_MB"
     if hw.gpu_budget > 0:
         return hw.gpu_budget, "gpu"
