@@ -110,7 +110,7 @@ class TurnManager:
         text: str,
         attachments: list[int],
     ) -> int:
-        sessions = self.projects.db(project)
+        sessions = await run_in_threadpool(self.projects.db, project)
         valid = await run_in_threadpool(_live_attachments, sessions, user, attachments)
         run = TurnRun(
             project=project,
