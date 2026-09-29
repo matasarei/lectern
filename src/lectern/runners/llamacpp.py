@@ -103,7 +103,7 @@ class LlamaCppHandle:
     def client(self, timeout: float = 600.0) -> httpx2.AsyncClient:
         return httpx2.AsyncClient(
             base_url=self.base_url,
-            headers={"Authorization": f"Bearer {self._key}"},
+            headers={"Authorization": f"Bearer {self._key}"} if self._key else {},
             timeout=httpx2.Timeout(timeout, connect=5.0),
         )
 

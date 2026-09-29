@@ -50,6 +50,7 @@ class ModelChoice:
     shape: planner.ModelShape
     tier_ctx: int
     mmproj: Path | None = None
+    format: str = "gguf"  # or "mlx"
 
 
 class NotAvailable(Exception):

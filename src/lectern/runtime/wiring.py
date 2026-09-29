@@ -9,9 +9,12 @@ from pathlib import Path
 
 from lectern.catalog import catalog
 from lectern.config import Paths
+from lectern.core import settings
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import HardwareInfo
 from lectern.hardware.tiers import Tier, effective_tier
+from lectern.runners import mlx
+from lectern.runners.base import Runner
 from lectern.runners.binaries import LlamaCppInstaller, UnsupportedPlatform, select_variant
 from lectern.runners.llamacpp import InstallingLlamaCppRunner
 from lectern.runtime import planner
@@ -36,7 +39,9 @@ def _shape(path: Path) -> planner.ModelShape:
     return planner.read_shape(path)
 
 
-def build_runtime(paths: Paths, downloads: DownloadManager, hw: HardwareInfo) -> ModelRuntime:
+def build_runtime(
+    paths: Paths, downloads: DownloadManager, hw: HardwareInfo, sessions
+) -> ModelRuntime:  # noqa: ANN001
     tier = effective_tier(hw)
     budget, _source = budget_for(hw)
     unified = not hw.gpus or any(g.unified for g in hw.gpus)
@@ -50,17 +55,35 @@ def build_runtime(paths: Paths, downloads: DownloadManager, hw: HardwareInfo) ->
             raise NotAvailable(f"{entry.title} isn't downloaded yet. Download it first.")
         model_file = downloads.file_path(entry, entry.files.model[0])
         mmproj = entry.files.mmproj
+        if entry.format == "mlx":
+            # An MLX model is a folder; its first file sits in it.
+            model_file = model_file.parent
+            shape = mlx.read_shape(model_file)
+        else:
+            shape = _shape(model_file)
         return ModelChoice(
             role=role,
             model_id=entry.id,
             model_file=model_file,
             weights=entry.size,
-            shape=_shape(model_file),
+            shape=shape,
             tier_ctx=entry.ctx.get(tier) or entry.ctx.get(Tier.MINIMUM) or planner.MIN_CTX,
             mmproj=downloads.file_path(entry, mmproj) if mmproj else None,
+            format=entry.format,
         )
 
-    def runner_for(choice: ModelChoice) -> InstallingLlamaCppRunner:
+    def runner_for(choice: ModelChoice) -> Runner:
+        if choice.format == "mlx":
+            if not settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
+                "mlx_enabled"
+            ]:
+                raise NotAvailable(
+                    f"{choice.model_id} is an MLX model and MLX is off. Turn it on in "
+                    "Models & memory, or choose a GGUF model."
+                )
+            if not mlx.mlx_available():
+                raise NotAvailable("MLX needs Apple Silicon and `pip install lectern-ai[mlx]`.")
+            return mlx.MlxRunner(paths.home / "run", vision=choice.role in mlx.VISION_ROLES)
         try:
             variant = select_variant(hw)
         except UnsupportedPlatform as exc:

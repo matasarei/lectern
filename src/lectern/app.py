@@ -51,7 +51,9 @@ def create_app(
     app.state.engine = engine
     app.state.sessions = make_sessionmaker(engine)
     app.state.downloads = downloads or DownloadManager(paths.models, app.state.sessions)
-    app.state.runtime = runtime or build_runtime(paths, app.state.downloads, probe())
+    app.state.runtime = runtime or build_runtime(
+        paths, app.state.downloads, probe(), app.state.sessions
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:
