@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from lectern.agent.tools import AgentTool
 from lectern.modules import ToolEnv
+from lectern.modules.sandbox.tools import CODE_RUN
 
 
 class SandboxModule:
@@ -13,7 +14,7 @@ class SandboxModule:
     def tools(self, env: ToolEnv) -> list[AgentTool]:
         if not env.sandbox:
             return []
-        return []  # code.write and code.run arrive in the next steps
+        return [CODE_RUN]
 
 
 module = SandboxModule()

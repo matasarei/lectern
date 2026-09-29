@@ -2,11 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from lectern.core.db import make_engine, make_sessionmaker, migrate
-from lectern.projects.store import ProjectStore
-
 
 def write_pdf(path: Path, pages: list[str]) -> Path:
     """A minimal PDF with a text layer: one Helvetica line per page (Latin text only)."""
@@ -66,12 +61,3 @@ def write_docx(path: Path) -> Path:
     document.add_paragraph("Ковальчук О. П.")
     document.save(str(path))
     return path
-
-
-@pytest.fixture
-def store(paths):
-    engine = make_engine(paths.app_db)
-    migrate(engine)
-    store = ProjectStore(paths, make_sessionmaker(engine))
-    yield store
-    store.dispose()

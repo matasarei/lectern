@@ -10,6 +10,8 @@ import pytest
 import uvicorn
 
 from lectern.config import Paths
+from lectern.core.db import make_engine, make_sessionmaker, migrate
+from lectern.projects.store import ProjectStore
 
 
 @pytest.fixture
@@ -50,3 +52,13 @@ def live_server() -> Callable[..., contextlib.AbstractContextManager[str]]:
             thread.join(timeout=10)
 
     return run
+
+
+@pytest.fixture
+def store(paths):
+    """The project store on a throwaway app database."""
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    projects = ProjectStore(paths, make_sessionmaker(engine))
+    yield projects
+    projects.dispose()

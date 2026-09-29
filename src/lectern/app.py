@@ -20,6 +20,7 @@ from lectern.core.security import LocalGuard, load_or_create_token
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.modules import EnvProbe, load_modules, tool_registry
+from lectern.modules.sandbox.container import Sandbox
 from lectern.projects.store import ProjectStore
 from lectern.runtime.supervisor import ModelRuntime
 from lectern.runtime.wiring import build_runtime
@@ -69,6 +70,7 @@ def create_app(
         app.state.projects,
         tool_registry(CORE_TOOLS, load_modules(), EnvProbe()),
         downloads=app.state.downloads,
+        sandbox=Sandbox(),
     )
 
     @app.get("/health")
