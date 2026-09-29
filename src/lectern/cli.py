@@ -9,6 +9,7 @@ import socket
 import threading
 import time
 import webbrowser
+from typing import Annotated
 
 import typer
 import uvicorn
@@ -218,6 +219,31 @@ def bench(
 
 dev_app = typer.Typer(help="Developer tools.", no_args_is_help=True)
 app.add_typer(dev_app, name="dev")
+
+
+@dev_app.command("agent-check")
+def agent_check(
+    prompt_set: str = typer.Option("calc", "--set", help="Prompt set: calc."),
+    only: Annotated[
+        list[str] | None, typer.Option("--only", help="Run only these prompt ids.")
+    ] = None,
+    allow_cards: bool = typer.Option(
+        True, help="Answer cards (downloads, the sandbox build) with Allow."
+    ),
+    port: int = typer.Option(DEFAULT_PORT, help="Port of the running `lectern serve`."),
+) -> None:
+    """Send a prompt set to a running server, one fresh chat each, and score the answers."""
+    from lectern.dev.agent_check import run_set, summary
+
+    with _server(port) as client:
+        try:
+            outcomes = run_set(client, prompt_set, allow_cards=allow_cards, only=only or None,
+                               echo=typer.echo)  # fmt: skip
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from None
+    typer.echo(summary(outcomes))
+    if not all(o.used_tools for o in outcomes):
+        raise typer.Exit(1)
 
 
 @dev_app.command("swap-test")
