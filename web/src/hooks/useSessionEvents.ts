@@ -30,7 +30,7 @@ export const IDLE: LiveTurn = {
 };
 
 export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
-  if (event.seq <= state.lastSeq) return state; // already seen (a replay after reconnecting)
+  if (event.type === "replayed" || event.seq <= state.lastSeq) return state; // already seen (a replay after reconnecting)
   const next = { ...state, lastSeq: event.seq };
   switch (event.type) {
     case "turn":
@@ -91,9 +91,16 @@ export function useSessionEvents(
     const controller = new AbortController();
     const chatKey = ["chat", projectId, sessionId];
     let seen = 0;
+    // Events before the server's "replayed" marker happened earlier (a reload, or switching
+    // back to this tab): show them, but don't repeat their actions.
+    let live = false;
     readEvents<ChatEvent>(
       `/api/projects/${projectId}/sessions/${sessionId}/events`,
       (event) => {
+        if (event.type === "replayed") {
+          live = true;
+          return;
+        }
         const fresh = event.seq > seen;
         seen = Math.max(seen, event.seq);
         dispatch(event);
@@ -101,7 +108,7 @@ export function useSessionEvents(
         if (event.type === "assistant" || event.type === "tool_result") {
           void queryClient.invalidateQueries({ queryKey: chatKey });
         }
-        if (event.type === "tool_result" && event.action?.type === "open_tab") {
+        if (live && event.type === "tool_result" && event.action?.type === "open_tab") {
           openRef.current(event.action.tab);
         }
         if (event.type === "turn") {

@@ -20,7 +20,7 @@ from lectern.api.projects import CurrentUser, open_project, store
 from lectern.api.sse import event_response, pump
 from lectern.core.auth import User
 from lectern.projects.store import NEW_CHAT, Project, clean_name
-from lectern.projects.tables import ArtifactRow, ConfirmationRow, MessageRow, SessionRow
+from lectern.projects.tables import ArtifactRow, ConfirmationRow, MessageRow, SessionRow, iso
 
 router = APIRouter()
 MESSAGE_LIMIT = 100_000
@@ -45,8 +45,8 @@ def session_dict(row: SessionRow, state: str) -> dict:
         "kind": row.kind,
         "title": row.title,
         "state": state,
-        "created_at": row.created_at.isoformat(),
-        "updated_at": row.updated_at.isoformat(),
+        "created_at": iso(row.created_at),
+        "updated_at": iso(row.updated_at),
     }
 
 
@@ -113,7 +113,7 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
                 "attachments": [
                     {"id": i, "name": names.get(i)} for i in json.loads(m.attachments or "[]")
                 ],
-                "created_at": m.created_at.isoformat(),
+                "created_at": iso(m.created_at),
             }
             for m in messages
         ],
@@ -162,7 +162,10 @@ async def events(project_id: int, session_id: int, request: Request, user: Curre
 
     async def stream() -> AsyncIterator[bytes]:
         async with channel.listen() as (so_far, queue):
-            async for chunk in pump(request, queue, so_far):
+            # The marker tells the page where the replay ends: an action in a replayed event
+            # (such as opening a tab) already happened and must not happen again.
+            replayed = [*so_far, {"type": "replayed", "seq": 0}]
+            async for chunk in pump(request, queue, replayed):
                 yield chunk
 
     return event_response(stream())

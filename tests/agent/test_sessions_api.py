@@ -129,10 +129,11 @@ def test_a_page_attaching_mid_turn_gets_the_turn_so_far_then_the_rest_live(paths
                     break
 
     types = [e["type"] for e in seen]
-    assert types[:3] == ["turn", "model", "usage"]  # replayed
+    assert types[:4] == ["turn", "model", "usage", "replayed"]  # the replay, then its end
     assert "".join(e["text"] for e in seen if e["type"] == "delta") == "Hello"  # live
     assert types[-2:] == ["done", "turn"]
-    assert [e["seq"] for e in seen] == list(range(1, len(seen) + 1))
+    numbered = [e["seq"] for e in seen if e["type"] != "replayed"]
+    assert numbered == list(range(1, len(numbered) + 1))
 
 
 def test_a_second_message_while_answering_is_refused(paths):

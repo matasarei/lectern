@@ -235,4 +235,5 @@ export type ChatEvent = { seq: number } & (
   | { type: "done"; ttft: number | null; tps: number | null; tokens: number }
   | { type: "error"; detail: string }
   | { type: "stopped" }
+  | { type: "replayed" } // sent once, where the replay of the current turn ends; seq is 0
 );

@@ -168,13 +168,24 @@ describe("Chat", () => {
     });
   });
 
-  it("opens a tab when a tool asks for it", async () => {
+  it("opens a tab when a tool asks for it, but not again when the turn is replayed", async () => {
+    const openTab = {
+      type: "tool_result", call_id: "c2", text: "Opened", error: false, refs: [],
+      action: { type: "open_tab", tab: { kind: "artifact", id: 3 } },
+    };
     const opened: Tab[] = [];
     renderChat((tab) => opened.push(tab));
     await screen.findByText("Yes: lease.md.");
-    await events({
-      type: "tool_result", call_id: "c2", text: "Opened", error: false, refs: [],
-      action: { type: "open_tab", tab: { kind: "artifact", id: 3 } },
+    await act(async () => {
+      push({ seq: 1, ...openTab }); // replayed: it already happened
+      push({ seq: 0, type: "replayed" });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(opened).toEqual([]);
+
+    await act(async () => {
+      push({ seq: 2, ...openTab, call_id: "c3" }); // live
+      await new Promise((r) => setTimeout(r, 10));
     });
     expect(opened).toEqual([{ kind: "artifact", id: 3 }]);
   });
