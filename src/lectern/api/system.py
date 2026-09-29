@@ -9,12 +9,12 @@ from fastapi import APIRouter, Request
 from lectern.config import Paths
 from lectern.hardware import sandbox
 from lectern.hardware.probe import probe
-from lectern.hardware.tiers import TIER_SUMMARY, tier_for
+from lectern.hardware.tiers import TIER_SUMMARY, effective_tier
 
 
 def system_report(paths: Paths) -> dict:
     hw = probe()
-    tier = tier_for(hw)
+    tier = effective_tier(hw)
     paths.home.mkdir(parents=True, exist_ok=True)
     return {
         "hardware": hw.to_dict(),

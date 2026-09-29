@@ -18,3 +18,11 @@
     @apply bg-paper text-ink font-sans antialiased;
   }
 }
+
+@layer components {
+  .btn-primary {
+    @apply rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white;
+    @apply hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}

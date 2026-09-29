@@ -94,3 +94,25 @@ def test_cpu_only_is_below_minimum():
         ram_available=16 * GIB,
     )
     assert tier_for(hw) is Tier.BELOW_MINIMUM
+
+
+def test_lectern_tier_overrides_detection(monkeypatch):
+    from lectern.hardware.tiers import effective_tier
+
+    monkeypatch.setenv("LECTERN_TIER", "minimum")
+    assert effective_tier(_mac(48)) is Tier.MINIMUM
+
+
+def test_bad_lectern_tier_is_rejected(monkeypatch):
+    from lectern.hardware.tiers import effective_tier
+
+    monkeypatch.setenv("LECTERN_TIER", "huge")
+    with pytest.raises(ValueError, match="LECTERN_TIER"):
+        effective_tier(_mac(48))
+
+
+def test_no_override_means_detection(monkeypatch):
+    from lectern.hardware.tiers import effective_tier
+
+    monkeypatch.delenv("LECTERN_TIER", raising=False)
+    assert effective_tier(_mac(48)) is Tier.COMFORTABLE

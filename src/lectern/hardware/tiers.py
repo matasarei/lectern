@@ -7,6 +7,7 @@ the GPU about 10.7 GB.
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
 
 from lectern.hardware.probe import GIB, HardwareInfo
@@ -54,3 +55,16 @@ def tier_for(hw: HardwareInfo) -> Tier:
     if not best.unified and tier is not Tier.BELOW_MINIMUM and low_ram:
         return Tier.MINIMUM
     return tier
+
+
+def effective_tier(hw: HardwareInfo) -> Tier:
+    """The tier the app uses: the detected one, unless LECTERN_TIER overrides it (for
+    development and for testing a smaller tier on a bigger machine)."""
+    override = os.environ.get("LECTERN_TIER")
+    if override:
+        try:
+            return Tier(override)
+        except ValueError:
+            valid = ", ".join(t.value for t in Tier)
+            raise ValueError(f"LECTERN_TIER={override!r} is not one of: {valid}") from None
+    return tier_for(hw)
