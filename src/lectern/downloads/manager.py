@@ -231,11 +231,8 @@ class DownloadManager:
             progress.done -= start - file.size
             start = 0
 
-        hasher = hashlib.sha256()
-        if start:
-            with part.open("rb") as existing:
-                for block in iter(lambda: existing.read(CHUNK), b""):
-                    hasher.update(block)
+        # Re-hashing gigabytes takes seconds: do it off the event loop so the API stays live.
+        hasher = await asyncio.to_thread(_hash_file, part) if start else hashlib.sha256()
 
         url = f"{self.base_url}/{entry.repo}/resolve/{entry.revision}/{file.path}"
         headers = {"Range": f"bytes={start}-"} if start else {}
@@ -302,6 +299,14 @@ class _Progress:
             self.rate = instant if self.rate == 0 else 0.7 * self.rate + 0.3 * instant
         self._rate_mark = (now, self.done)
         self.last_event = now
+
+
+def _hash_file(path: Path) -> hashlib._Hash:
+    hasher = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(CHUNK), b""):
+            hasher.update(block)
+    return hasher
 
 
 def _describe(exc: Exception) -> str:

@@ -290,3 +290,25 @@ def test_restricted_licence_needs_explicit_acceptance(api):
     assert refused.status_code == 409
     assert "licence" in refused.json()["detail"]
     assert hub.requests == []
+
+
+def test_resume_hashes_the_partial_file_off_the_event_loop(paths, sessions, monkeypatch):
+    from lectern.downloads import manager as manager_module
+
+    hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
+    hub.cut_after["tiny.gguf"] = 40_000
+    manager = _manager(paths, sessions, hub)
+    entry = _entry()
+    asyncio.run(_finish(manager, entry))
+    offloaded = []
+    real_to_thread = asyncio.to_thread
+
+    async def spy(func, *args):
+        offloaded.append(func.__name__)
+        return await real_to_thread(func, *args)
+
+    monkeypatch.setattr(manager_module.asyncio, "to_thread", spy)
+    asyncio.run(_finish(manager, entry))
+
+    assert offloaded == ["_hash_file"]
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
