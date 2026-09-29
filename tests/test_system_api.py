@@ -39,3 +39,29 @@ def test_system_reports_hardware_tier_disk_and_sandbox(paths, monkeypatch):
     assert body["disk_free"] > 0
     assert body["sandbox"]["runtime"] is None
     assert body["tier_summary"]
+
+
+def test_container_check_is_cached_between_requests(paths, monkeypatch):
+    calls = []
+
+    def fake_detect():
+        calls.append(1)
+        return SandboxRuntime(
+            runtime="podman", version="5.4", engine_running=True, found=("podman",)
+        )
+
+    monkeypatch.setattr(system.sandbox, "detect", fake_detect)
+    clock = [1000.0]
+    monkeypatch.setattr(system.time, "monotonic", lambda: clock[0])
+    app = create_app(paths)
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
+    headers = {"X-Lectern-Token": app.state.token}
+
+    client.get("/api/system", headers=headers)
+    client.get("/api/system", headers=headers)
+    assert len(calls) == 1
+
+    clock[0] += system.SANDBOX_TTL_SECONDS + 1
+    body = client.get("/api/system", headers=headers).json()
+    assert len(calls) == 2
+    assert body["sandbox"]["runtime"] == "podman"
