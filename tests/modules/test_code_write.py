@@ -36,9 +36,10 @@ def reply(text: str) -> bytes:
 
 
 class FakeDownloads:
-    def __init__(self, downloaded: bool = True, fail: bool = False):
+    def __init__(self, downloaded: bool = True, fail: bool = False, end: str | None = None):
         self.downloaded = downloaded
         self.fail = fail
+        self.end = end or ("failed" if fail else "done")
         self.events = EventHub()
         self.started: list[str] = []
 
@@ -49,8 +50,9 @@ class FakeDownloads:
         self.started.append(entry.id)
         loop = asyncio.get_running_loop()
         half = DownloadState(entry.id, "downloading", entry.size // 2, entry.size)
-        end = DownloadState(entry.id, "failed" if self.fail else "done", entry.size, entry.size,
-                            error="disk full" if self.fail else None)  # fmt: skip
+        done = entry.size // 2 if self.end == "paused" else entry.size
+        error = "disk full" if self.fail else None
+        end = DownloadState(entry.id, self.end, done, entry.size, error=error)
         loop.call_soon(self.events.publish, {"type": "download", **half.to_dict()})
         loop.call_soon(self.events.publish, {"type": "download", **end.to_dict()})
         return DownloadState(entry.id, "queued", 0, entry.size)
@@ -262,3 +264,11 @@ def test_in_a_turn_the_model_gets_the_error_and_the_turn_goes_on(store):
     assert tool_result.startswith(
         "Error: The coding model couldn't start: The coding model doesn't"
     )
+
+
+def test_a_download_stopped_midway_ends_the_wait(make_ctx):
+    downloads = FakeDownloads(downloaded=False, end="paused")
+    ctx, handle = ctx_for(make_ctx, [GOOD], downloads=downloads, answers=[True])
+    with pytest.raises(ToolError, match="stopped before it finished.*not computed"):
+        write(ctx)
+    assert handle.requests == []

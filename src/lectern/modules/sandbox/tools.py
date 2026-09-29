@@ -504,7 +504,8 @@ async def ensure_coder(ctx: ToolContext) -> None:
         )
     async with downloads.events.listen() as queue:
         state = downloads.start(entry)
-        while state.status not in ("done", "failed"):
+        # "paused" too: a download that stopped (the app shutting down) won't finish by itself.
+        while state.status not in ("done", "failed", "paused"):
             event = await queue.get()
             if event.get("type") != "download" or event.get("model_id") != entry.id:
                 continue
@@ -519,6 +520,11 @@ async def ensure_coder(ctx: ToolContext) -> None:
             )
     if state.status == "failed":
         raise ToolError(f"The coding model's download failed: {state.error}")
+    if state.status == "paused":
+        raise ToolError(
+            "The coding model's download was stopped before it finished. Show the formula and "
+            "say the result is not computed; asking again resumes the download."
+        )
 
 
 CODE_WRITE = AgentTool(
