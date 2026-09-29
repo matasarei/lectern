@@ -114,12 +114,13 @@ Press `Ctrl+C` in the `lectern serve` window. It should return to the prompt wit
 seconds. Then check that neither the model runner nor Lectern itself is still running:
 
 ```powershell
-Get-Process llama-server -ErrorAction SilentlyContinue
+Get-Process llama-server, lectern, uv -ErrorAction SilentlyContinue
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
   Where-Object { $_.CommandLine -like "*lectern*" }
 ```
 
-Both should print nothing. (Checking only `llama-server` isn't enough: the first Windows run
+Both should print nothing. The first line covers the model runner and the `lectern.exe` / `uv.exe`
+launchers that `uv run` starts; the second covers the Python process behind them. (Checking only `llama-server` isn't enough: the first Windows run
 found `lectern serve` itself could keep running after Ctrl+C. That's fixed, and this check
 catches it if it ever comes back.)
 
