@@ -188,3 +188,13 @@ def test_runtime_settings_default_save_and_refuse_unimplemented(paths):
     later = {**body["values"], "chat_during_job": "chat_waits"}
     refused = client.put("/api/runtime/settings", json=later, headers=headers)
     assert refused.status_code == 409 and "isn't available yet" in refused.json()["detail"]
+
+
+def test_routes_reading_runtime_state_run_on_the_event_loop():
+    import inspect
+
+    from lectern.api import runtime as runtime_api
+
+    # A sync route would run in a worker thread while the loop changes the runtime's dicts.
+    assert inspect.iscoroutinefunction(runtime_api.get_runtime)
+    assert inspect.iscoroutinefunction(runtime_api.runtime_events)

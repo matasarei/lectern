@@ -20,7 +20,9 @@ def _runtime(request: Request) -> ModelRuntime:
 
 
 @router.get("/runtime")
-def get_runtime(request: Request) -> dict:
+async def get_runtime(request: Request) -> dict:
+    # `async` on purpose: the runtime's state belongs to the event loop. A plain `def` would
+    # run in a worker thread and could read it mid-change.
     runtime = _runtime(request)
     return {**runtime.state(), "tier": runtime.tier.value}
 
