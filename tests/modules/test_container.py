@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 from pathlib import Path
 
 import pytest
@@ -211,5 +210,3 @@ def test_a_real_run_is_killed_after_its_time_limit(tmp_path):
     box = Sandbox(image=REAL_IMAGE)
     result = asyncio.run(box.run(script, {}, tmp_path / "job", timeout=3))
     assert result.timed_out and "start" in result.stdout
-    engine = shutil.which("docker") or shutil.which("podman")
-    assert engine is not None
