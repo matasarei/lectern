@@ -245,11 +245,6 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         if failures[tool.name] > 1:
             raise TurnFailed(str(exc)) from None
         return ToolResult(f"Error: {exc} Fix the arguments and call it again.")
-    if tool.confirm:
-        question = tool.confirm_text(params) if tool.confirm_text else f"Run {tool.name}?"
-        approved = await _confirm(run, call, tool.name, question, function["arguments"])
-        if not approved:
-            return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
     context = ToolContext(
         project=run.project,
         sessions=run.sessions,  # type: ignore[arg-type]
@@ -257,6 +252,18 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         session_id=run.session_id,
         turn_state=run.turn_state,
     )
+    if tool.confirm:
+        try:
+            question = (
+                await run_in_threadpool(tool.confirm_text, context, params)
+                if tool.confirm_text
+                else f"Run {tool.name}?"
+            )
+        except ToolError as exc:
+            return ToolResult(f"Error: {exc}")
+        approved = await _confirm(run, call, tool.name, question, function["arguments"])
+        if not approved:
+            return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
     try:
         return await run_in_threadpool(tool.run, context, params)
     except ToolError as exc:

@@ -33,7 +33,12 @@ def _chats(session: Session, ctx: ToolContext) -> list[SessionRow]:
     )
 
 
-def _artifact_by_name(session: Session, ctx: ToolContext, name: str) -> ArtifactRow:
+def _artifact_by_name(
+    session: Session, ctx: ToolContext, name: str, *, partial_ok: bool = True
+) -> ArtifactRow:
+    """The file with this name: exact, then ignoring case, then (for tools that only read) a
+    unique partial match. Tools that ask first pass partial_ok=False, so the card names the
+    very file that will change."""
     rows = _artifacts(session, ctx)
     exact = [r for r in rows if r.path == name]
     if len(exact) == 1:
@@ -41,6 +46,8 @@ def _artifact_by_name(session: Session, ctx: ToolContext, name: str) -> Artifact
     folded = [r for r in rows if r.path.casefold() == name.casefold()]
     if len(folded) == 1:
         return folded[0]
+    if not partial_ok:
+        raise ToolError(f"No file called exactly {name!r}. Use project.find to get its full name.")
     partial = [r for r in rows if name.casefold() in r.path.casefold()]
     if len(partial) == 1:
         return partial[0]
@@ -325,9 +332,15 @@ class TrashParams(BaseModel):
     name: str = Field(min_length=1, description="The file's name, as in project.list.")
 
 
+def _trash_question(ctx: ToolContext, params: TrashParams) -> str:
+    with ctx.sessions() as session:
+        row = _artifact_by_name(session, ctx, params.name, partial_ok=False)
+    return f"Move {row.path} to the trash?"
+
+
 def _trash(ctx: ToolContext, params: TrashParams) -> ToolResult:
     with ctx.sessions.begin() as session:
-        row = _artifact_by_name(session, ctx, params.name)
+        row = _artifact_by_name(session, ctx, params.name, partial_ok=False)
         files.trash(ctx.project.root, session, row.id)
         name = row.path
     return ToolResult(
@@ -342,7 +355,7 @@ TRASH = AgentTool(
     params=TrashParams,
     run=_trash,
     confirm=True,
-    confirm_text=lambda p: f"Move {p.name} to the trash?",
+    confirm_text=_trash_question,
     max_tokens=100,
 )
 

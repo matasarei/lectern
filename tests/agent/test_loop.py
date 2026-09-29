@@ -229,3 +229,37 @@ def test_model_errors_end_the_turn_with_a_message(setup):
         "type": "error", "detail": "The model server sent a malformed reply.",
         "seq": events(manager, project)[-2]["seq"],
     }  # fmt: skip
+
+
+def test_no_card_for_a_partial_name_and_nothing_moves(setup, store):
+    manager, project, handle, _ = setup(
+        [tool_reply("artifact_trash", {"name": "notes"}), text_reply("Which file?")]
+    )
+    add_file(store, project, "meeting-notes-1998.md", "notes")
+
+    assert asyncio.run(turn(manager, project, "Delete the notes")) == "done"
+
+    assert not any(e["type"] == "confirm" for e in events(manager, project))
+    assert handle.requests[1]["messages"][-1]["content"].startswith(
+        "Error: No file called exactly 'notes'"
+    )
+    assert (project.root / "meeting-notes-1998.md").exists()
+
+
+def test_the_card_names_the_file_as_it_is_stored(setup, store):
+    manager, project, _, _ = setup(
+        [tool_reply("artifact_trash", {"name": "OLD.MD"}), text_reply("Done.")]
+    )
+    add_file(store, project, "old.md", "old")
+
+    async def scenario():
+        await manager.send(project, LOCAL_USER, 1, "Delete OLD.MD", [])
+        key = (project.id, 1)
+        while manager.state(key) != "waiting":
+            await asyncio.sleep(0.01)
+        card = next(e for e in events(manager, project) if e["type"] == "confirm")
+        manager.decide(key, card["confirmation_id"], False)
+        await manager.wait(key)
+        return card["text"]
+
+    assert asyncio.run(scenario()) == "Move old.md to the trash?"

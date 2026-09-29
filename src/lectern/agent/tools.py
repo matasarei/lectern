@@ -56,8 +56,9 @@ class AgentTool:
     run: Callable[[ToolContext, Any], ToolResult]  # sync; the loop runs it in a worker thread
     confirm: bool = False  # ask the person first
     max_tokens: int = DEFAULT_MAX_TOKENS
-    # The question on the confirmation card, from the validated parameters.
-    confirm_text: Callable[[Any], str] | None = None
+    # The question on the confirmation card. It runs before the card is shown, so it can
+    # resolve what the tool will act on (and name it) or raise ToolError instead of asking.
+    confirm_text: Callable[[ToolContext, Any], str] | None = None
 
     @property
     def wire_name(self) -> str:

@@ -148,7 +148,7 @@ def test_write_refuses_non_text_and_bad_names(ctx, name):
 def test_trash_moves_the_file(ctx):
     add_file(ctx, "old.md", "old")
     tool = core_tools.TRASH
-    assert tool.confirm_text(tool.validate({"name": "old.md"})) == "Move old.md to the trash?"
+    assert tool.confirm_text(ctx, tool.validate({"name": "OLD.md"})) == "Move old.md to the trash?"
 
     result = run(tool, ctx, name="old.md")
 
@@ -176,3 +176,13 @@ def test_session_status_and_tab_open(ctx):
 def test_write_names_a_cleaned_up_path_without_claiming_it_was_taken(ctx):
     result = run(core_tools.WRITE, ctx, name="drafts/summary.md", text="x")
     assert result.text == "Saved as summary.md, 1 B."
+
+
+def test_trash_needs_the_exact_name_so_the_card_names_the_file_that_moves(ctx):
+    add_file(ctx, "meeting-notes-1998.md", "notes")
+    tool = core_tools.TRASH
+    with pytest.raises(ToolError, match="No file called exactly 'notes'"):
+        tool.confirm_text(ctx, tool.validate({"name": "notes"}))
+    with pytest.raises(ToolError, match="No file called exactly 'notes'"):
+        run(tool, ctx, name="notes")
+    assert (ctx.project.root / "meeting-notes-1998.md").exists()
