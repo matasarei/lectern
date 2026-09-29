@@ -23,7 +23,13 @@ export interface SystemReport {
   };
   tier: Tier;
   disk_free: number;
-  sandbox: { runtime: "podman" | "docker" | null; version: string | null; engine_running: boolean };
+  sandbox: SandboxStatus;
+}
+
+export interface SandboxStatus {
+  runtime: "podman" | "docker" | null;
+  version: string | null;
+  engine_running: boolean;
 }
 
 export type DownloadStatus =

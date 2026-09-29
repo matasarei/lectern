@@ -78,7 +78,9 @@
     "sandboxFound": "{{runtime}} {{version}} is running. Lectern will use it to run calculation scripts in isolation.",
     "sandboxStopped": "{{runtime}} is installed but not running. Start it to let Lectern run calculation scripts.",
     "sandboxMissing": "Neither Podman nor Docker is installed.",
-    "sandboxWhy": "Without one, Lectern can't run calculation scripts, and marks exact numbers as not computed. Everything else works."
+    "sandboxWhy": "Without one, Lectern can't run calculation scripts, and marks exact numbers as not computed. Everything else works.",
+    "sandboxCheck": "Check again",
+    "sandboxChecking": "Checking…"
   },
   "modelsPage": {
     "title": "Models & memory",
