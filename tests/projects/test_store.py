@@ -115,4 +115,8 @@ def test_a_project_made_before_m1b_gets_the_script_runs_table(store, paths):
     tables = {r[0] for r in db.execute("select name from sqlite_master where type='table'")}
     version = db.execute("select version_num from alembic_version").fetchone()[0]
     db.close()
-    assert "script_runs" in tables and version == "p0002"
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert "script_runs" in tables and "chat_state" in tables
+    assert version == head  # brought all the way up, whatever the latest revision is

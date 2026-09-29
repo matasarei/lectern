@@ -143,6 +143,20 @@ class ScriptRunRow(ProjectBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class ChatStateRow(ProjectBase):
+    """A chat's state record: what's pinned (always sent to the model, word for word) and the
+    summary of older turns (sent instead of them). The transcript itself never changes."""
+
+    __tablename__ = "chat_state"
+
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), primary_key=True)
+    pinned: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of pins
+    summary: Mapped[str] = mapped_column(Text, default="")
+    summary_upto: Mapped[int] = mapped_column(Integer, default=0)  # last message id it covers
+    summary_version: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class UiStateRow(ProjectBase):
     """Per-project UI state, such as the open tabs."""
 
