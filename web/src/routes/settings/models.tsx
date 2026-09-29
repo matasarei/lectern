@@ -63,7 +63,12 @@ export function ModelsPage() {
 
   return (
     <Page>
-      <h1 className="text-2xl font-semibold">{t("modelsPage.title")}</h1>
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">{t("modelsPage.title")}</h1>
+        <a href="/projects" className="text-sm text-muted hover:text-ink">
+          {t("project.back")}
+        </a>
+      </header>
       <Card title={t("modelsPage.machine")}>
         <TierBadge tier={system.data.tier} />
         <HardwareRows system={system.data} />

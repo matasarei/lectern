@@ -10,6 +10,8 @@ import { useTranslation } from "react-i18next";
 import { apiFetch, getToken } from "./api/client";
 import type { FirstRun } from "./api/types";
 import { FirstRunPage } from "./routes/first-run";
+import { ProjectPage } from "./routes/project";
+import { ProjectsPage } from "./routes/projects";
 import { ModelsPage } from "./routes/settings/models";
 
 function Shell() {
@@ -27,15 +29,14 @@ function Shell() {
 
 const rootRoute = createRootRoute({ component: Shell });
 
-// "/" goes to first run until it's finished, then to Models & memory (M1 replaces this
-// with the projects screen).
+// "/" goes to first run until it's finished, then to the projects.
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: async () => {
     if (!getToken()) return;
     const run = await apiFetch<FirstRun>("/api/first-run");
-    throw redirect({ to: run.step === "done" ? "/settings/models" : "/first-run" });
+    throw redirect({ to: run.step === "done" ? "/projects" : "/first-run" });
   },
 });
 const firstRunRoute = createRoute({
@@ -49,7 +50,24 @@ const modelsRoute = createRoute({
   component: ModelsPage,
 });
 
-export const routeTree = rootRoute.addChildren([homeRoute, firstRunRoute, modelsRoute]);
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects",
+  component: ProjectsPage,
+});
+const projectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId",
+  component: ProjectPage,
+});
+
+export const routeTree = rootRoute.addChildren([
+  homeRoute,
+  firstRunRoute,
+  modelsRoute,
+  projectsRoute,
+  projectRoute,
+]);
 export const router = createRouter({ routeTree });
 
 declare module "@tanstack/react-router" {

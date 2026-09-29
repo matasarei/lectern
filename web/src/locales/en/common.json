@@ -126,5 +126,25 @@
     },
     "mlx": "Use MLX for MLX models (Apple Silicon)",
     "mlxWhy": "MLX can be faster on a Mac, but its servers can't be protected with a key yet, so websites you visit could reach them. Leave off unless you're testing."
+  },
+  "projects": {
+    "title": "Projects",
+    "new": "New project",
+    "empty": "No projects yet. A project is a folder for your chats and files.",
+    "folder": "Folder: {{folder}}",
+    "settings": "Models & memory"
+  },
+  "project": {
+    "overview": "Overview",
+    "rename": "Rename the project",
+    "renameLabel": "Project name",
+    "close": "Close {{title}}",
+    "settings": "Settings",
+    "vram": "{{used}} of {{budget}}",
+    "vramIdle": "{{budget}} · nothing loaded",
+    "back": "Projects",
+    "missing": "This tab's item is no longer in the project.",
+    "fileTab": "File",
+    "chatTab": "Chat"
   }
 }
