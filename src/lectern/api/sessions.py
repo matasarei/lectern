@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
+from lectern.agent import state as pins
+from lectern.agent.state import load as chat_state_of
 from lectern.agent.turns import Busy, TurnManager
 from lectern.api.projects import CurrentUser, open_project, store
 from lectern.api.sse import event_response, pump
@@ -114,6 +116,7 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             )
         ).all()
     state = turns(request).state((project.id, session_id))
+    chat_state = chat_state_of(store(request).db(project), session_id)
     return {
         **session_dict(row, state),
         "messages": [
@@ -131,6 +134,13 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             }
             for m in messages
         ],
+        "pinned": [{"id": p.id, "kind": p.kind, "text": p.text} for p in chat_state.pinned],
+        # Where the summary ends: messages up to this id reach the model only as the summary.
+        "summary": {
+            "upto": chat_state.summary_upto,
+            "version": chat_state.summary_version,
+            "messages": sum(1 for m in messages if m.id <= chat_state.summary_upto),
+        },
         # A card only counts while its turn is still waiting on it.
         "pending": [
             {"confirmation_id": p.id, "call_id": p.tool_call_id, "name": p.tool}
@@ -203,3 +213,17 @@ def decide(
 async def stop(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
     project = await open_chat(request, project_id, session_id, user)
     return {"stopped": await turns(request).stop((project.id, session_id))}
+
+
+@router.delete("/projects/{project_id}/sessions/{session_id}/pins/{pin_id}")
+def unpin(
+    project_id: int, session_id: int, pin_id: str, request: Request, user: CurrentUser
+) -> dict:
+    """The person removes a pinned item; the model stops getting it from the next call."""
+    project = open_project(request, project_id, user)
+    open_session(request, project, session_id, user)
+    try:
+        removed = pins.unpin(store(request).db(project), session_id, pin_id)
+    except pins.PinError:
+        raise HTTPException(404, "Nothing pinned has that id.") from None
+    return {"id": removed.id, "text": removed.text}

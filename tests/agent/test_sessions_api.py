@@ -9,9 +9,11 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
+from lectern.agent import state
 from lectern.app import create_app
 from lectern.core.auth import User
 from lectern.core.tables import UserRow
+from lectern.projects.tables import MessageRow
 
 from .fake_model import FakeHandle, make_runtime, text_reply, tool_reply
 
@@ -201,3 +203,34 @@ def test_someone_elses_sessions_are_not_found(api):
         f"/api/projects/{theirs.id}/sessions/1/messages", json={"text": "x"}, headers=headers
     )
     assert response.status_code == 404
+
+
+def test_the_chat_shows_what_is_pinned_and_where_the_summary_ends(api):
+    client, headers, app, pid, _ = api([])
+    project = app.state.projects.get(User(id=1, name="local"), pid)
+    sessions = app.state.projects.db(project)
+    pin = state.pin(sessions, 1, "Answer in Ukrainian", "instruction")
+    with sessions.begin() as session:
+        for role, content in [("user", "a"), ("assistant", "b"), ("user", "c")]:
+            session.add(MessageRow(session_id=1, role=role, content=content))
+    state.save_summary(sessions, 1, "Goals.", upto=2)
+
+    chat = client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()
+    assert chat["pinned"] == [{"id": pin.id, "kind": "instruction", "text": "Answer in Ukrainian"}]
+    assert chat["summary"] == {"upto": 2, "version": 1, "messages": 2}
+
+    url = f"/api/projects/{pid}/sessions/1/pins/{pin.id}"
+    assert client.delete(url, headers=headers).json() == {
+        "id": pin.id, "text": "Answer in Ukrainian"
+    }  # fmt: skip
+    assert client.delete(url, headers=headers).status_code == 404
+    assert client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()["pinned"] == []
+
+
+def test_unpinning_needs_the_chat_to_be_yours(api):
+    client, headers, app, pid, _ = api([])
+    with app.state.sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = app.state.projects.create(User(id=2, name="other"), "Theirs")
+    url = f"/api/projects/{theirs.id}/sessions/1/pins/abc"
+    assert client.delete(url, headers=headers).status_code == 404
