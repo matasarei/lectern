@@ -1,0 +1,27 @@
+# The long-chat test (blueprint, M1): 100 turns in one chat on a small context, then an exact
+# quote from a document. It passes when the quote is exact, compaction ran, and the
+# transcript still has every message. The filler is short on purpose: many turns, each cheap.
+
+files:
+  - lease-1998.docx        # made at run time: see LEASE_CLAUSES in agent_check.py
+
+conversation:
+  turns: 99
+  filler:
+    - "Give me one interesting fact about Kyiv, in one sentence."
+    - "Name a good book about architecture, with its author, in one line."
+    - "Suggest a name for a small bookshop, in one line."
+    - "What is a good way to remember a phone number? One sentence."
+    - "Tell me one tip for writing clear emails, in one sentence."
+    - "What is the capital of Portugal? Answer in one line."
+    - "Suggest a short title for a meeting about office repairs."
+    - "In one sentence, why do leaves change colour in autumn?"
+    - "Give me one word that rhymes with 'lease'."
+    - "Name one tree that grows well in a city, in one line."
+  final:
+    id: long-quote
+    prompt: "Quote clause 3.3 of lease-1998.docx exactly, word for word."
+    tools: ["document.read|project.search"]
+    text:
+      - "За кожен день прострочення платежу Орендар сплачує пеню"
+      - "включно з днем оплати"

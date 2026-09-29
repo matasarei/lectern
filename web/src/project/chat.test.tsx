@@ -19,7 +19,8 @@ let push: (event: object) => void = () => {};
 beforeEach(() => {
   posts = [];
   chat = {
-    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [],
+    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [],
+    summary: { upto: 0, version: 0, messages: 0 },
     messages: [
       message(1, { content: "Is there a lease file?", attachments: [{ id: 3, name: "notes.md" }] }),
       message(2, {
@@ -49,6 +50,10 @@ beforeEach(() => {
       }
       if (url === "/api/projects/1/artifacts/11/content") {
         return new Response("print('penalty', 62.5)\n");
+      }
+      if (init?.method === "DELETE") {
+        posts.push({ url, body: "DELETE" });
+        return new Response(JSON.stringify({ id: "p1", text: "x" }));
       }
       if (init?.method === "POST" || init?.method === "PUT") {
         posts.push({ url, body: init.body instanceof File ? init.body : JSON.parse(String(init.body ?? "null")) });
@@ -252,5 +257,41 @@ describe("writtenScript", () => {
   it("finds the script's path in code.write's result", () => {
     expect(writtenScript("Wrote scripts/penalty (2).py (4 lines) with x")).toBe("scripts/penalty (2).py");
     expect(writtenScript("Error: couldn't write a working script")).toBeNull();
+  });
+});
+
+describe("Pinned items, the summary and the context", () => {
+  it("shows what's pinned and unpins on ×", async () => {
+    chat.pinned = [{ id: "p1", kind: "instruction", text: "Answer in Ukrainian" }];
+    renderChat();
+    const strip = await screen.findByTestId("pinned");
+    expect(strip.textContent).toContain("instruction Answer in Ukrainian");
+    fireEvent.click(screen.getByLabelText("Unpin: Answer in Ukrainian"));
+    await waitFor(() => expect(posts).toEqual([{ url: "/api/projects/1/sessions/1/pins/p1", body: "DELETE" }]));
+  });
+
+  it("marks where the summary ends", async () => {
+    chat.summary = { upto: 2, version: 1, messages: 2 };
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const notes = screen.getAllByRole("note");
+    expect(notes[0].textContent).toBe("2 earlier messages are summarised for the model. They're all still here.");
+  });
+
+  it("shows how the context is used, and when it was compacted", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "x", attachments: [] },
+      { type: "usage", budget: 6656, parts: { system: 400, tools: 1300, pinned: 20, files: 0, summary: 600, turns: 2780 } },
+      { type: "compacting" },
+    );
+    expect(screen.getByTestId("usage").textContent).toBe("Context 5.1k of 6.7k · pinned 20 · summary 600 · recent 2.8k");
+    expect(screen.getByTestId("compaction").textContent).toBe("Tidying up the context…");
+    await act(async () => {
+      push({ seq: 4, type: "compacted", summarised: 12, before: 5100, after: 3000, budget: 6656 });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(screen.getByTestId("compaction").textContent).toBe("Folded 12 older messages into the summary.");
   });
 });

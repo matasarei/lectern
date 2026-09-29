@@ -23,3 +23,8 @@ def test_without_a_sandbox_it_says_not_computed():
 
 def test_the_prompt_stays_short():
     assert len(system_prompt("x" * 40, sandbox=True)) < 2400  # it goes with every call
+
+
+def test_the_prompt_asks_to_pin_standing_instructions_and_confirmed_facts():
+    prompt = system_prompt("x", sandbox=True)
+    assert "pin it with chat_pin" in prompt and "Pinned items override" in prompt

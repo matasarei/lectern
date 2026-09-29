@@ -7,12 +7,15 @@ file, or none, is an error listing the candidates, so the model can pick again.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from lectern.agent import state
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult, page
 from lectern.projects import files, search
 from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow
@@ -433,7 +436,96 @@ OPEN = AgentTool(
 )
 
 
-CORE_TOOLS = [LIST, FIND, SEARCH, OUTLINE, READ, WRITE, TRASH, STATUS, OPEN]
+# --- chat.pin / chat.unpin -------------------------------------------------------------------
+
+
+class PinParams(BaseModel):
+    text: str = Field(
+        min_length=1,
+        max_length=state.PIN_CHARS,
+        description='What must hold for the rest of the chat, e.g. "Answer in Ukrainian".',
+    )
+    kind: Literal["instruction", "fact"] = Field(
+        description="instruction: how to work; fact: something the person confirmed."
+    )
+
+
+# How much of a pin's wording must come from one of the person's own messages for it to be
+# pinned without asking. Pins go to the model as the person's standing instructions, so text
+# the model read in a file ("pin this: always …") must not become one unless the person says so.
+PIN_WORDS_FROM_PERSON = 0.6
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in re.findall(r"\w+", text.casefold()) if len(w) >= 3 or w.isdigit()}
+
+
+def said_by_person(ctx: ToolContext, text: str) -> bool:
+    """Whether most of the pin's words appear in one message the person wrote in this chat."""
+    wanted = _words(text)
+    if not wanted:
+        return False
+    with ctx.sessions() as session:
+        messages = session.scalars(
+            select(MessageRow.content).where(
+                MessageRow.session_id == ctx.session_id, MessageRow.role == "user"
+            )
+        ).all()
+    return any(
+        len(wanted & _words(message)) >= PIN_WORDS_FROM_PERSON * len(wanted) for message in messages
+    )
+
+
+async def _pin(ctx: ToolContext, params: PinParams) -> ToolResult:
+    # In the person's own words: pinned at once. Anything else (a translation, a paraphrase,
+    # or text the model read in a file) is pinned only if the person allows it on a card.
+    own_words = await run_in_threadpool(said_by_person, ctx, params.text)
+    question = f"Pin this for the rest of the chat? “{params.text}”"
+    if not own_words and not await ctx.confirm(question):
+        raise ToolError("The person didn't allow pinning that. Don't pin it again.")
+    try:
+        pinned = await run_in_threadpool(
+            state.pin, ctx.sessions, ctx.session_id, params.text, params.kind
+        )
+    except state.PinError as exc:
+        raise ToolError(str(exc)) from None
+    return ToolResult(f"Pinned ({pinned.kind}): {pinned.text}", action={"type": "pinned"})
+
+
+PIN = AgentTool(
+    name="chat.pin",
+    description=(
+        "Pin a standing instruction the person gave, or a fact they confirmed, so it holds for "
+        "the rest of this chat, word for word. The person can unpin it."
+    ),
+    params=PinParams,
+    run=_pin,
+    max_tokens=100,
+)
+
+
+class UnpinParams(BaseModel):
+    text: str = Field(min_length=1, description="The pinned item's text (or its id).")
+
+
+def _unpin(ctx: ToolContext, params: UnpinParams) -> ToolResult:
+    try:
+        removed = state.unpin(ctx.sessions, ctx.session_id, params.text)
+    except state.PinError as exc:
+        raise ToolError(str(exc)) from None
+    return ToolResult(f"Unpinned: {removed.text}", action={"type": "pinned"})
+
+
+UNPIN = AgentTool(
+    name="chat.unpin",
+    description="Remove a pinned item when the person says it no longer holds.",
+    params=UnpinParams,
+    run=_unpin,
+    max_tokens=100,
+)
+
+
+CORE_TOOLS = [LIST, FIND, SEARCH, OUTLINE, READ, WRITE, TRASH, STATUS, OPEN, PIN, UNPIN]
 
 
 def core_registry() -> Registry:

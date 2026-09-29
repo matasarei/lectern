@@ -14,6 +14,8 @@ export interface LiveTurn {
   // The latest progress of each tool at work, by tool call.
   progress: Record<string, { label: string; done?: number; total?: number; line?: string; seconds?: number }>;
   stats: { ttft: number | null; tps: number | null } | null;
+  usage: { parts: Record<string, number>; budget: number } | null;
+  compaction: "working" | { summarised: number } | { failed: string } | null;
   error: string | null;
   stopped: boolean;
   lastSeq: number;
@@ -27,6 +29,8 @@ export const IDLE: LiveTurn = {
   cards: [],
   progress: {},
   stats: null,
+  usage: null,
+  compaction: null,
   error: null,
   stopped: false,
   lastSeq: 0,
@@ -38,7 +42,7 @@ export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
   switch (event.type) {
     case "turn":
       return event.status === "running"
-        ? { ...IDLE, running: true, model: state.model, lastSeq: event.seq }
+        ? { ...IDLE, running: true, model: state.model, usage: state.usage, lastSeq: event.seq }
         : { ...next, running: false, text: "" };
     case "model":
       return { ...next, model: { model_id: event.model_id, ctx: event.ctx } };
@@ -73,6 +77,14 @@ export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
       delete progress[event.call_id];
       return { ...next, progress };
     }
+    case "usage":
+      return { ...next, usage: { parts: event.parts, budget: event.budget } };
+    case "compacting":
+      return { ...next, compaction: "working" };
+    case "compacted":
+      return { ...next, compaction: { summarised: event.summarised } };
+    case "compaction_failed":
+      return { ...next, compaction: { failed: event.detail } };
     case "done":
       return { ...next, stats: { ttft: event.ttft, tps: event.tps } };
     case "error":
@@ -118,7 +130,7 @@ export function useSessionEvents(
         seen = Math.max(seen, event.seq);
         dispatch(event);
         if (!fresh) return;
-        if (event.type === "assistant" || event.type === "tool_result") {
+        if (event.type === "assistant" || event.type === "tool_result" || event.type === "compacted") {
           void queryClient.invalidateQueries({ queryKey: chatKey });
         }
         if (live && event.type === "tool_result" && event.action?.type === "open_tab") {

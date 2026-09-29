@@ -6,6 +6,7 @@ import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
 import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall } from "../api/types";
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
+import { formatTokens } from "../format";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
 
 const ARGS_SHOWN = 80;
@@ -81,10 +82,16 @@ export function ChatTab({
         {chat.data.messages.length === 0 && !live.running && (
           <p className="py-16 text-center text-xl text-muted">{t("chat.empty")}</p>
         )}
-        <Transcript projectId={projectId} messages={chat.data.messages} live={live} />
+        <Transcript
+          projectId={projectId}
+          messages={chat.data.messages}
+          summarised={chat.data.summary.messages}
+          live={live}
+        />
         <LiveReply live={live} onDecide={(id, approve) => decide.mutate({ id, approve })} />
         {live.error && <ErrorNote message={live.error} />}
         {live.stopped && <p className="text-sm text-muted">{t("chat.stopped")}</p>}
+        <CompactionNote state={live.compaction} />
         {error && (
           <ErrorNote message={error instanceof ApiError ? error.detail : t("common.loadFailed")} />
         )}
@@ -97,6 +104,7 @@ export function ChatTab({
           if (canSend) send.mutate();
         }}
       >
+        <PinnedStrip projectId={projectId} sessionId={sessionId} pinned={chat.data.pinned} />
         {attached.length > 0 && (
           <ul className="flex flex-wrap gap-2">
             {attached.map((a) => (
@@ -147,6 +155,7 @@ export function ChatTab({
             {live.model &&
               t("chat.model", { model: live.model.model_id, ctx: live.model.ctx.toLocaleString("en") })}
           </span>
+          {live.usage && <UsageLine usage={live.usage} />}
           <span className="ml-auto" />
           {busy ? (
             <button type="button" className="btn-secondary" onClick={() => stop.mutate()}>
@@ -166,23 +175,32 @@ export function ChatTab({
 function Transcript({
   projectId,
   messages,
+  summarised,
   live,
 }: {
   projectId: number;
   messages: ChatMessage[];
+  summarised: number; // how many of the first messages the summary stands in for
   live: LiveTurn;
 }) {
   const { t } = useTranslation();
   const results = new Map(
     messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m] as const),
   );
-  // The marker goes where the model's view starts: after the messages it no longer sees.
+  // The markers go where the model's view starts: after the messages covered by the summary,
+  // and after any it had to leave out of the last call (counted from the summary on).
   const leftOut = live.context?.left_out ?? 0;
+  const viewStarts = summarised + leftOut;
   return (
     <>
       {messages.map((message, index) => (
         <div key={message.id} className="grid gap-2">
-          {leftOut > 0 && index === leftOut && (
+          {summarised > 0 && index === summarised && (
+            <p className="border-y border-dashed border-line py-1 text-center text-xs text-muted" role="note">
+              {t("chat.summarised", { count: summarised })}
+            </p>
+          )}
+          {leftOut > 0 && index === viewStarts && (
             <p className="border-y border-dashed border-line py-1 text-center text-xs text-muted" role="note">
               {t("chat.leftOut", { count: leftOut })}
             </p>
@@ -381,5 +399,73 @@ function LiveReply({
         </p>
       )}
     </>
+  );
+}
+
+function PinnedStrip({
+  projectId,
+  sessionId,
+  pinned,
+}: {
+  projectId: number;
+  sessionId: number;
+  pinned: Chat["pinned"];
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const unpin = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/projects/${projectId}/sessions/${sessionId}/pins/${id}`, { method: "DELETE" }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["chat", projectId, sessionId] }),
+  });
+  if (pinned.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="pinned">
+      <span className="font-semibold text-muted">{t("chat.pinned")}</span>
+      {pinned.map((pin) => (
+        <span key={pin.id} className="flex items-center gap-1 rounded-full bg-accent-soft px-3 py-0.5">
+          <span className="text-muted">{t(`chat.pinnedKind.${pin.kind}`)}</span> {pin.text}
+          <button
+            type="button"
+            aria-label={t("chat.unpin", { text: pin.text })}
+            disabled={unpin.isPending}
+            onClick={() => unpin.mutate(pin.id)}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const USAGE_PARTS = ["pinned", "files", "summary", "turns"] as const;
+
+function UsageLine({ usage }: { usage: NonNullable<LiveTurn["usage"]> }) {
+  const { t } = useTranslation();
+  const used = Object.values(usage.parts).reduce((sum, n) => sum + n, 0);
+  const parts = USAGE_PARTS.filter((name) => (usage.parts[name] ?? 0) > 0).map((name) =>
+    t("chat.usagePart", { name: t(`chat.usageParts.${name}`), tokens: formatTokens(usage.parts[name]) }),
+  );
+  return (
+    <span className="text-xs text-muted" data-testid="usage">
+      {[t("chat.usage", { used: formatTokens(used), budget: formatTokens(usage.budget) }), ...parts].join(" · ")}
+    </span>
+  );
+}
+
+function CompactionNote({ state }: { state: LiveTurn["compaction"] }) {
+  const { t } = useTranslation();
+  if (state === null) return null;
+  const text =
+    state === "working"
+      ? t("chat.compacting")
+      : "failed" in state
+        ? t("chat.compactionFailed", { detail: state.failed })
+        : t("chat.compacted", { count: state.summarised });
+  return (
+    <p className="text-xs text-muted" role="status" data-testid="compaction">
+      {text}
+    </p>
   );
 }

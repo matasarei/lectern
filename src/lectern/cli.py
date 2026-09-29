@@ -223,7 +223,7 @@ app.add_typer(dev_app, name="dev")
 
 @dev_app.command("agent-check")
 def agent_check(
-    prompt_set: str = typer.Option("calc", "--set", help="Prompt set: calc."),
+    prompt_set: str = typer.Option("calc", "--set", help="Prompt set: calc, tools or long."),
     only: Annotated[
         list[str] | None, typer.Option("--only", help="Run only these prompt ids.")
     ] = None,

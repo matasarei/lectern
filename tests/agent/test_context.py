@@ -138,7 +138,7 @@ def test_attachments_go_in_whole_or_as_a_stub():
     assert "## book.txt\n[Too long to include here. Read it with document_outline" in system
     assert "## scan.pdf\n[No text to read: no text layer.]" in system
     assert built.stubbed_files == ["book.txt"]
-    assert built.parts["pinned"] > 0
+    assert built.parts["files"] > 0  # attached files have their own part now; pins are "pinned"
 
 
 def test_the_runner_tokenizer_is_used_and_remembered():
@@ -159,3 +159,39 @@ def test_the_runner_tokenizer_is_used_and_remembered():
 
     assert built.parts["system"] == 3 + 4
     assert calls.count("hello") == 1
+
+
+def test_pins_files_and_summary_go_in_the_system_message_in_that_order():
+    built = run(
+        history=[user("next question")],
+        attachments=[Attachment(1, "notes.md", "Pay by the 10th.")],
+        pins=[("instruction", "Answer in Ukrainian"), ("fact", "The payment day is the 15th")],
+        summary="Goals: the penalty. Read lease.md #c3.",
+        ctx=8192,
+    )
+    system = built.messages[0]["content"]
+    pinned_at = system.index("# Pinned by the person (these hold; follow them)")
+    files_at = system.index("# Files attached in this chat")
+    summary_at = system.index("# Earlier in this chat (summary)")
+    assert pinned_at < files_at < summary_at
+    assert "- (instruction) Answer in Ukrainian\n- (fact) The payment day is the 15th" in system
+    assert system.endswith("Goals: the penalty. Read lease.md #c3.")
+    assert built.parts["pinned"] > 0 and built.parts["summary"] > 0 and built.parts["files"] > 0
+
+
+def test_pins_and_the_summary_are_never_stubbed_even_when_turns_must_go():
+    history = []
+    for i in range(10):
+        history += [user(f"q{i} " + "y" * 900), assistant(f"a{i} " + "z" * 900)]
+    history.append(user("latest"))
+    pins = [("instruction", "Answer in Ukrainian")]
+    built = run(history=history, pins=pins, summary="S" * 600, ctx=4000)
+
+    system = built.messages[0]["content"]
+    assert "Answer in Ukrainian" in system and "S" * 600 in system
+    assert built.left_out > 0 and built.messages[-1] == user("latest")
+
+
+def test_stored_message_ids_are_not_sent_to_the_model():
+    built = run(history=[{"id": 7, "role": "user", "content": "hi"}], ctx=4096)
+    assert built.messages[1] == {"role": "user", "content": "hi"}

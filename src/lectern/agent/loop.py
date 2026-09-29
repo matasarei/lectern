@@ -20,8 +20,18 @@ import httpx2
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
-from lectern.agent.context import Attachment, ContextTooSmall, Counter, answer_reserve, build
+from lectern.agent import compaction, state
+from lectern.agent.context import (
+    Attachment,
+    Built,
+    ContextTooSmall,
+    Counter,
+    answer_reserve,
+    build,
+    split_turns,
+)
 from lectern.agent.prompts import system_prompt
+from lectern.agent.state import ChatState
 from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
 from lectern.core.auth import User
 from lectern.downloads.fetch import DownloadError
@@ -61,8 +71,19 @@ class TurnFailed(Exception):
 # --- the transcript ------------------------------------------------------------------------
 
 
-def load_history(run: TurnRun) -> tuple[list[dict], list[Attachment]]:
-    """The whole transcript in OpenAI form, and the files attached anywhere in this chat."""
+@dataclass
+class History:
+    """What the next model call is built from."""
+
+    messages: list[dict]  # the turns after the summary, oldest first (each with its "id")
+    attachments: list[Attachment]
+    state: ChatState
+
+
+def load_history(run: TurnRun) -> History:
+    """The transcript after the summary (all of it when there is none), the files attached
+    anywhere in this chat, and the chat's state record."""
+    chat_state = state.load(run.sessions, run.session_id)  # type: ignore[arg-type]
     with run.sessions() as session:
         rows = session.scalars(
             select(MessageRow)
@@ -84,18 +105,20 @@ def load_history(run: TurnRun) -> tuple[list[dict], list[Attachment]]:
                 f"### {c.heading}\n{c.body}" if c.heading else c.body for c in chunks
             )
             attachments.append(Attachment(artifact_id, artifact.path, text, artifact.text_note))
-    return [as_openai(r) for r in rows], attachments
+    recent = [r for r in rows if r.id > chat_state.summary_upto]
+    return History([as_openai(r) for r in recent], attachments, chat_state)
 
 
 def as_openai(row: MessageRow) -> dict:
     if row.role == "tool":
         return {
+            "id": row.id,
             "role": "tool",
             "tool_call_id": row.tool_call_id,
             "content": row.content,
             "name": row.tool_name,
         }
-    message: dict = {"role": row.role, "content": row.content}
+    message: dict = {"id": row.id, "role": row.role, "content": row.content}
     if row.tool_calls:
         message["tool_calls"] = json.loads(row.tool_calls)
     return message
@@ -124,25 +147,12 @@ class Reply:
     tps: float | None = None
 
 
-async def call_model(run: TurnRun, history: list[dict], attachments: list[Attachment]) -> Reply:
+async def call_model(run: TurnRun, history: History) -> Reply:
     async with run.runtime.lease("main", Priority.CHAT) as lease:
         if not run.stats.get("model_sent"):
             run.emit({"type": "model", "model_id": lease.model_id, "ctx": lease.plan.ctx})
             run.stats["model_sent"] = True
-        counter = Counter(_tokenizer(lease.client))
-        try:
-            built = await build(
-                system=system_prompt(
-                    run.project.name, sandbox=run.registry.get("code_run") is not None
-                ),
-                tools=run.registry.schemas(),
-                attachments=attachments,
-                history=history,
-                ctx=lease.plan.ctx,
-                counter=counter,
-            )
-        except ContextTooSmall as exc:
-            raise TurnFailed(str(exc)) from None
+        built = await build_context(run, history, lease.plan.ctx, Counter(_tokenizer(lease.client)))
         if built.left_out or built.released or built.stubbed_files:
             run.emit(
                 {
@@ -163,6 +173,75 @@ async def call_model(run: TurnRun, history: list[dict], attachments: list[Attach
             "chat_template_kwargs": {"enable_thinking": False},
         }
         return await _stream(run, lease.client, body)
+
+
+async def build_context(run: TurnRun, history: History, ctx: int, counter: Counter) -> Built:
+    try:
+        return await build(
+            system=system_prompt(
+                run.project.name, sandbox=run.registry.get("code_run") is not None
+            ),
+            tools=run.registry.schemas(),
+            attachments=history.attachments,
+            history=history.messages,
+            ctx=ctx,
+            counter=counter,
+            pins=[(p.kind, p.text) for p in history.state.pinned],
+            summary=history.state.summary,
+        )
+    except ContextTooSmall as exc:
+        raise TurnFailed(str(exc)) from None
+
+
+# --- compaction, after a turn ----------------------------------------------------------------
+
+
+async def maybe_compact(run: TurnRun) -> None:
+    """If the next call would be over COMPACT_AT of the context, fold the oldest turns into
+    the summary. Never fails the turn: a problem is reported and the old summary stays."""
+    try:
+        history = await run_in_threadpool(load_history, run)
+        async with run.runtime.lease("main", Priority.CHAT) as lease:
+            counter = Counter(_tokenizer(lease.client))
+            built = await build_context(run, history, lease.plan.ctx, counter)
+            used = sum(built.parts.values())
+            if used <= compaction.COMPACT_AT * built.budget and not built.left_out:
+                return
+            turns = split_turns(history.messages)
+            sizes = [sum([await counter.message(m) for m in turn]) for turn in turns]
+            fixed = used - built.parts["turns"] - built.parts["summary"]
+            folded_count = compaction.fold_point(sizes, fixed, built.budget)
+            if folded_count == 0:
+                return
+            folded = [m for turn in turns[:folded_count] for m in turn]
+            run.emit({"type": "compacting"})
+            summary = await compaction.write_summary(lease.client, history.state.summary, folded)
+            summary_tokens = await counter.count(summary)  # while the runner is still ours
+        await run_in_threadpool(
+            state.save_summary, run.sessions, run.session_id, summary, folded[-1]["id"]
+        )
+        run.emit(
+            {
+                "type": "compacted",
+                "summarised": len(folded),
+                "before": used,
+                "after": fixed + summary_tokens + sum(sizes[folded_count:]),
+                "budget": built.budget,
+            }
+        )
+    except (
+        compaction.SummaryFailed,
+        TurnFailed,
+        NotAvailable,
+        RunnerError,
+        httpx2.HTTPError,
+    ) as exc:
+        run.emit(
+            {
+                "type": "compaction_failed",
+                "detail": str(exc).splitlines()[0] if str(exc) else type(exc).__name__,
+            }
+        )
 
 
 def _tokenizer(client: httpx2.AsyncClient):  # noqa: ANN202
@@ -338,8 +417,8 @@ async def run_turn(run: TurnRun) -> str:
     failures: dict[str, int] = {}
     try:
         for _ in range(MAX_MODEL_CALLS):
-            history, attachments = await run_in_threadpool(load_history, run)
-            reply = await _call(run, history, attachments)
+            history = await run_in_threadpool(load_history, run)
+            reply = await _call(run, history)
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
             tps = reply.tps or tps
@@ -362,6 +441,7 @@ async def run_turn(run: TurnRun) -> str:
                         "tokens": tokens,
                     }
                 )
+                await maybe_compact(run)
                 return "done"
             for call in reply.calls:
                 result = await run_tool(run, call, failures)
@@ -414,7 +494,7 @@ class _Unknown:
     name = "unknown"
 
 
-async def _call(run: TurnRun, history: list[dict], attachments: list[Attachment]) -> Reply:
+async def _call(run: TurnRun, history: History) -> Reply:
     """call_model, keeping the text streamed so far in `stats["partial"]`, so a stop in the
     middle of a reply can still store it."""
     original = run.emit
@@ -427,6 +507,6 @@ async def _call(run: TurnRun, history: list[dict], attachments: list[Attachment]
 
     run.emit = emit
     try:
-        return await call_model(run, history, attachments)
+        return await call_model(run, history)
     finally:
         run.emit = original

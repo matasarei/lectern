@@ -203,6 +203,9 @@ export interface Chat {
   state: "idle" | "running" | "waiting";
   messages: ChatMessage[];
   pending: { confirmation_id: number; call_id: string; name: string }[];
+  pinned: { id: string; kind: "instruction" | "fact"; text: string }[];
+  // Messages up to `upto` reach the model only as the summary.
+  summary: { upto: number; version: number; messages: number };
 }
 
 export interface ToolRef {
@@ -236,6 +239,9 @@ export type ChatEvent = { seq: number } & (
   | { type: "error"; detail: string }
   | { type: "stopped" }
   | { type: "replayed" } // sent once, where the replay of the current turn ends; seq is 0
+  | { type: "compacting" }
+  | { type: "compacted"; summarised: number; before: number; after: number; budget: number }
+  | { type: "compaction_failed"; detail: string }
   | {
       // A tool at work: a download (done/total), an image build (line), a model getting ready.
       type: "progress";
