@@ -32,6 +32,10 @@ mlx = [
 [project.scripts]
 lectern = "lectern.cli:app"
 
+# Modules plug in here. The built-in ones are listed like any other would be.
+[project.entry-points."lectern.modules"]
+sandbox = "lectern.modules.sandbox:module"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

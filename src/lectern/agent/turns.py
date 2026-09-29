@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 
 from starlette.concurrency import run_in_threadpool
@@ -77,7 +77,7 @@ class TurnManager:
         self,
         runtime: ModelRuntime,
         projects: ProjectStore,
-        registry: Registry,
+        registry: Registry | Callable[[], Registry],
         *,
         downloads: object = None,
         sandbox: object = None,
@@ -86,7 +86,9 @@ class TurnManager:
         self.downloads = downloads
         self.sandbox = sandbox
         self.projects = projects
-        self.registry = registry
+        # A fixed registry, or a function giving each turn's (modules offer tools depending
+        # on what's available right now, such as a running container engine).
+        self._registry = registry if callable(registry) else (lambda: registry)
         self._channels: dict[Key, Channel] = {}
         self._turns: dict[Key, Turn] = {}
         # Chats whose message is being stored and whose turn hasn't started yet: a second
@@ -128,13 +130,14 @@ class TurnManager:
     ) -> int:
         sessions = await run_in_threadpool(self.projects.db, project)
         valid = await run_in_threadpool(_live_attachments, sessions, user, attachments)
+        registry = await run_in_threadpool(self._registry)
         run = TurnRun(
             project=project,
             sessions=sessions,
             user=user,
             session_id=session_id,
             runtime=self.runtime,
-            registry=self.registry,
+            registry=registry,
             emit=lambda event: None,
             decide=lambda confirmation_id: self._decision(key, confirmation_id),
             turn_state=lambda sid: self.state((project.id, sid)),

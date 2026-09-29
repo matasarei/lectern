@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from lectern import __version__
-from lectern.agent.core_tools import core_registry
+from lectern.agent.core_tools import CORE_TOOLS
 from lectern.agent.turns import TurnManager
 from lectern.api import api_router
 from lectern.catalog import catalog
@@ -19,6 +19,7 @@ from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.security import LocalGuard, load_or_create_token
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
+from lectern.modules import EnvProbe, load_modules, tool_registry
 from lectern.projects.store import ProjectStore
 from lectern.runtime.supervisor import ModelRuntime
 from lectern.runtime.wiring import build_runtime
@@ -63,7 +64,12 @@ def create_app(
         paths, app.state.downloads, probe(), app.state.sessions
     )
 
-    app.state.turns = TurnManager(app.state.runtime, app.state.projects, core_registry())
+    app.state.turns = TurnManager(
+        app.state.runtime,
+        app.state.projects,
+        tool_registry(CORE_TOOLS, load_modules(), EnvProbe()),
+        downloads=app.state.downloads,
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:
