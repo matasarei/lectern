@@ -70,7 +70,7 @@ export function ProjectPage() {
       : (items.data.artifacts.find((a) => a.id === tab.id)?.name ?? t("project.fileTab"));
 
   return (
-    <div className="grid min-h-screen grid-rows-[auto_auto_1fr]">
+    <div className="grid h-screen grid-rows-[auto_auto_1fr]">
       <header className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2">
         <Link to="/projects" className="text-sm text-muted hover:text-ink">
           {t("project.back")}
@@ -98,7 +98,7 @@ export function ProjectPage() {
           </TabButton>
         ))}
       </nav>
-      <section className="min-h-0">
+      <section className="min-h-0 overflow-y-auto">
         {tabs.active === null && <Overview projectId={id} items={items.data} onOpen={open} />}
         {tabs.active?.kind === "session" && (
           <ChatTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />

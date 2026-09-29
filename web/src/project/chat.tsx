@@ -76,7 +76,7 @@ export function ChatTab({
   const error = send.error ?? stop.error ?? decide.error ?? attach.error;
 
   return (
-    <div className="mx-auto grid h-full max-w-3xl grid-rows-[1fr_auto] gap-3 p-4">
+    <div className="mx-auto grid h-full max-h-full max-w-3xl grid-rows-[minmax(0,1fr)_auto] gap-3 p-4">
       <div className="grid content-start gap-3 overflow-y-auto" data-testid="transcript">
         {chat.data.messages.length === 0 && !live.running && (
           <p className="py-16 text-center text-xl text-muted">{t("chat.empty")}</p>
