@@ -53,3 +53,6 @@ ignore = []
 testpaths = ["tests"]
 addopts = "-q --import-mode=importlib"
 filterwarnings = ["error"]
+markers = [
+    "gpu: starts a real llama-server; set LECTERN_TEST_LLAMA_SERVER and LECTERN_TEST_GGUF",
+]
