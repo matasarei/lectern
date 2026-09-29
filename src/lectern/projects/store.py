@@ -20,6 +20,7 @@ from lectern.config import Paths
 from lectern.core.auth import User
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.tables import ProjectRow
+from lectern.projects import files
 from lectern.projects.tables import SessionRow, now
 
 UNTITLED = "Untitled project"
@@ -138,6 +139,8 @@ class ProjectStore:
                 engine = make_engine(project.data_dir / "project.sqlite")
                 migrate(engine, "lectern:project_migrations")
                 opened = (engine, make_sessionmaker(engine))
+                with opened[1].begin() as session:
+                    files.purge_trash(project.root, session)  # older than 30 days
                 self._dbs[project.id] = opened
             return opened[1]
 

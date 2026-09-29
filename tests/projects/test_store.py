@@ -6,19 +6,9 @@ import pytest
 from sqlalchemy import select
 
 from lectern.core.auth import LOCAL_USER, User
-from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.tables import UserRow
 from lectern.projects.store import ProjectNotFound, ProjectStore, folder_name
 from lectern.projects.tables import SessionRow
-
-
-@pytest.fixture
-def store(paths):
-    engine = make_engine(paths.app_db)
-    migrate(engine)
-    store = ProjectStore(paths, make_sessionmaker(engine))
-    yield store
-    store.dispose()
 
 
 def test_a_new_project_is_a_folder_with_its_database_and_one_empty_chat(store, paths):

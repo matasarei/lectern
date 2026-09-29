@@ -9,13 +9,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from lectern.core.auth import User, current_user
+from lectern.projects import files
 from lectern.projects.store import UNTITLED, Project, ProjectNotFound, ProjectStore
-from lectern.projects.tables import SessionRow
+from lectern.projects.tables import ArtifactRow, SessionRow
 
 router = APIRouter()
 
@@ -76,3 +78,74 @@ def rename_project(project_id: int, body: Rename, request: Request, user: Curren
         return project_dict(store(request).rename(user, project_id, body.name))
     except ProjectNotFound:
         raise HTTPException(404, "No such project.") from None
+
+
+# --- files ---------------------------------------------------------------------------------
+
+
+def artifact_dict(row: ArtifactRow) -> dict:
+    return {
+        "id": row.id,
+        "name": row.path,
+        "kind": row.kind,
+        "mime": row.mime,
+        "size": row.size,
+        "text": row.text_status,
+        "text_note": row.text_note,
+        "from": {"kind": row.from_kind, "id": row.from_id, "note": row.from_note},
+        "created_at": row.created_at.isoformat(),
+        "modified_at": row.modified_at.isoformat(),
+    }
+
+
+@router.put("/projects/{project_id}/files", status_code=201)
+async def import_file(
+    project_id: int,
+    request: Request,
+    user: CurrentUser,
+    name: Annotated[str, Query(min_length=1, max_length=1024)],
+) -> dict:
+    """Import one file. The body is the file itself, streamed to disk."""
+    project = open_project(request, project_id, user)
+    try:
+        row = await files.import_stream(
+            project.root,
+            store(request).db(project),
+            owner_id=user.id,
+            name=name,
+            body=request.stream(),
+            origin=files.Origin("import"),
+        )
+    except files.BadName as exc:
+        raise HTTPException(400, str(exc)) from None
+    except files.TooLarge as exc:
+        raise HTTPException(413, str(exc)) from None
+    return artifact_dict(row)
+
+
+# Shown in the page: plain text and images. Everything else downloads, so a file someone
+# imported (an .html, an .svg) never runs as a page under Lectern's address.
+INLINE = ("text/plain", "text/markdown", "text/csv", "image/png", "image/jpeg", "image/gif",
+          "image/webp")  # fmt: skip
+
+
+@router.get("/projects/{project_id}/artifacts/{artifact_id}/content")
+def artifact_content(
+    project_id: int, artifact_id: int, request: Request, user: CurrentUser
+) -> FileResponse:
+    project = open_project(request, project_id, user)
+    with store(request).db(project)() as session:
+        row = session.get(ArtifactRow, artifact_id)
+    if row is None or row.trashed_at is not None or row.owner_id != user.id:
+        raise HTTPException(404, "No such file.")
+    path = files.inside(project.root, row.path)
+    if not path.is_file():
+        raise HTTPException(404, "The file is no longer in the project folder.")
+    inline = row.mime in INLINE
+    return FileResponse(
+        path,
+        media_type=row.mime if inline else "application/octet-stream",
+        filename=path.name,
+        content_disposition_type="inline" if inline else "attachment",
+        headers={"Cache-Control": "no-store"},  # LocalGuard adds nosniff and the CSP
+    )
