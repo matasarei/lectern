@@ -81,6 +81,15 @@ def _runtime(budget_gib: float, sizes_gib: dict[str, float], runner: FakeRunner 
     return runtime, runner
 
 
+async def _until(condition, *, steps: int = 1000) -> None:
+    """Let other tasks run until `condition()` holds. Counts loop turns, not seconds."""
+    for _ in range(steps):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition never became true")
+
+
 def test_first_lease_loads_and_later_leases_reuse():
     runtime, runner = _runtime(8, {"main": 5})
 
@@ -140,15 +149,18 @@ def test_a_model_in_use_is_never_unloaded():
                 await release.wait()
                 order.append("ocr done")
 
+        main_asked = asyncio.Event()
+
         async def main_request():
-            await asyncio.sleep(0.01)
+            await _until(lambda: order == ["ocr in use"])
+            main_asked.set()
             async with runtime.lease("main"):
                 order.append("main in use")
 
         job = asyncio.create_task(ocr_page())
         chat = asyncio.create_task(main_request())
-        await asyncio.sleep(0.05)
-        assert runtime.state()["waiting"] == 1  # main waits for the OCR page
+        await main_asked.wait()
+        await _until(lambda: runtime.state()["waiting"] == 1)  # main waits for the OCR page
         release.set()
         await asyncio.gather(job, chat)
 
@@ -172,13 +184,18 @@ def test_a_chat_arriving_mid_page_goes_before_the_jobs_next_page():
             async with runtime.lease("ocr", Priority.JOB):
                 served.append("page 2")
 
+        chat_asked = asyncio.Event()
+
         async def chat():
-            await asyncio.sleep(0.01)  # ...but this chat arrived during page 1
+            await _until(lambda: served == ["page 1"])  # ...but this chat arrived during page 1
+            chat_asked.set()
             async with runtime.lease("main", Priority.CHAT):
                 served.append("chat")
 
         tasks = [asyncio.create_task(job()), asyncio.create_task(chat())]
-        await asyncio.sleep(0.05)
+        await chat_asked.wait()
+        # The job holds page 1, so the only request that can be queued now is the chat's.
+        await _until(lambda: runtime.state()["waiting"] == 1)
         page_one_done.set()
         await asyncio.gather(*tasks)
 
