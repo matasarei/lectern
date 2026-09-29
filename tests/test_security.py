@@ -15,19 +15,15 @@ BASE = f"http://127.0.0.1:{PORT}"
 ORIGIN = BASE
 
 
+# Real endpoints: a GET that answers 200, and a POST that answers 404 once it gets past
+# the guard (the model doesn't exist), so 403 can only come from the Origin check.
+API_GET = "/api/models"
+API_POST = "/api/models/no-such-model/download"
+
+
 @pytest.fixture
 def app(paths):
-    app = create_app(paths, port=PORT)
-
-    @app.get("/api/echo")
-    def echo_get() -> dict[str, bool]:
-        return {"ok": True}
-
-    @app.post("/api/echo")
-    def echo_post() -> dict[str, bool]:
-        return {"ok": True}
-
-    return app
+    return create_app(paths, port=PORT)
 
 
 @pytest.fixture
@@ -41,19 +37,19 @@ def token(app):
 
 
 def test_api_without_token_is_401(client):
-    assert client.get("/api/echo").status_code == 401
+    assert client.get(API_GET).status_code == 401
 
 
 def test_api_with_wrong_token_is_401(client):
-    assert client.get("/api/echo", headers={"X-Lectern-Token": "nope"}).status_code == 401
+    assert client.get(API_GET, headers={"X-Lectern-Token": "nope"}).status_code == 401
 
 
 def test_api_with_token_passes(client, token):
-    response = client.get("/api/echo", headers={"X-Lectern-Token": token})
+    response = client.get(API_GET, headers={"X-Lectern-Token": token})
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize("path", ["/", "/health", "/api/echo"])
+@pytest.mark.parametrize("path", ["/", "/health", API_GET])
 def test_foreign_host_is_421(client, token, path):
     response = client.get(path, headers={"Host": "evil.example", "X-Lectern-Token": token})
     assert response.status_code == 421
@@ -66,17 +62,17 @@ def test_localhost_name_is_allowed(app):
 
 def test_post_with_foreign_origin_is_403(client, token):
     response = client.post(
-        "/api/echo", headers={"X-Lectern-Token": token, "Origin": "https://evil.example"}
+        API_POST, headers={"X-Lectern-Token": token, "Origin": "https://evil.example"}
     )
     assert response.status_code == 403
 
 
 def test_post_with_own_origin_passes(client, token):
-    response = client.post("/api/echo", headers={"X-Lectern-Token": token, "Origin": ORIGIN})
-    assert response.status_code == 200
+    response = client.post(API_POST, headers={"X-Lectern-Token": token, "Origin": ORIGIN})
+    assert response.status_code == 404  # past the guard; the model just doesn't exist
 
 
-@pytest.mark.parametrize("path", ["/health", "/api/echo", "/nowhere"])
+@pytest.mark.parametrize("path", ["/health", API_GET, "/nowhere"])
 def test_every_response_has_csp(client, path):
     response = client.get(path)
     assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY

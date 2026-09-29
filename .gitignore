@@ -25,3 +25,6 @@ web/dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Built web UI (npm --prefix web run build writes here; shipped in the wheel)
+src/lectern/web_dist/

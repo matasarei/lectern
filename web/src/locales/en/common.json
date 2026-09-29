@@ -1,0 +1,9 @@
+{
+  "app": {
+    "name": "Lectern",
+    "tagline": "A local workbench for chat and OCR."
+  },
+  "errors": {
+    "noToken": "Open Lectern from the link that `lectern serve` printed. That link contains the access key this page needs."
+  }
+}

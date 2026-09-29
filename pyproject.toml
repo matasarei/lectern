@@ -34,6 +34,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lectern"]
+# The built UI is git-ignored, but it must ship in the wheel.
+artifacts = ["src/lectern/web_dist/**"]
 
 [tool.ruff]
 line-length = 100
