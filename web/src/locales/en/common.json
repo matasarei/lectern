@@ -146,5 +146,43 @@
     "missing": "This tab's item is no longer in the project.",
     "fileTab": "File",
     "chatTab": "Chat"
+  },
+  "overview": {
+    "filters": {
+      "all": "All",
+      "sessions": "Sessions",
+      "imported": "Imported",
+      "produced": "Produced"
+    },
+    "filterCount": "{{label}} {{count}}",
+    "search": "Search this project…",
+    "searchLabel": "Search the text of this project's files",
+    "noHits": "Nothing in this project's files matches that.",
+    "import": "Import files…",
+    "importing": "Importing…",
+    "newChat": "New chat",
+    "columns": {
+      "name": "Name",
+      "kind": "Kind",
+      "details": "Details",
+      "from": "From",
+      "modified": "Modified"
+    },
+    "chatKind": "Chat session",
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages",
+    "importedKind": "Imported · {{type}}",
+    "generatedKind": "Generated · {{type}}",
+    "fromImport": "imported",
+    "fromSession": "written in {{title}}",
+    "fromArtifact": "made from {{title}}",
+    "fromGone": "—",
+    "hasText": "text indexed",
+    "empty": "Nothing here yet. Import files, or start a chat.",
+    "dropHint": "Drop files anywhere in this tab to import them.",
+    "sorted": "Sorted by: modified"
+  },
+  "time": {
+    "justNow": "just now"
   }
 }
