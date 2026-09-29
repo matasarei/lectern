@@ -17,6 +17,7 @@ dependencies = [
     "nvidia-ml-py>=12.560",
     "pyyaml>=6.0",
     "httpx2>=2.13",
+    "gguf>=0.17",
 ]
 
 [project.scripts]
