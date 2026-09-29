@@ -132,7 +132,9 @@ async def call_model(run: TurnRun, history: list[dict], attachments: list[Attach
         counter = Counter(_tokenizer(lease.client))
         try:
             built = await build(
-                system=system_prompt(run.project.name),
+                system=system_prompt(
+                    run.project.name, sandbox=run.registry.get("code_run") is not None
+                ),
                 tools=run.registry.schemas(),
                 attachments=attachments,
                 history=history,
