@@ -113,7 +113,9 @@ def doctor(
 
 TARGETS = {  # tier -> (minimum tokens/s, maximum seconds to the first token after a load)
     "minimum": (10.0, 8.0),
-    "recommended": (30.0, 5.0),
+    # 10 s, not 5: llama.cpp alone spends ~4.7 s loading the 9B model and setting up its context
+    # on an 8 GB card (M0 acceptance on Windows, docs/acceptance/m0-windows-8gb-results.md).
+    "recommended": (30.0, 10.0),
     "comfortable": (30.0, 5.0),
 }
 BENCH_PROMPTS = (
