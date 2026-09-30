@@ -41,7 +41,15 @@ export function OcrTab({ projectId, sessionId }: { projectId: number; sessionId:
       ) : (
         <div className="grid min-h-0 grid-cols-[30%_70%]">
           <PageList pages={session.data.pages} selected={page?.number} onSelect={setSelected} />
-          {page && <PageView key={page.number} projectId={projectId} base={base} page={page} />}
+          {page && (
+            <PageView
+              key={page.number}
+              projectId={projectId}
+              base={base}
+              page={page}
+              jobRunning={session.data.status === "running" || session.data.status === "queued"}
+            />
+          )}
         </div>
       )}
     </div>
@@ -128,7 +136,17 @@ function PageList({
   );
 }
 
-function PageView({ projectId, base, page }: { projectId: number; base: string; page: OcrPage }) {
+function PageView({
+  projectId,
+  base,
+  page,
+  jobRunning,
+}: {
+  projectId: number;
+  base: string;
+  page: OcrPage;
+  jobRunning: boolean;
+}) {
   const { t } = useTranslation();
   const [view, setView] = useState<View>("split");
   return (
@@ -155,7 +173,7 @@ function PageView({ projectId, base, page }: { projectId: number; base: string; 
         </div>
       </div>
       {page.error && <ErrorNote message={page.error} />}
-      <PageTools projectId={projectId} base={base} page={page} />
+      <PageTools projectId={projectId} base={base} page={page} jobRunning={jobRunning} />
       <div className={`grid min-h-0 gap-3 ${view === "split" ? "grid-cols-2" : ""}`}>
         {view !== "text" && (
           <ImagePreview url={`${base}/pages/${page.number}/image`} name={t("ocr.pageTitle", { number: page.number })} />
@@ -187,7 +205,17 @@ function PageText({ base, page }: { base: string; page: OcrPage }) {
 
 /** The page's note (used when it's cleaned up, in M3), whether it's handwritten (its next
  * reading goes to the handwriting model), and reading it again with another model. */
-function PageTools({ projectId, base, page }: { projectId: number; base: string; page: OcrPage }) {
+function PageTools({
+  projectId,
+  base,
+  page,
+  jobRunning,
+}: {
+  projectId: number;
+  base: string;
+  page: OcrPage;
+  jobRunning: boolean;
+}) {
   const { t } = useTranslation();
   const [note, setNote] = useState(page.note);
   const [model, setModel] = useState("");
@@ -208,7 +236,9 @@ function PageTools({ projectId, base, page }: { projectId: number; base: string;
     mutationFn: () => apiPost(`${pagePath}/rerun`, { model_id: model || null }),
   });
   const error = change.error ?? rerun.error;
-  const reading = page.status === "recognising" || page.status === "pending";
+  // Off while the page is being read, or is next in a running job anyway. A page not read yet
+  // in a paused session can be read on its own, with the model chosen here.
+  const reading = page.status === "recognising" || (page.status === "pending" && jobRunning);
 
   return (
     <div className="grid gap-2 rounded-lg border border-line bg-surface p-3 text-sm">

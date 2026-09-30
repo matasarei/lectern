@@ -175,4 +175,14 @@ describe("OCR tab", () => {
     await waitFor(() => expect(within(list).getAllByRole("button")).toHaveLength(3));
     expect(screen.getByText("Read 0/3")).toBeTruthy();
   });
+
+  it("reads a page not read yet on its own when the session is paused", async () => {
+    current = session({ status: "paused", paused_reason: "Paused", pages: [page(1, { status: "done" }), page(2)] });
+    renderTab();
+    fireEvent.click(within(await screen.findByRole("list", { name: "Pages" })).getByText("Page 2"));
+    const rerun = (await screen.findByRole("button", { name: "Re-run page" })) as HTMLButtonElement;
+    expect(rerun.disabled).toBe(false);
+    fireEvent.click(rerun);
+    await waitFor(() => expect(posts.at(-1)?.url).toBe("/api/projects/1/ocr/2/pages/2/rerun"));
+  });
 });
