@@ -80,6 +80,7 @@ class OcrJobs:
         self._queue: collections.deque[_Queued] = collections.deque()
         self._current: Key | None = None
         self._pausing: set[Key] = set()
+        self._starting: set[Key] = set()
         # A paused session asked to read some pages again reads only those, then is paused
         # again with its reason: re-reading one page mustn't restart the whole batch.
         self._only: dict[Key, tuple[set[int], str | None]] = {}
@@ -90,7 +91,9 @@ class OcrJobs:
 
     def active(self, key: Key) -> bool:
         """This process is running or holding the session's job."""
-        return key == self._current or any(q.key == key for q in self._queue)
+        return (
+            key == self._current or key in self._starting or any(q.key == key for q in self._queue)
+        )
 
     # --- reading a session ---------------------------------------------------------------
 
@@ -112,8 +115,14 @@ class OcrJobs:
         key = (project.id, session_id)
         self._pausing.discard(key)
         if not self.active(key):
-            self._queue.append(_Queued(key, project))  # before the await: nothing slips in
-            await asyncio.to_thread(self._set_status, project, session_id, "queued")
+            # "queued" is written before the job can be taken up, so it can't land after the
+            # worker's "running". Marked first, so a second start can't queue it twice.
+            self._starting.add(key)
+            try:
+                await asyncio.to_thread(self._set_status, project, session_id, "queued")
+                self._queue.append(_Queued(key, project))
+            finally:
+                self._starting.discard(key)
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._work(), name="ocr-jobs")
 

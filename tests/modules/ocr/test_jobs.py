@@ -362,3 +362,33 @@ def test_reading_one_page_of_a_paused_session_leaves_it_paused(store, tmp_path):
     assert [(p.status, p.model_id) for p in pages] == [
         ("done", "qwen3-vl-8b"), ("pending", None), ("pending", None)
     ]  # fmt: skip
+
+
+def test_a_session_is_never_shown_queued_after_its_job_started(store, tmp_path, monkeypatch):
+    import time
+
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first, sid1 = _session(store, tmp_path / "a", pages=1)
+    second, sid2 = _session(store, tmp_path / "b", pages=1)
+    jobs = OcrJobs(runtime, store)
+    real = jobs._set_status
+
+    def slow_queued(project, session_id, status, **kw):  # noqa: ANN001, ANN202
+        if status == "queued" and session_id == sid2:
+            time.sleep(0.2)  # the write lands late, as a busy disk might make it
+        real(project, session_id, status, **kw)
+
+    monkeypatch.setattr(jobs, "_set_status", slow_queued)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(first, sid1)
+        await jobs.start(second, sid2)  # the first job finishes meanwhile
+        await jobs.idle()
+
+    asyncio.run(go())
+
+    statuses = [e["status"] for e in _events(jobs, second, sid2) if e["type"] == "session"]
+    assert statuses == ["queued", "running", "done"]
