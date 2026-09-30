@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from lectern.hardware.tiers import Tier
 
 Role = Literal["main", "ocr", "ocr.hand", "code"]
+OCR_ROLES = frozenset({"ocr", "ocr.hand"})
 
 
 class ModelFile(BaseModel):
@@ -46,6 +47,15 @@ class ModelFiles(BaseModel):
         return [*self.model, *([self.mmproj] if self.mmproj else [])]
 
 
+class OcrSettings(BaseModel):
+    """How an OCR model is asked to read a page: its own prompt, and the longest side (px)
+    of the page image it gets. Page images are 300 dpi, far more than a vision model's
+    context holds, so each model gets a copy scaled to what it can take."""
+
+    prompt: str = Field(min_length=1)
+    max_side: int = Field(ge=448, le=4096)
+
+
 class CatalogEntry(BaseModel):
     id: str
     title: str
@@ -59,6 +69,7 @@ class CatalogEntry(BaseModel):
     defaults: dict[Role, list[Tier]] = Field(default_factory=dict)
     ctx: dict[Tier, int] = Field(default_factory=dict)
     files: ModelFiles
+    ocr: OcrSettings | None = None  # for models with an OCR role
     notes: str | None = None
 
     @property
@@ -76,6 +87,11 @@ class CatalogEntry(BaseModel):
         stray = set(self.defaults) - set(self.roles)
         if stray:
             raise ValueError(f"{self.id}: default for roles it doesn't have: {sorted(stray)}")
+        reads_pages = bool(OCR_ROLES & set(self.roles))
+        if reads_pages and self.ocr is None:
+            raise ValueError(f"{self.id}: an OCR model needs an `ocr:` block (prompt, max_side)")
+        if self.ocr is not None and not reads_pages:
+            raise ValueError(f"{self.id}: only models with an OCR role take an `ocr:` block")
         return self
 
 

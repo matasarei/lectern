@@ -125,3 +125,35 @@ def test_a_subfolder_path_is_fine():
     raw = _raw()
     raw["models"][0]["files"]["model"][0]["path"] = "Q4_K_M/model-00001-of-00002.gguf"
     catalog.Catalog.model_validate(raw)
+
+
+def test_every_ocr_model_says_how_to_ask_it():
+    for entry in catalog.load().models:
+        if catalog.OCR_ROLES & set(entry.roles):
+            assert entry.ocr is not None and entry.ocr.prompt and entry.ocr.max_side >= 448
+        else:
+            assert entry.ocr is None
+
+
+def test_an_ocr_model_without_its_prompt_is_rejected():
+    raw = _raw()
+    paddle = next(m for m in raw["models"] if m["id"] == "paddleocr-vl-1.6")
+    del paddle["ocr"]
+    with pytest.raises(ValidationError, match="needs an `ocr:` block"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_an_ocr_block_on_a_chat_model_is_rejected():
+    raw = _raw()
+    coder = next(m for m in raw["models"] if m["id"] == "qwen2.5-coder-7b")
+    coder["ocr"] = {"prompt": "OCR:", "max_side": 1024}
+    with pytest.raises(ValidationError, match="only models with an OCR role"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_a_page_side_below_what_a_model_can_read_is_rejected():
+    raw = _raw()
+    paddle = next(m for m in raw["models"] if m["id"] == "paddleocr-vl-1.6")
+    paddle["ocr"]["max_side"] = 100
+    with pytest.raises(ValidationError, match="max_side"):
+        catalog.Catalog.model_validate(raw)
