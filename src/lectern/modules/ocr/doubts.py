@@ -10,6 +10,7 @@ unsure words: its doubts come from cleanup alone.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from lectern.modules.ocr.document import Doubt
 
@@ -49,16 +50,16 @@ def mark_unsure(text: str, words: list[str]) -> str:
     return text
 
 
-def ocr_doubts(text: str, words: list[str], first_id: int) -> tuple[str, list[Doubt]]:
+def ocr_doubts(text: str, words: list[str], new_id: Callable[[], str]) -> tuple[str, list[Doubt]]:
     """Doubts for the unsure words cleanup left as they were: each one's first place in
-    `text` becomes {dN}. Words cleanup changed, or already inside a doubt, are skipped."""
+    `text` becomes {id}. Words cleanup changed, or already inside a doubt, are skipped."""
     doubts: list[Doubt] = []
     for word in words:
-        pattern = re.compile(rf"(?<![\w{{]){re.escape(word)}(?!\w)")
+        pattern = re.compile(rf"(?<![\w{{.]){re.escape(word)}(?!\w)")
         match = pattern.search(text)
         if match is None:
             continue
-        doubt_id = f"d{first_id + len(doubts)}"
+        doubt_id = new_id()
         text = text[: match.start()] + f"{{{doubt_id}}}" + text[match.end() :]
         doubts.append(Doubt(id=doubt_id, raw=word, source="ocr", reason=OCR_REASON))
     return text, doubts

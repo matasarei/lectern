@@ -19,11 +19,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 SCHEMA = "lectern.document/1"
 BlockType = Literal["heading", "paragraph", "table", "list", "signature", "stamp", "figure"]
-DOUBT_MARK = re.compile(r"\{(d\d+)\}")  # where a doubt sits in a block's text
+DOUBT_MARK = re.compile(r"\{(d\d+(?:\.\d+)?)\}")  # where a doubt sits: {d3.1}
 
 
 class Doubt(BaseModel):
-    id: str  # "d1", unique in the document
+    id: str  # "d3.1": page 3, first doubt; stays put when other pages change
     raw: str  # what the page seems to say, e.g. "1?"
     status: Literal["open", "resolved"] = "open"
     candidates: list[str] = Field(default_factory=list)

@@ -22,13 +22,16 @@ def test_unsure_words_are_marked_for_cleanup_once_each():
 
 
 def test_an_unsure_word_still_in_the_text_becomes_a_doubt_and_a_changed_one_doesnt():
+    ids = iter(["d3.2", "d3.3", "d3.4"])
     text, doubts = ocr_doubts(
-        "Оплата до 15 числа {d1}, вул. Хрещатик.", ["15", "Хрещатик", "2?0"], 2
+        "Оплата до 15 числа {d3.1}, вул. Хрещатик.", ["15", "Хрещатик", "2?0"], lambda: next(ids)
     )
-    assert text == "Оплата до {d2} числа {d1}, вул. {d3}."
+    assert text == "Оплата до {d3.2} числа {d3.1}, вул. {d3.3}."
     assert [(d.id, d.raw, d.source) for d in doubts] == [
-        ("d2", "15", "ocr"),
-        ("d3", "Хрещатик", "ocr"),
+        ("d3.2", "15", "ocr"),
+        ("d3.3", "Хрещатик", "ocr"),
     ]
     assert "wasn't sure" in doubts[0].reason
-    assert ocr_doubts("не 150, а 15", ["15"], 1)[0] == "не 150, а {d1}"  # whole words only
+    whole = ocr_doubts("не 150, а 15", ["15"], lambda: "d1.1")[0]
+    assert whole == "не 150, а {d1.1}"  # whole words only
+    assert ocr_doubts("{d3.15} та 15", ["15"], lambda: "d3.16")[0] == "{d3.15} та {d3.16}"
