@@ -39,6 +39,13 @@ beforeEach(() => {
         posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
         return new Response(JSON.stringify({}));
       }
+      if (url === "/api/projects/1/ocr/models") {
+        return new Response(JSON.stringify([
+          { id: "paddleocr-vl-1.6", title: "PaddleOCR-VL 1.6", role: "ocr", downloaded: true },
+          { id: "qwen3-vl-8b", title: "Qwen3-VL 8B Instruct", role: "ocr.hand", downloaded: true },
+          { id: "chandra-ocr-2", title: "Chandra OCR 2", role: "ocr.hand", downloaded: false },
+        ]));
+      }
       if (url.endsWith("/image")) return new Response(new Blob(["png"], { type: "image/png" }));
       if (url.endsWith("/pages/1/text")) {
         return new Response(JSON.stringify({ number: 1, model_id: "paddleocr-vl-1.6", text: "Рахунок № 1" }));
@@ -121,5 +128,37 @@ describe("OCR tab", () => {
     renderTab();
     fireEvent.click(within(await screen.findByRole("list", { name: "Pages" })).getByText("Page 2"));
     expect(await screen.findByText("Not read yet.")).toBeTruthy();
+  });
+
+  it("saves a page's note and marks it handwritten", async () => {
+    renderTab();
+    const note = await screen.findByRole("textbox", { name: "Note for this page" });
+    fireEvent.change(note, { target: { value: "Печатка орендодавця." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Handwritten/ }));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts).toEqual([
+      { url: "/api/projects/1/ocr/2/pages/1", body: { note: "Печатка орендодавця." } },
+      { url: "/api/projects/1/ocr/2/pages/1", body: { handwritten: true } },
+    ]);
+  });
+
+  it("reads a page again with a downloaded model, and offers no model that isn't", async () => {
+    renderTab();
+    const choose = await screen.findByRole("combobox", { name: "Model to read the page again with" });
+    await within(choose).findByText("Qwen3-VL 8B Instruct");
+    const missing = within(choose).getByText("Chandra OCR 2 (not downloaded)") as HTMLOptionElement;
+    expect(missing.disabled).toBe(true);
+    fireEvent.change(choose, { target: { value: "qwen3-vl-8b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Re-run page" }));
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: "/api/projects/1/ocr/2/pages/1/rerun", body: { model_id: "qwen3-vl-8b" } }]),
+    );
+  });
+
+  it("doesn't offer a re-run while the page is being read", async () => {
+    renderTab();
+    fireEvent.click(within(await screen.findByRole("list", { name: "Pages" })).getByText("Page 2"));
+    expect((await screen.findByRole("button", { name: "Re-run page" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

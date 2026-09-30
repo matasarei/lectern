@@ -292,6 +292,19 @@
     },
     "waitingForChat": "Waiting for the chat to be idle",
     "pause": "Pause",
-    "resume": "Resume"
+    "resume": "Resume",
+    "note": {
+      "label": "Note for this page",
+      "placeholder": "For example: the stamp is the landlord's; keep the table as it is.",
+      "save": "Save note",
+      "saved": "Saved · used when this page is cleaned up"
+    },
+    "handwritten": "Handwritten (read it with the handwriting model)",
+    "rerun": {
+      "model": "Model to read the page again with",
+      "usual": "The usual model",
+      "notDownloaded": "{{title}} (not downloaded)",
+      "button": "Re-run page"
+    }
   }
 }

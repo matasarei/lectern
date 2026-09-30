@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, ApiError } from "../api/client";
-import type { OcrPage, OcrSession } from "../api/types";
+import type { OcrModel, OcrPage, OcrSession } from "../api/types";
 import { ErrorNote } from "../components";
 import { ImagePreview } from "./file";
 import { ocrPath, useOcrEvents, type OcrLive } from "./ocr-api";
@@ -41,7 +41,7 @@ export function OcrTab({ projectId, sessionId }: { projectId: number; sessionId:
       ) : (
         <div className="grid min-h-0 grid-cols-[30%_70%]">
           <PageList pages={session.data.pages} selected={page?.number} onSelect={setSelected} />
-          {page && <PageView key={page.number} base={base} page={page} />}
+          {page && <PageView key={page.number} projectId={projectId} base={base} page={page} />}
         </div>
       )}
     </div>
@@ -128,11 +128,11 @@ function PageList({
   );
 }
 
-function PageView({ base, page }: { base: string; page: OcrPage }) {
+function PageView({ projectId, base, page }: { projectId: number; base: string; page: OcrPage }) {
   const { t } = useTranslation();
   const [view, setView] = useState<View>("split");
   return (
-    <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-y-auto p-4">
+    <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-semibold">{t("ocr.pageTitle", { number: page.number })}</span>
         {page.model_id && (
@@ -155,6 +155,7 @@ function PageView({ base, page }: { base: string; page: OcrPage }) {
         </div>
       </div>
       {page.error && <ErrorNote message={page.error} />}
+      <PageTools projectId={projectId} base={base} page={page} />
       <div className={`grid min-h-0 gap-3 ${view === "split" ? "grid-cols-2" : ""}`}>
         {view !== "text" && (
           <ImagePreview url={`${base}/pages/${page.number}/image`} name={t("ocr.pageTitle", { number: page.number })} />
@@ -181,5 +182,82 @@ function PageText({ base, page }: { base: string; page: OcrPage }) {
     <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
       {text.data.text}
     </pre>
+  );
+}
+
+/** The page's note (used when it's cleaned up, in M3), whether it's handwritten (its next
+ * reading goes to the handwriting model), and reading it again with another model. */
+function PageTools({ projectId, base, page }: { projectId: number; base: string; page: OcrPage }) {
+  const { t } = useTranslation();
+  const [note, setNote] = useState(page.note);
+  const [model, setModel] = useState("");
+  const models = useQuery({
+    queryKey: ["ocr-models", projectId],
+    queryFn: () => apiFetch<OcrModel[]>(`${ocrPath(projectId)}/models`),
+  });
+  const pagePath = `${base}/pages/${page.number}`;
+  const change = useMutation({
+    mutationFn: (body: { note?: string; handwritten?: boolean }) =>
+      apiFetch<OcrPage>(pagePath, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+  });
+  const rerun = useMutation({
+    mutationFn: () => apiPost(`${pagePath}/rerun`, { model_id: model || null }),
+  });
+  const error = change.error ?? rerun.error;
+  const reading = page.status === "recognising" || page.status === "pending";
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-line bg-surface p-3 text-sm">
+      <label className="grid gap-1">
+        <span className="font-medium">{t("ocr.note.label")}</span>
+        <textarea
+          className="min-h-16 rounded border border-line bg-paper p-2"
+          value={note}
+          maxLength={5000}
+          placeholder={t("ocr.note.placeholder")}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          className="btn-secondary"
+          disabled={note === page.note || change.isPending}
+          onClick={() => change.mutate({ note })}
+        >
+          {t("ocr.note.save")}
+        </button>
+        {note === page.note && page.note && <span className="text-muted">{t("ocr.note.saved")}</span>}
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={page.handwritten}
+            onChange={(e) => change.mutate({ handwritten: e.target.checked })}
+          />
+          {t("ocr.handwritten")}
+        </label>
+        <span className="ml-auto" />
+        <select
+          aria-label={t("ocr.rerun.model")}
+          className="rounded border border-line bg-paper px-2 py-1"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        >
+          <option value="">{t("ocr.rerun.usual")}</option>
+          {(models.data ?? []).map((m) => (
+            <option key={m.id} value={m.id} disabled={!m.downloaded}>
+              {m.downloaded ? m.title : t("ocr.rerun.notDownloaded", { title: m.title })}
+            </option>
+          ))}
+        </select>
+        <button className="btn-secondary" disabled={reading || rerun.isPending} onClick={() => rerun.mutate()}>
+          {t("ocr.rerun.button")}
+        </button>
+      </div>
+      {error && <ErrorNote message={error instanceof ApiError ? error.detail : t("common.loadFailed")} />}
+    </div>
   );
 }
