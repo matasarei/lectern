@@ -1,10 +1,34 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 import random
+from pathlib import Path
+from types import SimpleNamespace
 
+import httpx2
 import pytest
+from PIL import Image
 
-from lectern.dev.ocr_check import cer, distance, normalise, wer
+from lectern.dev.ocr_check import (
+    Score,
+    candidates,
+    cer,
+    distance,
+    draft_references,
+    load_tags,
+    normalise,
+    pick_pages,
+    prepare,
+    report,
+    run_models,
+    score,
+    wer,
+)
+from lectern.runtime.supervisor import NotAvailable
+
+from .projects.conftest import write_scan_pdf
 
 
 def _plain_distance(a, b) -> int:  # noqa: ANN001
@@ -57,3 +81,134 @@ def test_an_empty_reference_counts_every_character_of_the_output():
     assert cer("", "") == 0
     assert cer("abc", "") == 3  # divided by 1, not by zero
     assert wer("", "two words") == 1
+
+
+# --- the run, with a stand-in runtime ------------------------------------------------------
+
+
+class FakeRuntime:
+    """Leases answer from a list of texts per model; a model not listed can't be loaded."""
+
+    def __init__(self, texts: dict[str, list[str | int]]):
+        self.texts = {key: list(v) for key, v in texts.items()}
+        self.leases: list[str] = []
+        self.swaps = 0
+
+    @contextlib.asynccontextmanager
+    async def lease(self, key: str):  # noqa: ANN202
+        if key not in self.texts:
+            raise NotAvailable(f"{key.split('@')[1]} isn't downloaded yet. Download it first.")
+        self.leases.append(key)
+
+        async def handler(request: httpx2.Request) -> httpx2.Response:
+            await asyncio.sleep(0)
+            answer = self.texts[key].pop(0)
+            if isinstance(answer, int):
+                return httpx2.Response(answer, json={"error": {"message": "boom"}})
+            reply = {"message": {"content": answer}, "finish_reason": "stop"}
+            return httpx2.Response(200, json={"choices": [reply], "usage": {}})
+
+        client = httpx2.AsyncClient(base_url="http://m", transport=httpx2.MockTransport(handler))
+        async with client:
+            yield SimpleNamespace(client=client)
+
+    def state(self) -> dict:
+        return {"residents": [{"role": k, "bytes": 2 * 1024**3} for k in self.leases[-1:]]}
+
+
+PADDLE = "ocr@paddleocr-vl-1.6"
+QWEN = "ocr.hand@qwen3-vl-4b"
+CHANDRA = "ocr.hand@chandra-ocr-2"
+
+
+def _scans(folder: Path) -> Path:
+    folder.mkdir()
+    write_scan_pdf(folder / "a-lease.pdf", pages=2)
+    Image.new("L", (300, 400), 255).save(folder / "b-receipt.png")
+    (folder / "notes.txt").write_text("not a scan")
+    return folder
+
+
+def _run(folder: Path, runtime: FakeRuntime, keys: list[str]):  # noqa: ANN202
+    pages = prepare(folder, echo=lambda _l: None)
+    models = [(k, e) for k, e in candidates() if k in keys]
+    return pages, asyncio.run(run_models(runtime, folder, pages, models, echo=lambda _l: None))
+
+
+def test_scans_become_pages_numbered_across_files_and_are_kept_between_runs(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+
+    pages = prepare(folder, echo=lambda _l: None)
+
+    assert [(p.number, p.source, p.source_page) for p in pages] == [
+        (1, "a-lease.pdf", 1), (2, "a-lease.pdf", 2), (3, "b-receipt.png", 1)
+    ]  # fmt: skip
+    first = pages[0].path.stat().st_mtime_ns
+    assert prepare(folder, echo=lambda _l: None) == pages
+    assert pages[0].path.stat().st_mtime_ns == first  # not rendered again
+
+
+def test_each_model_reads_every_page_under_one_lease(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+    runtime = FakeRuntime({PADDLE: ["один", "два", 500], QWEN: ["one", "two", "three"]})
+
+    pages, runs = _run(folder, runtime, [PADDLE, QWEN, CHANDRA])
+
+    assert runtime.leases == [PADDLE, QWEN]  # one lease each: OCR runs in phases
+    paddle, qwen, chandra = runs
+    assert sorted(paddle.pages) == [1, 2] and list(paddle.failed) == [3]
+    assert "answered 500" in paddle.failed[3]
+    assert len(qwen.pages) == 3 and qwen.memory == 2 * 1024**3
+    assert chandra.skipped == "chandra-ocr-2 isn't downloaded yet. Download it first."
+    out = folder / ".ocr-check" / "paddleocr-vl-1.6"
+    assert (out / "p002.md").read_text(encoding="utf-8") == "два\n"
+    assert json.loads((out / "p001.json").read_text())["text"] is None
+    written = {p.relative_to(folder).parts[0] for p in folder.rglob("*") if p.is_file()}
+    assert written == {"a-lease.pdf", "b-receipt.png", "notes.txt", ".ocr-check"}
+
+
+def test_a_draft_fills_missing_references_and_never_overwrites_one(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+    pages, _ = _run(folder, FakeRuntime({PADDLE: ["один", "два", "три"]}), [PADDLE])
+    (folder / "reference").mkdir()
+    (folder / "reference" / "p001.txt").write_text("Один, виправлено", encoding="utf-8")
+
+    assert draft_references(folder, "paddleocr-vl-1.6", pages) == 2
+    assert (folder / "reference" / "p001.txt").read_text(encoding="utf-8") == "Один, виправлено"
+    assert (folder / "reference" / "p003.txt").read_text(encoding="utf-8") == "три\n"
+
+
+def test_the_report_scores_each_model_overall_and_by_kind_of_page(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+    runtime = FakeRuntime(
+        {PADDLE: ["abcdefghij", "klmnopqrst", "x"], QWEN: ["abcdefghiX", 500, "x"]}
+    )
+    pages, runs = _run(folder, runtime, [PADDLE, QWEN, CHANDRA])
+    (folder / "reference").mkdir()
+    (folder / "reference" / "p001.txt").write_text("abcdefghij")
+    (folder / "reference" / "p002.txt").write_text("klmnopqrst")
+    (folder / "tags.yaml").write_text("p001: [handwriting, table]\n2: table\n")
+    tags = load_tags(folder)
+
+    assert tags == {1: ["handwriting", "table"], 2: ["table"]}
+    paddle, qwen, _ = (score(folder, r, pages, tags) for r in runs)
+    assert paddle["all"] == Score(pages=2, cer=0.0, wer=0.0)
+    assert qwen["all"].pages == 1 and qwen["all"].cer == pytest.approx(0.1)
+    assert qwen["handwriting"].cer == pytest.approx(0.1)
+    text = report(folder, runs, pages, tags, swaps=1)
+    assert "| PaddleOCR-VL 1.6 | 3 | 0.0% | 0.0% |" in text
+    assert "| Qwen3-VL 4B Instruct | 2 | 10.0% | 100.0% |" in text
+    assert "| Chandra OCR 2 | skipped: chandra-ocr-2 isn't downloaded yet." in text
+    assert "| handwriting | 1 | 0.0% | 10.0% |" in text
+    assert "| table | 2 | 0.0% | 10.0% |" in text
+    assert "No reference yet for pages 3: they aren't scored." in text
+
+
+def test_pages_and_models_can_be_narrowed():
+    pages = [SimpleNamespace(number=n) for n in range(1, 11)]
+    assert [p.number for p in pick_pages(pages, "1-3,8")] == [1, 2, 3, 8]
+    with pytest.raises(ValueError, match="--pages takes numbers"):
+        pick_pages(pages, "first")
+    assert [e.id for _, e in candidates(["chandra-ocr-2"])] == ["chandra-ocr-2"]
+    with pytest.raises(ValueError, match="Not an OCR model in the catalog: qwen3.5-4b"):
+        candidates(["qwen3.5-4b"])
