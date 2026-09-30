@@ -73,3 +73,23 @@ def test_ocr_check_scores_drafts_and_stops_the_models(tmp_path, monkeypatch, fre
     assert "Drafted 1 references" in result.output
     assert (folder / "reference" / "page.txt").read_text(encoding="utf-8") == "Договір оренди\n"
     assert runtime.stopped and list((folder / ".ocr-check").glob("report-*.md"))
+
+
+def test_ocr_check_says_why_nothing_was_drafted(tmp_path, monkeypatch, free_port):
+    from PIL import Image
+
+    from .test_ocr_check import FakeRuntime
+
+    folder = tmp_path / "scans"
+    folder.mkdir()
+    Image.new("L", (300, 400), 255).save(folder / "page.png")
+    monkeypatch.setattr(cli, "_local_runtime", lambda: FakeRuntime({}))
+
+    result = _ocr_check(str(folder), "--model", "paddleocr-vl-1.6", "--draft", "paddleocr-vl-1.6",
+                        "--port", str(free_port))  # fmt: skip
+
+    assert (
+        "Nothing drafted: PaddleOCR-VL 1.6 was skipped (paddleocr-vl-1.6 isn't downloaded"
+        in result.output
+    )
+    assert not (folder / "reference").exists()

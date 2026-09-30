@@ -317,11 +317,15 @@ def ocr_check(
     saved.write_text(text, encoding="utf-8")
     typer.echo("\n" + text + f"\nSaved to {saved}")
     if draft:
-        written = check.draft_references(folder, draft, chosen)
-        typer.echo(
-            f"Drafted {written} references in {folder / check.REFERENCE_DIR}. Correct them by "
-            "hand, then run again without --draft."
-        )
+        drafter = next(run for run in runs if run.model_id == draft)
+        if drafter.skipped:
+            typer.echo(f"Nothing drafted: {drafter.title} was skipped ({drafter.skipped}).")
+        else:
+            written = check.draft_references(folder, drafter, chosen)
+            typer.echo(
+                f"Drafted {written} references in {folder / check.REFERENCE_DIR}. Correct them "
+                "by hand, then run again without --draft."
+            )
     if all(run.skipped for run in runs):
         raise typer.Exit(1)
 

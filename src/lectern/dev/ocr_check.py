@@ -271,16 +271,17 @@ def _resident_bytes(runtime: ModelRuntime, key: str) -> int:
     return next((r["bytes"] for r in runtime.state()["residents"] if r["role"] == key), 0)
 
 
-def draft_references(folder: Path, model_id: str, pages: list[Page]) -> int:
-    """Copy a model's text to `reference/<page>.txt` for each page that has none yet, for you
-    to correct. Never overwrites a reference."""
+def draft_references(folder: Path, run: ModelRun, pages: list[Page]) -> int:
+    """Copy the text a model read in this run to `reference/<page>.txt` for each page that has
+    none yet, for you to correct. Never overwrites a reference, and never copies an output
+    left from an earlier run (a page that failed now, or a model that was skipped)."""
     references = folder / REFERENCE_DIR
     references.mkdir(exist_ok=True)
     written = 0
     for page in pages:
-        output = folder / WORK_DIR / model_id / f"{page.key}.md"
+        output = folder / WORK_DIR / run.model_id / f"{page.key}.md"
         target = references / f"{page.key}.txt"
-        if output.is_file() and not target.exists():
+        if page.number in run.pages and not target.exists():
             target.write_text(output.read_text(encoding="utf-8"), encoding="utf-8")
             written += 1
     return written

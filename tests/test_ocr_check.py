@@ -181,14 +181,23 @@ def test_each_model_reads_every_page_under_one_lease(tmp_path: Path):
 
 def test_a_draft_fills_missing_references_and_never_overwrites_one(tmp_path: Path):
     folder = _scans(tmp_path / "scans")
-    pages, _ = _run(folder, FakeRuntime({PADDLE: ["один", "два", "три"]}), [PADDLE])
+    pages, (run,) = _run(folder, FakeRuntime({PADDLE: ["один", "два", "три"]}), [PADDLE])
     (folder / "reference").mkdir()
     (folder / "reference" / "a-lease-p001.txt").write_text("Один, виправлено", encoding="utf-8")
 
-    assert draft_references(folder, "paddleocr-vl-1.6", pages) == 2
+    assert draft_references(folder, run, pages) == 2
     fixed = (folder / "reference" / "a-lease-p001.txt").read_text(encoding="utf-8")
     assert fixed == "Один, виправлено"
     assert (folder / "reference" / "b-receipt.txt").read_text(encoding="utf-8") == "три\n"
+
+
+def test_a_draft_never_copies_what_an_earlier_run_left(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+    _run(folder, FakeRuntime({PADDLE: ["old one", "old two", "old three"]}), [PADDLE])
+    pages, (run,) = _run(folder, FakeRuntime({PADDLE: ["new one", 500, "new three"]}), [PADDLE])
+
+    assert draft_references(folder, run, pages) == 2
+    assert not (folder / "reference" / "a-lease-p002.txt").exists()  # failed now: not "old two"
 
 
 def test_the_report_scores_each_model_overall_and_by_kind_of_page(tmp_path: Path):
