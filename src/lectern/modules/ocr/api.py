@@ -21,6 +21,7 @@ from lectern.api.sse import event_response, pump
 from lectern.catalog import catalog
 from lectern.core.auth import User
 from lectern.modules.ocr import store as ocr_store
+from lectern.modules.ocr.document import render_page
 from lectern.modules.ocr.jobs import NotNow, OcrJobs, page_dict
 from lectern.projects.store import Project
 from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, iso, now
@@ -76,8 +77,21 @@ def _session_dict(request: Request, project: Project, session_id: int) -> dict:
         "error": ocr.error,
         "pages_total": ocr.pages_total,
         "source_artifact_id": ocr.source_artifact_id,
+        "document": _document_summary(request, project, ocr),
         "updated_at": iso(ocr.updated_at),
         "pages": [page_dict(p) for p in ocr_store.pages(db, session_id)],
+    }
+
+
+def _document_summary(request: Request, project: Project, ocr: OcrSessionRow) -> dict | None:
+    """The Document's version, its document.md file, and how many questions are open."""
+    if not ocr.document_version:
+        return None
+    document = ocr_store.load_document(project.root, ocr)
+    return {
+        "version": ocr.document_version,
+        "artifact_id": ocr.document_artifact_id,
+        "open_doubts": len(document.open_doubts()) if document else 0,
     }
 
 
@@ -158,8 +172,21 @@ def page_text(
 ) -> dict:
     project = _lookup(request, project_id, session_id, user)
     page = _page(request, project, session_id, number)
-    text = ocr_store.page_text(project.root, _ocr_row(request, project, session_id), page)
-    return {"number": number, "model_id": page.model_id, "text": text}
+    ocr = _ocr_row(request, project, session_id)
+    text = ocr_store.page_text(project.root, ocr, page)
+    document = ocr_store.load_document(project.root, ocr)
+    cleaned = render_page(document, number) if document else None
+    return {"number": number, "model_id": page.model_id, "text": text, "cleaned": cleaned}
+
+
+@router.get("/projects/{project_id}/ocr/{session_id}/document")
+def get_document(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
+    """The session's Document (document.json), the source for M3b's review."""
+    project = _lookup(request, project_id, session_id, user)
+    document = ocr_store.load_document(project.root, _ocr_row(request, project, session_id))
+    if document is None:
+        raise HTTPException(404, "This session has no Document yet.")
+    return document.model_dump(by_alias=True)
 
 
 # --- changing pages, and the job ------------------------------------------------------------

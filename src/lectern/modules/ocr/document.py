@@ -111,6 +111,24 @@ def render_markdown(doc: Document) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def render_page(doc: Document, number: int) -> str | None:
+    """One page's blocks as document.md writes them, or None when the page isn't in the
+    Document. A block that began on an earlier page is shown here too."""
+    page = next((p for p in doc.pages if p.n == number), None)
+    if page is None:
+        return None
+    if page.failed:
+        return f"[Page {number} wasn't cleaned: {page.failed}]"
+    blocks = {b.id: b for b in doc.blocks}
+    figures = [b.id for b in doc.blocks if b.type == "figure"]
+    parts = [
+        _render_block(blocks[i], figures.index(i) + 1 if i in figures else 0)
+        for i in page.blocks
+        if i in blocks
+    ]
+    return "\n\n".join(parts)
+
+
 def _anchor(block: Block, kind: str = "") -> str:
     pages = f"{block.page}→{block.pages[-1]}" if block.pages else str(block.page)
     return f"{{#{block.id} p={pages}{' ' + kind if kind else ''}}}"
