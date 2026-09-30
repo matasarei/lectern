@@ -358,19 +358,20 @@ def test_a_job_that_would_unload_the_chats_model_waits_for_the_chat_to_be_idle()
 
 
 def test_a_job_whose_model_fits_beside_the_chats_is_not_held():
-    import time
-
-    runtime, _ = _runtime(16, {"main": 5, "ocr": 2})
-    runtime.chat_idle_resume = 5.0
+    runtime, runner = _runtime(16, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0  # a hold would never end within the test
 
     async def go():  # noqa: ANN202
-        async with runtime.lease("main", Priority.CHAT):
-            pass
-        started = time.monotonic()
-        async with runtime.lease("ocr", Priority.JOB):
-            return time.monotonic() - started
+        async with runtime.events.listen() as queue:
+            async with runtime.lease("main", Priority.CHAT):
+                pass
+            async with runtime.lease("ocr", Priority.JOB):
+                pass
+            return [queue.get_nowait() for _ in range(queue.qsize())]
 
-    assert asyncio.run(go()) < 1.0
+    events = asyncio.run(asyncio.wait_for(go(), 5))
+    assert not any(e["event"] == "wait" for e in events)  # admitted at once, beside main
+    assert runner.started == ["main-model", "ocr-model"]
 
 
 def test_a_chat_waiting_for_the_gpu_counts_as_active():
