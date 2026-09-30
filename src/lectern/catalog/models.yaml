@@ -130,7 +130,7 @@ models:
         - {path: chandra-ocr-2.Q4_K_M.gguf, size: 3066385440, sha256: 29ec72bf3afa35ca13a017efa696c09ba406671f90bcedbcdcf8e884391d3efb}
       mmproj: {path: chandra-ocr-2.mmproj-Q8_0.gguf, size: 366894368, sha256: 709be8aeda77c5732e58e957367439eae14ebb73b4f4a78b558013d000948bc3}
     ocr:
-      prompt: "OCR this image to Markdown, with tables as HTML <table>. Keep the text exactly as written."
+      prompt: "OCR this image to HTML."  # the prompt Chandra was trained on; it answers in HTML
       max_side: 1600
     notes: "Community GGUF conversion of datalab-to/chandra-ocr-2. Free for personal use and small companies; read the licence before commercial use."
 

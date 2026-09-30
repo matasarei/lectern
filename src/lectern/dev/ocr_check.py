@@ -30,8 +30,6 @@ from lectern.modules.ocr.pages import IMAGE_SUFFIXES, rasterise
 from lectern.modules.ocr.recognise import RecogniseFailed, recognise
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable
 
-BREAK_TAGS = re.compile(r"<\s*(br|/p|/tr|/li|/h[1-6])\s*/?\s*>", re.I)
-CELL_TAGS = re.compile(r"<\s*/t[dh]\s*>", re.I)
 ANY_TAG = re.compile(r"<[^<>]+>")
 TABLE_RULE = re.compile(r"^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*\|?\s*$", re.M)  # |---|:--|
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.M)
@@ -41,9 +39,8 @@ SPACE = re.compile(r"\s+")
 
 def normalise(text: str) -> str:
     """The text as it reads, without markup: one space between words."""
-    text = BREAK_TAGS.sub("\n", text)
-    text = CELL_TAGS.sub(" ", text)
-    text = html.unescape(ANY_TAG.sub("", text))
+    # Every tag is a word break: cells, paragraphs and Chandra's layout divs all end words.
+    text = html.unescape(ANY_TAG.sub(" ", text))
     text = TABLE_RULE.sub("", text)
     text = HEADING.sub("", text)
     text = MARKERS.sub(" ", text)

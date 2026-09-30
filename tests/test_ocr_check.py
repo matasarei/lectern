@@ -70,6 +70,8 @@ def test_markup_the_models_add_is_not_an_error():
     )
 
     assert cer(markdown, reference) == 0
+    divs = '<div data-label="Text"><p>3. Орендна плата</p></div><div><p>березень 1998</p>'
+    assert word_counts(divs + " 250,00 квітень 1998 250,00</div>", reference) == (0, 0, 9)
     assert cer(html_table, reference) == 0
     assert wer("  " + reference.replace(" ", "   "), reference) == 0
 
