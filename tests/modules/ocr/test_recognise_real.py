@@ -62,28 +62,31 @@ def _page(path: Path) -> Path:
     return path
 
 
-@pytest.fixture(scope="module")
-def runtime():
+@pytest.fixture
+def local_runtime(monkeypatch):
+    """Builds the app's runtime for LECTERN_TEST_OCR_HOME. Each test makes its own and stops
+    it in the same event loop: a runner started in one loop can't be stopped from another."""
     from lectern.cli import _local_runtime
 
-    with pytest.MonkeyPatch.context() as env:
-        env.setenv("LECTERN_HOME", str(Path(HOME).expanduser()))
-        rt = _local_runtime()
-        yield rt
-        asyncio.run(rt.stop_all())
+    monkeypatch.setenv("LECTERN_HOME", str(Path(HOME).expanduser()))
+    return _local_runtime
 
 
 @pytest.mark.parametrize(("key", "entry"), candidates(), ids=lambda v: getattr(v, "id", v))
-def test_each_downloaded_ocr_model_reads_a_clean_page(runtime, tmp_path, key, entry):
+def test_each_downloaded_ocr_model_reads_a_clean_page(local_runtime, tmp_path, key, entry):
     from lectern.runtime.supervisor import NotAvailable
 
     page = _page(tmp_path / "p001.png")
 
     async def go():  # noqa: ANN202
-        async with runtime.lease(key) as lease:
-            return await recognise(
-                lease.client, page, prompt=entry.ocr.prompt, max_side=entry.ocr.max_side
-            )
+        runtime = local_runtime()
+        try:
+            async with runtime.lease(key) as lease:
+                return await recognise(
+                    lease.client, page, prompt=entry.ocr.prompt, max_side=entry.ocr.max_side
+                )
+        finally:
+            await runtime.stop_all()
 
     try:
         text = asyncio.run(go())
