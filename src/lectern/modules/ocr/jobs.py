@@ -21,19 +21,24 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextlib
+import functools
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TypeVar
 
+import httpx2
 from sqlalchemy import select
 
 from lectern.agent.turns import Channel
-from lectern.catalog.catalog import OcrSettings
 from lectern.modules.ocr import store as ocr_store
+from lectern.modules.ocr.assemble import assemble
+from lectern.modules.ocr.clean import CleanFailed, clean_page
+from lectern.modules.ocr.doubts import mark_unsure, unsure_words
 from lectern.modules.ocr.pages import NotAPageSource, rasterise
-from lectern.modules.ocr.recognise import PageText, RecogniseFailed, recognise
+from lectern.modules.ocr.recognise import RecogniseFailed, recognise
 from lectern.projects.store import Project, ProjectStore
-from lectern.projects.tables import OcrPageRow, OcrSessionRow, now
+from lectern.projects.tables import ArtifactRow, OcrPageRow, OcrSessionRow, SessionRow, now
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable, Priority
 from lectern.runtime.wiring import pick
@@ -42,6 +47,7 @@ RESTARTED = "Lectern restarted"
 PAUSED = "Paused"
 
 log = logging.getLogger(__name__)
+T = TypeVar("T")
 Key = tuple[int, int]  # (project id, session id)
 
 
@@ -65,6 +71,8 @@ def page_dict(page: OcrPageRow) -> dict:
         "width": page.width,
         "height": page.height,
         "has_hint": page.has_hint,
+        "clean_status": page.clean_status,
+        "clean_error": page.clean_error,
     }
 
 
@@ -210,40 +218,64 @@ class OcrJobs:
                 self._only.pop(queued.key, None)
 
     async def _run(self, project: Project, session_id: int) -> None:
+        """The phases in order; each returns False when the session stopped (paused or
+        failed) and the rest must wait."""
         key = (project.id, session_id)
         db = await asyncio.to_thread(self.projects.db, project)
         await asyncio.to_thread(self._set_status, project, session_id, "running")
         ocr = await asyncio.to_thread(self._ocr_row, db, session_id)
-        if ocr.pages_total == 0:
-            self._publish(key, {"type": "phase", "phase": "rasterise"})
-            try:
-                source = await asyncio.to_thread(ocr_store.source_path, project.root, db, ocr)
-                folder = ocr_store.pages_dir(project.root, ocr)
-                images = await asyncio.to_thread(rasterise, source, folder)
-            except (NotAPageSource, ocr_store.CannotOpen) as exc:
-                await asyncio.to_thread(
-                    self._set_status, project, session_id, "failed", error=str(exc)
-                )
+        for phase in (self._rasterise, self._recognise, self._clean, self._assemble):
+            if not await phase(project, db, ocr):
                 return
-            await asyncio.to_thread(ocr_store.add_pages, db, session_id, images)
+        if key in self._only:  # it was paused: it stays paused, the rest of its pages to read
+            reason = self._only[key][1]
+            await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=reason)
+            return
+        await asyncio.to_thread(self._set_status, project, session_id, "done")
+
+    async def _stop(self, project: Project, ocr: OcrSessionRow, status: str, **kw: str) -> bool:
+        await asyncio.to_thread(self._set_status, project, ocr.session_id, status, **kw)
+        return False
+
+    async def _rasterise(self, project: Project, db, ocr: OcrSessionRow) -> bool:  # noqa: ANN001
+        if ocr.pages_total:
+            return True
+        self._publish((project.id, ocr.session_id), {"type": "phase", "phase": "rasterise"})
+        try:
+            source = await asyncio.to_thread(ocr_store.source_path, project.root, db, ocr)
+            folder = ocr_store.pages_dir(project.root, ocr)
+            images = await asyncio.to_thread(rasterise, source, folder)
+        except (NotAPageSource, ocr_store.CannotOpen) as exc:
+            return await self._stop(project, ocr, "failed", error=str(exc))
+        await asyncio.to_thread(ocr_store.add_pages, db, ocr.session_id, images)
+        return True
+
+    async def _recognise(self, project: Project, db, ocr: OcrSessionRow) -> bool:  # noqa: ANN001
+        key = (project.id, ocr.session_id)
         self._publish(key, {"type": "phase", "phase": "recognise"})
         while (
-            page := await asyncio.to_thread(self._next_page, db, session_id, self._only_pages(key))
+            page := await asyncio.to_thread(
+                self._next_page, db, ocr.session_id, self._only_pages(key)
+            )
         ) is not None:
             if key in self._pausing:
-                await asyncio.to_thread(
-                    self._set_status, project, session_id, "paused", reason=PAUSED
-                )
-                return
+                return await self._stop(project, ocr, "paused", reason=PAUSED)
             lease_key = page.lease_key or ("ocr.hand" if page.handwritten else "ocr")
+            image = ocr_store.page_image(project.root, ocr, page)
             try:
                 _role, entry = pick(lease_key, self.runtime.tier)
                 if self._held_for_the_chat(lease_key):
                     self._publish(key, {"type": "waiting", "reason": "chat"})
                 await asyncio.to_thread(self._mark_reading, db, page.id)
                 self._publish(key, {"type": "page", **page_dict(page), "status": "recognising"})
-                image = ocr_store.page_image(project.root, ocr, page)
-                read = await self._read_unless_paused(key, lease_key, entry.ocr, image)
+                settings = entry.ocr
+                read = await self._leased_unless_paused(
+                    key,
+                    lease_key,
+                    functools.partial(
+                        recognise, image=image, prompt=settings.prompt, max_side=settings.max_side
+                    ),
+                )
                 if read is None:  # paused while waiting for the model: this page wasn't read
                     await asyncio.to_thread(self._unmark_reading, db, page.id)
                     self._publish(key, {"type": "page", **page_dict(page)})
@@ -253,11 +285,7 @@ class OcrJobs:
                 # The model can't be loaded: every page would fail the same way. The session
                 # stops, its pages stay to be read, and Resume tries again.
                 await asyncio.to_thread(self._unmark_reading, db, page.id)
-                error = str(exc).splitlines()[0]
-                await asyncio.to_thread(
-                    self._set_status, project, session_id, "failed", error=error
-                )
-                return
+                return await self._stop(project, ocr, "failed", error=str(exc).splitlines()[0])
             except RecogniseFailed as exc:
                 page = await asyncio.to_thread(ocr_store.page_failed, db, page.id, str(exc))
                 self._publish(key, {"type": "page", **page_dict(page)})
@@ -267,40 +295,125 @@ class OcrJobs:
                 model_id=model_id, reading=reading,
             )  # fmt: skip
             self._publish(key, {"type": "page", **page_dict(page)})
-        if key in self._only:  # it was paused: it stays paused, the rest of its pages to read
-            reason = self._only[key][1]
-            await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=reason)
-            return
-        await asyncio.to_thread(self._set_status, project, session_id, "done")
+        return True
 
-    async def _read_unless_paused(
-        self, key: Key, lease_key: str, settings: OcrSettings, image: Path
-    ) -> tuple[str, PageText] | None:
-        """Lease the model and read the page, or None when a pause comes first. Waiting for
-        the model can take minutes (the runtime holds it for the chat), and Pause shouldn't
-        wait that out; once the model is ours the page is read to the end."""
+    async def _clean(self, project: Project, db, ocr: OcrSessionRow) -> bool:  # noqa: ANN001
+        """Each page read since it was last cleaned goes through the main model."""
+        key = (project.id, ocr.session_id)
+        self._publish(key, {"type": "phase", "phase": "clean"})
+        while (
+            page := await asyncio.to_thread(
+                self._next_to_clean, db, ocr.session_id, self._only_pages(key)
+            )
+        ) is not None:
+            if key in self._pausing:
+                return await self._stop(project, ocr, "paused", reason=PAUSED)
+            raw, before, after = await asyncio.to_thread(self._texts_around, project, db, ocr, page)
+            tokens = await asyncio.to_thread(ocr_store.page_tokens, project.root, ocr, page)
+            marked = mark_unsure(raw, unsure_words(tokens))
+            try:
+                if self._held_for_the_chat("main"):
+                    self._publish(key, {"type": "waiting", "reason": "chat"})
+                page = await asyncio.to_thread(ocr_store.mark_cleaning, db, page.id, "cleaning")
+                self._publish(key, {"type": "page", **page_dict(page)})
+                cleaned = await self._leased_unless_paused(
+                    key,
+                    "main",
+                    functools.partial(
+                        clean_page,
+                        number=page.number,
+                        raw=marked,
+                        note=page.note,
+                        before=before,
+                        after=after,
+                    ),
+                )
+                if cleaned is None:  # paused while waiting for the model
+                    page = await asyncio.to_thread(ocr_store.mark_cleaning, db, page.id, "pending")
+                    self._publish(key, {"type": "page", **page_dict(page)})
+                    continue
+                _model, result = cleaned
+                page = await asyncio.to_thread(
+                    ocr_store.save_cleanup, project.root, db, ocr, page.id, result
+                )
+            except (NotAvailable, RunnerError) as exc:
+                await asyncio.to_thread(ocr_store.mark_cleaning, db, page.id, "pending")
+                return await self._stop(project, ocr, "failed", error=str(exc).splitlines()[0])
+            except CleanFailed as exc:
+                page = await asyncio.to_thread(ocr_store.cleanup_failed, db, page.id, str(exc))
+            self._publish(key, {"type": "page", **page_dict(page)})
+        return True
+
+    async def _assemble(self, project: Project, db, ocr: OcrSessionRow) -> bool:  # noqa: ANN001
+        key = (project.id, ocr.session_id)
+        self._publish(key, {"type": "phase", "phase": "assemble"})
+
+        def build() -> OcrSessionRow:
+            current = self._ocr_row(db, ocr.session_id)
+            inputs = ocr_store.assembly_inputs(project.root, db, current)
+            with db() as session:
+                source = session.get(ArtifactRow, current.source_artifact_id)
+                owner = session.get(SessionRow, ocr.session_id).owner_id
+            document = assemble(
+                current.folder,
+                source.path.rsplit("/", 1)[-1] if source else current.folder,
+                inputs,
+                version=current.document_version + 1,
+            )
+            return ocr_store.publish_document(project.root, db, ocr.session_id, owner, document)
+
+        published = await asyncio.to_thread(build)
+        self._publish(
+            key,
+            {
+                "type": "document",
+                "version": published.document_version,
+                "artifact_id": published.document_artifact_id,
+            },
+        )
+        return True
+
+    async def _leased_unless_paused(
+        self, key: Key, lease_key: str, work: Callable[[httpx2.AsyncClient], Awaitable[T]]
+    ) -> tuple[str, T] | None:
+        """Lease the model and do the work with it, or None when a pause comes first. Waiting
+        for the model can take minutes (the runtime holds it for the chat), and Pause
+        shouldn't wait that out; once the model is ours the page is done to the end."""
         leased = asyncio.Event()
 
-        async def read() -> tuple[str, PageText]:
+        async def run() -> tuple[str, T]:
             async with self.runtime.lease(lease_key, Priority.JOB) as lease:
                 leased.set()
-                text = await recognise(
-                    lease.client, image, prompt=settings.prompt, max_side=settings.max_side
-                )
-                return lease.model_id, text
+                return lease.model_id, await work(lease.client)
 
-        reader = asyncio.create_task(read())
+        worker = asyncio.create_task(run())
         pause = asyncio.create_task(self._pause_signal(key).wait())
         got = asyncio.create_task(leased.wait())
-        await asyncio.wait({reader, pause, got}, return_when=asyncio.FIRST_COMPLETED)
+        await asyncio.wait({worker, pause, got}, return_when=asyncio.FIRST_COMPLETED)
         got.cancel()
         pause.cancel()
-        if not leased.is_set() and not reader.done():
-            reader.cancel()
+        if not leased.is_set() and not worker.done():
+            worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await reader
+                await worker
             return None
-        return await reader
+        return await worker
+
+    def _texts_around(
+        self,
+        project: Project,
+        db,
+        ocr: OcrSessionRow,
+        page: OcrPageRow,  # noqa: ANN001
+    ) -> tuple[str, str, str]:
+        """The page's raw text, and its neighbours' (for words and tables crossing a break)."""
+        by_number = {p.number: p for p in ocr_store.pages(db, ocr.session_id)}
+
+        def text_of(number: int) -> str:
+            other = by_number.get(number)
+            return (ocr_store.page_text(project.root, ocr, other) or "") if other else ""
+
+        return text_of(page.number), text_of(page.number - 1), text_of(page.number + 1)
 
     def _pause_signal(self, key: Key) -> asyncio.Event:
         return self._pause_signals.setdefault(key, asyncio.Event())
@@ -326,6 +439,23 @@ class OcrJobs:
         query = select(OcrPageRow).where(
             OcrPageRow.session_id == session_id,
             OcrPageRow.status.in_(("pending", "recognising")),
+        )
+        if numbers is not None:
+            query = query.where(OcrPageRow.number.in_(numbers))
+        with db() as session:
+            return session.scalars(query.order_by(OcrPageRow.number).limit(1)).first()
+
+    @staticmethod
+    def _next_to_clean(  # noqa: ANN001 — db is a sessionmaker
+        db, session_id: int, numbers: set[int] | None = None
+    ) -> OcrPageRow | None:
+        """The first page whose current reading hasn't been cleaned (a reading done since, or
+        a cleanup cut short)."""
+        query = select(OcrPageRow).where(
+            OcrPageRow.session_id == session_id,
+            OcrPageRow.status == "done",
+            (OcrPageRow.clean_status.in_(("pending", "cleaning")))
+            | (OcrPageRow.cleaned_reading != OcrPageRow.reading),
         )
         if numbers is not None:
             query = query.where(OcrPageRow.number.in_(numbers))

@@ -30,7 +30,9 @@ PAGE_NUMBER = re.compile(
 DIGITS = re.compile(r"\d+")
 NO_MERGE = re.compile(r"\b(?:don'?t|do not|never)\s+merge\b|не\s+об['’]?єдну", re.I)
 SENTENCE_END = re.compile(r"[.!?:;…»\"')\]]\s*$")
+LEFT_MARK = re.compile(r"⟨([^⟨⟩]+)\?⟩")  # an unsure-word mark cleanup should have removed
 REPEATS = 3  # a line at the top or bottom of this many pages is a running header or footer
+RUNNING_LINE_CHARS = 100  # a running header or footer is a short line, never a paragraph
 
 
 @dataclass
@@ -99,8 +101,10 @@ def _blocks(page: PageInput, counter: _Counter) -> list[Block]:
             type=b.type,
             page=page.n,
             level=b.level if b.type == "heading" else None,
-            text=b.text,
-            rows=b.rows if b.type == "table" else None,
+            text=LEFT_MARK.sub(r"\1", b.text),
+            rows=[[LEFT_MARK.sub(r"\1", c) for c in row] for row in b.rows]
+            if b.type == "table" and b.rows
+            else None,
             label=b.label if b.type in ("figure", "stamp") else None,
         )
         for i, b in enumerate(cleaned.blocks, start=1)
@@ -141,26 +145,34 @@ def _add_ocr_doubts(block: Block, unsure: list[str], counter: _Counter) -> None:
     block.doubts += doubts
 
 
+def _running_candidate(block: Block) -> bool:
+    return (
+        block.type in ("paragraph", "heading")
+        and bool(block.text)
+        and len(block.text) <= RUNNING_LINE_CHARS
+    )
+
+
 def _key(block: Block) -> str:
     return DIGITS.sub("#", " ".join(block.text.split())).casefold()
 
 
 def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
-    """Bare page numbers anywhere at a page's top or bottom, and a first or last line that
-    repeats (digits aside) at the top or bottom of REPEATS pages, or of every page of a short
-    document."""
-    needed = min(REPEATS, total) if total > 1 else 2  # a one-page document has no running lines
+    """Bare page numbers at a page's top or bottom, and a short first or last line that
+    repeats (digits aside) at the top or bottom of REPEATS pages or more. A shorter document
+    keeps its lines: two pages that happen to start alike aren't a running header."""
     for edge in (0, -1):
         seen: dict[str, int] = {}
         for blocks in per_page.values():
-            if blocks and blocks[edge].type in ("paragraph", "heading") and blocks[edge].text:
+            if blocks and _running_candidate(blocks[edge]):
                 seen[_key(blocks[edge])] = seen.get(_key(blocks[edge]), 0) + 1
         for blocks in per_page.values():
             if not blocks:
                 continue
             block = blocks[edge]
             numbered = block.type == "paragraph" and PAGE_NUMBER.match(block.text) is not None
-            if numbered or (block.text and seen.get(_key(block), 0) >= needed):
+            repeated = _running_candidate(block) and seen.get(_key(block), 0) >= REPEATS
+            if numbered or repeated:
                 blocks.pop(edge)
     for blocks in per_page.values():  # a number left at an edge after a header went
         for edge in (0, -1):

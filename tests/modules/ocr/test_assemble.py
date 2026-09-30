@@ -144,3 +144,15 @@ def test_another_page_cleaned_again_keeps_this_pages_ids():
 
     assert [b.id for b in before.blocks[:2]] == [b.id for b in after.blocks[:2]] == ["b1.1", "b1.2"]
     assert before.blocks[1].doubts[0].id == after.blocks[1].doubts[0].id == "d1.1"
+
+
+def test_two_pages_that_start_alike_keep_their_lines():
+    doc = assemble("L", "l.pdf", [_page(n, HEADER, para(f"Текст {n}.")) for n in (1, 2)])
+    assert [b.text for b in doc.blocks][0] == HEADER.text  # two pages aren't a running header
+
+
+def test_a_long_repeated_paragraph_is_never_taken_for_a_running_line():
+    long = para("Орендар зобов'язаний сплачувати орендну плату вчасно. " * 3)
+    ends = {1: "Перший розділ.", 2: "Другий розділ.", 3: "Третій розділ."}
+    doc = assemble("L", "l.pdf", [_page(n, long, para(ends[n])) for n in (1, 2, 3)])
+    assert len(doc.blocks) == 6
