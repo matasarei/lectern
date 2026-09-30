@@ -21,10 +21,12 @@ from lectern.dev.ocr_check import (
     normalise,
     pick_pages,
     prepare,
+    repeats,
     report,
     run_models,
     score,
     wer,
+    word_counts,
 )
 from lectern.runtime.supervisor import NotAvailable
 
@@ -198,15 +200,15 @@ def test_the_report_scores_each_model_overall_and_by_kind_of_page(tmp_path: Path
 
     assert tags == {"a-lease-p001": ["handwriting", "table"], "a-lease-p002": ["table"]}
     paddle, qwen, _ = (score(folder, r, pages, tags) for r in runs)
-    assert paddle["all"] == Score(pages=2, cer=0.0, wer=0.0)
+    assert paddle["all"] == Score(pages=2, cer=0.0, wer=0.0, missed=0.0, extra=0.0, looped=0)
     assert qwen["all"].pages == 1 and qwen["all"].cer == pytest.approx(0.1)
-    assert qwen["handwriting"].cer == pytest.approx(0.1)
+    assert (qwen["handwriting"].missed, qwen["handwriting"].extra) == (1.0, 1.0)
     text = report(folder, runs, pages, tags, swaps=1)
-    assert "| PaddleOCR-VL 1.6 | 3 | 0.0% | 0.0% |" in text
-    assert "| Qwen3-VL 4B Instruct | 2 | 10.0% | 100.0% |" in text
+    assert "| PaddleOCR-VL 1.6 | 3 | 0.0% | 0.0% | 0.0% | 0 |" in text
+    assert "| Qwen3-VL 4B Instruct | 2 | 100.0% | 100.0% | 10.0% | 0 |" in text
     assert "| Chandra OCR 2 | skipped: chandra-ocr-2 isn't downloaded yet." in text
-    assert "| handwriting | 1 | 0.0% | 10.0% |" in text
-    assert "| table | 2 | 0.0% | 10.0% |" in text
+    assert "| handwriting | 1 | 0.0% / 0.0% | 100.0% / 100.0% |" in text
+    assert "| table | 2 | 0.0% / 0.0% | 100.0% / 100.0% |" in text
     assert "No reference yet for b-receipt: not scored." in text
 
 
@@ -231,3 +233,20 @@ def test_adding_a_scan_later_doesnt_rename_the_pages_already_there(tmp_path: Pat
     Image.new("L", (300, 400), 255).save(folder / "b-receipt.jpg")  # same name, other type
     with pytest.raises(ValueError, match="b-receipt.jpg and b-receipt.png share a name"):
         prepare(folder, echo=lambda _l: None)
+
+
+def test_word_counts_ignore_reading_order_but_not_missing_or_extra_words():
+    reference = "QTY DESCRIPTION\n1 Brake cables 100.00\n2 Pedal arms 30.00"
+    by_column = "QTY\n1\n2\nDESCRIPTION\nBrake cables\nPedal arms\n100.00\n30.00"
+
+    assert word_counts(by_column, reference) == (0, 0, 10)  # same words, other order
+    assert cer(by_column, reference) > 0.3  # which CER counts as errors
+    assert word_counts("QTY DESCRIPTION 1 Brake cables", reference) == (5, 0, 10)
+    assert word_counts(reference + "\n" + reference, reference) == (0, 10, 10)
+
+
+def test_an_output_that_goes_round_again_is_flagged():
+    page = "# Channel Tone Ladder\nRed\nGreen\nBlue\n# Uniformity Bands\nDark"
+    assert repeats(page + "\n" + page)
+    assert not repeats(page)
+    assert not repeats("1\n2\n3\n1\n2\n4")  # short runs of the same lines are normal

@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import time
 import unicodedata
+from collections import Counter
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -293,63 +294,109 @@ def load_tags(folder: Path) -> dict[str, list[str]]:
     return {str(k): [v] if isinstance(v, str) else list(v) for k, v in raw.items()}
 
 
+LOOP_LINES = 4  # a run of this many lines seen twice means the model went round again
+
+
+def word_counts(output: str, reference: str) -> tuple[int, int, int]:
+    """(reference words the output lacks, output words the reference lacks, reference words),
+    in any order. Reading order is the model's choice on a page of blocks and tables; these
+    counts say whether the words are there, and `extra` catches loops and made-up text."""
+    out, ref = Counter(normalise(output).split()), Counter(normalise(reference).split())
+    return sum((ref - out).values()), sum((out - ref).values()), sum(ref.values())
+
+
+def repeats(text: str) -> bool:
+    """The output went round again: some run of LOOP_LINES lines appears twice."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    seen: set[tuple[str, ...]] = set()
+    for i in range(len(lines) - LOOP_LINES + 1):
+        window = tuple(lines[i : i + LOOP_LINES])
+        if window in seen:
+            return True
+        seen.add(window)
+    return False
+
+
 @dataclass(frozen=True)
 class Score:
     pages: int
-    cer: float
-    wer: float
+    cer: float  # in reading order
+    wer: float  # in reading order
+    missed: float  # share of reference words not in the output, any order
+    extra: float  # output words not in the reference, as a share of the reference's words
+    looped: int  # pages where the output repeats itself
 
 
 def score(
     folder: Path, run: ModelRun, pages: list[Page], tags: dict[str, list[str]]
 ) -> dict[str, Score]:
-    """CER and WER over all pages with a reference ("all"), and for each tag. Errors are
-    summed before dividing, so a long page weighs more than a short one."""
-    totals: dict[str, list[int]] = {}  # group → [char edits, chars, word edits, words, pages]
+    """Scores over all pages with a reference ("all"), and for each tag. Errors are summed
+    before dividing, so a long page weighs more than a short one."""
+    # group → [char edits, chars, word edits, words, missed, extra, looped, pages]
+    totals: dict[str, list[int]] = {}
     for page in pages:
         reference = folder / REFERENCE_DIR / f"{page.key}.txt"
         output = folder / WORK_DIR / run.model_id / f"{page.key}.md"
         if page.number not in run.pages or not reference.is_file():
             continue
-        ref = normalise(reference.read_text(encoding="utf-8"))
-        out = normalise(output.read_text(encoding="utf-8"))
+        raw_ref = reference.read_text(encoding="utf-8")
+        raw_out = output.read_text(encoding="utf-8")
+        ref, out = normalise(raw_ref), normalise(raw_out)
+        missed, extra, words = word_counts(raw_out, raw_ref)
         counts = [
             distance(out, ref),
             len(ref),
             distance(out.split(), ref.split()),
-            len(ref.split()),
+            words,
+            missed,
+            extra,
+            int(repeats(raw_out)),
             1,
         ]
         for group in ["all", *tags.get(page.key, [])]:
-            total = totals.setdefault(group, [0, 0, 0, 0, 0])
+            total = totals.setdefault(group, [0] * len(counts))
             for i, n in enumerate(counts):
                 total[i] += n
     return {
-        group: Score(t[4], t[0] / max(t[1], 1), t[2] / max(t[3], 1)) for group, t in totals.items()
+        group: Score(
+            pages=t[7],
+            cer=t[0] / max(t[1], 1),
+            wer=t[2] / max(t[3], 1),
+            missed=t[4] / max(t[3], 1),
+            extra=t[5] / max(t[3], 1),
+            looped=t[6],
+        )
+        for group, t in totals.items()
     }
 
 
 def report(
     folder: Path, runs: list[ModelRun], pages: list[Page], tags: dict[str, list[str]], swaps: int
 ) -> str:
-    """The results as a Markdown report: one row per model, then CER by kind of page."""
+    """The results as a Markdown report: one row per model, then words missed and extra by
+    kind of page."""
     references = folder / REFERENCE_DIR
     missing = [p.key for p in pages if not (references / f"{p.key}.txt").is_file()]
     scores = {run.model_id: score(folder, run, pages, tags) for run in runs if not run.skipped}
     lines = [
         f"# OCR check · {len(pages)} pages · {datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
         "",
-        "| Model | Pages read | CER | WER | s/page | Load | Memory | Cut off | Failed |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "Words missed and words extra ignore reading order; CER counts it.",
+        "",
+        "| Model | Pages read | Words missed | Words extra | CER | Looped | s/page | Load "
+        "| Memory | Cut off | Failed |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for run in runs:
         if run.skipped:
-            lines.append(f"| {run.title} | skipped: {run.skipped} | | | | | | | |")
+            lines.append(f"| {run.title} | skipped: {run.skipped} |" + " |" * 9)
             continue
         overall = scores[run.model_id].get("all")
         seconds = [p.seconds for p in run.pages.values()]
         lines.append(
-            f"| {run.title} | {len(run.pages)} | {_rate(overall, 'cer')} | {_rate(overall, 'wer')} "
+            f"| {run.title} | {len(run.pages)} | {_rate(overall, 'missed')} "
+            f"| {_rate(overall, 'extra')} | {_rate(overall, 'cer')} "
+            f"| {overall.looped if overall else '–'} "
             f"| {sum(seconds) / max(len(seconds), 1):.1f} | {run.load_seconds:.0f}s "
             f"| {run.memory / 1024**3:.1f} GB | {sum(p.cut_off for p in run.pages.values())} "
             f"| {len(run.failed)} |"
@@ -358,15 +405,25 @@ def report(
     if groups:
         scored = [r for r in runs if not r.skipped]
         header = "| Kind | Pages | " + " | ".join(r.title for r in scored) + " |"
-        lines += ["", "CER by kind of page:", "", header, "|---|---|" + "---|" * len(scored)]
+        lines += [
+            "",
+            "Words missed / extra by kind of page:",
+            "",
+            header,
+            "|---|---|" + "---|" * len(scored),
+        ]
         for group in groups:
             count = max((s[group].pages for s in scores.values() if group in s), default=0)
-            cells = [_rate(scores[r.model_id].get(group), "cer") for r in scored]
+            cells = [_both(scores[r.model_id].get(group)) for r in scored]
             lines.append(f"| {group} | {count} | " + " | ".join(cells) + " |")
     lines += ["", f"Swaps: {swaps}."]
     if missing:
         lines.append(f"No reference yet for {', '.join(missing)}: not scored.")
     return "\n".join(lines) + "\n"
+
+
+def _both(value: Score | None) -> str:
+    return "–" if value is None else f"{_rate(value, 'missed')} / {_rate(value, 'extra')}"
 
 
 def _rate(value: Score | None, which: str) -> str:
