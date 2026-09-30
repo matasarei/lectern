@@ -8,7 +8,7 @@ from sqlalchemy import select
 from lectern.core.auth import LOCAL_USER, User
 from lectern.core.tables import UserRow
 from lectern.projects.store import ProjectNotFound, ProjectStore, folder_name
-from lectern.projects.tables import SessionRow
+from lectern.projects.tables import ConfirmationRow, MessageRow, SessionRow
 
 
 def test_a_new_project_is_a_folder_with_its_database_and_one_empty_chat(store, paths):
@@ -120,3 +120,53 @@ def test_a_project_made_before_m1b_gets_the_script_runs_table(store, paths):
     head = ScriptDirectory.from_config(config).get_current_head()
     assert "script_runs" in tables and "chat_state" in tables
     assert version == head  # brought all the way up, whatever the latest revision is
+
+
+def _migrate_to(project, revision: str) -> None:
+    from alembic import command
+    from alembic.config import Config
+
+    from lectern.core.db import foreign_keys_checked_at_end, make_engine
+
+    engine = make_engine(project.root / ".lectern" / "project.sqlite")
+    config = Config()
+    config.set_main_option("script_location", "lectern:project_migrations")
+    with engine.connect() as connection, foreign_keys_checked_at_end(connection):
+        config.attributes["connection"] = connection
+        if revision == "head":
+            command.upgrade(config, "head")
+        else:
+            command.downgrade(config, revision)
+    engine.dispose()
+
+
+def test_a_project_with_chats_takes_ocr_sessions_after_p0004(store, paths):
+    project = store.create(LOCAL_USER, "Before OCR")
+    with store.db(project).begin() as session:
+        chat = session.scalars(select(SessionRow)).one()
+        session.add(MessageRow(session_id=chat.id, role="user", content="Привіт"))
+        session.add(
+            ConfirmationRow(session_id=chat.id, tool_call_id="c1", tool="artifact.trash",
+                            arguments="{}")
+        )  # fmt: skip
+    store.dispose()
+    _migrate_to(project, "p0003")  # as a project made in M1c is
+
+    _migrate_to(project, "head")  # the chat's messages point at the rebuilt sessions table
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    with fresh.db(project).begin() as session:
+        assert session.scalars(select(MessageRow)).one().content == "Привіт"
+        assert session.scalars(select(ConfirmationRow)).one().tool == "artifact.trash"
+        session.add(SessionRow(owner_id=LOCAL_USER.id, kind="ocr", title="lease-scan"))
+    with fresh.db(project)() as session:
+        assert {s.kind for s in session.scalars(select(SessionRow))} == {"chat", "ocr"}
+    fresh.dispose()
+
+
+def test_an_unknown_session_kind_is_still_refused(store):
+    from sqlalchemy.exc import IntegrityError
+
+    project = store.create(LOCAL_USER, "Kinds")
+    with pytest.raises(IntegrityError), store.db(project).begin() as session:
+        session.add(SessionRow(owner_id=LOCAL_USER.id, kind="stt", title="x"))

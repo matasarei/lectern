@@ -9,6 +9,10 @@ for the role's model, loading it first if needed. Rules:
 - A model in use is never unloaded: the request waits until its lease ends.
 - Waiting requests are served chat first, then in arrival order. So a chat that arrives during
   an OCR job gets the GPU after the current page, and the job continues afterwards.
+- With `chat_idle_resume` set, a job whose model would unload another one waits until the
+  chat has been idle that long (a chat still waiting for the GPU counts as active). A chat
+  reply is several model calls; without this, a waiting job takes the GPU between two of
+  them and every message costs two swaps.
 - A runner that died is noticed on the next lease and started again.
 
 One asyncio.Condition guards all of it. Loading happens with the lock held: there is one GPU,
@@ -32,6 +36,8 @@ from lectern.downloads.manager import EventHub
 from lectern.hardware.tiers import Tier
 from lectern.runners.base import Runner, RunnerHandle, RunnerSpec
 from lectern.runtime import planner
+
+CHAT_IDLE_RESUME = 120.0  # seconds; the blueprint's "resumes when the chat has been idle"
 
 
 class Priority(IntEnum):
@@ -84,12 +90,14 @@ class ModelRuntime:
         tier: Tier,
         resolve: Callable[[str], ModelChoice],
         runner_for: Callable[[ModelChoice], Runner],
+        chat_idle_resume: float = 0.0,
     ) -> None:
         self.budget = budget
         self.unified = unified
         self.tier = tier
         self.resolve = resolve
         self.runner_for = runner_for
+        self.chat_idle_resume = chat_idle_resume
         self.events = EventHub()
         self.swaps = 0
         self._residents: dict[str, Resident] = {}  # by role
@@ -97,6 +105,8 @@ class ModelRuntime:
         self._queue: list[tuple[int, int]] = []  # (priority, ticket), served in sorted order
         self._tickets = itertools.count()
         self._cond = asyncio.Condition()
+        self._chat_leases = 0
+        self._chat_ended: float | None = None  # when the last chat lease ended
 
     # --- reporting ---------------------------------------------------------------------------
 
@@ -129,6 +139,36 @@ class ModelRuntime:
             ],
         }
 
+    def needs_room(self, role: str) -> bool:
+        """Loading the role's model now would unload another one (a swap). False when it's
+        already loaded, when nothing else is, or when it fits beside what is."""
+        if (role in self._residents and role not in self._crashed) or not self._residents:
+            return False
+        choice = self.resolve(role)
+        try:
+            plan = planner.plan(
+                weights=choice.weights,
+                shape=choice.shape,
+                tier=self.tier,
+                tier_ctx=choice.tier_ctx,
+                budget=self.budget,
+                resident=self.resident_bytes(),
+                unified=self.unified,
+                chat=False,
+            )
+        except planner.DoesNotFit:
+            return True
+        return not plan.coresident
+
+    def chat_idle_seconds(self) -> float:
+        """How long since the chat last used a model: 0 while it is or is waiting for one,
+        infinity if it never has."""
+        if self._chat_leases or any(p == Priority.CHAT for p, _ in self._queue):
+            return 0.0
+        if self._chat_ended is None:
+            return float("inf")
+        return time.monotonic() - self._chat_ended
+
     def _emit(self, event: str, **data: object) -> None:
         self.events.publish({"type": "runtime", "event": event, "swaps": self.swaps, **data})
 
@@ -137,6 +177,8 @@ class ModelRuntime:
     @contextlib.asynccontextmanager
     async def lease(self, role: str, priority: Priority = Priority.JOB) -> AsyncIterator[Lease]:
         resident = await self._acquire(role, priority)
+        chat = priority is Priority.CHAT
+        self._chat_leases += chat
         client = resident.handle.client()
         try:
             yield Lease(role, resident.choice.model_id, client, resident.plan)
@@ -145,6 +187,9 @@ class ModelRuntime:
             async with self._cond:
                 resident.leases -= 1
                 resident.last_used = time.monotonic()
+                if chat:
+                    self._chat_leases -= 1
+                    self._chat_ended = resident.last_used
                 self._emit("release", role=role, model_id=resident.choice.model_id)
                 self._cond.notify_all()
 
@@ -156,7 +201,15 @@ class ModelRuntime:
             try:
                 waited = False
                 while True:
-                    if self._queue[0] == ticket:
+                    head = self._queue[0] == ticket
+                    if head and priority is Priority.JOB and (hold := self._job_hold(role)) > 0:
+                        if not waited:
+                            self._emit("wait", role=role, priority="job", reason="chat")
+                            waited = True
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(self._cond.wait(), hold)
+                        continue
+                    if head:
                         resident = await self._try_admit(role, chat=priority is Priority.CHAT)
                         if resident is not None:
                             resident.leases += 1
@@ -169,6 +222,17 @@ class ModelRuntime:
             finally:
                 self._queue.remove(ticket)
                 self._cond.notify_all()
+
+    def _job_hold(self, role: str) -> float:
+        """With the lock held. How long a job's lease on `role` must still wait for the chat:
+        only when loading it would unload another model, and the chat was active less than
+        chat_idle_resume seconds ago."""
+        if self.chat_idle_resume <= 0:
+            return 0.0
+        idle = self.chat_idle_seconds()
+        if idle >= self.chat_idle_resume or not self.needs_room(role):
+            return 0.0
+        return self.chat_idle_resume - idle
 
     async def _try_admit(self, role: str, *, chat: bool) -> Resident | None:
         """With the lock held. The role's resident, or a newly loaded one, or None to wait."""

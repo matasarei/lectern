@@ -290,3 +290,103 @@ def test_events_describe_loads_swaps_and_unloads():
     assert ("loaded", "ocr") in events and ("loaded", "main") in events
     assert events.index(("unloaded", "ocr")) < events.index(("loaded", "main"))
     assert events[-1] == ("unloaded", "main")
+
+
+def test_the_runtime_says_how_long_the_chat_has_been_idle(monkeypatch):
+    from lectern.runtime import supervisor
+
+    runtime, _ = _runtime(8, {"main": 5, "ocr": 2})
+    clock = {"now": 100.0}
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock["now"])
+
+    async def go():  # noqa: ANN202
+        assert runtime.chat_idle_seconds() == float("inf")  # no chat yet
+        async with runtime.lease("ocr", Priority.JOB):
+            assert runtime.chat_idle_seconds() == float("inf")  # a job isn't the chat
+        async with runtime.lease("main", Priority.CHAT):
+            clock["now"] = 130.0
+            assert runtime.chat_idle_seconds() == 0.0  # replying now
+        clock["now"] = 190.0
+        return runtime.chat_idle_seconds()
+
+    assert asyncio.run(go()) == 60.0  # ended at 130
+
+
+def test_the_runtime_says_when_loading_a_model_would_unload_another():
+    small, _ = _runtime(6, {"main": 5, "ocr": 2})  # main and ocr don't fit together
+    large, _ = _runtime(16, {"main": 5, "ocr": 2})
+
+    async def go(runtime):  # noqa: ANN001, ANN202
+        before = runtime.needs_room("ocr")  # nothing loaded yet
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        return before, runtime.needs_room("ocr"), runtime.needs_room("main")
+
+    assert asyncio.run(go(small)) == (False, True, False)  # main is loaded: no room needed
+    assert asyncio.run(go(large)) == (False, False, False)  # ocr fits beside main
+
+
+def test_a_job_that_would_unload_the_chats_model_waits_for_the_chat_to_be_idle():
+    import time
+
+    runtime, runner = _runtime(6, {"main": 5, "ocr": 2})  # they don't fit together
+    runtime.chat_idle_resume = 0.3
+    events: list[dict] = []
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            async with runtime.lease("main", Priority.CHAT):
+                pass  # the chat's first model call
+            job = asyncio.create_task(job_page())
+            await asyncio.sleep(0.05)
+            async with runtime.lease("main", Priority.CHAT):  # its next call, 50 ms later
+                pass
+            waited = await job
+            while not queue.empty():
+                events.append(queue.get_nowait())
+            return waited
+
+    async def job_page() -> float:
+        started = time.monotonic()
+        async with runtime.lease("ocr", Priority.JOB):
+            return time.monotonic() - started
+
+    waited = asyncio.run(go())
+    assert runner.started == ["main-model", "ocr-model"]  # no swap between the chat's calls
+    assert waited >= 0.3  # 0.3 s after the chat's *last* call, not its first
+    assert any(e["event"] == "wait" and e.get("reason") == "chat" for e in events)
+
+
+def test_a_job_whose_model_fits_beside_the_chats_is_not_held():
+    runtime, runner = _runtime(16, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0  # a hold would never end within the test
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            async with runtime.lease("main", Priority.CHAT):
+                pass
+            async with runtime.lease("ocr", Priority.JOB):
+                pass
+            return [queue.get_nowait() for _ in range(queue.qsize())]
+
+    events = asyncio.run(asyncio.wait_for(go(), 5))
+    assert not any(e["event"] == "wait" for e in events)  # admitted at once, beside main
+    assert runner.started == ["main-model", "ocr-model"]
+
+
+def test_a_chat_waiting_for_the_gpu_counts_as_active():
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+
+    async def go():  # noqa: ANN202
+        async with runtime.lease("ocr", Priority.JOB):
+            chat = asyncio.create_task(chat_once())
+            await _until(lambda: any(p == Priority.CHAT for p, _ in runtime._queue))
+            idle = runtime.chat_idle_seconds()
+        await chat
+        return idle
+
+    async def chat_once() -> None:
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+
+    assert asyncio.run(go()) == 0.0

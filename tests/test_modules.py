@@ -80,3 +80,30 @@ def test_a_broken_module_is_skipped(monkeypatch):
 
     monkeypatch.setattr("lectern.modules.entry_points", lambda group: [Broken(), Wrong()])
     assert load_modules() == []
+
+
+def test_a_modules_routes_are_served_under_api_behind_the_user_check(paths, monkeypatch):
+    from fastapi import APIRouter
+    from fastapi.testclient import TestClient
+
+    from lectern import app as app_module
+
+    router = APIRouter()
+
+    @router.get("/demo/hello")
+    def hello() -> dict:
+        return {"hello": "from a module"}
+
+    class RoutedModule(DemoModule):
+        pass
+
+    RoutedModule.router = router
+    monkeypatch.setattr(app_module, "load_modules", lambda: [RoutedModule()])
+    base = "http://127.0.0.1:8765"
+    app = app_module.create_app(paths)
+    with TestClient(app, base_url=base) as client:
+        signed = client.get("/api/demo/hello", headers={"X-Lectern-Token": app.state.token})
+        anonymous = client.get("/api/demo/hello")
+
+    assert signed.json() == {"hello": "from a module"}
+    assert anonymous.status_code == 401

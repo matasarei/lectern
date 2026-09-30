@@ -252,3 +252,31 @@ def test_times_carry_their_zone_and_counts_leave_out_tool_steps(api):
     assert (
         client.get(f"/api/projects/{pid}", headers=headers).json()["created_at"].endswith("+00:00")
     )
+
+
+def test_overview_lists_an_ocr_session_with_its_pages_and_status(api, tmp_path):
+    from PIL import Image
+
+    from lectern.modules.ocr import store as ocr_store
+    from lectern.projects.tables import OcrSessionRow
+
+    client, headers, app = api
+    pid = client.post("/api/projects", json={"name": "Scans"}, headers=headers).json()["id"]
+    project = app.state.projects.get(LOCAL_USER, pid)
+    Image.new("L", (40, 60), 255).save(tmp_path / "scan.png")
+    with app.state.projects.db(project).begin() as session:
+        source = files.write_bytes(project.root, session, owner_id=LOCAL_USER.id,
+                                   name="scan.png", data=(tmp_path / "scan.png").read_bytes(),
+                                   origin=Origin("import")).id  # fmt: skip
+    row, _ = ocr_store.create_session(project.root, app.state.projects.db(project),
+                                      owner_id=LOCAL_USER.id, artifact_id=source)  # fmt: skip
+    with app.state.projects.db(project).begin() as session:
+        ocr = session.get(OcrSessionRow, row.id)
+        ocr.status, ocr.pages_total = "running", 12  # left running by a restart
+
+    sessions = client.get(f"/api/projects/{pid}/items", headers=headers).json()["sessions"]
+
+    chat, scan = sessions
+    assert chat["kind"] == "chat" and chat["ocr"] is None
+    assert (scan["kind"], scan["title"]) == ("ocr", "scan.png")
+    assert scan["ocr"] == {"pages": 12, "status": "paused"}

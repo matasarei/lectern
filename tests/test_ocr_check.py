@@ -18,16 +18,15 @@ from lectern.dev.ocr_check import (
     distance,
     draft_references,
     load_tags,
-    normalise,
     pick_pages,
     prepare,
-    repeats,
     report,
     run_models,
     score,
     wer,
     word_counts,
 )
+from lectern.modules.ocr.text import normalise
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable
 
@@ -257,15 +256,6 @@ def test_word_counts_ignore_reading_order_but_not_missing_or_extra_words():
     assert cer(by_column, reference) > 0.3  # which CER counts as errors
     assert word_counts("QTY DESCRIPTION 1 Brake cables", reference) == (5, 0, 10)
     assert word_counts(reference + "\n" + reference, reference) == (0, 10, 10)
-
-
-def test_an_output_that_goes_round_again_is_flagged():
-    page = "# Channel Tone Ladder\nRed\nGreen\nBlue\n# Uniformity Bands\nDark\nMid\nLight\nEnd"
-    assert repeats(page + "\n" + page)
-    assert not repeats(page)
-    rows = "<tr>\n<td>Plan</td>\n<td>100</td>\n<td>1</td>\n<td>$100</td>\n</tr>\n"
-    table = rows + rows.replace("Plan", "Reporting")
-    assert not repeats(table)  # two rows with the same values are not a loop
 
 
 def test_a_model_whose_server_fails_to_start_is_skipped_and_the_rest_still_run(tmp_path: Path):

@@ -10,7 +10,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -35,7 +44,7 @@ class ProjectBase(DeclarativeBase):
     pass
 
 
-SESSION_KINDS = ("chat",)  # modules add theirs (OCR in M2)
+SESSION_KINDS = ("chat", "ocr")
 
 
 class SessionRow(ProjectBase):
@@ -164,3 +173,51 @@ class UiStateRow(ProjectBase):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text)  # JSON
+
+
+OCR_SESSION_STATUSES = ("queued", "running", "paused", "done", "failed")
+OCR_PAGE_STATUSES = ("pending", "recognising", "done", "failed")
+
+
+class OcrSessionRow(ProjectBase):
+    """An OCR session's state: its source file, its output folder and where its job stands."""
+
+    __tablename__ = "ocr_sessions"
+    __table_args__ = (CheckConstraint(one_of("status", OCR_SESSION_STATUSES), name="status"),)
+
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), primary_key=True)
+    source_artifact_id: Mapped[int] = mapped_column(ForeignKey("artifacts.id"))
+    folder: Mapped[str] = mapped_column(Text)  # relative to the project, "/" separated
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    paused_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pages_total: Mapped[int] = mapped_column(Integer, default=0)  # 0 until rasterised
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class OcrPageRow(ProjectBase):
+    """One page of an OCR session: its image and text files, and how it was last read."""
+
+    __tablename__ = "ocr_pages"
+    __table_args__ = (
+        CheckConstraint(one_of("status", OCR_PAGE_STATUSES), name="status"),
+        UniqueConstraint("session_id", "number", name="uq_ocr_pages_session_number"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    number: Mapped[int] = mapped_column(Integer)  # from 1
+    key: Mapped[str] = mapped_column(String(16))  # "p001": names the page's files
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    lease_key: Mapped[str | None] = mapped_column(String(128), nullable=True)  # chosen model
+    model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)  # last read by
+    handwritten: Mapped[bool] = mapped_column(default=False)
+    note: Mapped[str] = mapped_column(Text, default="")
+    seconds: Mapped[float | None] = mapped_column(nullable=True)
+    cut_off: Mapped[bool] = mapped_column(default=False)
+    looped: Mapped[bool] = mapped_column(default=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    width: Mapped[int] = mapped_column(Integer, default=0)
+    height: Mapped[int] = mapped_column(Integer, default=0)
+    has_hint: Mapped[bool] = mapped_column(default=False)  # the PDF had a text layer here
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
