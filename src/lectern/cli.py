@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import socket
 import threading
 import time
 import webbrowser
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -270,3 +272,112 @@ def swap_test(
         raise typer.Exit(1)
     typer.echo(f"pages: {result['done']}/{pages * 2}")
     typer.echo(f"swaps: {result['swaps']}")
+
+
+@dev_app.command("ocr-check")
+def ocr_check(
+    folder: Annotated[Path, typer.Argument(help="A folder with your scans (PDFs and images).")],
+    model: Annotated[
+        list[str] | None, typer.Option("--model", help="Score only these catalog models.")
+    ] = None,
+    draft: str | None = typer.Option(
+        None, help="Write missing reference/<page>.txt from this model's text, for you to correct."
+    ),
+    pages: str | None = typer.Option(None, help="Only these pages, e.g. 1-5,8."),
+    allow_server: bool = typer.Option(
+        False, help="Run while `lectern serve` is running (it shares the GPU; timings suffer)."
+    ),
+    port: int = typer.Option(DEFAULT_PORT, help="The port a running `lectern serve` would use."),
+) -> None:
+    """Score OCR models on your own scans: error rates against your corrected text, with
+    time and memory. Writes only under <folder>/.ocr-check (and reference/ with --draft)."""
+    from lectern.dev import ocr_check as check
+    from lectern.modules.ocr.pages import NotAPageSource
+
+    folder = folder.expanduser()
+    if not folder.is_dir():
+        raise typer.BadParameter(f"{folder} isn't a folder.")
+    running = sorted({*_serving_ports(), *([port] if _listening(port) else [])})
+    if not allow_server and running:
+        ports = ", ".join(str(p) for p in running)
+        typer.echo(
+            f"A Lectern server is running (port {ports}). It shares the GPU, so the timings "
+            "and memory would be off. Stop it, or pass --allow-server.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    try:
+        models = check.candidates(model)
+        if draft and draft not in [entry.id for _, entry in models]:
+            models += check.candidates([draft])
+        tags = check.load_tags(folder)  # before the models run, so a typo fails fast
+        chosen = check.pick_pages(check.prepare(folder, echo=typer.echo), pages)
+    except (ValueError, NotAPageSource) as exc:
+        raise typer.BadParameter(str(exc)) from None
+    runtime = _local_runtime()
+    runs = asyncio.run(_run_ocr_check(runtime, folder, chosen, models))
+    text = check.report(folder, runs, chosen, tags, runtime.swaps)
+    saved = folder / check.WORK_DIR / f"report-{time.strftime('%Y%m%d-%H%M%S')}.md"
+    saved.write_text(text, encoding="utf-8")
+    typer.echo("\n" + text + f"\nSaved to {saved}")
+    if draft:
+        drafter = next(run for run in runs if run.model_id == draft)
+        if drafter.skipped:
+            typer.echo(f"Nothing drafted: {drafter.title} was skipped ({drafter.skipped}).")
+        else:
+            written = check.draft_references(folder, drafter, chosen)
+            typer.echo(
+                f"Drafted {written} references in {folder / check.REFERENCE_DIR}. Correct them "
+                "by hand, then run again without --draft."
+            )
+    if all(run.skipped for run in runs):
+        raise typer.Exit(1)
+
+
+async def _run_ocr_check(runtime, folder: Path, pages, models):  # noqa: ANN001, ANN202
+    from lectern.dev.ocr_check import run_models
+
+    try:
+        return await run_models(runtime, folder, pages, models, echo=typer.echo)
+    finally:
+        await runtime.stop_all()  # also on Ctrl+C: no llama-server is left running
+
+
+def _local_runtime():  # noqa: ANN202
+    """The same Model Runtime `lectern serve` builds, in this process."""
+    from lectern.config import get_paths
+    from lectern.core.db import make_engine, make_sessionmaker, migrate
+    from lectern.downloads.manager import DownloadManager
+    from lectern.hardware.probe import probe
+    from lectern.runtime.wiring import build_runtime
+
+    paths = get_paths()
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    return build_runtime(paths, DownloadManager(paths.models, sessions), probe(), sessions)
+
+
+def _serving_ports() -> list[int]:
+    """Ports of every `lectern serve` running on this machine, whatever its port or Lectern
+    home: any of them shares the GPU. Nothing records a server's port, so its command line
+    is read."""
+    import psutil
+
+    ports = []
+    for process in psutil.process_iter(["pid", "cmdline"]):
+        args = process.info["cmdline"] or []
+        names = [a.replace("\\", "/").rsplit("/", 1)[-1] for a in args]  # Windows paths too
+        if process.info["pid"] == os.getpid() or "serve" not in args:
+            continue
+        if not any(name.startswith("lectern") for name in names[:3]):  # lectern, lectern.exe
+            continue
+        after = args[args.index("--port") + 1] if "--port" in args[:-1] else None
+        ports.append(int(after) if after and after.isdigit() else DEFAULT_PORT)
+    return ports
+
+
+def _listening(port: int) -> bool:
+    with contextlib.suppress(OSError), socket.create_connection(("127.0.0.1", port), 0.2):
+        return True
+    return False

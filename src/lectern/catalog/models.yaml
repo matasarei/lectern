@@ -70,6 +70,9 @@ models:
       model:
         - {path: PaddleOCR-VL-1.6-GGUF.gguf, size: 935769056, sha256: f3ae46ec885050acf4b3d31944431e1fd90d50664fb09126af4a3c050ba14ee8}
       mmproj: {path: PaddleOCR-VL-1.6-GGUF-mmproj.gguf, size: 881770560, sha256: 204d757d7610d9b3faab10d506d69e5b244e32bf765e2bab2d0167e65e0a058a}
+    ocr:
+      prompt: "OCR:"
+      max_side: 2048
 
   - id: qwen3-vl-4b
     title: Qwen3-VL 4B Instruct
@@ -87,6 +90,9 @@ models:
       model:
         - {path: Qwen3VL-4B-Instruct-Q4_K_M.gguf, size: 2497281664, sha256: 66358cb18bb6b3b1b6675aa412c7a88ef01d228f481184d13668e5201c730a0a}
       mmproj: {path: mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf, size: 453974304, sha256: 30ba2c7dd3127a4561b6cba9d13d0f711c91bdb38742e2f56d73c8cb596bd06d}
+    ocr:
+      prompt: "Read all the text on this page exactly as written, in its original language. Reply in Markdown, with tables as HTML <table>. Don't translate, summarise or add anything."
+      max_side: 1280
 
   - id: qwen3-vl-8b
     title: Qwen3-VL 8B Instruct
@@ -104,6 +110,9 @@ models:
       model:
         - {path: Qwen3VL-8B-Instruct-Q4_K_M.gguf, size: 5027784800, sha256: 67d1659bfe71b89d50b45a4ad1a9e5b997e5bb16ce5da66a6a6167abd569e9e2}
       mmproj: {path: mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf, size: 752289728, sha256: c6ba85508d82f42590e6eb77d5340369ab6fecf107a7561d809523d8aa5f3bfd}
+    ocr:
+      prompt: "Read all the text on this page exactly as written, in its original language. Reply in Markdown, with tables as HTML <table>. Don't translate, summarise or add anything."
+      max_side: 1280
 
   - id: chandra-ocr-2
     title: Chandra OCR 2
@@ -120,6 +129,9 @@ models:
       model:
         - {path: chandra-ocr-2.Q4_K_M.gguf, size: 3066385440, sha256: 29ec72bf3afa35ca13a017efa696c09ba406671f90bcedbcdcf8e884391d3efb}
       mmproj: {path: chandra-ocr-2.mmproj-Q8_0.gguf, size: 366894368, sha256: 709be8aeda77c5732e58e957367439eae14ebb73b4f4a78b558013d000948bc3}
+    ocr:
+      prompt: "OCR this image to HTML."  # the prompt Chandra was trained on; it answers in HTML
+      max_side: 1600
     notes: "Community GGUF conversion of datalab-to/chandra-ocr-2. Free for personal use and small companies; read the licence before commercial use."
 
   - id: qwen2.5-coder-1.5b

@@ -20,6 +20,7 @@ dependencies = [
     "gguf>=0.17",
     "pypdfium2>=5.13",
     "python-docx>=1.2",
+    "pillow>=11",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +36,7 @@ lectern = "lectern.cli:app"
 # Modules plug in here. The built-in ones are listed like any other would be.
 [project.entry-points."lectern.modules"]
 sandbox = "lectern.modules.sandbox:module"
+ocr = "lectern.modules.ocr:module"
 
 [dependency-groups]
 dev = [
@@ -68,6 +70,6 @@ testpaths = ["tests"]
 addopts = "-q --import-mode=importlib"
 filterwarnings = ["error"]
 markers = [
-    "gpu: starts a real llama-server; set LECTERN_TEST_LLAMA_SERVER and LECTERN_TEST_GGUF",
+    "gpu: starts a real llama-server; set LECTERN_TEST_LLAMA_SERVER and LECTERN_TEST_GGUF, or LECTERN_TEST_OCR_HOME",
     "sandbox: runs a real container; set LECTERN_TEST_SANDBOX_IMAGE to a Python image",
 ]
