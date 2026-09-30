@@ -28,6 +28,7 @@ from lectern.catalog import catalog
 from lectern.catalog.catalog import CatalogEntry
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, rasterise
 from lectern.modules.ocr.recognise import RecogniseFailed, recognise
+from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable
 
 ANY_TAG = re.compile(r"<[^<>]+>")
@@ -257,8 +258,9 @@ async def run_models(
                     run.memory = max(run.memory, _resident_bytes(runtime, key))
                     cut = " · cut off" if text.cut_off else ""
                     echo(f"  {page.key}: {text.seconds}s{cut}")
-        except NotAvailable as exc:
-            run.skipped = str(exc)
+        except (NotAvailable, RunnerError) as exc:
+            # Can't be loaded, or its server didn't start: the other models still run.
+            run.skipped = str(exc).splitlines()[0]
             echo(f"{entry.title}: skipped: {exc}")
     return runs
 

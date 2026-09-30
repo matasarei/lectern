@@ -28,6 +28,7 @@ from lectern.dev.ocr_check import (
     wer,
     word_counts,
 )
+from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable
 
 from .projects.conftest import write_scan_pdf
@@ -102,6 +103,8 @@ class FakeRuntime:
     async def lease(self, key: str):  # noqa: ANN202
         if key not in self.texts:
             raise NotAvailable(f"{key.split('@')[1]} isn't downloaded yet. Download it first.")
+        if self.texts[key] == ["crash"]:
+            raise RunnerError("llama-server for it wasn't ready.\nlog: unknown model architecture")
         self.leases.append(key)
 
         async def handler(request: httpx2.Request) -> httpx2.Response:
@@ -254,3 +257,13 @@ def test_an_output_that_goes_round_again_is_flagged():
     rows = "<tr>\n<td>Plan</td>\n<td>100</td>\n<td>1</td>\n<td>$100</td>\n</tr>\n"
     table = rows + rows.replace("Plan", "Reporting")
     assert not repeats(table)  # two rows with the same values are not a loop
+
+
+def test_a_model_whose_server_fails_to_start_is_skipped_and_the_rest_still_run(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+    runtime = FakeRuntime({PADDLE: ["crash"], QWEN: ["one", "two", "three"]})
+
+    _, (paddle, qwen) = _run(folder, runtime, [PADDLE, QWEN])
+
+    assert paddle.skipped == "llama-server for it wasn't ready."  # first line, not the log
+    assert len(qwen.pages) == 3
