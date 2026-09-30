@@ -248,7 +248,9 @@ def test_word_counts_ignore_reading_order_but_not_missing_or_extra_words():
 
 
 def test_an_output_that_goes_round_again_is_flagged():
-    page = "# Channel Tone Ladder\nRed\nGreen\nBlue\n# Uniformity Bands\nDark"
+    page = "# Channel Tone Ladder\nRed\nGreen\nBlue\n# Uniformity Bands\nDark\nMid\nLight\nEnd"
     assert repeats(page + "\n" + page)
     assert not repeats(page)
-    assert not repeats("1\n2\n3\n1\n2\n4")  # short runs of the same lines are normal
+    rows = "<tr>\n<td>Plan</td>\n<td>100</td>\n<td>1</td>\n<td>$100</td>\n</tr>\n"
+    table = rows + rows.replace("Plan", "Reporting")
+    assert not repeats(table)  # two rows with the same values are not a loop

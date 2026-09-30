@@ -68,6 +68,9 @@ async def recognise(
         "temperature": 0,
         "logprobs": True,
         "stream": False,
+        # A model that reasons first (Chandra does) would otherwise have its whole reply,
+        # page text included, filed as reasoning and leave the answer empty.
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     started = time.monotonic()
     try:

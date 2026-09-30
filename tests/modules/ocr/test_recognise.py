@@ -60,6 +60,7 @@ def test_a_page_is_sent_scaled_down_with_the_models_prompt(tmp_path: Path):
     image_part, text_part = body["messages"][0]["content"]
     assert text_part == {"type": "text", "text": "OCR:"}
     assert body["temperature"] == 0 and body["logprobs"] is True
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
     png = base64.b64decode(image_part["image_url"]["url"].removeprefix("data:image/png;base64,"))
     with Image.open(io.BytesIO(png)) as sent:
         assert max(sent.size) == 1280 and sent.size == (905, 1280)  # A4's shape kept

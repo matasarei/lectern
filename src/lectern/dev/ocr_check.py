@@ -291,7 +291,7 @@ def load_tags(folder: Path) -> dict[str, list[str]]:
     return {str(k): [v] if isinstance(v, str) else list(v) for k, v in raw.items()}
 
 
-LOOP_LINES = 4  # a run of this many lines seen twice means the model went round again
+LOOP_WORDS = 12  # a run of this many words seen twice means the model went round again
 
 
 def word_counts(output: str, reference: str) -> tuple[int, int, int]:
@@ -303,11 +303,13 @@ def word_counts(output: str, reference: str) -> tuple[int, int, int]:
 
 
 def repeats(text: str) -> bool:
-    """The output went round again: some run of LOOP_LINES lines appears twice."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    """The output went round again: some run of LOOP_WORDS words appears twice. Words, not
+    lines: a table's rows can repeat a few values ("100 1 $100"), and in HTML those are
+    whole identical lines."""
+    words = normalise(text).split()
     seen: set[tuple[str, ...]] = set()
-    for i in range(len(lines) - LOOP_LINES + 1):
-        window = tuple(lines[i : i + LOOP_LINES])
+    for i in range(len(words) - LOOP_WORDS + 1):
+        window = tuple(words[i : i + LOOP_WORDS])
         if window in seen:
             return True
         seen.add(window)
