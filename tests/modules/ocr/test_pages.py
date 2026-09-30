@@ -97,3 +97,23 @@ def test_too_many_pages_are_refused_before_any_is_written(tmp_path: Path, monkey
     assert not list((tmp_path / "pages").glob("*.png"))
     with pytest.raises(NotAPageSource, match="has 3 pages"):
         rasterise(write_scan_pdf(tmp_path / "long.pdf", pages=3), tmp_path / "pages2")
+
+
+@pytest.mark.parametrize(
+    ("mode", "value", "grey"),
+    [
+        ("I;16", 30000, 116),
+        ("I;16B", 65535, 255),
+        ("I", 30000, 116),
+        ("I", 100, 100),
+        ("F", 0.5, 128),
+    ],
+)
+def test_a_16_bit_or_float_grey_scan_keeps_its_greys(tmp_path: Path, mode, value, grey):  # noqa: ANN001
+    scan = tmp_path / "grey.tiff"
+    Image.new(mode, (20, 20), value).save(scan)
+
+    (page,) = rasterise(scan, tmp_path / "pages")
+
+    with Image.open(page.path) as image:
+        assert image.mode == "L" and abs(image.getpixel((5, 5)) - grey) <= 1  # not clipped white

@@ -105,12 +105,24 @@ def _image_pages(source: Path, out_dir: Path) -> list[PageImage]:
 
 
 def _flatten(image):  # noqa: ANN001, ANN202 — a PIL image in, a PNG-ready one out
-    """Grey and colour pages stay as they are; anything else (CMYK, palette, transparency)
-    becomes RGB on white, so transparent parts don't turn black."""
+    """Grey and colour pages stay as they are. Deep greys (16-bit and wider, common from
+    scanners) become 8-bit grey; converted directly, every value above 255 would clip to
+    white. Anything else (CMYK, palette, transparency) becomes RGB on white, so transparent
+    parts don't turn black."""
     from PIL import Image
 
     if image.mode in ("1", "L", "RGB"):
         return image
+    if image.mode.startswith("I;16") or image.mode in ("I", "F"):
+        wide = image.convert("F")
+        _low, high = wide.getextrema()
+        if image.mode.startswith("I;16") or high > 255:
+            scale = 255 / 65535  # a 16-bit range
+        elif image.mode == "F" and high <= 1:
+            scale = 255.0  # floats from 0 to 1
+        else:
+            scale = 1.0  # already 0-255
+        return wide.point(lambda v: v * scale).convert("L")
     rgba = image.convert("RGBA")
     white = Image.new("RGB", rgba.size, "white")
     white.paste(rgba, mask=rgba.getchannel("A"))
