@@ -38,6 +38,25 @@ def budget_for(hw: HardwareInfo) -> tuple[int, str]:
     return max(hw.ram_total - CPU_RESERVE, 2 * GIB), "ram"
 
 
+def pick(key: str, tier: Tier) -> tuple[str, catalog.CatalogEntry]:
+    """The role and model a lease key asks for. A key is a role ("ocr"), which gets the tier's
+    default, or a role and a model ("ocr.hand@chandra-ocr-2"), which gets that model: the OCR
+    check compares models this way, and "Re-run page with…" will use it too."""
+    role, _, model_id = key.partition("@")
+    models = catalog.load()
+    if not model_id:
+        entry = models.defaults_for(tier).get(role)
+        if entry is None:
+            raise NotAvailable(f"No model is set for the {role!r} role.")
+        return role, entry
+    entry = models.get(model_id)
+    if entry is None:
+        raise NotAvailable(f"There's no model {model_id!r} in the catalog.")
+    if role not in entry.roles:
+        raise NotAvailable(f"{entry.title} can't be used for the {role!r} role.")
+    return role, entry
+
+
 @cache
 def _shape(path: Path) -> planner.ModelShape:
     return planner.read_shape(path)
@@ -51,10 +70,8 @@ def build_runtime(
     unified = not hw.gpus or any(g.unified for g in hw.gpus)
     installer = LlamaCppInstaller(paths.runners)
 
-    def resolve(role: str) -> ModelChoice:
-        entry = catalog.load().defaults_for(tier).get(role)
-        if entry is None:
-            raise NotAvailable(f"No model is set for the {role!r} role.")
+    def resolve(key: str) -> ModelChoice:
+        role, entry = pick(key, tier)
         if not downloads.is_downloaded(entry):
             raise NotAvailable(f"{entry.title} isn't downloaded yet. Download it first.")
         model_file = downloads.file_path(entry, entry.files.model[0])

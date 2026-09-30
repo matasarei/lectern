@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from lectern.core.db import make_engine, make_sessionmaker, migrate
+from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import GIB, Gpu, HardwareInfo
-from lectern.runtime.wiring import CPU_RESERVE, budget_for
+from lectern.runtime import planner, wiring
+from lectern.runtime.supervisor import NotAvailable
+from lectern.runtime.wiring import CPU_RESERVE, budget_for, build_runtime
 
 MIB = 1024**2
 
@@ -46,3 +50,49 @@ def test_bad_env_override_says_what_is_wrong(monkeypatch, bad):
     monkeypatch.setenv("LECTERN_BUDGET_MB", bad)
     with pytest.raises(ValueError, match="LECTERN_BUDGET_MB must be a whole number"):
         budget_for(_hw())
+
+
+@pytest.fixture
+def resolve(paths, monkeypatch):
+    """The real runtime's resolve on an 8 GB card, with every model 'downloaded' and no
+    GGUF read from disk."""
+    monkeypatch.delenv("LECTERN_BUDGET_MB", raising=False)
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    downloads = DownloadManager(paths.models, sessions)
+    monkeypatch.setattr(DownloadManager, "is_downloaded", lambda self, entry: True)
+    monkeypatch.setattr(wiring, "_shape", lambda path: planner.ModelShape(8, 8, 1, 64, 64))
+    return build_runtime(paths, downloads, _hw(int(7.4 * GIB)), sessions).resolve
+
+
+def test_a_role_gets_the_tiers_default(resolve):
+    choice = resolve("ocr")
+    assert (choice.role, choice.model_id) == ("ocr", "paddleocr-vl-1.6")
+    assert choice.mmproj is not None
+
+
+def test_a_role_and_model_gets_that_model(resolve):
+    choice = resolve("ocr.hand@chandra-ocr-2")
+    # The role stays plain: the vision check for MLX runners looks at it.
+    assert (choice.role, choice.model_id) == ("ocr.hand", "chandra-ocr-2")
+    assert choice.tier_ctx == 4096
+
+
+@pytest.mark.parametrize(
+    ("key", "message"),
+    [
+        ("ocr@nope", "There's no model 'nope' in the catalog"),
+        ("ocr@qwen3-vl-4b", "Qwen3-VL 4B Instruct can't be used for the 'ocr' role"),
+        ("stt", "No model is set for the 'stt' role"),
+    ],
+)
+def test_a_key_that_names_nothing_usable_says_why(resolve, key, message):
+    with pytest.raises(NotAvailable, match=message):
+        resolve(key)
+
+
+def test_a_chosen_model_must_be_downloaded(resolve, monkeypatch):
+    monkeypatch.setattr(DownloadManager, "is_downloaded", lambda self, entry: False)
+    with pytest.raises(NotAvailable, match="Chandra OCR 2 isn't downloaded yet"):
+        resolve("ocr.hand@chandra-ocr-2")
