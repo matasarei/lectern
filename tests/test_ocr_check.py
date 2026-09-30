@@ -115,6 +115,9 @@ class FakeRuntime:
     def state(self) -> dict:
         return {"residents": [{"role": k, "bytes": 2 * 1024**3} for k in self.leases[-1:]]}
 
+    async def stop_all(self) -> None:
+        self.stopped = True
+
 
 PADDLE = "ocr@paddleocr-vl-1.6"
 QWEN = "ocr.hand@qwen3-vl-4b"
