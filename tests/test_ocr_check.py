@@ -267,3 +267,15 @@ def test_a_model_whose_server_fails_to_start_is_skipped_and_the_rest_still_run(t
 
     assert paddle.skipped == "llama-server for it wasn't ready."  # first line, not the log
     assert len(qwen.pages) == 3
+
+
+def test_a_page_list_from_before_pages_had_names_is_rebuilt(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+    pages = prepare(folder, echo=lambda _l: None)
+    manifest = folder / ".ocr-check" / "pages" / "pages.json"
+    saved = json.loads(manifest.read_text())
+    for page in saved["pages"]:
+        del page["key"]
+    manifest.write_text(json.dumps(saved))
+
+    assert prepare(folder, echo=lambda _l: None) == pages

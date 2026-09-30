@@ -176,7 +176,9 @@ def prepare(folder: Path, echo: Callable[[str], None] = print) -> list[Page]:
     signature = [[p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in scans]
     if manifest.is_file():
         saved = json.loads(manifest.read_text(encoding="utf-8"))
-        if saved.get("sources") == signature:
+        # Pages kept from an earlier run, unless the scans changed or the list is from before
+        # pages were named after their file.
+        if saved.get("sources") == signature and all("key" in p for p in saved["pages"]):
             return [
                 Page(p["number"], p["key"], work / f"{p['key']}.png", p["source"], p["source_page"])
                 for p in saved["pages"]
