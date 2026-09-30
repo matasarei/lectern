@@ -19,7 +19,7 @@ from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.security import LocalGuard, load_or_create_token
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
-from lectern.modules import EnvProbe, load_modules, tool_registry
+from lectern.modules import EnvProbe, load_modules, module_routers, tool_registry
 from lectern.modules.ocr.jobs import OcrJobs
 from lectern.modules.sandbox.container import Sandbox
 from lectern.projects.store import ProjectStore
@@ -67,10 +67,11 @@ def create_app(
         paths, app.state.downloads, probe(), app.state.sessions
     )
 
+    modules = load_modules()
     app.state.turns = TurnManager(
         app.state.runtime,
         app.state.projects,
-        tool_registry(CORE_TOOLS, load_modules(), EnvProbe()),
+        tool_registry(CORE_TOOLS, modules, EnvProbe()),
         downloads=app.state.downloads,
         sandbox=Sandbox(),
     )
@@ -81,7 +82,7 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
-    app.include_router(api_router())
+    app.include_router(api_router(module_routers(modules)))
     mount_web(app, web_dist)  # last: it answers every path the API didn't
     app.add_middleware(LocalGuard, port=port, token=app.state.token)
     return app

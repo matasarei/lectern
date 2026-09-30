@@ -5,6 +5,9 @@ module built outside this repository installs the same way the built-in ones do.
 The agent's tool list is rebuilt for every turn from the core tools and each module's
 tools for what's available right now (`ToolEnv`), so the sandbox's tools appear when Docker
 or Podman starts and go away when it stops.
+
+A module may also bring API routes: a `router` attribute (a FastAPI APIRouter), mounted
+under /api behind the same user check as every other route.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Protocol, runtime_checkable
+
+from fastapi import APIRouter
 
 from lectern.agent.tools import AgentTool, Registry
 from lectern.hardware import sandbox
@@ -38,6 +43,11 @@ class Module(Protocol):
     id: str
 
     def tools(self, env: ToolEnv) -> list[AgentTool]: ...
+
+
+def module_routers(modules: list[Module]) -> list[APIRouter]:
+    """The routers the modules bring, if any (`router` is optional)."""
+    return [r for m in modules if (r := getattr(m, "router", None)) is not None]
 
 
 def load_modules() -> list[Module]:
