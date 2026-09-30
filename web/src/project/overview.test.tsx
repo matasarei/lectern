@@ -42,6 +42,7 @@ beforeEach(() => {
           { artifact_id: 4, name: "reply-letter.md", ref: "#c2", heading: "Penalty", snippet: "0,5% a day" },
         ]));
       }
+      if (url === "/api/projects/1/ocr") return new Response(JSON.stringify({ id: 7, kind: "ocr" }));
       if (url === "/api/projects/1/sessions") {
         return new Response(JSON.stringify({ id: 2, kind: "chat", title: "New chat", messages: 0 }));
       }
@@ -65,6 +66,17 @@ function renderOverview(onOpen: (tab: Tab) => void = () => {}) {
 }
 
 describe("Overview", () => {
+  it("offers OCR on a PDF's row, which opens the session and not the file", async () => {
+    const opened: Tab[] = [];
+    renderOverview((tab) => opened.push(tab));
+    const buttons = screen.getAllByRole("button", { name: "Open as OCR session" });
+    expect(buttons).toHaveLength(1); // the PDF, not the Markdown letter
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(opened).toEqual([{ kind: "session", id: 7 }]));
+    const posted = requests.find((r) => r.url === "/api/projects/1/ocr");
+    expect(JSON.parse(String(posted?.init?.body))).toEqual({ artifact_id: 3 });
+  });
+
   it("lists everything newest first, with kind, details and From", () => {
     renderOverview();
     const rows = screen.getAllByRole("row").slice(1);

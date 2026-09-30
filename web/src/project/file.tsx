@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -6,11 +6,19 @@ import { apiRaw, ApiError } from "../api/client";
 import type { Artifact, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { fileType, formatBytes } from "../format";
+import { startOcr } from "./ocr-api";
 
 /** Text shown in the page up to this size; bigger files download. */
 export const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 const TEXT_MIMES = ["text/plain", "text/markdown", "text/csv"];
 const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/** What an OCR session can read (the server decides by the name's extension too). */
+const PAGE_SOURCES = [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"];
+
+export function isPageSource(artifact: Artifact): boolean {
+  const name = artifact.name.toLowerCase();
+  return PAGE_SOURCES.some((suffix) => name.endsWith(suffix));
+}
 
 /** A file in a tab: text as text (never rendered as HTML), images as images, and the
  * details with where the file came from. */
@@ -42,6 +50,9 @@ export function FileTab({
           value={artifact.text === "indexed" ? t("file.textIndexed") : (artifact.text_note ?? "—")}
         />
         <Origin artifact={artifact} items={items} onOpen={onOpen} />
+        {isPageSource(artifact) && (
+          <OpenAsOcr projectId={projectId} artifact={artifact} onOpen={onOpen} />
+        )}
         <Download url={url} name={artifact.name} />
       </aside>
     </div>
@@ -157,6 +168,49 @@ function Download({ url, name }: { url: string; name: string }) {
         {t("file.download")}
       </button>
       {error && <ErrorNote message={error} />}
+    </>
+  );
+}
+
+/** Starts an OCR session on a PDF or image and opens it in a new tab. The server returns at
+ * once; the pages are read in the background. */
+export function OpenAsOcr({
+  projectId,
+  artifact,
+  onOpen,
+  compact = false,
+}: {
+  projectId: number;
+  artifact: Artifact;
+  onOpen: (tab: Tab) => void;
+  compact?: boolean;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const start = useMutation({
+    mutationFn: () => startOcr(projectId, artifact.id),
+    onSuccess: (session) => {
+      void queryClient.invalidateQueries({ queryKey: ["items", projectId] });
+      onOpen({ kind: "session", id: session.id });
+    },
+  });
+  return (
+    <>
+      <button
+        className={compact ? "text-xs text-accent hover:underline" : "btn-primary mt-2 w-fit"}
+        disabled={start.isPending}
+        onClick={(e) => {
+          e.stopPropagation(); // on an Overview row: don't also open the file
+          start.mutate();
+        }}
+      >
+        {t("ocr.open")}
+      </button>
+      {start.error && (
+        <ErrorNote
+          message={start.error instanceof ApiError ? start.error.detail : t("common.loadFailed")}
+        />
+      )}
     </>
   );
 }

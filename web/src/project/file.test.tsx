@@ -1,7 +1,7 @@
 import "../i18n";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Artifact, ProjectItems, Tab } from "../api/types";
@@ -29,6 +29,7 @@ beforeEach(() => {
       requested.push(url);
       expect(new Headers(init?.headers).get("X-Lectern-Token")).toBe("t");
       if (url.endsWith("/5/content")) return new Response(new Blob(["png"], { type: "image/png" }));
+      if (url === "/api/projects/1/ocr") return new Response(JSON.stringify({ id: 7, kind: "ocr" }));
       return new Response("# Reply\n<script>alert(1)</script>");
     }),
   );
@@ -87,6 +88,22 @@ describe("File tab", () => {
     renderFile(artifact({ size: TEXT_PREVIEW_LIMIT + 1 }));
     expect(screen.getByText("This file is too large to show here. Download it to open it.")).toBeTruthy();
     expect(requested).toEqual([]);
+  });
+
+  it("opens a PDF or an image as an OCR session in a new tab", async () => {
+    const opened: Tab[] = [];
+    renderFile(
+      artifact({ id: 6, name: "lease-scan.PDF", mime: "application/pdf", kind: "imported" }),
+      (tab) => opened.push(tab),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open as OCR session" }));
+    await waitFor(() => expect(opened).toEqual([{ kind: "session", id: 7 }]));
+    expect(requested).toContain("/api/projects/1/ocr");
+  });
+
+  it("offers OCR only for PDFs and images", () => {
+    renderFile(artifact({ name: "reply-letter.md" }));
+    expect(screen.queryByRole("button", { name: "Open as OCR session" })).toBeNull();
   });
 
   it("says so when the file is gone", () => {

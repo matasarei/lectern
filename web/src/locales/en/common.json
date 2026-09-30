@@ -252,5 +252,8 @@
     "gone": "This file is no longer in the project.",
     "textIndexed": "readable by the chat and search",
     "imageAlt": "Preview of {{name}}"
+  },
+  "ocr": {
+    "open": "Open as OCR session"
   }
 }
