@@ -129,9 +129,11 @@ export interface Project {
 
 export interface SessionSummary {
   id: number;
-  kind: "chat";
+  kind: "chat" | "ocr";
   title: string;
   messages: number;
+  // An OCR session's page count and where its job stands; null for a chat.
+  ocr: { pages: number; status: OcrStatus } | null;
   created_at: string;
   updated_at: string;
 }
@@ -252,4 +254,55 @@ export type ChatEvent = { seq: number } & (
       line?: string;
       seconds?: number;
     }
+);
+
+// --- OCR sessions ---------------------------------------------------------------------
+
+export type OcrStatus = "queued" | "running" | "paused" | "done" | "failed";
+
+export interface OcrPage {
+  number: number;
+  key: string; // "p001"
+  status: "pending" | "recognising" | "done" | "failed";
+  model_id: string | null; // the model that last read it
+  lease_key: string | null; // the model chosen for its next reading, "ocr.hand@qwen3-vl-8b"
+  handwritten: boolean;
+  note: string;
+  seconds: number | null;
+  cut_off: boolean;
+  looped: boolean;
+  error: string | null;
+  width: number;
+  height: number;
+  has_hint: boolean;
+}
+
+export interface OcrSession {
+  id: number;
+  kind: "ocr";
+  title: string;
+  folder: string;
+  status: OcrStatus;
+  paused_reason: string | null;
+  error: string | null;
+  pages_total: number;
+  source_artifact_id: number;
+  updated_at: string;
+  pages: OcrPage[];
+}
+
+export interface OcrModel {
+  id: string;
+  title: string;
+  role: "ocr" | "ocr.hand";
+  downloaded: boolean;
+}
+
+/** What an OCR session's event stream sends. Every event also has `seq`. */
+export type OcrEvent = { seq: number } & (
+  | { type: "session"; status: OcrStatus; reason: string | null; error: string | null }
+  | { type: "phase"; phase: "rasterise" | "recognise" }
+  | ({ type: "page" } & OcrPage)
+  | { type: "waiting"; reason: "chat" }
+  | { type: "replayed" }
 );

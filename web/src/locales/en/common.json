@@ -145,7 +145,8 @@
     "back": "Projects",
     "missing": "This tab's item is no longer in the project.",
     "fileTab": "File",
-    "chatTab": "Chat"
+    "chatTab": "Chat",
+    "ocrTab": "OCR · {{title}}"
   },
   "overview": {
     "filters": {
@@ -180,7 +181,10 @@
     "hasText": "text indexed",
     "empty": "Nothing here yet. Import files, or start a chat.",
     "dropHint": "Drop files anywhere in this tab to import them.",
-    "sorted": "Sorted by: modified"
+    "sorted": "Sorted by: modified",
+    "ocrKind": "OCR session",
+    "ocrDetails_one": "{{count}} page · {{status}}",
+    "ocrDetails_other": "{{count}} pages · {{status}}"
   },
   "time": {
     "justNow": "just now"
@@ -252,5 +256,58 @@
     "gone": "This file is no longer in the project.",
     "textIndexed": "readable by the chat and search",
     "imageAlt": "Preview of {{name}}"
+  },
+  "ocr": {
+    "open": "Open as OCR session",
+    "noPagesYet": "The pages are being made from the file…",
+    "pages": "Pages",
+    "pageTitle": "Page {{number}}",
+    "readBy": "read by {{model}} in {{seconds}} s",
+    "view": "View",
+    "views": {
+      "split": "Split",
+      "scan": "Scan",
+      "text": "Text"
+    },
+    "notReadYet": "Not read yet.",
+    "status": {
+      "queued": "Queued",
+      "running": "Reading pages",
+      "paused": "Paused",
+      "done": "Done",
+      "failed": "Stopped"
+    },
+    "phase": {
+      "rasterise": "Page images",
+      "recognise": "Read {{done}}/{{total}}"
+    },
+    "pageStatus": {
+      "pending": "waiting",
+      "recognising": "reading…",
+      "done": "read",
+      "failed": "failed"
+    },
+    "flags": {
+      "looped": "repeats itself",
+      "cutOff": "cut off",
+      "handwritten": "handwritten",
+      "note": "note"
+    },
+    "waitingForChat": "Waiting for the chat to be idle",
+    "pause": "Pause",
+    "resume": "Resume",
+    "note": {
+      "label": "Note for this page",
+      "placeholder": "For example: the stamp is the landlord's; keep the table as it is.",
+      "save": "Save note",
+      "saved": "Saved · used when this page is cleaned up"
+    },
+    "handwritten": "Handwritten (read it with the handwriting model)",
+    "rerun": {
+      "model": "Model to read the page again with",
+      "usual": "The usual model",
+      "notDownloaded": "{{title}} (not downloaded)",
+      "button": "Re-run page"
+    }
   }
 }

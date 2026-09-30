@@ -16,7 +16,7 @@ const artifact = (id: number, name: string, over: Partial<Artifact> = {}): Artif
 
 const ITEMS: ProjectItems = {
   sessions: [
-    { id: 1, kind: "chat", title: "Payment terms", messages: 14, created_at: "", updated_at: "2026-09-29T10:00:00Z" },
+    { id: 1, kind: "chat", title: "Payment terms", messages: 14, ocr: null, created_at: "", updated_at: "2026-09-29T10:00:00Z" },
   ],
   artifacts: [
     artifact(3, "lease-1998-scan.pdf"),
@@ -42,6 +42,7 @@ beforeEach(() => {
           { artifact_id: 4, name: "reply-letter.md", ref: "#c2", heading: "Penalty", snippet: "0,5% a day" },
         ]));
       }
+      if (url === "/api/projects/1/ocr") return new Response(JSON.stringify({ id: 7, kind: "ocr" }));
       if (url === "/api/projects/1/sessions") {
         return new Response(JSON.stringify({ id: 2, kind: "chat", title: "New chat", messages: 0 }));
       }
@@ -55,16 +56,41 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderOverview(onOpen: (tab: Tab) => void = () => {}) {
+function renderOverview(onOpen: (tab: Tab) => void = () => {}, items: ProjectItems = ITEMS) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <Overview projectId={1} items={ITEMS} onOpen={onOpen} />
+      <Overview projectId={1} items={items} onOpen={onOpen} />
     </QueryClientProvider>,
   );
 }
 
 describe("Overview", () => {
+  it("shows an OCR session with its pages and status, and opens it in a tab", () => {
+    const opened: Tab[] = [];
+    const ocr = {
+      id: 2, kind: "ocr" as const, title: "lease-1998-scan.pdf", messages: 0,
+      ocr: { pages: 12, status: "paused" as const }, created_at: "", updated_at: "2026-09-29T09:00:00Z",
+    };
+    renderOverview((tab) => opened.push(tab), { sessions: [ocr], artifacts: [] });
+    const row = screen.getAllByRole("row")[1];
+    expect(within(row).getByText("OCR session")).toBeTruthy();
+    expect(within(row).getByText("12 pages · Paused")).toBeTruthy();
+    fireEvent.click(row);
+    expect(opened).toEqual([{ kind: "session", id: 2 }]);
+  });
+
+  it("offers OCR on a PDF's row, which opens the session and not the file", async () => {
+    const opened: Tab[] = [];
+    renderOverview((tab) => opened.push(tab));
+    const buttons = screen.getAllByRole("button", { name: "Open as OCR session" });
+    expect(buttons).toHaveLength(1); // the PDF, not the Markdown letter
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(opened).toEqual([{ kind: "session", id: 7 }]));
+    const posted = requests.find((r) => r.url === "/api/projects/1/ocr");
+    expect(JSON.parse(String(posted?.init?.body))).toEqual({ artifact_id: 3 });
+  });
+
   it("lists everything newest first, with kind, details and From", () => {
     renderOverview();
     const rows = screen.getAllByRole("row").slice(1);

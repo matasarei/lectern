@@ -7,6 +7,7 @@ import type { Artifact, ProjectItems, SearchHit, SessionSummary, Tab } from "../
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
 import { fileType, formatAgo, formatBytes } from "../format";
+import { isPageSource, OpenAsOcr } from "./file";
 
 type Filter = "all" | "sessions" | "imported" | "produced";
 const FILTERS: Filter[] = ["all", "sessions", "imported", "produced"];
@@ -147,7 +148,7 @@ export function Overview({
       {query.trim().length > 1 ? (
         <SearchResults hits={search.data} onOpen={onOpen} />
       ) : (
-        <ItemsTable rows={shown} onOpen={onOpen} />
+        <ItemsTable projectId={projectId} rows={shown} onOpen={onOpen} />
       )}
 
       <p className="flex justify-between text-xs text-muted">
@@ -158,7 +159,15 @@ export function Overview({
   );
 }
 
-function ItemsTable({ rows, onOpen }: { rows: Row[]; onOpen: (tab: Tab) => void }) {
+function ItemsTable({
+  projectId,
+  rows,
+  onOpen,
+}: {
+  projectId: number;
+  rows: Row[];
+  onOpen: (tab: Tab) => void;
+}) {
   const { t } = useTranslation();
   if (rows.length === 0) return <p className="text-sm text-muted">{t("overview.empty")}</p>;
   return (
@@ -182,9 +191,16 @@ function ItemsTable({ rows, onOpen }: { rows: Row[]; onOpen: (tab: Tab) => void 
                 onClick={() => onOpen({ kind: "session", id: row.session.id })}
               >
                 <td className="py-2 pr-4 font-medium">{row.session.title}</td>
-                <td className="py-2 pr-4">{t("overview.chatKind")}</td>
+                <td className="py-2 pr-4">
+                  {t(row.session.ocr ? "overview.ocrKind" : "overview.chatKind")}
+                </td>
                 <td className="py-2 pr-4 text-muted">
-                  {t("overview.messages", { count: row.session.messages })}
+                  {row.session.ocr
+                    ? t("overview.ocrDetails", {
+                        count: row.session.ocr.pages,
+                        status: t(`ocr.status.${row.session.ocr.status}`),
+                      })
+                    : t("overview.messages", { count: row.session.messages })}
                 </td>
                 <td className="py-2 pr-4 text-muted">{t("overview.fromGone")}</td>
                 <td className="py-2 text-muted">{formatAgo(row.modified)}</td>
@@ -206,6 +222,12 @@ function ItemsTable({ rows, onOpen }: { rows: Row[]; onOpen: (tab: Tab) => void 
                   {row.artifact.text === "indexed"
                     ? t("overview.hasText")
                     : (row.artifact.text_note ?? "")}
+                  {isPageSource(row.artifact) && (
+                    <>
+                      {" · "}
+                      <OpenAsOcr projectId={projectId} artifact={row.artifact} onOpen={onOpen} compact />
+                    </>
+                  )}
                 </td>
                 <td className="py-2 pr-4 text-muted" data-testid={`from-${row.artifact.id}`}>
                   <From artifact={row.artifact} />
