@@ -280,7 +280,7 @@ def ocr_check(
         list[str] | None, typer.Option("--model", help="Score only these catalog models.")
     ] = None,
     draft: str | None = typer.Option(
-        None, help="Write missing reference/pNNN.txt from this model's text, for you to correct."
+        None, help="Write missing reference/<page>.txt from this model's text, for you to correct."
     ),
     pages: str | None = typer.Option(None, help="Only these pages, e.g. 1-5,8."),
     allow_server: bool = typer.Option(

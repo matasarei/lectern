@@ -25,7 +25,7 @@ import yaml
 
 from lectern.catalog import catalog
 from lectern.catalog.catalog import CatalogEntry
-from lectern.modules.ocr.pages import IMAGE_SUFFIXES, page_file, rasterise
+from lectern.modules.ocr.pages import IMAGE_SUFFIXES, rasterise
 from lectern.modules.ocr.recognise import RecogniseFailed, recognise
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable
 
@@ -93,8 +93,10 @@ def wer(output: str, reference: str) -> float:
 
 # --- the run -------------------------------------------------------------------------------
 #
-# Your folder holds the scans (PDFs and images) and, once you've corrected them,
-# `reference/p001.txt`… plus an optional `tags.yaml` ("p003: [handwriting, table]").
+# Your folder holds the scans (PDFs and images) and, once you've corrected them, one
+# `reference/<page>.txt` per page plus an optional `tags.yaml` ("lease-p003: [handwriting]").
+# A page is named after its file: `invoice` for an image, `lease-p003` for page 3 of
+# lease.pdf, so adding scans later never renames the pages you already have references for.
 # Everything this check writes goes under `<folder>/.ocr-check/`, except `reference/`
 # drafts, which only `--draft` writes and which it never overwrites.
 
@@ -105,7 +107,8 @@ TAGS_FILE = "tags.yaml"
 
 @dataclass(frozen=True)
 class Page:
-    number: int
+    number: int  # its place in the run, for --pages
+    key: str  # "invoice", "lease-p003": names its image, output and reference files
     path: Path
     source: str  # the scan's file name
     source_page: int  # its page in that file, from 1
@@ -163,6 +166,12 @@ def prepare(folder: Path, echo: Callable[[str], None] = print) -> list[Page]:
     scans = sources(folder)
     if not scans:
         raise ValueError(f"No PDFs or images in {folder}.")
+    stems: dict[str, str] = {}
+    for scan in scans:
+        other = stems.setdefault(scan.stem.casefold(), scan.name)
+        if other != scan.name:
+            # Pages are named after their file, and references after their page.
+            raise ValueError(f"{other} and {scan.name} share a name. Rename one of them.")
     work = folder / WORK_DIR / "pages"
     manifest = work / "pages.json"
     signature = [[p.name, p.stat().st_size, p.stat().st_mtime_ns] for p in scans]
@@ -170,7 +179,7 @@ def prepare(folder: Path, echo: Callable[[str], None] = print) -> list[Page]:
         saved = json.loads(manifest.read_text(encoding="utf-8"))
         if saved.get("sources") == signature:
             return [
-                Page(p["number"], work / page_file(p["number"]), p["source"], p["source_page"])
+                Page(p["number"], p["key"], work / f"{p['key']}.png", p["source"], p["source_page"])
                 for p in saved["pages"]
             ]
     if work.exists():
@@ -179,11 +188,12 @@ def prepare(folder: Path, echo: Callable[[str], None] = print) -> list[Page]:
     pages: list[Page] = []
     for scan in scans:
         with tempfile.TemporaryDirectory(dir=folder / WORK_DIR) as tmp:
-            for image in rasterise(scan, Path(tmp)):
-                number = len(pages) + 1
-                target = work / page_file(number)
+            images = rasterise(scan, Path(tmp))
+            for image in images:
+                key = scan.stem if len(images) == 1 else f"{scan.stem}-p{image.number:03d}"
+                target = work / f"{key}.png"
                 image.path.replace(target)
-                pages.append(Page(number, target, scan.name, image.number))
+                pages.append(Page(len(pages) + 1, key, target, scan.name, image.number))
         echo(f"  {scan.name}: {len(pages)} pages so far")
     listed = [asdict(p) | {"path": p.path.name} for p in pages]
     manifest.write_text(
@@ -236,12 +246,11 @@ async def run_models(
                         )
                     except RecogniseFailed as exc:
                         run.failed[page.number] = str(exc)
-                        echo(f"  page {page.number}: failed: {exc}")
+                        echo(f"  {page.key}: failed: {exc}")
                         continue
-                    stem = page.path.stem
-                    (out / f"{stem}.md").write_text(text.text + "\n", encoding="utf-8")
+                    (out / f"{page.key}.md").write_text(text.text + "\n", encoding="utf-8")
                     detail = asdict(text) | {"text": None}
-                    (out / f"{stem}.json").write_text(
+                    (out / f"{page.key}.json").write_text(
                         json.dumps(detail, ensure_ascii=False), encoding="utf-8"
                     )
                     run.pages[page.number] = PageRun(
@@ -249,7 +258,7 @@ async def run_models(
                     )
                     run.memory = max(run.memory, _resident_bytes(runtime, key))
                     cut = " · cut off" if text.cut_off else ""
-                    echo(f"  page {page.number}: {text.seconds}s{cut}")
+                    echo(f"  {page.key}: {text.seconds}s{cut}")
         except NotAvailable as exc:
             run.skipped = str(exc)
             echo(f"{entry.title}: skipped: {exc}")
@@ -261,30 +270,27 @@ def _resident_bytes(runtime: ModelRuntime, key: str) -> int:
 
 
 def draft_references(folder: Path, model_id: str, pages: list[Page]) -> int:
-    """Copy a model's text to `reference/pNNN.txt` for each page that has none yet, for you
+    """Copy a model's text to `reference/<page>.txt` for each page that has none yet, for you
     to correct. Never overwrites a reference."""
     references = folder / REFERENCE_DIR
     references.mkdir(exist_ok=True)
     written = 0
     for page in pages:
-        output = folder / WORK_DIR / model_id / f"{page.path.stem}.md"
-        target = references / f"{page.path.stem}.txt"
+        output = folder / WORK_DIR / model_id / f"{page.key}.md"
+        target = references / f"{page.key}.txt"
         if output.is_file() and not target.exists():
             target.write_text(output.read_text(encoding="utf-8"), encoding="utf-8")
             written += 1
     return written
 
 
-def load_tags(folder: Path) -> dict[int, list[str]]:
+def load_tags(folder: Path) -> dict[str, list[str]]:
+    """Page name → its kinds, e.g. {"invoice": ["printed", "table"]}."""
     path = folder / TAGS_FILE
     if not path.is_file():
         return {}
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    tags: dict[int, list[str]] = {}
-    for key, value in raw.items():
-        number = int(str(key).lower().removeprefix("p"))
-        tags[number] = [value] if isinstance(value, str) else list(value)
-    return tags
+    return {str(k): [v] if isinstance(v, str) else list(v) for k, v in raw.items()}
 
 
 @dataclass(frozen=True)
@@ -295,14 +301,14 @@ class Score:
 
 
 def score(
-    folder: Path, run: ModelRun, pages: list[Page], tags: dict[int, list[str]]
+    folder: Path, run: ModelRun, pages: list[Page], tags: dict[str, list[str]]
 ) -> dict[str, Score]:
     """CER and WER over all pages with a reference ("all"), and for each tag. Errors are
     summed before dividing, so a long page weighs more than a short one."""
     totals: dict[str, list[int]] = {}  # group → [char edits, chars, word edits, words, pages]
     for page in pages:
-        reference = folder / REFERENCE_DIR / f"{page.path.stem}.txt"
-        output = folder / WORK_DIR / run.model_id / f"{page.path.stem}.md"
+        reference = folder / REFERENCE_DIR / f"{page.key}.txt"
+        output = folder / WORK_DIR / run.model_id / f"{page.key}.md"
         if page.number not in run.pages or not reference.is_file():
             continue
         ref = normalise(reference.read_text(encoding="utf-8"))
@@ -314,7 +320,7 @@ def score(
             len(ref.split()),
             1,
         ]
-        for group in ["all", *tags.get(page.number, [])]:
+        for group in ["all", *tags.get(page.key, [])]:
             total = totals.setdefault(group, [0, 0, 0, 0, 0])
             for i, n in enumerate(counts):
                 total[i] += n
@@ -324,11 +330,11 @@ def score(
 
 
 def report(
-    folder: Path, runs: list[ModelRun], pages: list[Page], tags: dict[int, list[str]], swaps: int
+    folder: Path, runs: list[ModelRun], pages: list[Page], tags: dict[str, list[str]], swaps: int
 ) -> str:
     """The results as a Markdown report: one row per model, then CER by kind of page."""
     references = folder / REFERENCE_DIR
-    missing = [p.number for p in pages if not (references / f"{p.path.stem}.txt").is_file()]
+    missing = [p.key for p in pages if not (references / f"{p.key}.txt").is_file()]
     scores = {run.model_id: score(folder, run, pages, tags) for run in runs if not run.skipped}
     lines = [
         f"# OCR check · {len(pages)} pages · {datetime.now(UTC):%Y-%m-%d %H:%M} UTC",
@@ -359,20 +365,9 @@ def report(
             lines.append(f"| {group} | {count} | " + " | ".join(cells) + " |")
     lines += ["", f"Swaps: {swaps}."]
     if missing:
-        lines.append(f"No reference yet for pages {_ranges(missing)}: they aren't scored.")
+        lines.append(f"No reference yet for {', '.join(missing)}: not scored.")
     return "\n".join(lines) + "\n"
 
 
 def _rate(value: Score | None, which: str) -> str:
     return "–" if value is None else f"{getattr(value, which) * 100:.1f}%"
-
-
-def _ranges(numbers: list[int]) -> str:
-    parts, start = [], None
-    for i, n in enumerate(numbers):
-        if start is None:
-            start = n
-        if i + 1 == len(numbers) or numbers[i + 1] != n + 1:
-            parts.append(str(start) if start == n else f"{start}-{n}")
-            start = None
-    return ", ".join(parts)

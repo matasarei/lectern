@@ -143,8 +143,10 @@ def test_scans_become_pages_numbered_across_files_and_are_kept_between_runs(tmp_
 
     pages = prepare(folder, echo=lambda _l: None)
 
-    assert [(p.number, p.source, p.source_page) for p in pages] == [
-        (1, "a-lease.pdf", 1), (2, "a-lease.pdf", 2), (3, "b-receipt.png", 1)
+    assert [(p.number, p.key, p.source, p.source_page) for p in pages] == [
+        (1, "a-lease-p001", "a-lease.pdf", 1),
+        (2, "a-lease-p002", "a-lease.pdf", 2),
+        (3, "b-receipt", "b-receipt.png", 1),
     ]  # fmt: skip
     first = pages[0].path.stat().st_mtime_ns
     assert prepare(folder, echo=lambda _l: None) == pages
@@ -164,8 +166,8 @@ def test_each_model_reads_every_page_under_one_lease(tmp_path: Path):
     assert len(qwen.pages) == 3 and qwen.memory == 2 * 1024**3
     assert chandra.skipped == "chandra-ocr-2 isn't downloaded yet. Download it first."
     out = folder / ".ocr-check" / "paddleocr-vl-1.6"
-    assert (out / "p002.md").read_text(encoding="utf-8") == "два\n"
-    assert json.loads((out / "p001.json").read_text())["text"] is None
+    assert (out / "a-lease-p002.md").read_text(encoding="utf-8") == "два\n"
+    assert json.loads((out / "a-lease-p001.json").read_text())["text"] is None
     written = {p.relative_to(folder).parts[0] for p in folder.rglob("*") if p.is_file()}
     assert written == {"a-lease.pdf", "b-receipt.png", "notes.txt", ".ocr-check"}
 
@@ -174,11 +176,12 @@ def test_a_draft_fills_missing_references_and_never_overwrites_one(tmp_path: Pat
     folder = _scans(tmp_path / "scans")
     pages, _ = _run(folder, FakeRuntime({PADDLE: ["один", "два", "три"]}), [PADDLE])
     (folder / "reference").mkdir()
-    (folder / "reference" / "p001.txt").write_text("Один, виправлено", encoding="utf-8")
+    (folder / "reference" / "a-lease-p001.txt").write_text("Один, виправлено", encoding="utf-8")
 
     assert draft_references(folder, "paddleocr-vl-1.6", pages) == 2
-    assert (folder / "reference" / "p001.txt").read_text(encoding="utf-8") == "Один, виправлено"
-    assert (folder / "reference" / "p003.txt").read_text(encoding="utf-8") == "три\n"
+    fixed = (folder / "reference" / "a-lease-p001.txt").read_text(encoding="utf-8")
+    assert fixed == "Один, виправлено"
+    assert (folder / "reference" / "b-receipt.txt").read_text(encoding="utf-8") == "три\n"
 
 
 def test_the_report_scores_each_model_overall_and_by_kind_of_page(tmp_path: Path):
@@ -188,12 +191,12 @@ def test_the_report_scores_each_model_overall_and_by_kind_of_page(tmp_path: Path
     )
     pages, runs = _run(folder, runtime, [PADDLE, QWEN, CHANDRA])
     (folder / "reference").mkdir()
-    (folder / "reference" / "p001.txt").write_text("abcdefghij")
-    (folder / "reference" / "p002.txt").write_text("klmnopqrst")
-    (folder / "tags.yaml").write_text("p001: [handwriting, table]\n2: table\n")
+    (folder / "reference" / "a-lease-p001.txt").write_text("abcdefghij")
+    (folder / "reference" / "a-lease-p002.txt").write_text("klmnopqrst")
+    (folder / "tags.yaml").write_text("a-lease-p001: [handwriting, table]\na-lease-p002: table\n")
     tags = load_tags(folder)
 
-    assert tags == {1: ["handwriting", "table"], 2: ["table"]}
+    assert tags == {"a-lease-p001": ["handwriting", "table"], "a-lease-p002": ["table"]}
     paddle, qwen, _ = (score(folder, r, pages, tags) for r in runs)
     assert paddle["all"] == Score(pages=2, cer=0.0, wer=0.0)
     assert qwen["all"].pages == 1 and qwen["all"].cer == pytest.approx(0.1)
@@ -204,7 +207,7 @@ def test_the_report_scores_each_model_overall_and_by_kind_of_page(tmp_path: Path
     assert "| Chandra OCR 2 | skipped: chandra-ocr-2 isn't downloaded yet." in text
     assert "| handwriting | 1 | 0.0% | 10.0% |" in text
     assert "| table | 2 | 0.0% | 10.0% |" in text
-    assert "No reference yet for pages 3: they aren't scored." in text
+    assert "No reference yet for b-receipt: not scored." in text
 
 
 def test_pages_and_models_can_be_narrowed():
@@ -215,3 +218,16 @@ def test_pages_and_models_can_be_narrowed():
     assert [e.id for _, e in candidates(["chandra-ocr-2"])] == ["chandra-ocr-2"]
     with pytest.raises(ValueError, match="Not an OCR model in the catalog: qwen3.5-4b"):
         candidates(["qwen3.5-4b"])
+
+
+def test_adding_a_scan_later_doesnt_rename_the_pages_already_there(tmp_path: Path):
+    folder = _scans(tmp_path / "scans")
+    before = {p.key for p in prepare(folder, echo=lambda _l: None)}
+    Image.new("L", (300, 400), 255).save(folder / "0-first.png")  # sorts before the others
+
+    after = {p.key for p in prepare(folder, echo=lambda _l: None)}
+
+    assert after == before | {"0-first"}
+    Image.new("L", (300, 400), 255).save(folder / "b-receipt.jpg")  # same name, other type
+    with pytest.raises(ValueError, match="b-receipt.jpg and b-receipt.png share a name"):
+        prepare(folder, echo=lambda _l: None)

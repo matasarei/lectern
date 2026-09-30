@@ -71,5 +71,5 @@ def test_ocr_check_scores_drafts_and_stops_the_models(tmp_path, monkeypatch, fre
     assert result.exit_code == 0, result.output
     assert "| PaddleOCR-VL 1.6 | 1 | – | – |" in result.output  # no reference until the draft
     assert "Drafted 1 references" in result.output
-    assert (folder / "reference" / "p001.txt").read_text(encoding="utf-8") == "Договір оренди\n"
+    assert (folder / "reference" / "page.txt").read_text(encoding="utf-8") == "Договір оренди\n"
     assert runtime.stopped and list((folder / ".ocr-check").glob("report-*.md"))
