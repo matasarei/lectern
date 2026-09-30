@@ -1,10 +1,11 @@
 """The OCR check (blueprint, M2): score candidate OCR models on your own pages.
 
-Each model's text is compared with a reference text you corrected by hand. The scores are the
-character and word error rates (CER, WER): the edits needed to turn the model's text into the
-reference, divided by the reference's length. Both texts are normalised first, so markup the
-models add (Markdown markers, HTML table tags, spacing) doesn't count as an error; the words
-and characters do.
+Each model's text is compared with a reference text you corrected by hand. The main scores
+ignore reading order, which each model picks for itself on tables and side-by-side blocks:
+words missed (reference words the output lacks) and words extra (output words the reference
+lacks, which is how loops and made-up text show). The character error rate (CER) is kept
+beside them and does count order. Both texts are normalised first, so markup the models add
+(Markdown markers, HTML tags, spacing) doesn't count as an error; the words and characters do.
 """
 
 from __future__ import annotations
@@ -160,8 +161,8 @@ def sources(folder: Path) -> list[Path]:
 
 
 def prepare(folder: Path, echo: Callable[[str], None] = print) -> list[Page]:
-    """Page images for every scan in the folder, numbered across files in name order. Kept
-    between runs while the scans are unchanged."""
+    """Page images for every scan in the folder, in file-name order, each named after its file
+    ("invoice", "lease-p003"). Kept between runs while the scans are unchanged."""
     scans = sources(folder)
     if not scans:
         raise ValueError(f"No PDFs or images in {folder}.")
