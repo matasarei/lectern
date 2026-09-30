@@ -15,6 +15,9 @@ from lectern.projects.text import PDF_PAGE_MIN_CHARS, PDFIUM_LOCK
 
 DPI = 300
 MAX_PAGES = 1000
+# Pixels in one rendered page. A3 at 300 dpi is 17 M; a PDF page may be up to 200 × 200
+# inches (3.6 G pixels at 300 dpi), so a larger page is rendered at a lower resolution.
+MAX_PIXELS = 50_000_000
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"})
 
 
@@ -72,12 +75,15 @@ def _pdf_pages(source: Path, out_dir: Path) -> list[PageImage]:
                 textpage = page.get_textpage()
                 text = textpage.get_text_bounded().replace("\r\n", "\n").strip()
                 textpage.close()
-                image = page.render(scale=DPI / 72).to_pil()
+                width, height = page.get_size()  # in points, 1/72 inch
+                scale = min(DPI / 72, (MAX_PIXELS / (width * height)) ** 0.5)
+                image = page.render(scale=scale).to_pil()
             finally:
                 page.close()
             number = index + 1
             path = out_dir / page_file(number)
-            image.save(path, dpi=(DPI, DPI))
+            dpi = round(scale * 72)
+            image.save(path, dpi=(dpi, dpi))
             hint = text if len(text) >= PDF_PAGE_MIN_CHARS else None
             pages.append(PageImage(number, path, image.width, image.height, hint))
         return pages

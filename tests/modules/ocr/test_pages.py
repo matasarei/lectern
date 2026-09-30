@@ -117,3 +117,19 @@ def test_a_16_bit_or_float_grey_scan_keeps_its_greys(tmp_path: Path, mode, value
 
     with Image.open(page.path) as image:
         assert image.mode == "L" and abs(image.getpixel((5, 5)) - grey) <= 1  # not clipped white
+
+
+def test_an_oversized_pdf_page_is_rendered_smaller_not_at_any_size(tmp_path: Path, monkeypatch):
+    import pypdfium2 as pdfium
+
+    monkeypatch.setattr(pages, "MAX_PIXELS", 1_000_000)
+    pdf = pdfium.PdfDocument.new()
+    pdf.new_page(14400, 14400)  # 200 × 200 inches, PDF's largest page
+    pdf.save(tmp_path / "poster.pdf")
+    pdf.close()
+
+    (page,) = rasterise(tmp_path / "poster.pdf", tmp_path / "pages")
+
+    assert page.width * page.height <= 1_000_000 * 1.01
+    with Image.open(page.path) as image:
+        assert round(image.info["dpi"][0]) == 5  # 1,000 px across 200 inches
