@@ -6,9 +6,9 @@ the session's events, like a chat turn. It runs in phases (blueprint: "OCR runs 
 1. Rasterise the source into page images, once.
 2. Read each page through its model: `ocr`, `ocr.hand` for a page marked handwritten, or the
    `role@model` chosen for it. The model is leased per page, so a chat gets the GPU after the
-   current page. When the chat has taken it, the job waits until the chat has been idle for
-   CHAT_IDLE_RESUME seconds before loading its model back: a conversation shouldn't cost two
-   model swaps per reply.
+   current page. When loading the OCR model back would unload the chat's, the runtime holds
+   the lease until the chat has been idle for CHAT_IDLE_RESUME seconds (see
+   runtime/supervisor.py): a conversation shouldn't cost two model swaps per reply.
 
 One job runs at a time; other sessions wait as queued. Pause stops after the current page.
 A job interrupted by a restart isn't started again on its own: the session shows as paused
@@ -22,7 +22,6 @@ import asyncio
 import collections
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -37,8 +36,6 @@ from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable, Priority
 from lectern.runtime.wiring import pick
 
-CHAT_IDLE_RESUME = 120.0  # seconds of chat idleness before OCR loads its model back
-IDLE_POLL = 1.0
 RESTARTED = "Lectern restarted"
 PAUSED = "Paused"
 
@@ -76,16 +73,9 @@ class _Queued:
 
 
 class OcrJobs:
-    def __init__(
-        self,
-        runtime: ModelRuntime,
-        projects: ProjectStore,
-        *,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-    ) -> None:
+    def __init__(self, runtime: ModelRuntime, projects: ProjectStore) -> None:
         self.runtime = runtime
         self.projects = projects
-        self._sleep = sleep
         self._channels: dict[Key, Channel] = {}
         self._queue: collections.deque[_Queued] = collections.deque()
         self._current: Key | None = None
@@ -222,9 +212,8 @@ class OcrJobs:
             lease_key = page.lease_key or ("ocr.hand" if page.handwritten else "ocr")
             try:
                 _role, entry = pick(lease_key, self.runtime.tier)
-                await self._wait_for_the_chat(key, lease_key)
-                if key in self._pausing:
-                    continue  # the check above pauses
+                if self._held_for_the_chat(lease_key):
+                    self._publish(key, {"type": "waiting", "reason": "chat"})
                 await asyncio.to_thread(self._mark_reading, db, page.id)
                 self._publish(key, {"type": "page", **page_dict(page), "status": "recognising"})
                 async with self.runtime.lease(lease_key, Priority.JOB) as lease:
@@ -254,20 +243,14 @@ class OcrJobs:
             self._publish(key, {"type": "page", **page_dict(page)})
         await asyncio.to_thread(self._set_status, project, session_id, "done")
 
-    async def _wait_for_the_chat(self, key: Key, lease_key: str) -> None:
-        """Before loading the OCR model back after a chat, wait until the chat has been idle
-        for CHAT_IDLE_RESUME seconds. Only when loading it would unload the chat's model: a
-        model that's loaded, or fits beside it, is used at once."""
-        told = False
-        while (
-            self.runtime.needs_room(lease_key)
-            and self.runtime.chat_idle_seconds() < CHAT_IDLE_RESUME
-            and key not in self._pausing
-        ):
-            if not told:
-                self._publish(key, {"type": "waiting", "reason": "chat"})
-                told = True
-            await self._sleep(IDLE_POLL)
+    def _held_for_the_chat(self, lease_key: str) -> bool:
+        """The runtime will hold this page's lease for the chat: tell the tab why it waits."""
+        runtime = self.runtime
+        return (
+            runtime.chat_idle_resume > 0
+            and runtime.chat_idle_seconds() < runtime.chat_idle_resume
+            and runtime.needs_room(lease_key)
+        )
 
     @staticmethod
     def _next_page(db, session_id: int) -> OcrPageRow | None:  # noqa: ANN001

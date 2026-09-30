@@ -18,7 +18,12 @@ from lectern.runners.base import Runner
 from lectern.runners.binaries import LlamaCppInstaller, UnsupportedPlatform, select_variant
 from lectern.runners.llamacpp import InstallingLlamaCppRunner
 from lectern.runtime import planner
-from lectern.runtime.supervisor import ModelChoice, ModelRuntime, NotAvailable
+from lectern.runtime.supervisor import (
+    CHAT_IDLE_RESUME,
+    ModelChoice,
+    ModelRuntime,
+    NotAvailable,
+)
 
 GIB = 1024**3
 CPU_RESERVE = 4 * GIB  # RAM kept for the OS and the app when models run on the CPU
@@ -116,6 +121,18 @@ def build_runtime(
             raise NotAvailable(str(exc)) from exc
         return InstallingLlamaCppRunner(installer, variant, paths.home / "run")
 
+    # The only setting so far (Models & memory): a job pauses after its current item for a
+    # chat, and resumes when the chat has been idle for CHAT_IDLE_RESUME seconds.
+    chat_during_job = settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
+        "chat_during_job"
+    ]
     return ModelRuntime(
-        budget=budget, unified=unified, tier=tier, resolve=resolve, runner_for=runner_for
+        budget=budget,
+        unified=unified,
+        tier=tier,
+        resolve=resolve,
+        runner_for=runner_for,
+        chat_idle_resume=CHAT_IDLE_RESUME
+        if chat_during_job == "pause_job_after_current_item"
+        else 0,
     )

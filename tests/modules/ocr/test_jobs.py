@@ -8,13 +8,11 @@ import pytest
 
 from lectern.core.auth import LOCAL_USER
 from lectern.hardware.tiers import Tier
-from lectern.modules.ocr import jobs as ocr_jobs
 from lectern.modules.ocr import store as ocr_store
 from lectern.modules.ocr.jobs import RESTARTED, OcrJobs
 from lectern.projects import files
 from lectern.projects.tables import OcrSessionRow
 from lectern.runners.base import MeasuredMemory, RunnerError
-from lectern.runtime import supervisor
 from lectern.runtime.planner import ModelShape
 from lectern.runtime.supervisor import ModelChoice, ModelRuntime, NotAvailable, Priority
 
@@ -230,57 +228,46 @@ def test_one_job_runs_at_a_time_and_the_next_waits_queued(store, tmp_path):
     assert _status(store, first, sid1).status == _status(store, second, sid2).status == "done"
 
 
-def test_after_a_chat_takes_the_gpu_ocr_waits_for_two_idle_minutes(store, tmp_path, monkeypatch):
-    clock = {"now": 1000.0}
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock["now"])
+def test_after_a_chat_takes_the_gpu_ocr_waits_for_the_chat_to_be_idle(store, tmp_path):
     server = FakeServer()
     server.hold = asyncio.Queue()
     runtime, runner = _runtime(server, budget_gib=6)  # main (5) and ocr (2) don't fit together
+    runtime.chat_idle_resume = 0.3
     project, sid = _session(store, tmp_path, pages=2)
-    slept: list[float] = []
-
-    async def fake_sleep(seconds: float) -> None:
-        slept.append(seconds)
-        clock["now"] += seconds
-        await asyncio.sleep(0)
-
-    jobs = OcrJobs(runtime, store, sleep=fake_sleep)
+    jobs = OcrJobs(runtime, store)
 
     async def go():  # noqa: ANN202
         await jobs.start(project, sid)
         while not server.hold._getters:  # page 1 is being read
             await asyncio.sleep(0)
-        chat = asyncio.create_task(chat_once())
+        chat = asyncio.create_task(chat_calls())
         await asyncio.sleep(0)
         server.hold.put_nowait(None)  # page 1 ends; the chat goes before page 2
-        server.hold.put_nowait(None)  # the chat's reply
+        server.hold.put_nowait(None)  # the chat's first call
+        server.hold.put_nowait(None)  # its second, which mustn't find OCR loaded in between
         await chat
-        server.hold.put_nowait(None)  # page 2, once OCR has waited
+        server.hold.put_nowait(None)  # page 2, once the chat has been idle
         await jobs.idle()
 
-    async def chat_once() -> None:
-        async with runtime.lease("main", Priority.CHAT) as lease:
-            await lease.client.post("/v1/chat/completions", json={})
+    async def chat_calls() -> None:
+        for _ in range(2):
+            async with runtime.lease("main", Priority.CHAT) as lease:
+                await lease.client.post("/v1/chat/completions", json={})
+            await asyncio.sleep(0.02)
 
     asyncio.run(go())
 
-    assert runner.started == ["ocr-model", "main-model", "ocr-model"]  # a swap each way
-    assert sum(slept) >= ocr_jobs.CHAT_IDLE_RESUME  # not straight back after the reply
+    assert runner.started == ["ocr-model", "main-model", "ocr-model"]  # one swap each way
     assert any(e["type"] == "waiting" for e in _events(jobs, project, sid))
     assert _status(store, project, sid).status == "done"
 
 
-def test_a_model_still_loaded_after_a_chat_is_used_at_once(store, tmp_path, monkeypatch):
+def test_a_model_still_loaded_after_a_chat_is_used_at_once(store, tmp_path):
     server = FakeServer()
     runtime, _ = _runtime(server, budget_gib=16)  # both fit: no swap, no wait
+    runtime.chat_idle_resume = 60.0
     project, sid = _session(store, tmp_path, pages=2)
-    slept: list[float] = []
-
-    async def fake_sleep(seconds: float) -> None:
-        slept.append(seconds)
-        await asyncio.sleep(0)
-
-    jobs = OcrJobs(runtime, store, sleep=fake_sleep)
+    jobs = OcrJobs(runtime, store)
 
     async def go():  # noqa: ANN202
         async with runtime.lease("main", Priority.CHAT):
@@ -289,7 +276,8 @@ def test_a_model_still_loaded_after_a_chat_is_used_at_once(store, tmp_path, monk
         await jobs.idle()
 
     asyncio.run(go())
-    assert slept == [] and _status(store, project, sid).status == "done"
+    assert _status(store, project, sid).status == "done"
+    assert not any(e["type"] == "waiting" for e in _events(jobs, project, sid))
 
 
 def test_a_page_read_again_with_another_model_keeps_both_readings(store, tmp_path):

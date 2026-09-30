@@ -324,3 +324,68 @@ def test_the_runtime_says_when_loading_a_model_would_unload_another():
 
     assert asyncio.run(go(small)) == (False, True, False)  # main is loaded: no room needed
     assert asyncio.run(go(large)) == (False, False, False)  # ocr fits beside main
+
+
+def test_a_job_that_would_unload_the_chats_model_waits_for_the_chat_to_be_idle():
+    import time
+
+    runtime, runner = _runtime(6, {"main": 5, "ocr": 2})  # they don't fit together
+    runtime.chat_idle_resume = 0.3
+    events: list[dict] = []
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            async with runtime.lease("main", Priority.CHAT):
+                pass  # the chat's first model call
+            job = asyncio.create_task(job_page())
+            await asyncio.sleep(0.05)
+            async with runtime.lease("main", Priority.CHAT):  # its next call, 50 ms later
+                pass
+            waited = await job
+            while not queue.empty():
+                events.append(queue.get_nowait())
+            return waited
+
+    async def job_page() -> float:
+        started = time.monotonic()
+        async with runtime.lease("ocr", Priority.JOB):
+            return time.monotonic() - started
+
+    waited = asyncio.run(go())
+    assert runner.started == ["main-model", "ocr-model"]  # no swap between the chat's calls
+    assert waited >= 0.3  # 0.3 s after the chat's *last* call, not its first
+    assert any(e["event"] == "wait" and e.get("reason") == "chat" for e in events)
+
+
+def test_a_job_whose_model_fits_beside_the_chats_is_not_held():
+    import time
+
+    runtime, _ = _runtime(16, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 5.0
+
+    async def go():  # noqa: ANN202
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        started = time.monotonic()
+        async with runtime.lease("ocr", Priority.JOB):
+            return time.monotonic() - started
+
+    assert asyncio.run(go()) < 1.0
+
+
+def test_a_chat_waiting_for_the_gpu_counts_as_active():
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+
+    async def go():  # noqa: ANN202
+        async with runtime.lease("ocr", Priority.JOB):
+            chat = asyncio.create_task(chat_once())
+            await _until(lambda: any(p == Priority.CHAT for p, _ in runtime._queue))
+            idle = runtime.chat_idle_seconds()
+        await chat
+        return idle
+
+    async def chat_once() -> None:
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+
+    assert asyncio.run(go()) == 0.0
