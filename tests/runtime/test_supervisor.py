@@ -290,3 +290,24 @@ def test_events_describe_loads_swaps_and_unloads():
     assert ("loaded", "ocr") in events and ("loaded", "main") in events
     assert events.index(("unloaded", "ocr")) < events.index(("loaded", "main"))
     assert events[-1] == ("unloaded", "main")
+
+
+def test_the_runtime_says_how_long_the_chat_has_been_idle(monkeypatch):
+    from lectern.runtime import supervisor
+
+    runtime, _ = _runtime(8, {"main": 5, "ocr": 2})
+    clock = {"now": 100.0}
+    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock["now"])
+
+    async def go():  # noqa: ANN202
+        assert runtime.chat_idle_seconds() == float("inf")  # no chat yet
+        async with runtime.lease("ocr", Priority.JOB):
+            assert runtime.chat_idle_seconds() == float("inf")  # a job isn't the chat
+        async with runtime.lease("main", Priority.CHAT):
+            clock["now"] = 130.0
+            assert runtime.chat_idle_seconds() == 0.0  # replying now
+        clock["now"] = 190.0
+        return runtime.chat_idle_seconds()
+
+    assert asyncio.run(go()) == 60.0  # ended at 130
+    assert runtime.loaded("main") and runtime.loaded("ocr") and not runtime.loaded("code")

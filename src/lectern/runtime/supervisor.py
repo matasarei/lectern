@@ -97,6 +97,8 @@ class ModelRuntime:
         self._queue: list[tuple[int, int]] = []  # (priority, ticket), served in sorted order
         self._tickets = itertools.count()
         self._cond = asyncio.Condition()
+        self._chat_leases = 0
+        self._chat_ended: float | None = None  # when the last chat lease ended
 
     # --- reporting ---------------------------------------------------------------------------
 
@@ -129,6 +131,19 @@ class ModelRuntime:
             ],
         }
 
+    def loaded(self, role: str) -> bool:
+        """The role's model is loaded right now (a lease on it wouldn't need a load)."""
+        return role in self._residents and role not in self._crashed
+
+    def chat_idle_seconds(self) -> float:
+        """How long since the chat last used a model: 0 while it is, infinity if it never
+        has. An OCR job waits on this before it loads its model back after a chat."""
+        if self._chat_leases:
+            return 0.0
+        if self._chat_ended is None:
+            return float("inf")
+        return time.monotonic() - self._chat_ended
+
     def _emit(self, event: str, **data: object) -> None:
         self.events.publish({"type": "runtime", "event": event, "swaps": self.swaps, **data})
 
@@ -137,6 +152,8 @@ class ModelRuntime:
     @contextlib.asynccontextmanager
     async def lease(self, role: str, priority: Priority = Priority.JOB) -> AsyncIterator[Lease]:
         resident = await self._acquire(role, priority)
+        chat = priority is Priority.CHAT
+        self._chat_leases += chat
         client = resident.handle.client()
         try:
             yield Lease(role, resident.choice.model_id, client, resident.plan)
@@ -145,6 +162,9 @@ class ModelRuntime:
             async with self._cond:
                 resident.leases -= 1
                 resident.last_used = time.monotonic()
+                if chat:
+                    self._chat_leases -= 1
+                    self._chat_ended = resident.last_used
                 self._emit("release", role=role, model_id=resident.choice.model_id)
                 self._cond.notify_all()
 
