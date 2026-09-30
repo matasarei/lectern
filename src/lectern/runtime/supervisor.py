@@ -131,9 +131,26 @@ class ModelRuntime:
             ],
         }
 
-    def loaded(self, role: str) -> bool:
-        """The role's model is loaded right now (a lease on it wouldn't need a load)."""
-        return role in self._residents and role not in self._crashed
+    def needs_room(self, role: str) -> bool:
+        """Loading the role's model now would unload another one (a swap). False when it's
+        already loaded, when nothing else is, or when it fits beside what is."""
+        if (role in self._residents and role not in self._crashed) or not self._residents:
+            return False
+        choice = self.resolve(role)
+        try:
+            plan = planner.plan(
+                weights=choice.weights,
+                shape=choice.shape,
+                tier=self.tier,
+                tier_ctx=choice.tier_ctx,
+                budget=self.budget,
+                resident=self.resident_bytes(),
+                unified=self.unified,
+                chat=False,
+            )
+        except planner.DoesNotFit:
+            return True
+        return not plan.coresident
 
     def chat_idle_seconds(self) -> float:
         """How long since the chat last used a model: 0 while it is, infinity if it never

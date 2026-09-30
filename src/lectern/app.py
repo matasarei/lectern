@@ -20,6 +20,7 @@ from lectern.core.security import LocalGuard, load_or_create_token
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.modules import EnvProbe, load_modules, tool_registry
+from lectern.modules.ocr.jobs import OcrJobs
 from lectern.modules.sandbox.container import Sandbox
 from lectern.projects.store import ProjectStore
 from lectern.runtime.supervisor import ModelRuntime
@@ -43,6 +44,7 @@ def create_app(
         app.state.downloads.resume_interrupted(entries)
         yield
         await app.state.turns.stop_all()  # a reply in progress keeps what it wrote
+        await app.state.ocr_jobs.stop_all()  # an OCR batch shows as paused when read again
         await app.state.runtime.stop_all()  # every llama-server process ends with the app
         await app.state.downloads.stop_all()
         app.state.projects.dispose()
@@ -72,6 +74,8 @@ def create_app(
         downloads=app.state.downloads,
         sandbox=Sandbox(),
     )
+
+    app.state.ocr_jobs = OcrJobs(app.state.runtime, app.state.projects)
 
     @app.get("/health")
     def health() -> dict[str, str]:

@@ -310,4 +310,17 @@ def test_the_runtime_says_how_long_the_chat_has_been_idle(monkeypatch):
         return runtime.chat_idle_seconds()
 
     assert asyncio.run(go()) == 60.0  # ended at 130
-    assert runtime.loaded("main") and runtime.loaded("ocr") and not runtime.loaded("code")
+
+
+def test_the_runtime_says_when_loading_a_model_would_unload_another():
+    small, _ = _runtime(6, {"main": 5, "ocr": 2})  # main and ocr don't fit together
+    large, _ = _runtime(16, {"main": 5, "ocr": 2})
+
+    async def go(runtime):  # noqa: ANN001, ANN202
+        before = runtime.needs_room("ocr")  # nothing loaded yet
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        return before, runtime.needs_room("ocr"), runtime.needs_room("main")
+
+    assert asyncio.run(go(small)) == (False, True, False)  # main is loaded: no room needed
+    assert asyncio.run(go(large)) == (False, False, False)  # ocr fits beside main
