@@ -1,0 +1,185 @@
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+
+import { apiFetch, apiPost, ApiError } from "../api/client";
+import type { OcrPage, OcrSession } from "../api/types";
+import { ErrorNote } from "../components";
+import { ImagePreview } from "./file";
+import { ocrPath, useOcrEvents, type OcrLive } from "./ocr-api";
+
+type View = "split" | "scan" | "text";
+const VIEWS: View[] = ["split", "scan", "text"];
+
+/** An OCR session in a tab: where its job stands, the pages on the left (30%), and the
+ * selected page on the right (70%), its scan beside the text the model read. */
+export function OcrTab({ projectId, sessionId }: { projectId: number; sessionId: number }) {
+  const { t } = useTranslation();
+  const base = ocrPath(projectId, sessionId);
+  const session = useQuery({
+    queryKey: ["ocr", projectId, sessionId],
+    queryFn: () => apiFetch<OcrSession>(base),
+  });
+  const live = useOcrEvents(projectId, sessionId);
+  const [selected, setSelected] = useState(1);
+
+  if (session.isError) {
+    return (
+      <ErrorNote
+        message={session.error instanceof ApiError ? session.error.detail : t("common.loadFailed")}
+      />
+    );
+  }
+  if (!session.data) return <p className="p-4 text-muted">{t("common.loading")}</p>;
+  const page = session.data.pages.find((p) => p.number === selected) ?? session.data.pages[0];
+
+  return (
+    <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
+      <StatusStrip base={base} session={session.data} live={live} />
+      {session.data.pages.length === 0 ? (
+        <p className="p-4 text-muted">{t("ocr.noPagesYet")}</p>
+      ) : (
+        <div className="grid min-h-0 grid-cols-[30%_70%]">
+          <PageList pages={session.data.pages} selected={page?.number} onSelect={setSelected} />
+          {page && <PageView key={page.number} base={base} page={page} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusStrip({ base, session, live }: { base: string; session: OcrSession; live: OcrLive }) {
+  const { t } = useTranslation();
+  const pause = useMutation({ mutationFn: () => apiPost(`${base}/pause`) });
+  const resume = useMutation({ mutationFn: () => apiPost(`${base}/resume`) });
+  const read = session.pages.filter((p) => p.status === "done").length;
+  const working = session.status === "running" || session.status === "queued";
+  const error = pause.error ?? resume.error;
+  return (
+    <div className="grid gap-1 border-b border-line bg-surface px-4 py-2">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="font-semibold">{t(`ocr.status.${session.status}`)}</span>
+        <span className={live.phase === "rasterise" ? "text-accent" : "text-muted"}>
+          {t("ocr.phase.rasterise")}
+        </span>
+        <span className={live.phase === "recognise" ? "text-accent" : "text-muted"}>
+          {t("ocr.phase.recognise", { done: read, total: session.pages_total })}
+        </span>
+        {live.waitingForChat && <span className="text-muted">{t("ocr.waitingForChat")}</span>}
+        {session.status === "paused" && session.paused_reason && (
+          <span className="text-muted">({session.paused_reason})</span>
+        )}
+        <span className="ml-auto" />
+        {working ? (
+          <button className="btn-secondary" disabled={pause.isPending} onClick={() => pause.mutate()}>
+            {t("ocr.pause")}
+          </button>
+        ) : (
+          session.status !== "done" && (
+            <button className="btn-primary" disabled={resume.isPending} onClick={() => resume.mutate()}>
+              {t("ocr.resume")}
+            </button>
+          )
+        )}
+      </div>
+      {session.error && <ErrorNote message={session.error} />}
+      {error && <ErrorNote message={error instanceof ApiError ? error.detail : t("common.loadFailed")} />}
+    </div>
+  );
+}
+
+function PageList({
+  pages,
+  selected,
+  onSelect,
+}: {
+  pages: OcrPage[];
+  selected: number | undefined;
+  onSelect: (n: number) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ul className="overflow-y-auto border-r border-line" aria-label={t("ocr.pages")}>
+      {pages.map((page) => (
+        <li key={page.number}>
+          <button
+            className={`grid w-full gap-0.5 px-4 py-2 text-left text-sm hover:bg-accent-soft ${
+              page.number === selected ? "bg-accent-soft" : ""
+            }`}
+            aria-current={page.number === selected}
+            onClick={() => onSelect(page.number)}
+          >
+            <span className="font-medium">{t("ocr.pageTitle", { number: page.number })}</span>
+            <span className="text-xs text-muted">
+              {[
+                t(`ocr.pageStatus.${page.status}`),
+                page.looped && t("ocr.flags.looped"),
+                page.cut_off && t("ocr.flags.cutOff"),
+                page.handwritten && t("ocr.flags.handwritten"),
+                page.note && t("ocr.flags.note"),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function PageView({ base, page }: { base: string; page: OcrPage }) {
+  const { t } = useTranslation();
+  const [view, setView] = useState<View>("split");
+  return (
+    <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-y-auto p-4">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-semibold">{t("ocr.pageTitle", { number: page.number })}</span>
+        {page.model_id && (
+          <span className="text-muted">
+            {t("ocr.readBy", { model: page.model_id, seconds: page.seconds ?? 0 })}
+          </span>
+        )}
+        <span className="ml-auto" />
+        <div role="group" aria-label={t("ocr.view")} className="flex gap-1">
+          {VIEWS.map((v) => (
+            <button
+              key={v}
+              className={v === view ? "btn-primary" : "btn-secondary"}
+              aria-pressed={v === view}
+              onClick={() => setView(v)}
+            >
+              {t(`ocr.views.${v}`)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {page.error && <ErrorNote message={page.error} />}
+      <div className={`grid min-h-0 gap-3 ${view === "split" ? "grid-cols-2" : ""}`}>
+        {view !== "text" && (
+          <ImagePreview url={`${base}/pages/${page.number}/image`} name={t("ocr.pageTitle", { number: page.number })} />
+        )}
+        {view !== "scan" && <PageText base={base} page={page} />}
+      </div>
+    </div>
+  );
+}
+
+function PageText({ base, page }: { base: string; page: OcrPage }) {
+  const { t } = useTranslation();
+  // Read again whenever the page's reading changes (another model, a re-read).
+  const text = useQuery({
+    queryKey: ["ocr-text", base, page.number, page.status, page.model_id, page.seconds],
+    queryFn: () => apiFetch<{ text: string | null }>(`${base}/pages/${page.number}/text`),
+  });
+  if (text.isError) {
+    return <ErrorNote message={text.error instanceof ApiError ? text.error.detail : t("common.loadFailed")} />;
+  }
+  if (!text.data) return <p className="text-muted">{t("common.loading")}</p>;
+  if (text.data.text === null) return <p className="text-muted">{t("ocr.notReadYet")}</p>;
+  return (
+    <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
+      {text.data.text}
+    </pre>
+  );
+}

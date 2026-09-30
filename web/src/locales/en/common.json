@@ -145,7 +145,8 @@
     "back": "Projects",
     "missing": "This tab's item is no longer in the project.",
     "fileTab": "File",
-    "chatTab": "Chat"
+    "chatTab": "Chat",
+    "ocrTab": "OCR · {{title}}"
   },
   "overview": {
     "filters": {
@@ -254,6 +255,43 @@
     "imageAlt": "Preview of {{name}}"
   },
   "ocr": {
-    "open": "Open as OCR session"
+    "open": "Open as OCR session",
+    "noPagesYet": "The pages are being made from the file…",
+    "pages": "Pages",
+    "pageTitle": "Page {{number}}",
+    "readBy": "read by {{model}} in {{seconds}} s",
+    "view": "View",
+    "views": {
+      "split": "Split",
+      "scan": "Scan",
+      "text": "Text"
+    },
+    "notReadYet": "Not read yet.",
+    "status": {
+      "queued": "Queued",
+      "running": "Reading pages",
+      "paused": "Paused",
+      "done": "Done",
+      "failed": "Stopped"
+    },
+    "phase": {
+      "rasterise": "Page images",
+      "recognise": "Read {{done}}/{{total}}"
+    },
+    "pageStatus": {
+      "pending": "waiting",
+      "recognising": "reading…",
+      "done": "read",
+      "failed": "failed"
+    },
+    "flags": {
+      "looped": "repeats itself",
+      "cutOff": "cut off",
+      "handwritten": "handwritten",
+      "note": "note"
+    },
+    "waitingForChat": "Waiting for the chat to be idle",
+    "pause": "Pause",
+    "resume": "Resume"
   }
 }

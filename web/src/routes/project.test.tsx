@@ -15,7 +15,11 @@ const RESPONSES: Record<string, unknown> = {
   "/api/projects/1": { id: 1, name: "Lease archive 1998", folder: "/p", created_at: null },
   "/api/projects/1/items": {
     sessions: [
-      { id: 1, kind: "chat", title: "Payment terms", messages: 4, created_at: "", updated_at: "" },
+      { id: 1, kind: "chat", title: "Payment terms", messages: 4, ocr: null, created_at: "", updated_at: "" },
+      {
+        id: 2, kind: "ocr", title: "lease-scan.pdf", messages: 0, ocr: { pages: 12, status: "done" },
+        created_at: "", updated_at: "",
+      },
     ],
     artifacts: [
       {
@@ -24,6 +28,10 @@ const RESPONSES: Record<string, unknown> = {
         created_at: "", modified_at: "",
       },
     ],
+  },
+  "/api/projects/1/ocr/2": {
+    id: 2, kind: "ocr", title: "lease-scan.pdf", folder: "lease-scan", status: "done", paused_reason: null,
+    error: null, pages_total: 0, source_artifact_id: 7, updated_at: "", pages: [],
   },
   "/api/runtime": {
     tier: "recommended", budget: 7.4 * GIB, unified: false, used: 0, swaps: 0, waiting: 0,
@@ -93,5 +101,16 @@ describe("Project tabs", () => {
     renderAt("/projects/1");
     const tabs = await screen.findAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview"]);
+  });
+});
+
+describe("An OCR session's tab", () => {
+  it("is named after its file and shows the OCR view, not a chat", async () => {
+    savedTabs = { open: [{ kind: "session", id: 2 }], active: { kind: "session", id: 2 } };
+    renderAt("/projects/1");
+
+    expect(await screen.findByRole("tab", { name: "OCR · lease-scan.pdf" })).toBeTruthy();
+    expect(await screen.findByText("Done")).toBeTruthy(); // the OCR status strip
+    expect(screen.queryByRole("textbox")).toBeNull(); // no chat box
   });
 });

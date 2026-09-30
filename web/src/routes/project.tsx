@@ -10,6 +10,7 @@ import { formatMemory } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
 import { ChatTab } from "../project/chat";
 import { FileTab } from "../project/file";
+import { OcrTab } from "../project/ocr";
 import { Overview } from "../project/overview";
 import { closeTab, openTab, sameTab, showOverview } from "../project/tabs";
 
@@ -64,10 +65,16 @@ export function ProjectPage() {
   }
   if (!project.data || !items.data || !tabs) return <Shell>{t("common.loading")}</Shell>;
 
-  const titleOf = (tab: Tab): string =>
-    tab.kind === "session"
-      ? (items.data.sessions.find((s) => s.id === tab.id)?.title ?? t("project.chatTab"))
-      : (items.data.artifacts.find((a) => a.id === tab.id)?.name ?? t("project.fileTab"));
+  const sessionOf = (id: number) => items.data.sessions.find((s) => s.id === id);
+  const titleOf = (tab: Tab): string => {
+    if (tab.kind === "artifact") {
+      return items.data.artifacts.find((a) => a.id === tab.id)?.name ?? t("project.fileTab");
+    }
+    const session = sessionOf(tab.id);
+    if (session?.kind === "ocr") return t("project.ocrTab", { title: session.title });
+    return session?.title ?? t("project.chatTab");
+  };
+  const activeSession = tabs.active?.kind === "session" ? sessionOf(tabs.active.id) : undefined;
 
   return (
     <div className="grid h-screen grid-rows-[auto_auto_1fr]">
@@ -100,7 +107,10 @@ export function ProjectPage() {
       </nav>
       <section className="min-h-0 overflow-y-auto">
         {tabs.active === null && <Overview projectId={id} items={items.data} onOpen={open} />}
-        {tabs.active?.kind === "session" && (
+        {tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
+          <OcrTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} />
+        )}
+        {tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
           <ChatTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />
         )}
         {tabs.active?.kind === "artifact" && (

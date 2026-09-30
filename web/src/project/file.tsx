@@ -87,7 +87,7 @@ function TextPreview({ url }: { url: string }) {
 }
 
 /** Images need the token, so they're fetched and shown from a blob URL. */
-function ImagePreview({ url, name }: { url: string; name: string }) {
+export function ImagePreview({ url, name }: { url: string; name: string }) {
   const { t } = useTranslation();
   const blob = useQuery({
     queryKey: ["file-blob", url],
