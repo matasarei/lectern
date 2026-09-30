@@ -259,6 +259,7 @@ export type ChatEvent = { seq: number } & (
 // --- OCR sessions ---------------------------------------------------------------------
 
 export type OcrStatus = "queued" | "running" | "paused" | "done" | "failed";
+export type OcrPhase = "rasterise" | "recognise" | "clean" | "assemble";
 
 export interface OcrPage {
   number: number;
@@ -275,6 +276,8 @@ export interface OcrPage {
   width: number;
   height: number;
   has_hint: boolean;
+  clean_status: "pending" | "cleaning" | "done" | "failed"; // M3a: the chat model's cleanup
+  clean_error: string | null;
 }
 
 export interface OcrSession {
@@ -287,6 +290,8 @@ export interface OcrSession {
   error: string | null;
   pages_total: number;
   source_artifact_id: number;
+  // The Document the session published (document.md is the artifact), once assembled.
+  document: { version: number; artifact_id: number; open_doubts: number } | null;
   updated_at: string;
   pages: OcrPage[];
 }
@@ -301,7 +306,8 @@ export interface OcrModel {
 /** What an OCR session's event stream sends. Every event also has `seq`. */
 export type OcrEvent = { seq: number } & (
   | { type: "session"; status: OcrStatus; reason: string | null; error: string | null }
-  | { type: "phase"; phase: "rasterise" | "recognise" }
+  | { type: "phase"; phase: OcrPhase }
+  | { type: "document"; version: number; artifact_id: number }
   | ({ type: "page" } & OcrPage)
   | { type: "waiting"; reason: "chat" }
   | { type: "replayed" }

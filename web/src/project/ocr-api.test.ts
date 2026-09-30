@@ -45,4 +45,11 @@ describe("applyToLive", () => {
     });
     expect(live).toEqual(idle);
   });
+
+  it("records a new document version from its event", () => {
+    const next = applyOcrEvent(session({ document: { version: 1, artifact_id: 40, open_doubts: 2 } }), {
+      seq: 7, type: "document", version: 2, artifact_id: 40,
+    });
+    expect(next.document).toEqual({ version: 2, artifact_id: 40, open_doubts: 2 });
+  });
 });

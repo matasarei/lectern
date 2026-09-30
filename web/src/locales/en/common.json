@@ -267,7 +267,8 @@
     "views": {
       "split": "Split",
       "scan": "Scan",
-      "text": "Text"
+      "text": "Text",
+      "raw": "Raw OCR"
     },
     "notReadYet": "Not read yet.",
     "status": {
@@ -279,7 +280,9 @@
     },
     "phase": {
       "rasterise": "Page images",
-      "recognise": "Read {{done}}/{{total}}"
+      "recognise": "Read {{done}}/{{total}}",
+      "clean": "Clean {{done}}/{{total}}",
+      "assemble": "Assemble"
     },
     "pageStatus": {
       "pending": "waiting",
@@ -308,6 +311,17 @@
       "usual": "The usual model",
       "notDownloaded": "{{title}} (not downloaded)",
       "button": "Re-run page"
-    }
+    },
+    "cleanStatus": {
+      "pending": "",
+      "cleaning": "cleaning…",
+      "done": "cleaned",
+      "failed": "not cleaned"
+    },
+    "openDocument": "Open the document (version {{version}})",
+    "openQuestions_one": "{{count}} open question",
+    "openQuestions_other": "{{count}} open questions",
+    "notCleanedYet": "Not cleaned yet: this is the raw OCR text.",
+    "cleanFailed": "This page wasn't cleaned: {{error}}"
   }
 }

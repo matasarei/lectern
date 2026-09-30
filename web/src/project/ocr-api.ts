@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { apiPost, readEvents } from "../api/client";
-import type { OcrEvent, OcrPage, OcrSession } from "../api/types";
+import type { OcrEvent, OcrPage, OcrPhase, OcrSession } from "../api/types";
 
 export function ocrPath(projectId: number, sessionId?: number): string {
   const base = `/api/projects/${projectId}/ocr`;
@@ -21,7 +21,7 @@ export function startOcr(projectId: number, artifactId: number): Promise<OcrSess
 
 /** What the tab shows beside the stored session: the phase, and why the job waits. */
 export interface OcrLive {
-  phase: "rasterise" | "recognise" | null;
+  phase: OcrPhase | null;
   waitingForChat: boolean;
 }
 
@@ -34,6 +34,15 @@ export function applyOcrEvent(session: OcrSession, event: OcrEvent): OcrSession 
         status: event.status,
         paused_reason: event.reason,
         error: event.error,
+      };
+    case "document":
+      return {
+        ...session,
+        document: {
+          version: event.version,
+          artifact_id: event.artifact_id,
+          open_doubts: session.document?.open_doubts ?? 0, // the reload brings the count
+        },
       };
     case "page": {
       const page = pageOf(event);
@@ -87,6 +96,7 @@ export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
         const cached = queryClient.getQueryData<OcrSession>(key);
         if (cached) queryClient.setQueryData(key, applyOcrEvent(cached, event));
         else void queryClient.invalidateQueries({ queryKey: key });
+        if (event.type === "document") void queryClient.invalidateQueries({ queryKey: key });
         if (event.type === "phase" && event.phase === "recognise") {
           // The page images are made: read the session once to know all its pages, not only
           // the ones whose events have come in.
