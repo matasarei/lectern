@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OcrSession } from "../api/types";
 import { OcrTab } from "./ocr";
-import { page, session } from "./ocr-api.test";
+import { page, session } from "./ocr-fixtures";
 
 let current: OcrSession;
 let posts: { url: string; body: unknown }[] = [];
