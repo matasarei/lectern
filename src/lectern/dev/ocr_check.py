@@ -10,13 +10,10 @@ beside them and does count order. Both texts are normalised first, so markup the
 
 from __future__ import annotations
 
-import html
 import json
-import re
 import shutil
 import tempfile
 import time
-import unicodedata
 from collections import Counter
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import asdict, dataclass, field
@@ -29,24 +26,9 @@ from lectern.catalog import catalog
 from lectern.catalog.catalog import CatalogEntry
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, rasterise
 from lectern.modules.ocr.recognise import RecogniseFailed, recognise
+from lectern.modules.ocr.text import looped, normalise
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable
-
-ANY_TAG = re.compile(r"<[^<>]+>")
-TABLE_RULE = re.compile(r"^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*\|?\s*$", re.M)  # |---|:--|
-HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.M)
-MARKERS = re.compile(r"[*_`|]+")
-SPACE = re.compile(r"\s+")
-
-
-def normalise(text: str) -> str:
-    """The text as it reads, without markup: one space between words."""
-    # Every tag is a word break: cells, paragraphs and Chandra's layout divs all end words.
-    text = html.unescape(ANY_TAG.sub(" ", text))
-    text = TABLE_RULE.sub("", text)
-    text = HEADING.sub("", text)
-    text = MARKERS.sub(" ", text)
-    return SPACE.sub(" ", unicodedata.normalize("NFC", text)).strip()
 
 
 def distance(a: Sequence[Hashable], b: Sequence[Hashable]) -> int:
@@ -310,29 +292,12 @@ def load_tags(folder: Path) -> dict[str, list[str]]:
     return tags
 
 
-LOOP_WORDS = 12  # a run of this many words seen twice means the model went round again
-
-
 def word_counts(output: str, reference: str) -> tuple[int, int, int]:
     """(reference words the output lacks, output words the reference lacks, reference words),
     in any order. Reading order is the model's choice on a page of blocks and tables; these
     counts say whether the words are there, and `extra` catches loops and made-up text."""
     out, ref = Counter(normalise(output).split()), Counter(normalise(reference).split())
     return sum((ref - out).values()), sum((out - ref).values()), sum(ref.values())
-
-
-def repeats(text: str) -> bool:
-    """The output went round again: some run of LOOP_WORDS words appears twice. Words, not
-    lines: a table's rows can repeat a few values ("100 1 $100"), and in HTML those are
-    whole identical lines."""
-    words = normalise(text).split()
-    seen: set[tuple[str, ...]] = set()
-    for i in range(len(words) - LOOP_WORDS + 1):
-        window = tuple(words[i : i + LOOP_WORDS])
-        if window in seen:
-            return True
-        seen.add(window)
-    return False
 
 
 @dataclass(frozen=True)
@@ -368,7 +333,7 @@ def score(
             words,
             missed,
             extra,
-            int(repeats(raw_out)),
+            int(looped(raw_out)),
             1,
         ]
         for group in ["all", *tags.get(page.key, [])]:
