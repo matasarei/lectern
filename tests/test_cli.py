@@ -34,6 +34,32 @@ def test_browser_is_not_opened_if_the_server_never_starts(monkeypatch):
 # --- lectern dev ocr-check -----------------------------------------------------------------
 
 
+SERVING_PORTS = cli._serving_ports  # the real one, before the fixture below replaces it
+
+
+@pytest.fixture(autouse=True)
+def no_servers_running(monkeypatch):
+    """A `lectern serve` you happen to be running mustn't change what these tests see."""
+    monkeypatch.setattr(cli, "_serving_ports", lambda: [])
+
+
+def test_a_running_server_is_found_on_any_port(monkeypatch):
+    from types import SimpleNamespace
+
+    python = "/usr/bin/python3"
+    processes = [
+        {"pid": 1, "cmdline": [python, "/venv/bin/lectern", "serve", "--port", "8799"]},
+        {"pid": 2, "cmdline": ["C:\\venv\\Scripts\\lectern.exe", "serve"]},
+        {"pid": 3, "cmdline": ["uv", "run", "lectern", "dev", "ocr-check", "scans"]},
+        {"pid": 4, "cmdline": [python, "-m", "http.server", "serve"]},
+        {"pid": 5, "cmdline": None},  # a process we may not read
+    ]
+    fake = [SimpleNamespace(info=p) for p in processes]
+    monkeypatch.setattr("psutil.process_iter", lambda attrs: fake)
+
+    assert SERVING_PORTS() == [8799, 8765]
+
+
 def _ocr_check(*args: str):  # noqa: ANN202
     from typer.testing import CliRunner
 

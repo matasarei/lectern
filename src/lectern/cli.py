@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import socket
 import threading
 import time
@@ -296,9 +297,11 @@ def ocr_check(
     folder = folder.expanduser()
     if not folder.is_dir():
         raise typer.BadParameter(f"{folder} isn't a folder.")
-    if not allow_server and _listening(port):
+    running = sorted({*_serving_ports(), *([port] if _listening(port) else [])})
+    if not allow_server and running:
+        ports = ", ".join(str(p) for p in running)
         typer.echo(
-            f"A Lectern server is running on port {port}. It shares the GPU, so the timings "
+            f"A Lectern server is running (port {ports}). It shares the GPU, so the timings "
             "and memory would be off. Stop it, or pass --allow-server.",
             err=True,
         )
@@ -353,6 +356,25 @@ def _local_runtime():  # noqa: ANN202
     migrate(engine)
     sessions = make_sessionmaker(engine)
     return build_runtime(paths, DownloadManager(paths.models, sessions), probe(), sessions)
+
+
+def _serving_ports() -> list[int]:
+    """Ports of every `lectern serve` running on this machine, whatever its port or Lectern
+    home: any of them shares the GPU. Nothing records a server's port, so its command line
+    is read."""
+    import psutil
+
+    ports = []
+    for process in psutil.process_iter(["pid", "cmdline"]):
+        args = process.info["cmdline"] or []
+        names = [a.replace("\\", "/").rsplit("/", 1)[-1] for a in args]  # Windows paths too
+        if process.info["pid"] == os.getpid() or "serve" not in args:
+            continue
+        if not any(name.startswith("lectern") for name in names[:3]):  # lectern, lectern.exe
+            continue
+        after = args[args.index("--port") + 1] if "--port" in args[:-1] else None
+        ports.append(int(after) if after and after.isdigit() else DEFAULT_PORT)
+    return ports
 
 
 def _listening(port: int) -> bool:
