@@ -161,4 +161,18 @@ describe("OCR tab", () => {
     fireEvent.click(within(await screen.findByRole("list", { name: "Pages" })).getByText("Page 2"));
     expect((await screen.findByRole("button", { name: "Re-run page" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("lists every page once they're made, not only the ones read so far", async () => {
+    current = session({ status: "running", pages: [], pages_total: 0 });
+    renderTab();
+    expect(await screen.findByText("The pages are being made from the file…")).toBeTruthy();
+    current = session({ status: "running", pages: [page(1), page(2), page(3)], pages_total: 3 });
+    await act(async () => {
+      push({ seq: 1, type: "phase", phase: "recognise" });
+      push({ seq: 2, type: "page", ...page(1, { status: "recognising" }) });
+    });
+    const list = await screen.findByRole("list", { name: "Pages" });
+    await waitFor(() => expect(within(list).getAllByRole("button")).toHaveLength(3));
+    expect(screen.getByText("Read 0/3")).toBeTruthy();
+  });
 });

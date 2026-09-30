@@ -87,6 +87,11 @@ export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
         const cached = queryClient.getQueryData<OcrSession>(key);
         if (cached) queryClient.setQueryData(key, applyOcrEvent(cached, event));
         else void queryClient.invalidateQueries({ queryKey: key });
+        if (event.type === "phase" && event.phase === "recognise") {
+          // The page images are made: read the session once to know all its pages, not only
+          // the ones whose events have come in.
+          void queryClient.invalidateQueries({ queryKey: key });
+        }
         if (event.type === "session" && event.status !== "running" && event.status !== "queued") {
           void queryClient.invalidateQueries({ queryKey: key }); // pages rasterised meanwhile
           void queryClient.invalidateQueries({ queryKey: ["items", projectId] });
