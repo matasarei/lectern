@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import socket
 
+import pytest
+
 from lectern import cli
 
 
@@ -93,3 +95,14 @@ def test_ocr_check_says_why_nothing_was_drafted(tmp_path, monkeypatch, free_port
         in result.output
     )
     assert not (folder / "reference").exists()
+
+
+def test_ocr_check_stops_on_a_bad_tags_file_before_any_model_runs(tmp_path, monkeypatch, free_port):
+    folder = tmp_path / "scans"
+    folder.mkdir()
+    (folder / "tags.yaml").write_text("- not a mapping")
+    monkeypatch.setattr(cli, "_local_runtime", lambda: pytest.fail("no model should load"))
+
+    result = _ocr_check(str(folder), "--port", str(free_port))
+
+    assert result.exit_code == 2 and "tags.yaml should have one line per page" in result.output

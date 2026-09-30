@@ -288,3 +288,18 @@ def test_a_page_list_from_before_pages_had_names_is_rebuilt(tmp_path: Path):
     manifest.write_text(json.dumps(saved))
 
     assert prepare(folder, echo=lambda _l: None) == pages
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("- invoice\n- lease", "should have one line per page"),
+        ("invoice:\n", "invoice needs a kind or a list of kinds"),
+        ("invoice: [printed, {a: b}]", "invoice needs a kind or a list of kinds"),
+        ("invoice: [printed", "isn't valid YAML"),
+    ],
+)
+def test_a_malformed_tags_file_says_whats_wrong(tmp_path: Path, content: str, message: str):
+    (tmp_path / "tags.yaml").write_text(content)
+    with pytest.raises(ValueError, match=message):
+        load_tags(tmp_path)

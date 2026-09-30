@@ -288,12 +288,25 @@ def draft_references(folder: Path, run: ModelRun, pages: list[Page]) -> int:
 
 
 def load_tags(folder: Path) -> dict[str, list[str]]:
-    """Page name → its kinds, e.g. {"invoice": ["printed", "table"]}."""
+    """Page name → its kinds, e.g. {"invoice": ["printed", "table"]}. A malformed file says
+    what's wrong in a ValueError."""
     path = folder / TAGS_FILE
     if not path.is_file():
         return {}
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return {str(k): [v] if isinstance(v, str) else list(v) for k, v in raw.items()}
+    example = "one line per page, like `invoice: [printed, table]`"
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{TAGS_FILE} isn't valid YAML ({exc}).") from None
+    if not isinstance(raw, dict):
+        raise ValueError(f"{TAGS_FILE} should have {example}.")
+    tags: dict[str, list[str]] = {}
+    for page, kinds in raw.items():
+        kinds = [kinds] if isinstance(kinds, str) else kinds
+        if not isinstance(kinds, list) or not all(isinstance(k, str) for k in kinds):
+            raise ValueError(f"{TAGS_FILE}: {page} needs a kind or a list of kinds; {example}.")
+        tags[str(page)] = kinds
+    return tags
 
 
 LOOP_WORDS = 12  # a run of this many words seen twice means the model went round again

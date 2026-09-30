@@ -307,12 +307,13 @@ def ocr_check(
         models = check.candidates(model)
         if draft and draft not in [entry.id for _, entry in models]:
             models += check.candidates([draft])
+        tags = check.load_tags(folder)  # before the models run, so a typo fails fast
         chosen = check.pick_pages(check.prepare(folder, echo=typer.echo), pages)
     except (ValueError, NotAPageSource) as exc:
         raise typer.BadParameter(str(exc)) from None
     runtime = _local_runtime()
     runs = asyncio.run(_run_ocr_check(runtime, folder, chosen, models))
-    text = check.report(folder, runs, chosen, check.load_tags(folder), runtime.swaps)
+    text = check.report(folder, runs, chosen, tags, runtime.swaps)
     saved = folder / check.WORK_DIR / f"report-{time.strftime('%Y%m%d-%H%M%S')}.md"
     saved.write_text(text, encoding="utf-8")
     typer.echo("\n" + text + f"\nSaved to {saved}")
