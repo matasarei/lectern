@@ -23,13 +23,15 @@ import collections
 import contextlib
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import select
 
 from lectern.agent.turns import Channel
+from lectern.catalog.catalog import OcrSettings
 from lectern.modules.ocr import store as ocr_store
 from lectern.modules.ocr.pages import NotAPageSource, rasterise
-from lectern.modules.ocr.recognise import RecogniseFailed, recognise
+from lectern.modules.ocr.recognise import PageText, RecogniseFailed, recognise
 from lectern.projects.store import Project, ProjectStore
 from lectern.projects.tables import OcrPageRow, OcrSessionRow, now
 from lectern.runners.base import RunnerError
@@ -81,6 +83,7 @@ class OcrJobs:
         self._current: Key | None = None
         self._pausing: set[Key] = set()
         self._starting: set[Key] = set()
+        self._pause_signals: dict[Key, asyncio.Event] = {}
         # A paused session asked to read some pages again reads only those, then is paused
         # again with its reason: re-reading one page mustn't restart the whole batch.
         self._only: dict[Key, tuple[set[int], str | None]] = {}
@@ -114,6 +117,7 @@ class OcrJobs:
         """Queue a session's job (a new session, a Resume, or a page to read again)."""
         key = (project.id, session_id)
         self._pausing.discard(key)
+        self._pause_signal(key).clear()
         if not self.active(key):
             # "queued" is written before the job can be taken up, so it can't land after the
             # worker's "running". Marked first, so a second start can't queue it twice.
@@ -137,6 +141,7 @@ class OcrJobs:
         key = (project.id, session_id)
         if key == self._current:
             self._pausing.add(key)
+            self._pause_signal(key).set()
             return
         waiting = [q for q in self._queue if q.key == key]
         if not waiting:
@@ -201,6 +206,7 @@ class OcrJobs:
             finally:
                 self._current = None
                 self._pausing.discard(queued.key)
+                self._pause_signal(queued.key).clear()
                 self._only.pop(queued.key, None)
 
     async def _run(self, project: Project, session_id: int) -> None:
@@ -236,13 +242,13 @@ class OcrJobs:
                     self._publish(key, {"type": "waiting", "reason": "chat"})
                 await asyncio.to_thread(self._mark_reading, db, page.id)
                 self._publish(key, {"type": "page", **page_dict(page), "status": "recognising"})
-                async with self.runtime.lease(lease_key, Priority.JOB) as lease:
-                    reading = await recognise(
-                        lease.client,
-                        ocr_store.page_image(project.root, ocr, page),
-                        prompt=entry.ocr.prompt,
-                        max_side=entry.ocr.max_side,
-                    )
+                image = ocr_store.page_image(project.root, ocr, page)
+                read = await self._read_unless_paused(key, lease_key, entry.ocr, image)
+                if read is None:  # paused while waiting for the model: this page wasn't read
+                    await asyncio.to_thread(self._unmark_reading, db, page.id)
+                    self._publish(key, {"type": "page", **page_dict(page)})
+                    continue  # the check at the top pauses
+                model_id, reading = read
             except (NotAvailable, RunnerError) as exc:
                 # The model can't be loaded: every page would fail the same way. The session
                 # stops, its pages stay to be read, and Resume tries again.
@@ -258,7 +264,7 @@ class OcrJobs:
                 continue
             page = await asyncio.to_thread(
                 ocr_store.save_reading, project.root, db, ocr, page.id,
-                model_id=lease.model_id, reading=reading,
+                model_id=model_id, reading=reading,
             )  # fmt: skip
             self._publish(key, {"type": "page", **page_dict(page)})
         if key in self._only:  # it was paused: it stays paused, the rest of its pages to read
@@ -266,6 +272,38 @@ class OcrJobs:
             await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=reason)
             return
         await asyncio.to_thread(self._set_status, project, session_id, "done")
+
+    async def _read_unless_paused(
+        self, key: Key, lease_key: str, settings: OcrSettings, image: Path
+    ) -> tuple[str, PageText] | None:
+        """Lease the model and read the page, or None when a pause comes first. Waiting for
+        the model can take minutes (the runtime holds it for the chat), and Pause shouldn't
+        wait that out; once the model is ours the page is read to the end."""
+        leased = asyncio.Event()
+
+        async def read() -> tuple[str, PageText]:
+            async with self.runtime.lease(lease_key, Priority.JOB) as lease:
+                leased.set()
+                text = await recognise(
+                    lease.client, image, prompt=settings.prompt, max_side=settings.max_side
+                )
+                return lease.model_id, text
+
+        reader = asyncio.create_task(read())
+        pause = asyncio.create_task(self._pause_signal(key).wait())
+        got = asyncio.create_task(leased.wait())
+        await asyncio.wait({reader, pause, got}, return_when=asyncio.FIRST_COMPLETED)
+        got.cancel()
+        pause.cancel()
+        if not leased.is_set() and not reader.done():
+            reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reader
+            return None
+        return await reader
+
+    def _pause_signal(self, key: Key) -> asyncio.Event:
+        return self._pause_signals.setdefault(key, asyncio.Event())
 
     def _only_pages(self, key: Key) -> set[int] | None:
         return self._only[key][0] if key in self._only else None

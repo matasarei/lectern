@@ -392,3 +392,27 @@ def test_a_session_is_never_shown_queued_after_its_job_started(store, tmp_path, 
 
     statuses = [e["status"] for e in _events(jobs, second, sid2) if e["type"] == "session"]
     assert statuses == ["queued", "running", "done"]
+
+
+def test_pause_takes_effect_while_the_job_waits_for_the_chat(store, tmp_path):
+    server = FakeServer()
+    runtime, runner = _runtime(server, budget_gib=6)  # main (5) and ocr (2) don't fit together
+    runtime.chat_idle_resume = 30.0  # the job would wait half a minute for the chat
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        async with runtime.lease("main", Priority.CHAT):
+            pass  # a chat just answered
+        await jobs.start(project, sid)
+        while not any(e["type"] == "waiting" for e in _events(jobs, project, sid)):
+            await asyncio.sleep(0.01)
+        await jobs.pause(project, sid)
+        await asyncio.wait_for(jobs.idle(), 5)  # not after the 30 s hold
+
+    asyncio.run(go())
+
+    paused = _status(store, project, sid)
+    assert (paused.status, paused.paused_reason) == ("paused", "Paused")
+    assert [p.status for p in ocr_store.pages(store.db(project), sid)] == ["pending", "pending"]
+    assert server.requests == [] and runner.started == ["main-model"]  # no page read, no swap
