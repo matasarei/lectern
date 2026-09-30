@@ -185,7 +185,8 @@ def project_items(project_id: int, request: Request, user: CurrentUser) -> dict:
         titles = {c.id: c.title for c in chats}
         rows = [r for r in files.live(session) if r.owner_id == user.id]
         names = {r.id: r.path for r in rows}
-    # An OCR session shows its pages and where its job stands (an interrupted one as paused).
+    # An OCR session shows its pages and where its job stands. settle() writes when a job
+    # was interrupted by a restart: it's recorded as paused the first time it's seen.
     jobs = request.app.state.ocr_jobs
     ocr = {c.id: jobs.settle(project, c.id) for c in chats if c.kind == "ocr"}
     return {

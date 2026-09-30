@@ -60,6 +60,8 @@ async def open_ocr(request: Request, project_id: int, session_id: int, user: Use
 
 
 def _session_dict(request: Request, project: Project, session_id: int) -> dict:
+    # Reading can write: a job the app no longer runs (it was restarted mid-batch) is marked
+    # paused here, the first time anyone looks. Nothing else in a read changes the session.
     ocr = jobs(request).settle(project, session_id)
     db = store(request).db(project)
     with db() as session:
