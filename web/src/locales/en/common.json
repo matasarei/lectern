@@ -181,7 +181,10 @@
     "hasText": "text indexed",
     "empty": "Nothing here yet. Import files, or start a chat.",
     "dropHint": "Drop files anywhere in this tab to import them.",
-    "sorted": "Sorted by: modified"
+    "sorted": "Sorted by: modified",
+    "ocrKind": "OCR session",
+    "ocrDetails_one": "{{count}} page · {{status}}",
+    "ocrDetails_other": "{{count}} pages · {{status}}"
   },
   "time": {
     "justNow": "just now"

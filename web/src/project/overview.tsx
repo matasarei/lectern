@@ -191,9 +191,16 @@ function ItemsTable({
                 onClick={() => onOpen({ kind: "session", id: row.session.id })}
               >
                 <td className="py-2 pr-4 font-medium">{row.session.title}</td>
-                <td className="py-2 pr-4">{t("overview.chatKind")}</td>
+                <td className="py-2 pr-4">
+                  {t(row.session.ocr ? "overview.ocrKind" : "overview.chatKind")}
+                </td>
                 <td className="py-2 pr-4 text-muted">
-                  {t("overview.messages", { count: row.session.messages })}
+                  {row.session.ocr
+                    ? t("overview.ocrDetails", {
+                        count: row.session.ocr.pages,
+                        status: t(`ocr.status.${row.session.ocr.status}`),
+                      })
+                    : t("overview.messages", { count: row.session.messages })}
                 </td>
                 <td className="py-2 pr-4 text-muted">{t("overview.fromGone")}</td>
                 <td className="py-2 text-muted">{formatAgo(row.modified)}</td>

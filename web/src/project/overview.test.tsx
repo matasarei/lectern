@@ -56,16 +56,30 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderOverview(onOpen: (tab: Tab) => void = () => {}) {
+function renderOverview(onOpen: (tab: Tab) => void = () => {}, items: ProjectItems = ITEMS) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <Overview projectId={1} items={ITEMS} onOpen={onOpen} />
+      <Overview projectId={1} items={items} onOpen={onOpen} />
     </QueryClientProvider>,
   );
 }
 
 describe("Overview", () => {
+  it("shows an OCR session with its pages and status, and opens it in a tab", () => {
+    const opened: Tab[] = [];
+    const ocr = {
+      id: 2, kind: "ocr" as const, title: "lease-1998-scan.pdf", messages: 0,
+      ocr: { pages: 12, status: "paused" as const }, created_at: "", updated_at: "2026-09-29T09:00:00Z",
+    };
+    renderOverview((tab) => opened.push(tab), { sessions: [ocr], artifacts: [] });
+    const row = screen.getAllByRole("row")[1];
+    expect(within(row).getByText("OCR session")).toBeTruthy();
+    expect(within(row).getByText("12 pages · Paused")).toBeTruthy();
+    fireEvent.click(row);
+    expect(opened).toEqual([{ kind: "session", id: 2 }]);
+  });
+
   it("offers OCR on a PDF's row, which opens the session and not the file", async () => {
     const opened: Tab[] = [];
     renderOverview((tab) => opened.push(tab));
