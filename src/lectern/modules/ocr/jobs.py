@@ -80,6 +80,9 @@ class OcrJobs:
         self._queue: collections.deque[_Queued] = collections.deque()
         self._current: Key | None = None
         self._pausing: set[Key] = set()
+        # A paused session asked to read some pages again reads only those, then is paused
+        # again with its reason: re-reading one page mustn't restart the whole batch.
+        self._only: dict[Key, tuple[set[int], str | None]] = {}
         self._worker: asyncio.Task[None] | None = None
 
     def channel(self, key: Key) -> Channel:
@@ -148,8 +151,13 @@ class OcrJobs:
                 page.updated_at = now()
                 return page
 
+        key = (project.id, session_id)
+        ocr = await asyncio.to_thread(self.settle, project, session_id)
         page = await asyncio.to_thread(reset)
-        self.channel((project.id, session_id)).publish({"type": "page", **page_dict(page)})
+        self.channel(key).publish({"type": "page", **page_dict(page)})
+        if ocr.status == "paused" or key in self._only:
+            numbers, reason = self._only.get(key, (set(), ocr.paused_reason))
+            self._only[key] = (numbers | {number}, reason)
         await self.start(project, session_id)
         return page
 
@@ -184,6 +192,7 @@ class OcrJobs:
             finally:
                 self._current = None
                 self._pausing.discard(queued.key)
+                self._only.pop(queued.key, None)
 
     async def _run(self, project: Project, session_id: int) -> None:
         key = (project.id, session_id)
@@ -203,7 +212,9 @@ class OcrJobs:
                 return
             await asyncio.to_thread(ocr_store.add_pages, db, session_id, images)
         self._publish(key, {"type": "phase", "phase": "recognise"})
-        while (page := await asyncio.to_thread(self._next_page, db, session_id)) is not None:
+        while (
+            page := await asyncio.to_thread(self._next_page, db, session_id, self._only_pages(key))
+        ) is not None:
             if key in self._pausing:
                 await asyncio.to_thread(
                     self._set_status, project, session_id, "paused", reason=PAUSED
@@ -241,7 +252,14 @@ class OcrJobs:
                 model_id=lease.model_id, reading=reading,
             )  # fmt: skip
             self._publish(key, {"type": "page", **page_dict(page)})
+        if key in self._only:  # it was paused: it stays paused, the rest of its pages to read
+            reason = self._only[key][1]
+            await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=reason)
+            return
         await asyncio.to_thread(self._set_status, project, session_id, "done")
+
+    def _only_pages(self, key: Key) -> set[int] | None:
+        return self._only[key][0] if key in self._only else None
 
     def _held_for_the_chat(self, lease_key: str) -> bool:
         """The runtime will hold this page's lease for the chat: tell the tab why it waits."""
@@ -253,19 +271,19 @@ class OcrJobs:
         )
 
     @staticmethod
-    def _next_page(db, session_id: int) -> OcrPageRow | None:  # noqa: ANN001
-        """The first page still to read. Asked again after every page, so a page set to be
-        read again while the job runs is picked up."""
+    def _next_page(  # noqa: ANN001 — db is a sessionmaker
+        db, session_id: int, numbers: set[int] | None = None
+    ) -> OcrPageRow | None:
+        """The first page still to read (of `numbers`, when given). Asked again after every
+        page, so a page set to be read again while the job runs is picked up."""
+        query = select(OcrPageRow).where(
+            OcrPageRow.session_id == session_id,
+            OcrPageRow.status.in_(("pending", "recognising")),
+        )
+        if numbers is not None:
+            query = query.where(OcrPageRow.number.in_(numbers))
         with db() as session:
-            return session.scalars(
-                select(OcrPageRow)
-                .where(
-                    OcrPageRow.session_id == session_id,
-                    OcrPageRow.status.in_(("pending", "recognising")),
-                )
-                .order_by(OcrPageRow.number)
-                .limit(1)
-            ).first()
+            return session.scalars(query.order_by(OcrPageRow.number).limit(1)).first()
 
     @staticmethod
     def _ocr_row(db, session_id: int) -> OcrSessionRow:  # noqa: ANN001

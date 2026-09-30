@@ -334,3 +334,31 @@ def test_a_source_that_cant_be_paged_fails_the_session(store, tmp_path):
     asyncio.run(go())
     stopped = _status(store, project, sid)
     assert stopped.status == "failed" and "couldn't be opened as a PDF" in stopped.error
+
+
+def test_reading_one_page_of_a_paused_session_leaves_it_paused(store, tmp_path):
+    server = FakeServer()
+    server.hold = asyncio.Queue()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        while not server.hold._getters:
+            await asyncio.sleep(0)
+        await jobs.pause(project, sid)
+        server.hold.put_nowait(None)  # page 1 finishes, then the job pauses
+        await jobs.idle()
+        server.hold = None
+        await jobs.rerun(project, sid, 1, lease_key="ocr.hand@qwen3-vl-8b")
+        await jobs.idle()
+
+    asyncio.run(go())
+
+    paused = _status(store, project, sid)
+    assert (paused.status, paused.paused_reason) == ("paused", "Paused")
+    pages = ocr_store.pages(store.db(project), sid)
+    assert [(p.status, p.model_id) for p in pages] == [
+        ("done", "qwen3-vl-8b"), ("pending", None), ("pending", None)
+    ]  # fmt: skip
