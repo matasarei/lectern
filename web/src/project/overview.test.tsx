@@ -16,7 +16,7 @@ const artifact = (id: number, name: string, over: Partial<Artifact> = {}): Artif
 
 const ITEMS: ProjectItems = {
   sessions: [
-    { id: 1, kind: "chat", title: "Payment terms", messages: 14, created_at: "", updated_at: "2026-09-29T10:00:00Z" },
+    { id: 1, kind: "chat", title: "Payment terms", messages: 14, ocr: null, created_at: "", updated_at: "2026-09-29T10:00:00Z" },
   ],
   artifacts: [
     artifact(3, "lease-1998-scan.pdf"),

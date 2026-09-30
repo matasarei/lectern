@@ -14,7 +14,7 @@ const artifact = (over: Partial<Artifact>): Artifact => ({
 });
 
 const ITEMS: ProjectItems = {
-  sessions: [{ id: 1, kind: "chat", title: "Payment terms", messages: 2, created_at: "", updated_at: "" }],
+  sessions: [{ id: 1, kind: "chat", title: "Payment terms", messages: 2, ocr: null, created_at: "", updated_at: "" }],
   artifacts: [],
 };
 
