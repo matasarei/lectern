@@ -156,3 +156,8 @@ def test_a_long_repeated_paragraph_is_never_taken_for_a_running_line():
     ends = {1: "Перший розділ.", 2: "Другий розділ.", 3: "Третій розділ."}
     doc = assemble("L", "l.pdf", [_page(n, long, para(ends[n])) for n in (1, 2, 3)])
     assert len(doc.blocks) == 6
+
+
+def test_a_page_never_loses_its_only_block_to_a_running_line():
+    doc = assemble("L", "l.pdf", [_page(n, para(f"Форма {n} заповнена.")) for n in (1, 2, 3)])
+    assert [b.id for b in doc.blocks] == ["b1.1", "b2.1", "b3.1"]

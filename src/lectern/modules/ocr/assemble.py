@@ -171,7 +171,12 @@ def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
                 continue
             block = blocks[edge]
             numbered = block.type == "paragraph" and PAGE_NUMBER.match(block.text) is not None
-            repeated = _running_candidate(block) and seen.get(_key(block), 0) >= REPEATS
+            # A page's only block is its content, however alike the pages are.
+            repeated = (
+                len(blocks) > 1
+                and _running_candidate(block)
+                and seen.get(_key(block), 0) >= REPEATS
+            )
             if numbered or repeated:
                 blocks.pop(edge)
     for blocks in per_page.values():  # a number left at an edge after a header went
