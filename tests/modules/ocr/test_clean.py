@@ -161,6 +161,14 @@ def test_a_letter_swapped_for_a_lookalike_goes_back_to_the_ocr_reading():
     assert page.blocks[0].rows[0][0] == "травень 1998"  # Cyrillic т, as on the page
 
 
+def test_a_word_the_model_moved_wholly_into_one_script_is_kept():
+    raw = "Орендодавець: TOB «Приклад»"  # the OCR model read Cyrillic ТОВ as Latin
+    reply = {"blocks": [{"type": "paragraph", "text": "Орендодавець: ТОВ «Приклад»"}],
+             "doubts": [], "fixes": []}  # fmt: skip
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, raw))
+    assert page.blocks[0].text == "Орендодавець: ТОВ «Приклад»"  # all Cyrillic, as fixed
+
+
 def test_a_line_the_model_left_out_is_put_back_where_it_was():
     raw = "ваності, включно з днем оплати.\n4. Права та обов'язки\nОрендар утримує приміщення."
     reply = {

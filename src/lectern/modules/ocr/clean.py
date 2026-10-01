@@ -289,6 +289,8 @@ async def _ask(client: httpx2.AsyncClient, messages: list[dict]) -> str:
 # other ("tравень"); no reader would notice, and search would never find the word again.
 LOOKALIKES = str.maketrans("aceopxyiktABCEHKMOPTXI", "асеорхуіктАВСЕНКМОРТХІ")
 LETTERS = re.compile(r"[^\W\d_]+")
+LATIN = re.compile(r"[A-Za-z]")
+CYRILLIC = re.compile(r"[\u0400-\u04ff]")
 
 
 def _shape(word: str) -> str:
@@ -296,15 +298,17 @@ def _shape(word: str) -> str:
 
 
 def restore_lookalikes(page: CleanedPage, raw: str) -> CleanedPage:
-    """A cleaned word that isn't in the OCR text, but matches an OCR word once look-alike
-    letters are set aside, goes back to how the OCR model read it."""
+    """A cleaned word that mixes Latin and Cyrillic letters, isn't in the OCR text, but matches
+    an OCR word once look-alike letters are set aside, goes back to how the OCR model read it.
+    A word in one script is left alone: the model may have rightly fixed an OCR reading of
+    Cyrillic "ТОВ" as Latin "TOB"."""
     raw_words = set(LETTERS.findall(raw))
     by_shape = {_shape(w): w for w in raw_words}
 
     def fix(text: str) -> str:
         def one(match: re.Match[str]) -> str:
             word = match.group(0)
-            if word in raw_words:
+            if word in raw_words or not (LATIN.search(word) and CYRILLIC.search(word)):
                 return word
             return by_shape.get(_shape(word), word)
 
