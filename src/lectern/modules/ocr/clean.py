@@ -244,12 +244,16 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
     failed for that. The doubt moves to the first block that holds its text; one no block
     holds is dropped and listed as a fix, so it isn't lost silently. A reading given twice is
     kept once."""
-    texts = [b.text + "\n" + "\n".join(" ".join(r) for r in b.rows or []) for b in page.blocks]
+    # Where assembly can put a doubt's mark: in the block's text, or within one table cell.
+    texts = [[b.text, *(c for r in b.rows or [] for c in r)] for b in page.blocks]
     doubts, fixes = [], list(page.fixes)
     for doubt in page.doubts:
         raw = UNSURE_MARK.sub(r"\1", doubt.raw).strip()
         named = [doubt.block] if doubt.block < len(texts) else []
-        holder = next((i for i in named + list(range(len(texts))) if raw and raw in texts[i]), None)
+        holder = next(
+            (i for i in named + list(range(len(texts))) if raw and any(raw in t for t in texts[i])),
+            None,
+        )
         if holder is None:
             why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
             fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))

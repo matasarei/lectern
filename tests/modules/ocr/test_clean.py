@@ -88,6 +88,13 @@ def test_a_doubt_in_the_wrong_block_moves_to_the_block_holding_its_text(block: i
     assert doubt.candidates == ["10", "15"]  # each reading once
 
 
+def test_a_doubt_across_two_table_cells_is_dropped_and_said_so():
+    reply = {**GOOD, "doubts": [{"block": 2, "raw": "березень 250,00"}]}  # two cells
+    page = _clean(_client(json.dumps(reply)))
+    assert page.doubts == []
+    assert page.fixes[-1].why.startswith("Doubt dropped: 'березень 250,00'")
+
+
 def test_a_doubt_no_block_holds_is_dropped_and_said_so():
     reply = {**GOOD, "doubts": [{"block": 1, "raw": "15", "reason": "smudged"}]}
     page = _clean(_client(json.dumps(reply)))

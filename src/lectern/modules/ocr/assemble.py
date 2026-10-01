@@ -81,6 +81,9 @@ class _Counter:
         self.page = page
         self.next = 1
 
+    def peek(self) -> str:
+        return f"d{self.page}.{self.next}"
+
     def take(self) -> str:
         doubt_id = f"d{self.page}.{self.next}"
         self.next += 1
@@ -105,9 +108,10 @@ def _blocks(page: PageInput, counter: _Counter) -> list[Block]:
     ]
     for doubt in cleaned.doubts:
         block = blocks[doubt.block]
-        doubt_id = counter.take()
+        doubt_id = counter.peek()
         if not _place(block, doubt.raw, doubt_id):
-            continue
+            continue  # cleanup checked it was there; nothing to place, so no id used
+        counter.take()
         block.doubts.append(
             Doubt(id=doubt_id, raw=doubt.raw, candidates=doubt.candidates, reason=doubt.reason)
         )
