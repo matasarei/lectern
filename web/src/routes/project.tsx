@@ -108,7 +108,7 @@ export function ProjectPage() {
       <section className="min-h-0 overflow-y-auto">
         {tabs.active === null && <Overview projectId={id} items={items.data} onOpen={open} />}
         {tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
-          <OcrTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} />
+          <OcrTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />
         )}
         {tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
           <ChatTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />

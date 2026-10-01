@@ -14,7 +14,9 @@ def ctx(store):
     return ToolContext(project=project, sessions=store.db(project), user=LOCAL_USER, session_id=1)
 
 
-def add_file(ctx: ToolContext, name: str, text: str, origin: Origin | None = None) -> int:
+def add_file(
+    ctx: ToolContext, name: str, text: str, origin: Origin | None = None, folder: str = ""
+) -> int:
     with ctx.sessions.begin() as session:
         row = files.write_text(
             ctx.project.root,
@@ -23,5 +25,6 @@ def add_file(ctx: ToolContext, name: str, text: str, origin: Origin | None = Non
             name=name,
             text=text,
             origin=origin or Origin("import"),
+            folder=folder,
         )
         return row.id

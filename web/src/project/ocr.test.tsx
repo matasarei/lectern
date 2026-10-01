@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OcrSession } from "../api/types";
+import type { OcrSession, Tab } from "../api/types";
 import { OcrTab } from "./ocr";
 import { page, session } from "./ocr-fixtures";
 
@@ -48,7 +48,10 @@ beforeEach(() => {
       }
       if (url.endsWith("/image")) return new Response(new Blob(["png"], { type: "image/png" }));
       if (url.endsWith("/pages/1/text")) {
-        return new Response(JSON.stringify({ number: 1, model_id: "paddleocr-vl-1.6", text: "Рахунок № 1" }));
+        return new Response(JSON.stringify({
+          number: 1, model_id: "paddleocr-vl-1.6", text: "Рахунок № 1",
+          cleaned: "{#b1.1 p=1} Рахунок № ⟦1? | open | 1 · 7⟧ від 1998 р.",
+        }));
       }
       if (url.endsWith("/text")) return new Response(JSON.stringify({ number: 2, model_id: null, text: null }));
       return new Response(JSON.stringify(current));
@@ -61,11 +64,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderTab() {
+function renderTab(onOpen: (tab: Tab) => void = () => {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <OcrTab projectId={1} sessionId={2} />
+      <OcrTab projectId={1} sessionId={2} onOpen={onOpen} />
     </QueryClientProvider>,
   );
 }
@@ -184,5 +187,40 @@ describe("OCR tab", () => {
     expect(rerun.disabled).toBe(false);
     fireEvent.click(rerun);
     await waitFor(() => expect(posts.at(-1)?.url).toBe("/api/projects/1/ocr/2/pages/2/rerun"));
+  });
+
+  it("shows the cleaned page with its open questions marked, and the raw text beside", async () => {
+    current = session({
+      status: "done",
+      document: { version: 2, artifact_id: 40, open_doubts: 3 },
+      pages: [page(1, { status: "done", clean_status: "done" }), page(2, { status: "done" })],
+    });
+    const opened: Tab[] = [];
+    renderTab((tab) => opened.push(tab));
+
+    const mark = await screen.findByText("⟦1? | open | 1 · 7⟧");
+    expect(mark.tagName).toBe("MARK");
+    expect(screen.getByText("Clean 1/2")).toBeTruthy();
+    expect(screen.getByText("3 open questions")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Raw OCR" }));
+    expect(await screen.findByText("Рахунок № 1")).toBeTruthy();
+    expect(screen.queryByText("⟦1? | open | 1 · 7⟧")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open the document (version 2)" }));
+    expect(opened).toEqual([{ kind: "artifact", id: 40 }]);
+  });
+
+  it("says when a page isn't cleaned yet, or why its cleanup failed", async () => {
+    current = session({
+      pages: [page(1, { status: "done", clean_status: "failed", clean_error: "the reply wasn't valid" })],
+    });
+    renderTab();
+    expect(await screen.findByText("This page wasn't cleaned: the reply wasn't valid")).toBeTruthy();
+    expect(screen.getByText("read · not cleaned")).toBeTruthy();
+    cleanup();
+
+    current = session({ pages: [page(1, { status: "done", clean_status: "pending" })] });
+    renderTab();
+    expect(await screen.findByText("Not cleaned yet: this is the raw OCR text.")).toBeTruthy();
+    expect(screen.getByText("Рахунок № 1")).toBeTruthy();
   });
 });

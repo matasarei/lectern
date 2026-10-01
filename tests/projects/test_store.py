@@ -170,3 +170,49 @@ def test_an_unknown_session_kind_is_still_refused(store):
     project = store.create(LOCAL_USER, "Kinds")
     with pytest.raises(IntegrityError), store.db(project).begin() as session:
         session.add(SessionRow(owner_id=LOCAL_USER.id, kind="stt", title="x"))
+
+
+def test_a_project_with_an_ocr_session_migrates_to_p0005_with_its_pages_to_clean(store, paths):
+    from lectern.projects.tables import ArtifactRow, OcrPageRow, OcrSessionRow
+
+    project = store.create(LOCAL_USER, "OCR before M3a")
+    with store.db(project).begin() as session:
+        source = ArtifactRow(
+            owner_id=LOCAL_USER.id,
+            path="scan.pdf",
+            kind="imported",
+            mime="application/pdf",
+            size=1,
+            sha256="0" * 64,
+            from_kind="import",
+        )
+        session.add(source)
+        ocr = SessionRow(owner_id=LOCAL_USER.id, kind="ocr", title="scan.pdf")
+        session.add(ocr)
+        session.flush()
+        session.add(
+            OcrSessionRow(
+                session_id=ocr.id,
+                source_artifact_id=source.id,
+                folder="scan",
+                status="done",
+                pages_total=1,
+            )
+        )
+        session.add(OcrPageRow(session_id=ocr.id, number=1, key="p001", status="done"))
+    store.dispose()
+    _migrate_to(project, "p0004")  # as a project made in M2b is
+    _migrate_to(project, "head")
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    with fresh.db(project)() as session:
+        page = session.scalars(select(OcrPageRow)).one()
+        ocr_row = session.scalars(select(OcrSessionRow)).one()
+    fresh.dispose()
+    assert (page.status, page.clean_status, page.reading, page.cleaned_reading) == (
+        "done",
+        "pending",
+        0,
+        0,
+    )
+    assert (ocr_row.document_version, ocr_row.document_artifact_id) == (0, None)

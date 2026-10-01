@@ -3,17 +3,26 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, ApiError } from "../api/client";
-import type { OcrModel, OcrPage, OcrSession } from "../api/types";
+import type { OcrModel, OcrPage, OcrSession, Tab } from "../api/types";
 import { ErrorNote } from "../components";
 import { ImagePreview } from "./file";
 import { ocrPath, useOcrEvents, type OcrLive } from "./ocr-api";
 
-type View = "split" | "scan" | "text";
-const VIEWS: View[] = ["split", "scan", "text"];
+type View = "split" | "scan" | "text" | "raw";
+const VIEWS: View[] = ["split", "scan", "text", "raw"];
+const DOUBT = /(⟦[^⟧]*⟧)/; // an open question as document.md marks it
 
 /** An OCR session in a tab: where its job stands, the pages on the left (30%), and the
  * selected page on the right (70%), its scan beside the text the model read. */
-export function OcrTab({ projectId, sessionId }: { projectId: number; sessionId: number }) {
+export function OcrTab({
+  projectId,
+  sessionId,
+  onOpen,
+}: {
+  projectId: number;
+  sessionId: number;
+  onOpen: (tab: Tab) => void;
+}) {
   const { t } = useTranslation();
   const base = ocrPath(projectId, sessionId);
   const session = useQuery({
@@ -35,7 +44,7 @@ export function OcrTab({ projectId, sessionId }: { projectId: number; sessionId:
 
   return (
     <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
-      <StatusStrip base={base} session={session.data} live={live} />
+      <StatusStrip base={base} session={session.data} live={live} onOpen={onOpen} />
       {session.data.pages.length === 0 ? (
         <p className="p-4 text-muted">{t("ocr.noPagesYet")}</p>
       ) : (
@@ -56,11 +65,23 @@ export function OcrTab({ projectId, sessionId }: { projectId: number; sessionId:
   );
 }
 
-function StatusStrip({ base, session, live }: { base: string; session: OcrSession; live: OcrLive }) {
+function StatusStrip({
+  base,
+  session,
+  live,
+  onOpen,
+}: {
+  base: string;
+  session: OcrSession;
+  live: OcrLive;
+  onOpen: (tab: Tab) => void;
+}) {
   const { t } = useTranslation();
   const pause = useMutation({ mutationFn: () => apiPost(`${base}/pause`) });
   const resume = useMutation({ mutationFn: () => apiPost(`${base}/resume`) });
   const read = session.pages.filter((p) => p.status === "done").length;
+  const cleaned = session.pages.filter((p) => p.clean_status === "done").length;
+  const document = session.document;
   const working = session.status === "running" || session.status === "queued";
   const error = pause.error ?? resume.error;
   return (
@@ -73,6 +94,23 @@ function StatusStrip({ base, session, live }: { base: string; session: OcrSessio
         <span className={live.phase === "recognise" ? "text-accent" : "text-muted"}>
           {t("ocr.phase.recognise", { done: read, total: session.pages_total })}
         </span>
+        <span className={live.phase === "clean" ? "text-accent" : "text-muted"}>
+          {t("ocr.phase.clean", { done: cleaned, total: session.pages_total })}
+        </span>
+        <span className={live.phase === "assemble" ? "text-accent" : "text-muted"}>
+          {t("ocr.phase.assemble")}
+        </span>
+        {document && (
+          <button
+            className="text-accent hover:underline"
+            onClick={() => onOpen({ kind: "artifact", id: document.artifact_id })}
+          >
+            {t("ocr.openDocument", { version: document.version })}
+          </button>
+        )}
+        {document && document.open_doubts > 0 && (
+          <span className="text-muted">{t("ocr.openQuestions", { count: document.open_doubts })}</span>
+        )}
         {live.waitingForChat && <span className="text-muted">{t("ocr.waitingForChat")}</span>}
         {session.status === "paused" && session.paused_reason && (
           <span className="text-muted">({session.paused_reason})</span>
@@ -121,6 +159,7 @@ function PageList({
             <span className="text-xs text-muted">
               {[
                 t(`ocr.pageStatus.${page.status}`),
+                page.status === "done" && t(`ocr.cleanStatus.${page.clean_status}`),
                 page.looped && t("ocr.flags.looped"),
                 page.cut_off && t("ocr.flags.cutOff"),
                 page.handwritten && t("ocr.flags.handwritten"),
@@ -175,31 +214,53 @@ function PageView({
       {page.error && <ErrorNote message={page.error} />}
       <PageTools projectId={projectId} base={base} page={page} jobRunning={jobRunning} />
       <div className={`grid min-h-0 gap-3 ${view === "split" ? "grid-cols-2" : ""}`}>
-        {view !== "text" && (
+        {(view === "split" || view === "scan") && (
           <ImagePreview url={`${base}/pages/${page.number}/image`} name={t("ocr.pageTitle", { number: page.number })} />
         )}
-        {view !== "scan" && <PageText base={base} page={page} />}
+        {view !== "scan" && <PageText base={base} page={page} raw={view === "raw"} />}
       </div>
     </div>
   );
 }
 
-function PageText({ base, page }: { base: string; page: OcrPage }) {
+/** The page's text: cleaned (as document.md writes it, open questions highlighted), or the
+ * raw OCR text, which also shows while the page isn't cleaned yet. */
+function PageText({ base, page, raw }: { base: string; page: OcrPage; raw: boolean }) {
   const { t } = useTranslation();
-  // Read again whenever the page's reading changes (another model, a re-read).
+  // Read again whenever the page's reading or cleanup changes.
   const text = useQuery({
-    queryKey: ["ocr-text", base, page.number, page.status, page.model_id, page.seconds],
-    queryFn: () => apiFetch<{ text: string | null }>(`${base}/pages/${page.number}/text`),
+    queryKey: ["ocr-text", base, page.number, page.status, page.model_id, page.seconds, page.clean_status],
+    queryFn: () =>
+      apiFetch<{ text: string | null; cleaned: string | null }>(`${base}/pages/${page.number}/text`),
   });
   if (text.isError) {
     return <ErrorNote message={text.error instanceof ApiError ? text.error.detail : t("common.loadFailed")} />;
   }
   if (!text.data) return <p className="text-muted">{t("common.loading")}</p>;
   if (text.data.text === null) return <p className="text-muted">{t("ocr.notReadYet")}</p>;
+  const cleaned = !raw && page.clean_status === "done" ? text.data.cleaned : null;
   return (
-    <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
-      {text.data.text}
-    </pre>
+    <div className="grid content-start gap-2">
+      {!raw && page.clean_status === "failed" && (
+        <ErrorNote message={t("ocr.cleanFailed", { error: page.clean_error ?? "" })} />
+      )}
+      {!raw && !cleaned && page.clean_status !== "failed" && (
+        <p className="text-xs text-muted">{t("ocr.notCleanedYet")}</p>
+      )}
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
+        {cleaned
+          ? cleaned.split(DOUBT).map((part, i) =>
+              DOUBT.test(part) ? (
+                <mark key={i} className="rounded bg-accent-soft px-0.5">
+                  {part}
+                </mark>
+              ) : (
+                part
+              ),
+            )
+          : text.data.text}
+      </pre>
+    </div>
   );
 }
 

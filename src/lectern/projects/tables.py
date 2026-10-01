@@ -177,6 +177,7 @@ class UiStateRow(ProjectBase):
 
 OCR_SESSION_STATUSES = ("queued", "running", "paused", "done", "failed")
 OCR_PAGE_STATUSES = ("pending", "recognising", "done", "failed")
+CLEAN_STATUSES = ("pending", "cleaning", "done", "failed")
 
 
 class OcrSessionRow(ProjectBase):
@@ -192,6 +193,10 @@ class OcrSessionRow(ProjectBase):
     paused_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     pages_total: Mapped[int] = mapped_column(Integer, default=0)  # 0 until rasterised
+    document_version: Mapped[int] = mapped_column(Integer, default=0)  # 0: none yet
+    document_artifact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("artifacts.id"), nullable=True
+    )  # its document.md
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -201,6 +206,7 @@ class OcrPageRow(ProjectBase):
     __tablename__ = "ocr_pages"
     __table_args__ = (
         CheckConstraint(one_of("status", OCR_PAGE_STATUSES), name="status"),
+        CheckConstraint(one_of("clean_status", CLEAN_STATUSES), name="clean_status"),
         UniqueConstraint("session_id", "number", name="uq_ocr_pages_session_number"),
     )
 
@@ -220,4 +226,19 @@ class OcrPageRow(ProjectBase):
     width: Mapped[int] = mapped_column(Integer, default=0)
     height: Mapped[int] = mapped_column(Integer, default=0)
     has_hint: Mapped[bool] = mapped_column(default=False)  # the PDF had a text layer here
+    reading: Mapped[int] = mapped_column(Integer, default=0)  # counts the page's readings
+    clean_status: Mapped[str] = mapped_column(String(16), default="pending")
+    clean_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cleaned_reading: Mapped[int] = mapped_column(Integer, default=0)  # the reading it cleaned
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ChunkLabelRow(ProjectBase):
+    """A chunk's own reference, beside its number in the full-text index: a Document's block
+    id ("b3.2"), so the chat cites #b3.2 where an ordinary file's chunk is #c3."""
+
+    __tablename__ = "artifact_chunk_labels"
+
+    artifact_id: Mapped[int] = mapped_column(ForeignKey("artifacts.id"), primary_key=True)
+    chunk: Mapped[int] = mapped_column(Integer, primary_key=True)
+    label: Mapped[str] = mapped_column(String(32))

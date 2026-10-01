@@ -201,7 +201,7 @@ SEARCH = AgentTool(
     name="project.search",
     description=(
         "Search the text of every file in this project. Returns file names and block "
-        "references such as #c3, not whole files."
+        "references such as #c3 (or #b3.2, a block of an OCR Document), not whole files."
     ),
     params=SearchParams,
     run=_search,
@@ -236,7 +236,8 @@ def _outline(ctx: ToolContext, params: OutlineParams) -> ToolResult:
 
 OUTLINE = AgentTool(
     name="document.outline",
-    description="Show a file's outline: its blocks (#c1, #c2…) with their headings.",
+    description="Show a file's outline: its blocks (#c1, #c2…, or #b1.1… in an OCR Document) "
+    "with their headings.",
     params=OutlineParams,
     run=_outline,
     max_tokens=1200,
@@ -247,7 +248,8 @@ class ReadParams(BaseModel):
     name: str = Field(min_length=1, description="The file's name, as in project.list.")
     refs: list[str] | None = Field(
         default=None,
-        description='Blocks to read, e.g. ["#c2", "#c3"]. Omit to read from the start.',
+        description='Blocks to read, e.g. ["#c2", "#c3"], or ["#b3.2"] in an OCR Document. '
+        "Omit to read from the start.",
     )
     heading: str | None = Field(default=None, description="Read the blocks under this heading.")
     cursor: str | None = Field(default=None, description="From a previous, cut-off result.")
@@ -258,9 +260,10 @@ def _read(ctx: ToolContext, params: ReadParams) -> ToolResult:
     chosen = chunks
     if params.refs:
         wanted = {r.strip().lstrip("#").lower() for r in params.refs}
-        chosen = [c for c in chunks if f"c{c.number}" in wanted]
+        chosen = [c for c in chunks if c.ref.lstrip("#").lower() in wanted]
         if not chosen:
-            raise ToolError(f"{row.path} has blocks #c1–#c{len(chunks)}; none of {params.refs}.")
+            span = f"{chunks[0].ref}–{chunks[-1].ref}"
+            raise ToolError(f"{row.path} has blocks {span}; none of {params.refs}.")
     elif params.heading:
         wanted_heading = params.heading.casefold()
         chosen = [c for c in chunks if wanted_heading in c.heading.casefold()]

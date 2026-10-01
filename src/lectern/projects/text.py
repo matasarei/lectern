@@ -32,15 +32,22 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 MIME_OVERRIDES = {".md": "text/markdown", ".markdown": "text/markdown", ".docx": DOCX_MIME}
 
 
+# A Document's block anchor in document.md: {#b3.2 p=3}, {#b3.3 p=3→4}, {#b3.4 p=3 figure}
+ANCHOR = re.compile(r"\{#((?:b|p)\d+(?:\.\d+)?) p=[\d→]+(?: [a-z]+)?\}")
+NOTE = re.compile(r"^> Note for page (\d+)")
+PAGE = re.compile(r"p=(\d+)")
+
+
 @dataclass(frozen=True)
 class Chunk:
-    number: int  # 1-based; the block reference is #c<number>
+    number: int  # 1-based; an ordinary file's block reference is #c<number>
     heading: str  # a Markdown heading, "Page 3", or ""
     body: str
+    label: str | None = None  # a Document's block id ("b3.2"), cited as #b3.2 instead
 
     @property
     def ref(self) -> str:
-        return f"#c{self.number}"
+        return f"#{self.label}" if self.label else f"#c{self.number}"
 
 
 @dataclass
@@ -74,6 +81,8 @@ def extract(path: Path) -> Extracted:
         text = _read_text(path)
         if text is None:
             return Extracted(note="not a text file")
+        if suffix in MARKDOWN_EXTENSIONS and ANCHOR.search(text):
+            return Extracted(chunks=_document_chunks(text[:TEXT_LIMIT]))
         return _limited(text, markdown=suffix in MARKDOWN_EXTENSIONS)
     return Extracted(note="no text to read in this kind of file")
 
@@ -98,6 +107,42 @@ def _limited(text: str, *, markdown: bool) -> Extracted:
         note = f"only the first {TEXT_LIMIT // (1024 * 1024)} MB of text is used"
     sections = _markdown_sections(text) if markdown else [("", text)]
     return Extracted(chunks=_number(_split(sections)), note=note)
+
+
+def _document_chunks(text: str) -> list[Chunk]:
+    """A Document's document.md, one chunk per block, labelled with the block's id so the
+    chat reads and cites it as #b3.2. What comes before the first block (the front matter) is
+    a chunk of its own, and each page note is one too (#note3). A block's section is the last
+    heading before it, or its page while there is none (a small model types few headings)."""
+    pieces: list[tuple[str, str, str | None]] = []  # heading, body, label
+    heading, label, lines = "About this document", None, []
+    titled = False  # a heading block seen yet
+
+    def flush() -> None:
+        if label or "".join(lines).strip():
+            pieces.append((heading, "\n".join(lines).strip(), label))
+
+    for line in text.splitlines():
+        anchor = ANCHOR.search(line)
+        note = NOTE.match(line)
+        if anchor and line.lstrip().startswith(("{#", "#")):
+            flush()
+            label = anchor.group(1)
+            rest = ANCHOR.sub("", line).strip()
+            if rest.startswith("#"):
+                heading, titled = rest.lstrip("#").strip(), True
+            elif not titled:
+                heading = f"Page {PAGE.search(anchor.group(0)).group(1)}"
+            lines = [rest] if rest else []
+        elif note:
+            flush()
+            label, lines = f"note{note.group(1)}", [line]
+            if not titled:
+                heading = f"Page {note.group(1)}"
+        else:
+            lines.append(line)
+    flush()
+    return [Chunk(i, h, b, lb) for i, (h, b, lb) in enumerate(pieces, start=1)]
 
 
 def _markdown_sections(text: str) -> list[tuple[str, str]]:

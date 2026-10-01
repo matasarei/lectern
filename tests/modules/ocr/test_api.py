@@ -68,7 +68,9 @@ def test_a_pdf_becomes_an_ocr_session_whose_pages_are_read(api):
     image = client.get(f"{url}/pages/2/image", headers=headers)
     assert image.headers["content-type"] == "image/png" and image.content[:4] == b"\x89PNG"
     text = client.get(f"{url}/pages/2/text", headers=headers).json()
-    assert text == {"number": 2, "model_id": "ocr-model", "text": "page 2 read by ocr-model"}
+    assert text["text"] == "page 2 read by ocr-model" and text["model_id"] == "ocr-model"
+    # The fake text runs on without a full stop, so assembly joins page 2 onto page 1.
+    assert text["cleaned"].startswith("{#b1.1 p=1→2} page 1 read by ocr-model page 2 read")
     items = client.get(f"/api/projects/{project.id}/items", headers=headers).json()
     assert {"id": session["id"], "kind": "ocr"}.items() <= next(
         s for s in items["sessions"] if s["id"] == session["id"]
@@ -182,3 +184,30 @@ def test_the_events_stream_follows_the_job(paths, tmp_path, free_port, live_serv
     kinds = [e["type"] for e in seen]
     assert "phase" in kinds and kinds.count("page") >= 2
     assert seen[-1]["status"] == "done"
+
+
+def test_a_finished_session_reports_and_serves_its_document(api):
+    client, headers, _, project, ids, _ = api
+    sid = _start(client, headers, project, ids["lease-scan.pdf"])
+    url = f"/api/projects/{project.id}/ocr/{sid}"
+    done = _until_done(client, headers, url)
+
+    assert done["document"]["version"] == 1 and done["document"]["open_doubts"] == 0
+    document = client.get(f"{url}/document", headers=headers).json()
+    assert document["schema"] == "lectern.document/1" and len(document["pages"]) == 3
+    items = client.get(f"/api/projects/{project.id}/items", headers=headers).json()
+    names = {a["id"]: a["name"] for a in items["artifacts"]}
+    assert names[done["document"]["artifact_id"]] == "lease-scan/document.md"
+
+
+def test_a_session_without_a_document_says_so(api, monkeypatch):
+    client, headers, app, project, ids, _ = api
+    from lectern.modules.ocr import store as ocr_store
+
+    db = app.state.projects.db(project)
+    source = ids["lease-scan.pdf"]
+    row, _ = ocr_store.create_session(project.root, db, owner_id=LOCAL_USER.id, artifact_id=source)
+    url = f"/api/projects/{project.id}/ocr/{row.id}"
+    assert client.get(url, headers=headers).json()["document"] is None
+    missing = client.get(f"{url}/document", headers=headers)
+    assert missing.status_code == 404 and "no Document yet" in missing.json()["detail"]

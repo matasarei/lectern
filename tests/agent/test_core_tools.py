@@ -246,3 +246,43 @@ def test_a_translation_of_the_persons_instruction_is_pinned_once_allowed(ctx):
         core_tools.PIN, ctx, text="Завжди відповідайте українською мовою.", kind="instruction"
     )
     assert result.text.startswith("Pinned (instruction): Завжди")
+
+
+DOCUMENT_MD = """---
+document: Lease 1998 · version 7
+source: lease-1998-scan.pdf · 12 pages
+open_questions: 1
+---
+
+> Note for page 3 (from you): The stamp is the landlord's.
+
+## 3. Орендна плата {#b3.1 p=3}
+
+{#b3.2 p=3} Оплата не пізніше ⟦1? | open | 10 · 15 · 18⟧ числа поточного місяця.
+
+{#b3.3 p=3→4} У разі прострочення нараховується пеня 0,5% за кожен день.
+
+{#b3.4 p=3 figure} [Image 1: stamp · no cut-out yet]
+"""
+
+
+def test_an_ocr_document_is_searched_and_read_by_its_block_ids(ctx):
+    add_file(ctx, "document.md", DOCUMENT_MD, folder="Lease 1998")
+
+    found = run(core_tools.SEARCH, ctx, query="прострочення пеня")
+    assert found.text.startswith("Lease 1998/document.md #b3.3 (3. Орендна плата): ")
+    outline = run(core_tools.OUTLINE, ctx, name="document.md").text
+    assert "#note3" in outline and "#b3.1 3. Орендна плата" in outline and "#b3.4" in outline
+
+    block = run(core_tools.READ, ctx, name="document.md", refs=["#b3.2"]).text
+    assert block == (
+        "[Lease 1998/document.md #b3.2 — 3. Орендна плата]\n"
+        "Оплата не пізніше ⟦1? | open | 10 · 15 · 18⟧ числа поточного місяця."
+    )
+    with pytest.raises(ToolError, match=r"has blocks #c1–#b3.4; none of \['#b9.9'\]"):
+        run(core_tools.READ, ctx, name="document.md", refs=["#b9.9"])
+
+
+def test_an_ordinary_markdown_file_keeps_its_c_refs(ctx):
+    add_file(ctx, "notes.md", "# A\nплата {не блок}\n\n# B\nпеня")
+    assert run(core_tools.SEARCH, ctx, query="пеня").refs[0]["ref"] == "#c2"
