@@ -346,6 +346,8 @@ class OcrJobs:
 
     async def _assemble(self, project: Project, db, ocr: OcrSessionRow) -> bool:  # noqa: ANN001
         key = (project.id, ocr.session_id)
+        if key in self._only:  # one page of a paused session: Resume assembles them all
+            return True
         self._publish(key, {"type": "phase", "phase": "assemble"})
 
         def build() -> OcrSessionRow:

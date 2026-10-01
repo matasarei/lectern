@@ -379,6 +379,7 @@ def test_reading_one_page_of_a_paused_session_leaves_it_paused(store, tmp_path):
     assert [(p.status, p.model_id) for p in pages] == [
         ("done", "qwen3-vl-8b"), ("pending", None), ("pending", None)
     ]  # fmt: skip
+    assert paused.document_version == 0  # no Document of unread pages: Resume assembles it
 
 
 def test_a_session_is_never_shown_queued_after_its_job_started(store, tmp_path, monkeypatch):
