@@ -331,6 +331,9 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
     text instead of this page's. A bare page number isn't put back: leaving it out was right."""
     blocks = list(page.blocks)
     covered = [_block_words(b) for b in blocks]
+    # Words the model corrected aren't missing: "0плата" is in the blocks as "Оплата". Only
+    # corrections count; what was left out (after "") is exactly what may need putting back.
+    corrected = set().union(*(_words(f.before) for f in page.fixes if f.after.strip()))
     fixes = list(page.fixes)
     insert_at, missing = 0, []
 
@@ -351,7 +354,7 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
         if not words:
             continue
         shared = [len(words & w) / len(words) for w in covered]
-        if len(words & set().union(*covered)) / len(words) < ON_PAGE:
+        if len(words & (set().union(*covered) | corrected)) / len(words) < ON_PAGE:
             if not PAGE_NUMBER.match(line):
                 missing.append(line.strip())
             continue

@@ -231,6 +231,16 @@ def test_lines_mostly_missing_are_put_back_line_by_line():
     assert [b.text for b in page.blocks][1] == "New set of pedal arms\nLabor 3hrs"
 
 
+def test_a_line_the_model_corrected_isnt_put_back():
+    reply = {
+        "blocks": [{"type": "heading", "level": 2, "text": "Оплата"},
+                   {"type": "paragraph", "text": "До 10 числа."}],
+        "doubts": [], "fixes": [{"before": "0плaтa", "after": "Оплата", "why": "a zero for O"}],
+    }  # fmt: skip
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, "0плaтa\nДо 10 числа."))
+    assert [b.text for b in page.blocks] == ["Оплата", "До 10 числа."]
+
+
 def test_a_caption_kept_as_a_figure_label_isnt_put_back_as_text():
     raw = "Siemens Star Panel\nDirectional blur"
     reply = {"blocks": [{"type": "figure", "label": "Siemens Star Panel"},
