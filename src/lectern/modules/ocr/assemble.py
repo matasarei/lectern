@@ -161,6 +161,12 @@ def _add_ocr_doubts(block: Block, unsure: list[str], counter: _Counter) -> None:
     block.doubts += doubts
 
 
+def _page_number(block: Block) -> bool:
+    """A bare page number, whatever the model called it: a small model has typed "стор. 2 з 3"
+    as a signature or a stamp."""
+    return block.type not in ("table", "figure") and PAGE_NUMBER.match(block.text) is not None
+
+
 def _running_candidate(block: Block) -> bool:
     return (
         block.type in ("paragraph", "heading")
@@ -186,7 +192,7 @@ def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
             if not blocks:
                 continue
             block = blocks[edge]
-            numbered = block.type == "paragraph" and PAGE_NUMBER.match(block.text) is not None
+            numbered = _page_number(block)
             # A page's only block is its content, however alike the pages are.
             repeated = (
                 len(blocks) > 1
@@ -197,7 +203,7 @@ def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
                 blocks.pop(edge)
     for blocks in per_page.values():  # a number left at an edge after a header went
         for edge in (0, -1):
-            if blocks and blocks[edge].type == "paragraph" and PAGE_NUMBER.match(blocks[edge].text):
+            if blocks and _page_number(blocks[edge]):
                 blocks.pop(edge)
 
 

@@ -174,3 +174,23 @@ def test_a_table_given_as_text_is_read_into_rows_and_still_merges_across_pages()
     (table,) = assemble("L", "l.pdf", [first, second]).blocks
     assert table.rows == [["Період", "Сума, грн"], ["березень 1998", "250,00"], ["Разом", "750,00"]]
     assert table.pages == [1, 2]
+
+
+def test_a_page_number_the_model_called_a_signature_is_dropped_and_the_break_joins():
+    doc = assemble(
+        "L",
+        "l.pdf",
+        [
+            _page(
+                2,
+                para("пеню у розмірі 0,5% від суми заборго-"),
+                CleanBlock(type="signature", text="стор. 2 з 3"),
+            ),
+            _page(
+                3, CleanBlock(type="stamp", text="- 3 -"), para("ваності, включно з днем оплати.")
+            ),
+        ],
+    )
+    (block,) = doc.blocks
+    assert block.text == "пеню у розмірі 0,5% від суми заборгованості, включно з днем оплати."
+    assert block.pages == [2, 3]
