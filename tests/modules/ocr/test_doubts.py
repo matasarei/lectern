@@ -5,11 +5,11 @@ from lectern.modules.ocr.doubts import mark_unsure, ocr_doubts, unsure_words
 
 def test_unsure_tokens_are_grouped_into_the_words_they_belong_to():
     tokens = [
-        ("Оп", -0.01), ("лата", -0.02), (" до", -0.1), (" 1", -0.05), ("5", -2.4),
-        (" числа", -0.01), (",", -0.01), (" Хр", -0.01), ("е", -1.7), ("щатик", -0.02), (".", -0.3),
+        ("Оп", -0.01), ("лата", -0.02), (" до", -0.1), (" 1", -0.05), ("5", -4.4),
+        (" числа", -0.01), (",", -0.01), (" Хр", -0.01), ("е", -3.7), ("щатик", -0.02), (".", -0.3),
     ]  # fmt: skip
     assert unsure_words(tokens) == ["15", "Хрещатик"]  # the punctuation stays out
-    assert unsure_words(tokens, threshold=-3.0) == []
+    assert unsure_words(tokens, threshold=-5.0) == []
 
 
 def test_a_reading_without_logprobs_has_no_unsure_words():

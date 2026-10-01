@@ -72,14 +72,26 @@ def test_an_invalid_reply_is_asked_for_again_once():
     "bad",
     [
         "{not json",
-        json.dumps({**GOOD, "doubts": [{"block": 9, "raw": "1?"}]}),  # no such block
-        json.dumps({**GOOD, "doubts": [{"block": 0, "raw": "1?"}]}),  # not in that block's text
         json.dumps({"blocks": [{"type": "poem", "text": "x"}], "doubts": [], "fixes": []}),
     ],
 )
 def test_a_reply_still_invalid_after_the_retry_fails_the_page(bad: str):
     with pytest.raises(CleanFailed, match="wasn't valid, twice"):
         _clean(_client(bad, bad))
+
+
+@pytest.mark.parametrize("block", [0, 9])  # another block; no such block
+def test_a_doubt_in_the_wrong_block_moves_to_the_block_holding_its_text(block: int):
+    reply = {**GOOD, "doubts": [{"block": block, "raw": "⟨1??⟩", "candidates": ["10"]}]}
+    (doubt,) = _clean(_client(json.dumps(reply))).doubts
+    assert (doubt.block, doubt.raw) == (1, "1?")  # its mark taken off too
+
+
+def test_a_doubt_no_block_holds_is_dropped_and_said_so():
+    reply = {**GOOD, "doubts": [{"block": 1, "raw": "15", "reason": "smudged"}]}
+    page = _clean(_client(json.dumps(reply)))
+    assert page.doubts == []
+    assert page.fixes[-1].why.startswith("Doubt dropped: '15' isn't in the page's text.")
 
 
 def test_a_doubt_may_sit_in_a_table_cell():

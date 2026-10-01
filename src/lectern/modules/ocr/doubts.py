@@ -1,7 +1,7 @@
 """Words the OCR model wasn't sure of, from the log-probabilities of its tokens.
 
 A word counts as unsure when any token in it is less likely than LOW_CONFIDENCE (a natural
-log: -1.0 is about a 37% chance). Unsure words are marked in the text cleanup reads, so the
+log: -3.0 is about a 5% chance). Unsure words are marked in the text cleanup reads, so the
 model weighs them; a marked word still in a block afterwards becomes a doubt of its own
 (source "ocr"). A reading with no log-probabilities (a runner that doesn't give them) has no
 unsure words: its doubts come from cleanup alone.
@@ -14,7 +14,11 @@ from collections.abc import Callable
 
 from lectern.modules.ocr.document import Doubt
 
-LOW_CONFIDENCE = -1.0  # tuned on real pages in M3a's acceptance run
+# Tuned in M3a's acceptance run (12 pages, 1017 words, 3 misread): PaddleOCR-VL's misreads sat
+# between -1.0 and -0.5, among many words it read right, and cleanup doubted all three on its
+# own. A mark there only made it echo correct words as doubts; only a far less likely word
+# (a bad scan, handwriting) is worth one.
+LOW_CONFIDENCE = -3.0
 WORD = re.compile(r"\S+")
 EDGE = re.compile(r"^[\W_]+|[\W_]+$")  # punctuation around a word, kept out of it
 OCR_REASON = "The OCR model wasn't sure of this word."

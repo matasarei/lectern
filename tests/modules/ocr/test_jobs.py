@@ -505,7 +505,7 @@ def test_unsure_ocr_words_are_marked_for_cleanup_and_become_doubts_if_kept(store
         real = ocr_store.save_reading
 
         def with_tokens(root, db, ocr, page_id, *, model_id, reading):  # noqa: ANN001, ANN202
-            tokens = [("Сума", -0.1), (" 250", -2.5), (",00", -0.1), (" грн", -0.1)]
+            tokens = [("Сума", -0.1), (" 250", -4.5), (",00", -0.1), (" грн", -0.1)]
             return real(root, db, ocr, page_id, model_id=model_id,
                         reading=replace(reading, tokens=tokens))  # fmt: skip
 

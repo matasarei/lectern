@@ -124,6 +124,18 @@ def test_an_unsure_ocr_word_left_in_the_text_becomes_a_doubt_after_cleanups_own(
     assert cells.rows[1] == ["{d2.3}"]
 
 
+def test_an_unsure_ocr_word_cleanup_already_doubted_isnt_doubted_twice():
+    doc = assemble(
+        "L",
+        "l.pdf",
+        [_page(1, para("UNIT PRICE, UNIT COST"), doubts=[CleanDoubt(block=0, raw="UNIT")],
+               unsure=["UNIT"])],
+    )  # fmt: skip
+    (block,) = doc.blocks
+    assert block.text == "{d1.1} PRICE, UNIT COST"
+    assert [d.source for d in block.doubts] == ["clean"]
+
+
 def test_a_page_that_failed_cleanup_is_a_placeholder_and_the_rest_is_assembled():
     failed = PageInput(n=2, image="pages/p002.png", size=(10, 10), failed="the reply wasn't valid")
     doc = assemble("L", "l.pdf", [_page(1, para("Перша.")), failed, _page(3, para("Третя."))])

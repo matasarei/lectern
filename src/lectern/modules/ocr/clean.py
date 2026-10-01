@@ -3,8 +3,9 @@
 The main model gets the page's raw OCR text (unsure words marked ⟨word?⟩), the page's note,
 and the edges of the pages either side, and answers in JSON that follows a schema: the page's
 blocks, every fix it made with the reason, and the doubts it has, each with candidate readings.
-llama-server turns the schema into a grammar; the reply is still checked, and a reply that
-doesn't fit is asked for once more before the page is marked failed.
+llama-server turns the schema into a grammar; a reply that still doesn't fit it is asked for once
+more before the page is marked failed. A doubt the model put in the wrong block is moved, not
+failed.
 """
 
 from __future__ import annotations
@@ -40,7 +41,8 @@ Return the page as structured blocks, in reading order:
 - Words marked ⟨word?⟩ are ones the OCR model was unsure of: remove the mark, and if you
   can't tell what the page says, keep the word as it is and add a doubt.
 - A doubt is text you can't be sure of. Give it exactly as it appears in the block's text,
-  the readings it could be, and why. Never guess silently: an unsure number is a doubt.
+  each reading it could be in "candidates", and why. Never guess silently: an unsure number
+  is a doubt. A marked word that reads clearly in its context is not a doubt.
 - The previous and next pages are given only so you can see words and tables that cross the
   page break. Never copy their text into this page's blocks.
 - Keep every line of this page, including text at its top that continues a sentence from
@@ -164,8 +166,7 @@ async def clean_page(
         reply = await _ask(client, messages)
         try:
             page = CleanedPage.model_validate_json(reply)
-            _check(page)
-            page = keep_this_page(_tidy_fixes(page), raw, before + "\n" + after)
+            page = keep_this_page(_place_doubts(_tidy_fixes(page)), raw, before + "\n" + after)
             return restore_missing_lines(restore_lookalikes(page, raw), raw)
         except (ValidationError, ValueError) as exc:
             problem = str(exc).splitlines()[0]
@@ -233,15 +234,26 @@ def _tidy_fixes(page: CleanedPage) -> CleanedPage:
     return page.model_copy(update={"fixes": fixes})
 
 
-def _check(page: CleanedPage) -> None:
-    """What a schema can't say: every doubt points at a block that holds its text."""
+UNSURE_MARK = re.compile(r"⟨([^⟨⟩]*?)\??⟩")
+
+
+def _place_doubts(page: CleanedPage) -> CleanedPage:
+    """What a schema can't say: every doubt points at a block that holds its text. A small
+    model often names the wrong block, or keeps the ⟨word?⟩ mark in the doubt; a page isn't
+    failed for that. The doubt moves to the first block that holds its text; one no block
+    holds is dropped and listed as a fix, so it isn't lost silently."""
+    texts = [b.text + "\n" + "\n".join(" ".join(r) for r in b.rows or []) for b in page.blocks]
+    doubts, fixes = [], list(page.fixes)
     for doubt in page.doubts:
-        if doubt.block >= len(page.blocks):
-            raise ValueError(f"a doubt points at block {doubt.block}, which doesn't exist")
-        block = page.blocks[doubt.block]
-        cells = " ".join(" ".join(row) for row in block.rows or [])
-        if doubt.raw not in block.text and doubt.raw not in cells:
-            raise ValueError(f"the doubt {doubt.raw!r} isn't in block {doubt.block}'s text")
+        raw = UNSURE_MARK.sub(r"\1", doubt.raw).strip()
+        named = [doubt.block] if doubt.block < len(texts) else []
+        holder = next((i for i in named + list(range(len(texts))) if raw and raw in texts[i]), None)
+        if holder is None:
+            why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
+            fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))
+        else:
+            doubts.append(doubt.model_copy(update={"block": holder, "raw": raw}))
+    return CleanedPage(blocks=page.blocks, doubts=doubts, fixes=fixes)
 
 
 async def _ask(client: httpx2.AsyncClient, messages: list[dict]) -> str:

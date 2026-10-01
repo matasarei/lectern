@@ -144,6 +144,7 @@ def _place(block: Block, raw: str, doubt_id: str) -> bool:
 
 
 def _add_ocr_doubts(block: Block, unsure: list[str], counter: _Counter) -> None:
+    unsure = [w for w in unsure if w not in {d.raw for d in block.doubts}]  # cleanup's own
     if not unsure or block.type in ("figure", "stamp"):
         return
     block.text, doubts = ocr_doubts(block.text, unsure, counter.take)
