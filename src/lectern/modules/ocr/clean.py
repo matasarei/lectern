@@ -191,7 +191,8 @@ def _words(text: str) -> set[str]:
 
 
 def _block_words(block: CleanBlock) -> set[str]:
-    return _words(block.text + " " + " ".join(" ".join(r) for r in block.rows or []))
+    cells = " ".join(" ".join(r) for r in block.rows or [])
+    return _words(f"{block.text} {cells} {block.label or ''}")
 
 
 def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
@@ -319,10 +320,11 @@ def restore_lookalikes(page: CleanedPage, raw: str) -> CleanedPage:
 
 
 def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
-    """Put back a line of the page that the model left out altogether: none of its words (of 3
-    letters or more) is in any block. It goes after the block holding the line before it, or
-    first. A small model has dropped the top of a page as 'belonging to the previous page'.
-    A bare page number isn't put back: leaving it out was right."""
+    """Put back a line of the page that the model left out: fewer than ON_PAGE of its words (of
+    3 letters or more) are in the blocks. It goes after the block holding the line before it,
+    or first; lines left out together form one block, line by line. A small model has dropped
+    the top of a page as 'belonging to the previous page', and has answered with a neighbour's
+    text instead of this page's. A bare page number isn't put back: leaving it out was right."""
     blocks = list(page.blocks)
     covered = [_block_words(b) for b in blocks]
     fixes = list(page.fixes)
@@ -331,7 +333,7 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
     def flush() -> None:
         nonlocal insert_at
         if missing:
-            text = " ".join(missing)
+            text = "\n".join(missing)
             blocks.insert(insert_at, CleanBlock(type="paragraph", text=text))
             covered.insert(insert_at, _words(text))
             fixes.append(
@@ -345,7 +347,7 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
         if not words:
             continue
         shared = [len(words & w) / len(words) for w in covered]
-        if not any(shared):
+        if len(words & set().union(*covered)) / len(words) < ON_PAGE:
             if not PAGE_NUMBER.match(line):
                 missing.append(line.strip())
             continue

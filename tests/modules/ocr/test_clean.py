@@ -182,7 +182,7 @@ def test_a_line_the_model_left_out_is_put_back_where_it_was():
 
 def test_a_put_back_line_follows_the_block_that_holds_the_line_before_it():
     raw = (
-        "ДОГОВІР ОРЕНДИ № 7 від 01.03.1998\n"  # header, left out: shares only "договір"
+        "ДОГОВІР ОРЕНДИ № 7 від 01.03.1998\n"  # header: shares only "договір" with a block
         "5. Строк дії\n"
         "Договір діє до 31 грудня 1999 року.\n"
         "Орендодавець ____ Орендар ____\n"
@@ -201,11 +201,35 @@ def test_a_put_back_line_follows_the_block_that_holds_the_line_before_it():
     page = asyncio.run(clean_page(_client(json.dumps(reply)), 3, raw))
 
     assert [b.text for b in page.blocks] == [
+        "ДОГОВІР ОРЕНДИ № 7 від 01.03.1998",  # put back first; assembly drops running headers
         "5. Строк дії",
         "Договір діє до 31 грудня 1999 року.",
         "Орендодавець ____ Орендар ____",
         "Підписано у двох примірниках.",  # last, not after the first "Орендар"
-    ]  # the header shares a word, so it isn't missing; the page number isn't put back
+    ]  # and the page number isn't put back
+
+
+def test_lines_mostly_missing_are_put_back_line_by_line():
+    raw = "East Repair Inc.\nNew York, NY 12210\nNew set of pedal arms\nLabor 3hrs\nTotal 154.06"
+    reply = {  # the model kept two lines; "New" and "York" don't make the next ones present
+        "blocks": [
+            {"type": "paragraph", "text": "East Repair Inc.\nNew York, NY 12210"},
+            {"type": "paragraph", "text": "Total 154.06"},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, raw))
+    assert [b.text for b in page.blocks][1] == "New set of pedal arms\nLabor 3hrs"
+
+
+def test_a_caption_kept_as_a_figure_label_isnt_put_back_as_text():
+    raw = "Siemens Star Panel\nDirectional blur"
+    reply = {"blocks": [{"type": "figure", "label": "Siemens Star Panel"},
+                        {"type": "paragraph", "text": "Directional blur"}],
+             "doubts": [], "fixes": []}  # fmt: skip
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 4, raw))
+    assert [b.type for b in page.blocks] == ["figure", "paragraph"]
 
 
 def test_a_fix_that_changed_nothing_is_dropped_and_a_long_reason_cut():
