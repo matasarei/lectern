@@ -82,9 +82,10 @@ def test_a_reply_still_invalid_after_the_retry_fails_the_page(bad: str):
 
 @pytest.mark.parametrize("block", [0, 9])  # another block; no such block
 def test_a_doubt_in_the_wrong_block_moves_to_the_block_holding_its_text(block: int):
-    reply = {**GOOD, "doubts": [{"block": block, "raw": "⟨1??⟩", "candidates": ["10"]}]}
-    (doubt,) = _clean(_client(json.dumps(reply))).doubts
+    doubts = [{"block": block, "raw": "⟨1??⟩", "candidates": ["10", "10 ", "15"]}]
+    (doubt,) = _clean(_client(json.dumps({**GOOD, "doubts": doubts}))).doubts
     assert (doubt.block, doubt.raw) == (1, "1?")  # its mark taken off too
+    assert doubt.candidates == ["10", "15"]  # each reading once
 
 
 def test_a_doubt_no_block_holds_is_dropped_and_said_so():

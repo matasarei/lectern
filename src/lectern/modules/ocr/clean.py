@@ -241,7 +241,8 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
     """What a schema can't say: every doubt points at a block that holds its text. A small
     model often names the wrong block, or keeps the ⟨word?⟩ mark in the doubt; a page isn't
     failed for that. The doubt moves to the first block that holds its text; one no block
-    holds is dropped and listed as a fix, so it isn't lost silently."""
+    holds is dropped and listed as a fix, so it isn't lost silently. A reading given twice is
+    kept once."""
     texts = [b.text + "\n" + "\n".join(" ".join(r) for r in b.rows or []) for b in page.blocks]
     doubts, fixes = [], list(page.fixes)
     for doubt in page.doubts:
@@ -252,7 +253,10 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
             why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
             fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))
         else:
-            doubts.append(doubt.model_copy(update={"block": holder, "raw": raw}))
+            candidates = list(dict.fromkeys(c.strip() for c in doubt.candidates if c.strip()))
+            doubts.append(
+                doubt.model_copy(update={"block": holder, "raw": raw, "candidates": candidates})
+            )
     return CleanedPage(blocks=page.blocks, doubts=doubts, fixes=fixes)
 
 
