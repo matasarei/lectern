@@ -9,6 +9,7 @@ belong to the session: they aren't listed as project files.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 from dataclasses import asdict
@@ -257,3 +258,20 @@ def publish_document(
 def load_document(root: Path, ocr: OcrSessionRow) -> Document | None:
     path = files.inside(root, ocr.folder) / DOCUMENT_JSON
     return Document.from_json(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def open_doubt_count(root: Path, ocr: OcrSessionRow) -> int:
+    """How many of the Document's questions are open. The session is read on every event the
+    tab gets, so the count is kept until document.json changes."""
+    path = files.inside(root, ocr.folder) / DOCUMENT_JSON
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return 0
+    return _open_doubts(str(path), stat.st_mtime_ns, stat.st_size)
+
+
+@functools.lru_cache(maxsize=64)
+def _open_doubts(path: str, _mtime_ns: int, _size: int) -> int:
+    document = Document.from_json(Path(path).read_text(encoding="utf-8"))
+    return len(document.open_doubts())

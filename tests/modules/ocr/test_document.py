@@ -101,3 +101,25 @@ def test_a_page_that_couldnt_be_cleaned_shows_a_placeholder():
         ],
     )
     assert "{#p1 p=1} [Page 1 wasn't cleaned: the reply wasn't valid]" in render_markdown(doc)
+
+
+def test_the_open_question_count_follows_a_new_document_json(tmp_path):
+    import os
+
+    from lectern.modules.ocr.store import DOCUMENT_JSON, open_doubt_count
+    from lectern.projects.tables import OcrSessionRow
+
+    ocr = OcrSessionRow(folder="lease")
+    path = tmp_path / "lease" / DOCUMENT_JSON
+    assert open_doubt_count(tmp_path, ocr) == 0  # no Document yet
+
+    path.parent.mkdir()
+    doc = _lease()
+    path.write_text(doc.to_json(), encoding="utf-8")
+    assert open_doubt_count(tmp_path, ocr) == 1
+
+    doc.blocks[2].doubts[0].status = "resolved"  # d1, as M3b's review does
+    path.write_text(doc.to_json(), encoding="utf-8")
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+    assert open_doubt_count(tmp_path, ocr) == 0

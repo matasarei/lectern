@@ -87,11 +87,10 @@ def _document_summary(request: Request, project: Project, ocr: OcrSessionRow) ->
     """The Document's version, its document.md file, and how many questions are open."""
     if not ocr.document_version:
         return None
-    document = ocr_store.load_document(project.root, ocr)
     return {
         "version": ocr.document_version,
         "artifact_id": ocr.document_artifact_id,
-        "open_doubts": len(document.open_doubts()) if document else 0,
+        "open_doubts": ocr_store.open_doubt_count(project.root, ocr),
     }
 
 
