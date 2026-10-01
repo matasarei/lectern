@@ -6,7 +6,7 @@ import json
 import httpx2
 import pytest
 
-from lectern.modules.ocr.clean import CLEAN_PROMPT, CleanFailed, clean_page
+from lectern.modules.ocr.clean import CLEAN_PROMPT, WHY_CHARS, CleanFailed, clean_page
 
 GOOD = {
     "blocks": [
@@ -118,9 +118,10 @@ def test_a_block_copied_from_a_neighbouring_page_is_left_out_and_said_so():
     assert [b.text for b in page.blocks] == [
         "ваності, включно з днем оплати.",
         "4. Права та обов'язки",
+        "Орендар утримує приміщення.",  # left out by the model, put back
     ]
     assert page.doubts[0].block == 1  # renumbered with the blocks
-    assert page.fixes[-1].why == "Left out: it's on a neighbouring page, not this one."
+    assert "Left out: it's on a neighbouring page, not this one." in [f.why for f in page.fixes]
 
 
 def test_a_cleaned_block_with_fixes_is_still_this_pages():
@@ -134,3 +135,75 @@ def test_a_cleaned_block_with_fixes_is_still_this_pages():
         clean_page(_client(json.dumps(reply)), 1, raw, before="Інша сторінка, інший текст.")
     )
     assert len(page.blocks) == 1
+
+
+def test_a_letter_swapped_for_a_lookalike_goes_back_to_the_ocr_reading():
+    raw = "травень 1998 250,00"
+    reply = {
+        "blocks": [{"type": "table", "rows": [["tравень 1998", "250,00"]]}],
+        "doubts": [],
+        "fixes": [],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 2, raw))
+    assert page.blocks[0].rows[0][0] == "травень 1998"  # Cyrillic т, as on the page
+
+
+def test_a_line_the_model_left_out_is_put_back_where_it_was():
+    raw = "ваності, включно з днем оплати.\n4. Права та обов'язки\nОрендар утримує приміщення."
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "4. Права та обов'язки"},
+            {"type": "paragraph", "text": "Орендар утримує приміщення."},
+        ],
+        "doubts": [{"block": 1, "raw": "утримує"}],
+        "fixes": [
+            {"before": "ваності, включно з днем оплати.", "after": "", "why": "previous page"}
+        ],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 3, raw))
+
+    assert [b.text for b in page.blocks][0] == "ваності, включно з днем оплати."
+    assert page.doubts[0].block == 2  # moved with its block
+    assert page.fixes[-1].why == "Kept: the cleanup left this line out."
+
+
+def test_a_put_back_line_follows_the_block_that_holds_the_line_before_it():
+    raw = (
+        "ДОГОВІР ОРЕНДИ № 7 від 01.03.1998\n"  # header, left out: shares only "договір"
+        "5. Строк дії\n"
+        "Договір діє до 31 грудня 1999 року.\n"
+        "Орендодавець ____ Орендар ____\n"
+        "Підписано у двох примірниках.\n"
+        "стор. 3 з 3"
+    )
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "5. Строк дії"},
+            {"type": "paragraph", "text": "Договір діє до 31 грудня 1999 року."},
+            {"type": "signature", "text": "Орендодавець ____ Орендар ____"},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 3, raw))
+
+    assert [b.text for b in page.blocks] == [
+        "5. Строк дії",
+        "Договір діє до 31 грудня 1999 року.",
+        "Орендодавець ____ Орендар ____",
+        "Підписано у двох примірниках.",  # last, not after the first "Орендар"
+    ]  # the header shares a word, so it isn't missing; the page number isn't put back
+
+
+def test_a_fix_that_changed_nothing_is_dropped_and_a_long_reason_cut():
+    raw = "Оплата до 10 числа."
+    reply = {
+        "blocks": [{"type": "paragraph", "text": "Оплата до 10 числа."}],
+        "doubts": [],
+        "fixes": [
+            {"before": "Оплата", "after": "Оплата", "why": "no change"},
+            {"before": "0плата", "after": "Оплата", "why": "x" * 5000},
+        ],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, raw))
+    assert [(f.before, len(f.why)) for f in page.fixes] == [("0плата", WHY_CHARS)]

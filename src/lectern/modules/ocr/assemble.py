@@ -16,17 +16,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from lectern.modules.ocr.clean import CleanBlock, CleanedPage
+from lectern.modules.ocr.clean import PAGE_NUMBER, CleanBlock, CleanedPage
 from lectern.modules.ocr.document import Block, Document, Doubt, PageInfo, Source
 from lectern.modules.ocr.doubts import ocr_doubts
 
-PAGE_NUMBER = re.compile(
-    r"""^\s*[-–—]?\s*
-        (?:(?:page|стор\.?|сторінка|с\.)\s*)?   # "Page 3", "стор. 3"
-        \d+\s*(?:(?:/|of|з|із)\s*\d+)?          # "3", "3 / 12", "3 of 12"
-        \s*[-–—]?\s*$""",
-    re.I | re.X,
-)
 DIGITS = re.compile(r"\d+")
 NO_MERGE = re.compile(r"\b(?:don'?t|do not|never)\s+merge\b|не\s+об['’]?єдну", re.I)
 SENTENCE_END = re.compile(r"[.!?:;…»\"')\]]\s*$")
