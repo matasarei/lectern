@@ -161,3 +161,16 @@ def test_a_long_repeated_paragraph_is_never_taken_for_a_running_line():
 def test_a_page_never_loses_its_only_block_to_a_running_line():
     doc = assemble("L", "l.pdf", [_page(n, para(f"Форма {n} заповнена.")) for n in (1, 2, 3)])
     assert [b.id for b in doc.blocks] == ["b1.1", "b2.1", "b3.1"]
+
+
+def test_a_table_given_as_text_is_read_into_rows_and_still_merges_across_pages():
+    first = _page(
+        1, CleanBlock(type="table", text="Період        Сума, грн\nберезень 1998   250,00")
+    )
+    second = _page(
+        2, CleanBlock(type="table", text="| Період | Сума, грн |\n|---|---|\n| Разом | 750,00 |")
+    )
+
+    (table,) = assemble("L", "l.pdf", [first, second]).blocks
+    assert table.rows == [["Період", "Сума, грн"], ["березень 1998", "250,00"], ["Разом", "750,00"]]
+    assert table.pages == [1, 2]

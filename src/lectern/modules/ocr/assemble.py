@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from lectern.modules.ocr.clean import CleanedPage
+from lectern.modules.ocr.clean import CleanBlock, CleanedPage
 from lectern.modules.ocr.document import Block, Document, Doubt, PageInfo, Source
 from lectern.modules.ocr.doubts import ocr_doubts
 
@@ -31,6 +31,7 @@ DIGITS = re.compile(r"\d+")
 NO_MERGE = re.compile(r"\b(?:don'?t|do not|never)\s+merge\b|не\s+об['’]?єдну", re.I)
 SENTENCE_END = re.compile(r"[.!?:;…»\"')\]]\s*$")
 LEFT_MARK = re.compile(r"⟨([^⟨⟩]+)\?⟩")  # an unsure-word mark cleanup should have removed
+CELL_GAP = re.compile(r"\s{2,}|\t")
 REPEATS = 3  # a line at the top or bottom of this many pages is a running header or footer
 RUNNING_LINE_CHARS = 100  # a running header or footer is a short line, never a paragraph
 
@@ -102,8 +103,8 @@ def _blocks(page: PageInput, counter: _Counter) -> list[Block]:
             page=page.n,
             level=b.level if b.type == "heading" else None,
             text=LEFT_MARK.sub(r"\1", b.text),
-            rows=[[LEFT_MARK.sub(r"\1", c) for c in row] for row in b.rows]
-            if b.type == "table" and b.rows
+            rows=[[LEFT_MARK.sub(r"\1", c) for c in row] for row in _rows(b)]
+            if b.type == "table"
             else None,
             label=b.label if b.type in ("figure", "stamp") else None,
         )
@@ -118,6 +119,21 @@ def _blocks(page: PageInput, counter: _Counter) -> list[Block]:
             Doubt(id=doubt_id, raw=doubt.raw, candidates=doubt.candidates, reason=doubt.reason)
         )
     return blocks
+
+
+def _rows(block: CleanBlock) -> list[list[str]]:
+    """A table's rows. A small model sometimes puts a table's text in `text` instead: its
+    lines are rows, split into cells on "|" or on runs of two or more spaces."""
+    if block.rows:
+        return block.rows
+    rows = []
+    for line in block.text.splitlines():
+        line = line.strip().strip("|")
+        if not line or set(line) <= set("-|: "):
+            continue  # blank, or a Markdown rule (|---|---|)
+        cells = line.split("|") if "|" in line else CELL_GAP.split(line)
+        rows.append([c.strip() for c in cells])
+    return rows
 
 
 def _place(block: Block, raw: str, doubt_id: str) -> bool:
