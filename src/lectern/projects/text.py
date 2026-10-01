@@ -35,6 +35,7 @@ MIME_OVERRIDES = {".md": "text/markdown", ".markdown": "text/markdown", ".docx":
 # A Document's block anchor in document.md: {#b3.2 p=3}, {#b3.3 p=3→4}, {#b3.4 p=3 figure}
 ANCHOR = re.compile(r"\{#((?:b|p)\d+(?:\.\d+)?) p=[\d→]+(?: [a-z]+)?\}")
 NOTE = re.compile(r"^> Note for page (\d+)")
+PAGE = re.compile(r"p=(\d+)")
 
 
 @dataclass(frozen=True)
@@ -111,9 +112,11 @@ def _limited(text: str, *, markdown: bool) -> Extracted:
 def _document_chunks(text: str) -> list[Chunk]:
     """A Document's document.md, one chunk per block, labelled with the block's id so the
     chat reads and cites it as #b3.2. What comes before the first block (the front matter) is
-    a chunk of its own, and each page note is one too (#note3)."""
+    a chunk of its own, and each page note is one too (#note3). A block's section is the last
+    heading before it, or its page while there is none (a small model types few headings)."""
     pieces: list[tuple[str, str, str | None]] = []  # heading, body, label
     heading, label, lines = "About this document", None, []
+    titled = False  # a heading block seen yet
 
     def flush() -> None:
         if label or "".join(lines).strip():
@@ -127,11 +130,15 @@ def _document_chunks(text: str) -> list[Chunk]:
             label = anchor.group(1)
             rest = ANCHOR.sub("", line).strip()
             if rest.startswith("#"):
-                heading = rest.lstrip("#").strip()
+                heading, titled = rest.lstrip("#").strip(), True
+            elif not titled:
+                heading = f"Page {PAGE.search(anchor.group(0)).group(1)}"
             lines = [rest] if rest else []
         elif note:
             flush()
             label, lines = f"note{note.group(1)}", [line]
+            if not titled:
+                heading = f"Page {note.group(1)}"
         else:
             lines.append(line)
     flush()

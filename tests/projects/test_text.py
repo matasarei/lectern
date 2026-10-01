@@ -148,3 +148,17 @@ def test_a_document_md_is_one_chunk_per_block_labelled_with_its_id(tmp_path):
     assert [c.ref for c in chunks] == ["#c1", "#note3", "#b3.1", "#b3.2", "#b3.3", "#p4"]
     assert chunks[3].heading == "3. Плата" and chunks[3].body.startswith("| А | Б |")
     assert chunks[4].body == "Текст через дві сторінки."
+    assert [c.heading for c in chunks[:2]] == ["About this document", "Page 3"]
+
+
+def test_a_document_block_with_no_heading_before_it_is_in_its_pages_section(tmp_path):
+    from lectern.projects.text import extract
+
+    path = tmp_path / "document.md"
+    path.write_text(
+        "---\ndocument: Lease · version 1\n---\n\n{#b1.1 p=1} 1. Сторони\n\n"
+        "{#b2.1 p=2→3} Текст.\n\n## 4. Права {#b3.1 p=3}\n\n{#b4.1 p=4} Ще.\n",
+        encoding="utf-8",
+    )
+    headings = [c.heading for c in extract(path).chunks]
+    assert headings == ["About this document", "Page 1", "Page 2", "4. Права", "4. Права"]
