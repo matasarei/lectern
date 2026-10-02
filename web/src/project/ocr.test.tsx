@@ -150,6 +150,30 @@ describe("OCR tab", () => {
     ]);
   });
 
+  it("offers to clean a cleaned page again once its note is saved, and only then", async () => {
+    current = session({ pages: [page(1, { status: "done", clean_status: "done" }), page(2)] });
+    renderTab();
+    const note = await screen.findByRole("textbox", { name: "Note for this page" });
+    expect(screen.queryByRole("button", { name: "Clean this page again with this note" })).toBeNull();
+    fireEvent.change(note, { target: { value: "Не об'єднуй таблицю." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Clean this page again with this note" }));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1]).toEqual({ url: "/api/projects/1/ocr/2/pages/1/clean", body: null });
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Clean this page again with this note" })).toBeNull(),
+    );
+  });
+
+  it("doesn't offer to clean a page that isn't cleaned yet", async () => {
+    renderTab(); // page 1 is read, not cleaned
+    const note = await screen.findByRole("textbox", { name: "Note for this page" });
+    fireEvent.change(note, { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(screen.queryByRole("button", { name: "Clean this page again with this note" })).toBeNull();
+  });
+
   it("reads a page again with a downloaded model, and offers no model that isn't", async () => {
     renderTab();
     const choose = await screen.findByRole("combobox", { name: "Model to read the page again with" });

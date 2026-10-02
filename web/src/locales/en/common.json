@@ -303,7 +303,8 @@
       "label": "Note for this page",
       "placeholder": "For example: the stamp is the landlord's; keep the table as it is.",
       "save": "Save note",
-      "saved": "Saved · used when this page is cleaned up"
+      "saved": "Saved · used when this page is cleaned up",
+      "cleanAgain": "Clean this page again with this note"
     },
     "handwritten": "Handwritten (read it with the handwriting model)",
     "rerun": {

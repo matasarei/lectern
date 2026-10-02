@@ -6,7 +6,7 @@ import { apiFetch, apiPost, ApiError } from "../api/client";
 import type { OcrDocument, OcrModel, OcrPage, OcrSession, Tab } from "../api/types";
 import { ErrorNote } from "../components";
 import { ImagePreview } from "./file";
-import { ocrPath, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
+import { cleanPageAgain, ocrPath, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
 import { ReviewPage } from "./review";
 
 type View = "split" | "scan" | "text" | "raw";
@@ -222,7 +222,7 @@ function PageView({
         </div>
       </div>
       {page.error && <ErrorNote message={page.error} />}
-      <PageTools projectId={projectId} base={base} page={page} jobRunning={jobRunning} />
+      <PageTools projectId={projectId} sessionId={sessionId} base={base} page={page} jobRunning={jobRunning} />
       <div className={`grid min-h-0 gap-3 ${view === "split" ? "grid-cols-2" : ""}`}>
         {(view === "split" || view === "scan") && (
           <ImagePreview url={`${base}/pages/${page.number}/image`} name={t("ocr.pageTitle", { number: page.number })} />
@@ -270,11 +270,13 @@ function PageText({ base, page, raw }: { base: string; page: OcrPage; raw: boole
  * reading goes to the handwriting model), and reading it again with another model. */
 function PageTools({
   projectId,
+  sessionId,
   base,
   page,
   jobRunning,
 }: {
   projectId: number;
+  sessionId: number;
   base: string;
   page: OcrPage;
   jobRunning: boolean;
@@ -298,7 +300,13 @@ function PageTools({
   const rerun = useMutation({
     mutationFn: () => apiPost(`${pagePath}/rerun`, { model_id: model || null }),
   });
-  const error = change.error ?? rerun.error;
+  // A note changed on a page that's already cleaned: offer to clean it again with the note.
+  const [offerClean, setOfferClean] = useState(false);
+  const cleanAgain = useMutation({
+    mutationFn: () => cleanPageAgain(projectId, sessionId, page.number),
+    onSuccess: () => setOfferClean(false),
+  });
+  const error = change.error ?? rerun.error ?? cleanAgain.error;
   // Off while the page is being read, or is next in a running job anyway. A page not read yet
   // in a paused session can be read on its own, with the model chosen here.
   const reading = page.status === "recognising" || (page.status === "pending" && jobRunning);
@@ -319,11 +327,18 @@ function PageTools({
         <button
           className="btn-secondary"
           disabled={note === page.note || change.isPending}
-          onClick={() => change.mutate({ note })}
+          onClick={() =>
+            change.mutate({ note }, { onSuccess: () => setOfferClean(page.clean_status === "done") })
+          }
         >
           {t("ocr.note.save")}
         </button>
         {note === page.note && page.note && <span className="text-muted">{t("ocr.note.saved")}</span>}
+        {offerClean && (
+          <button className="btn-primary" disabled={cleanAgain.isPending} onClick={() => cleanAgain.mutate()}>
+            {t("ocr.note.cleanAgain")}
+          </button>
+        )}
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
