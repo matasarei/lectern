@@ -67,3 +67,28 @@ The source was the 12-page sample from M2b and M3a. The session finished in 166 
 
 - **Reopen.** Web tests and API tests cover it.
 - **A decision whose text is gone after a page is read again.** Its "unplaced" listing is tested in the API and the job; the tab doesn't show it yet.
+
+## Part 2: the Document in Overview
+
+### How to run it
+
+The same server as part 1. Open the project's Overview after an OCR session has finished.
+
+### Results
+
+#### MacBook Pro, Apple M4 Max, 48 GB, macOS 27.0 · Chrome
+
+Run on 2026-10-02 against the same project as part 1, with the server restarted on part 2's code.
+
+- **Overview:**
+  - The session's output folder is one row: "sample-12/ · OCR output · folder · document · 12 pages · 20 image regions · made by OCR · sample-12.pdf". The 20 image regions are the scanner sheet's figure blocks, three copies of it.
+  - Expanded, it shows "sample-12 · Document · version 5 · 15 open · inside sample-12/".
+- **The Document row opened "Document · sample-12" in a new tab:**
+  - the whole text, with the open questions marked and "Mid" shown as answered;
+  - the side panel: version 5, 12 pages, 15 open questions, the source file and the OCR session as links, page 5's note, and Download.
+- **Clicking the open question "Jiniformity Bands"** opened the OCR tab at page 12, with that question's card current ("Question 1 of 2").
+- The browser console showed no errors.
+
+### Not checked in a browser
+
+- **A folder that isn't an OCR session's,** such as `scripts/`. Web tests cover it.
