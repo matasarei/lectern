@@ -269,3 +269,14 @@ def test_a_fix_that_changed_nothing_is_dropped_and_a_long_reason_cut():
     }
     page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, raw))
     assert [(f.before, len(f.why)) for f in page.fixes] == [("0плата", WHY_CHARS)]
+
+
+def test_the_persons_confirmed_readings_go_into_the_message_newest_first_and_capped():
+    from lectern.modules.ocr.clean import CONFIRMED_LIMIT, page_message
+
+    confirmed = [(f"{i}?", str(i)) for i in range(CONFIRMED_LIMIT + 5)]
+    message = page_message(3, "text", "", "", "", confirmed)
+    assert "Readings the person confirmed elsewhere in this document" in message
+    assert "«0?» is «0»" in message and f"«{CONFIRMED_LIMIT}?»" not in message
+    assert message.index("Readings the person") < message.index("<page>")
+    assert "Readings the person" not in page_message(3, "text", "", "", "")
