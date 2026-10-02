@@ -12,21 +12,30 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import threading
 from dataclasses import asdict
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from lectern.modules.ocr.assemble import PageInput
+from lectern.modules.ocr.assemble import PageInput, assemble
 from lectern.modules.ocr.clean import CleanedPage
 from lectern.modules.ocr.document import Document, render_markdown
 from lectern.modules.ocr.doubts import unsure_words
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, PageImage, page_file
 from lectern.modules.ocr.recognise import PageText
+from lectern.modules.ocr.review import Decision, apply_decisions, doubt_page, match_decisions
 from lectern.modules.ocr.text import looped
 from lectern.projects import files, search
-from lectern.projects.tables import ArtifactRow, OcrPageRow, OcrSessionRow, SessionRow, now
+from lectern.projects.tables import (
+    ArtifactRow,
+    OcrDecisionRow,
+    OcrPageRow,
+    OcrSessionRow,
+    SessionRow,
+    now,
+)
 from lectern.projects.text import extract
 
 DOCUMENT_JSON = "document.json"
@@ -275,3 +284,127 @@ def open_doubt_count(root: Path, ocr: OcrSessionRow) -> int:
 def _open_doubts(path: str, _mtime_ns: int, _size: int) -> int:
     document = Document.from_json(Path(path).read_text(encoding="utf-8"))
     return len(document.open_doubts())
+
+
+# --- review: the person's decisions on the Document's doubts (M3b) --------------------------
+
+
+class NoSuchDoubt(LookupError):
+    """The Document has no such doubt (or, to reopen, none resolved by that id)."""
+
+
+_locks: dict[tuple[str, int], threading.RLock] = {}
+_locks_guard = threading.Lock()
+
+
+def document_lock(root: Path, session_id: int) -> threading.RLock:
+    """One session's Document is published by the job (assembly) and by the person (a
+    decision); this keeps one from writing over the other. The server is one process."""
+    with _locks_guard:
+        return _locks.setdefault((str(root), session_id), threading.RLock())
+
+
+def decisions(db: sessionmaker[Session], session_id: int) -> list[Decision]:
+    """The session's decisions, newest first."""
+    with db() as session:
+        rows = session.scalars(
+            select(OcrDecisionRow)
+            .where(OcrDecisionRow.session_id == session_id)
+            .order_by(OcrDecisionRow.decided_at.desc(), OcrDecisionRow.id.desc())
+        ).all()
+    return [
+        Decision(page=r.page, doubt_id=r.doubt_id, raw=r.raw, value=r.value, action=r.action,
+                 id=r.id)
+        for r in rows
+    ]  # fmt: skip
+
+
+def redo_document(
+    root: Path, db: sessionmaker[Session], session_id: int, *, owner_id: int
+) -> tuple[OcrSessionRow, list[Decision]]:
+    """Assemble the Document again from the page cleanups, apply every decision, and publish
+    it as the next version. Returns the session and the decisions that matched no doubt."""
+    with document_lock(root, session_id):
+        with db() as session:
+            ocr = session.get(OcrSessionRow, session_id)
+            source = session.get(ArtifactRow, ocr.source_artifact_id)
+            session.expunge(ocr)
+        document = assemble(
+            ocr.folder,
+            source.path.rsplit("/", 1)[-1] if source else ocr.folder,
+            assembly_inputs(root, db, ocr),
+            version=ocr.document_version + 1,
+        )
+        document, unplaced = apply_decisions(document, decisions(db, session_id))
+        return publish_document(root, db, session_id, owner_id, document), unplaced
+
+
+def _owner(db: sessionmaker[Session], session_id: int) -> int:
+    with db() as session:
+        return session.get(SessionRow, session_id).owner_id
+
+
+def decide(
+    root: Path,
+    db: sessionmaker[Session],
+    session_id: int,
+    doubt_id: str,
+    *,
+    value: str,
+    action: str,
+    user_id: int,
+) -> tuple[OcrSessionRow, list[Decision]]:
+    """The person's reading for one of the current Document's doubts, replacing any earlier
+    decision on it; the Document is published again."""
+    with document_lock(root, session_id):
+        ocr = _ocr(db, session_id)
+        document = load_document(root, ocr)
+        doubt = next(
+            (
+                d
+                for b in (document.blocks if document else [])
+                for d in b.doubts
+                if d.id == doubt_id
+            ),
+            None,
+        )
+        if doubt is None:
+            raise NoSuchDoubt(doubt_id)
+        earlier, _ = match_decisions(document, decisions(db, session_id))
+        page = doubt_page(doubt) or 0
+        with db.begin() as session:
+            stale = select(OcrDecisionRow).where(
+                OcrDecisionRow.session_id == session_id,
+                (OcrDecisionRow.page == page) & (OcrDecisionRow.doubt_id == doubt_id)
+                | (OcrDecisionRow.id == (earlier[doubt_id].id if doubt_id in earlier else -1)),
+            )
+            for row in session.scalars(stale).all():
+                session.delete(row)
+            session.flush()
+            session.add(
+                OcrDecisionRow(session_id=session_id, page=page, doubt_id=doubt_id,
+                               raw=doubt.raw, value=value, action=action, decided_by=user_id)
+            )  # fmt: skip
+        return redo_document(root, db, session_id, owner_id=_owner(db, session_id))
+
+
+def reopen(root: Path, db: sessionmaker[Session], session_id: int, doubt_id: str) -> OcrSessionRow:
+    """Take back the decision that resolved this doubt; the Document is published again with
+    the doubt open."""
+    with document_lock(root, session_id):
+        ocr = _ocr(db, session_id)
+        document = load_document(root, ocr)
+        matched, _ = match_decisions(document, decisions(db, session_id)) if document else ({}, [])
+        if doubt_id not in matched:
+            raise NoSuchDoubt(doubt_id)
+        with db.begin() as session:
+            session.delete(session.get(OcrDecisionRow, matched[doubt_id].id))
+        ocr, _ = redo_document(root, db, session_id, owner_id=_owner(db, session_id))
+        return ocr
+
+
+def _ocr(db: sessionmaker[Session], session_id: int) -> OcrSessionRow:
+    with db() as session:
+        ocr = session.get(OcrSessionRow, session_id)
+        session.expunge(ocr)
+        return ocr

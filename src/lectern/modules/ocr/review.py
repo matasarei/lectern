@@ -26,6 +26,7 @@ class Decision:
     raw: str  # the text the doubt was about
     value: str  # the reading chosen
     action: str  # "accept" | "edit"
+    id: int | None = None  # its row in ocr_decisions
 
 
 def doubt_page(doubt: Doubt) -> int | None:
@@ -34,32 +35,26 @@ def doubt_page(doubt: Doubt) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def apply_decisions(
+def match_decisions(
     document: Document, decisions: list[Decision]
-) -> tuple[Document, list[Decision]]:
-    """A copy of the Document with each decided doubt resolved, and the decisions that
-    matched no doubt. First by page, id and text; what's left by page and text, taking the
-    first open doubt on that text."""
-    doc = document.model_copy(deep=True)
-    doubts = [d for b in doc.blocks for d in b.doubts]
-    taken: set[int] = set()
+) -> tuple[dict[str, Decision], list[Decision]]:
+    """Which decision each doubt takes (by doubt id), and the decisions that match none.
+    First by page, id and text; what's left by page and text, taking the first doubt on that
+    text that no decision has taken yet."""
+    doubts = [d for b in document.blocks for d in b.doubts]
+    matched: dict[str, Decision] = {}
     left: list[Decision] = []
-
-    def resolve(doubt: Doubt, decision: Decision) -> None:
-        doubt.status, doubt.value, doubt.resolved_by = "resolved", decision.value, RESOLVED_BY
-        taken.add(id(doubt))
-
     for decision in decisions:
         same = next(
             (
                 d
                 for d in doubts
-                if d.id == decision.doubt_id and d.raw == decision.raw and id(d) not in taken
+                if d.id == decision.doubt_id and d.raw == decision.raw and d.id not in matched
             ),
             None,
         )
         if same is not None:
-            resolve(same, decision)
+            matched[same.id] = decision
         else:
             left.append(decision)
     unplaced: list[Decision] = []
@@ -68,12 +63,30 @@ def apply_decisions(
             (
                 d
                 for d in doubts
-                if id(d) not in taken and d.raw == decision.raw and doubt_page(d) == decision.page
+                if d.id not in matched and d.raw == decision.raw and doubt_page(d) == decision.page
             ),
             None,
         )
         if moved is not None:
-            resolve(moved, decision)
+            matched[moved.id] = decision
         else:
             unplaced.append(decision)
+    return matched, unplaced
+
+
+def apply_decisions(
+    document: Document, decisions: list[Decision]
+) -> tuple[Document, list[Decision]]:
+    """A copy of the Document with each decided doubt resolved (and every other one open),
+    and the decisions that matched no doubt."""
+    doc = document.model_copy(deep=True)
+    matched, unplaced = match_decisions(doc, decisions)
+    for block in doc.blocks:
+        for doubt in block.doubts:
+            decision = matched.get(doubt.id)
+            if decision is None:
+                doubt.status, doubt.value, doubt.resolved_by = "open", None, None
+            else:
+                doubt.status, doubt.value = "resolved", decision.value
+                doubt.resolved_by = RESOLVED_BY
     return doc, unplaced

@@ -136,3 +136,62 @@ def test_a_session_whose_source_was_trashed_says_so(store, tmp_path):
 
     with pytest.raises(ocr_store.CannotOpen, match="moved to the trash"):
         ocr_store.source_path(project.root, store.db(project), ocr)
+
+
+def _cleaned_session(store, tmp_path: Path):  # noqa: ANN001, ANN202
+    """A one-page session whose page is read and cleaned, with one doubt: "1?" in b1.1."""
+    from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
+
+    project = store.create(LOCAL_USER, "Review")
+    source = _import(store, project, "lease.png", _png(tmp_path))
+    row, ocr = ocr_store.create_session(
+        project.root, store.db(project), owner_id=LOCAL_USER.id, artifact_id=source
+    )
+    db = store.db(project)
+    images = rasterise(
+        ocr_store.source_path(project.root, db, ocr), ocr_store.pages_dir(project.root, ocr)
+    )
+    ocr_store.add_pages(db, row.id, images)
+    (page,) = ocr_store.pages(db, row.id)
+    ocr_store.save_reading(project.root, db, ocr, page.id, model_id="m",
+                           reading=_reading("Оплата до 1? числа."))  # fmt: skip
+    cleaned = CleanedPage(
+        blocks=[CleanBlock(type="paragraph", text="Оплата до 1? числа.")],
+        doubts=[CleanDoubt(block=0, raw="1?", candidates=["1?", "15"])],
+    )
+    ocr_store.save_cleanup(project.root, db, ocr, page.id, cleaned)
+    return project, db, row.id
+
+
+def test_a_decision_makes_a_new_version_and_reopening_another(store, tmp_path):
+    project, db, sid = _cleaned_session(store, tmp_path)
+    ocr, _ = ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+    assert ocr.document_version == 1
+
+    ocr, unplaced = ocr_store.decide(project.root, db, sid, "d1.1", value="15", action="accept",
+                                     user_id=LOCAL_USER.id)  # fmt: skip
+    doc = ocr_store.load_document(project.root, ocr)
+    assert (ocr.document_version, unplaced) == (2, [])
+    assert [b.id for b in doc.blocks] == ["b1.1"]  # block ids stay
+    assert doc.blocks[0].doubts[0].value == "15" and doc.open_doubts() == []
+    md = (project.root / ocr.folder / ocr_store.DOCUMENT_MD).read_text(encoding="utf-8")
+    assert "Оплата до 15 числа." in md and "open_questions: 0" in md
+
+    ocr, _ = ocr_store.decide(project.root, db, sid, "d1.1", value="18", action="edit",
+                              user_id=LOCAL_USER.id)  # fmt: skip
+    assert [d.value for d in ocr_store.decisions(db, sid)] == ["18"]  # replaced, not added
+
+    ocr = ocr_store.reopen(project.root, db, sid, "d1.1")
+    doc = ocr_store.load_document(project.root, ocr)
+    assert ocr.document_version == 4 and [d.id for d in doc.open_doubts()] == ["d1.1"]
+    assert ocr_store.decisions(db, sid) == []
+
+
+def test_deciding_a_doubt_the_document_doesnt_have_is_refused(store, tmp_path):
+    project, db, sid = _cleaned_session(store, tmp_path)
+    ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+    with pytest.raises(ocr_store.NoSuchDoubt):
+        ocr_store.decide(project.root, db, sid, "d1.9", value="x", action="edit",
+                         user_id=LOCAL_USER.id)  # fmt: skip
+    with pytest.raises(ocr_store.NoSuchDoubt):
+        ocr_store.reopen(project.root, db, sid, "d1.1")  # open already: nothing to reopen
