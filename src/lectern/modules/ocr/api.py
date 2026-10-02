@@ -1,5 +1,6 @@
 """/api/projects/{id}/ocr: OCR sessions — start one on a PDF or image, follow its job, read
-its pages, write page notes, read a page again, pause and resume.
+its pages, write page notes, read or clean a page again, pause and resume, and answer the
+Document's doubts.
 
 Starting returns at once (201); the job runs on the server and the tab follows it on the
 session's events stream, which starts with the events so far.
@@ -8,6 +9,8 @@ session's events stream, which starts with the events so far.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import asdict
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -23,11 +26,13 @@ from lectern.core.auth import User
 from lectern.modules.ocr import store as ocr_store
 from lectern.modules.ocr.document import render_page
 from lectern.modules.ocr.jobs import NotNow, OcrJobs, page_dict
+from lectern.modules.ocr.review import match_decisions
 from lectern.projects.store import Project
 from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, iso, now
 
 router = APIRouter()
 NOTE_LIMIT = 5000
+VALUE_LIMIT = 200  # a reading: a word, a number, a short phrase
 
 
 def jobs(request: Request) -> OcrJobs:
@@ -41,6 +46,11 @@ class NewOcr(BaseModel):
 class PageChange(BaseModel):
     note: str | None = Field(default=None, max_length=NOTE_LIMIT)
     handwritten: bool | None = None
+
+
+class Answer(BaseModel):
+    value: str = Field(min_length=1, max_length=VALUE_LIMIT)
+    action: Literal["accept", "edit"]
 
 
 class Rerun(BaseModel):
@@ -185,7 +195,55 @@ def get_document(project_id: int, session_id: int, request: Request, user: Curre
     document = ocr_store.load_document(project.root, _ocr_row(request, project, session_id))
     if document is None:
         raise HTTPException(404, "This session has no Document yet.")
-    return document.model_dump(by_alias=True)
+    db = store(request).db(project)
+    _, unplaced = match_decisions(document, ocr_store.decisions(db, session_id))
+    # Decisions whose text is no longer on their page (it was read or cleaned again).
+    return document.model_dump(by_alias=True) | {"unplaced": [asdict(d) for d in unplaced]}
+
+
+# --- answering the Document's doubts (M3b) ---------------------------------------------------
+
+
+@router.put("/projects/{project_id}/ocr/{session_id}/doubts/{doubt_id}")
+def answer_doubt(
+    project_id: int,
+    session_id: int,
+    doubt_id: str,
+    body: Answer,
+    request: Request,
+    user: CurrentUser,
+) -> dict:
+    """The person's reading for a doubt; the Document is published again as a new version."""
+    project = _lookup(request, project_id, session_id, user)
+    try:
+        ocr, _ = ocr_store.decide(
+            project.root, store(request).db(project), session_id, doubt_id,
+            value=body.value, action=body.action, user_id=user.id,
+        )  # fmt: skip
+    except ocr_store.NoSuchDoubt:
+        raise HTTPException(404, "The Document has no such question.") from None
+    return _published(request, project, ocr)
+
+
+@router.delete("/projects/{project_id}/ocr/{session_id}/doubts/{doubt_id}")
+def reopen_doubt(
+    project_id: int, session_id: int, doubt_id: str, request: Request, user: CurrentUser
+) -> dict:
+    """Take back the answer to a doubt: it's an open question again, in a new version."""
+    project = _lookup(request, project_id, session_id, user)
+    try:
+        ocr = ocr_store.reopen(project.root, store(request).db(project), session_id, doubt_id)
+    except ocr_store.NoSuchDoubt:
+        raise HTTPException(404, "No answered question has that id.") from None
+    return _published(request, project, ocr)
+
+
+def _published(request: Request, project: Project, ocr: OcrSessionRow) -> dict:
+    summary = _document_summary(request, project, ocr)
+    event = {"type": "document", "version": ocr.document_version,
+             "artifact_id": ocr.document_artifact_id}  # fmt: skip
+    jobs(request).channel((project.id, ocr.session_id)).publish(event)
+    return summary
 
 
 # --- changing pages, and the job ------------------------------------------------------------
@@ -234,6 +292,19 @@ async def rerun_page(
             raise HTTPException(400, f"{body.model_id!r} isn't an OCR model.")
         lease_key = f"{'ocr' if 'ocr' in entry.roles else 'ocr.hand'}@{entry.id}"
     page = await jobs(request).rerun(project, session_id, number, lease_key=lease_key)
+    return page_dict(page)
+
+
+@router.post("/projects/{project_id}/ocr/{session_id}/pages/{number}/clean", status_code=202)
+async def clean_page_again(
+    project_id: int, session_id: int, number: int, request: Request, user: CurrentUser
+) -> dict:
+    """Clean one page again, without reading it (its note changed), then assemble."""
+    project = await open_ocr(request, project_id, session_id, user)
+    page = await run_in_threadpool(_page, request, project, session_id, number)
+    if page.status != "done":
+        raise HTTPException(409, "This page hasn't been read yet.")
+    page = await jobs(request).reclean(project, session_id, number)
     return page_dict(page)
 
 

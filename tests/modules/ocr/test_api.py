@@ -211,3 +211,79 @@ def test_a_session_without_a_document_says_so(api, monkeypatch):
     assert client.get(url, headers=headers).json()["document"] is None
     missing = client.get(f"{url}/document", headers=headers)
     assert missing.status_code == 404 and "no Document yet" in missing.json()["detail"]
+
+
+def _session_with_doubts(api) -> tuple[str, int]:  # noqa: ANN001
+    from .test_jobs import _with_a_doubt
+
+    client, headers, _, project, ids, server = api
+    server.clean = _with_a_doubt  # each page: "… до 1? числа", one doubt
+    sid = _start(client, headers, project, ids["lease-scan.pdf"])
+    url = f"/api/projects/{project.id}/ocr/{sid}"
+    _until_done(client, headers, url)
+    return url, sid
+
+
+def test_a_doubt_is_accepted_edited_and_reopened_each_a_new_version(api):
+    client, headers, *_ = api
+    url, _ = _session_with_doubts(api)
+
+    accepted = client.put(f"{url}/doubts/d1.1", json={"value": "15", "action": "accept"},
+                          headers=headers)  # fmt: skip
+    assert accepted.status_code == 200
+    assert accepted.json() == {"version": 2, "artifact_id": accepted.json()["artifact_id"],
+                               "open_doubts": 2}  # fmt: skip
+    edited = client.put(f"{url}/doubts/d1.1", json={"value": "18", "action": "edit"},
+                        headers=headers).json()  # fmt: skip
+    assert edited["version"] == 3
+    document = client.get(f"{url}/document", headers=headers).json()
+    doubts = {d["id"]: d for b in document["blocks"] for d in b["doubts"]}
+    assert (doubts["d1.1"]["status"], doubts["d1.1"]["value"]) == ("resolved", "18")
+    assert document["unplaced"] == []
+
+    reopened = client.delete(f"{url}/doubts/d1.1", headers=headers)
+    assert reopened.status_code == 200 and reopened.json()["open_doubts"] == 3
+
+
+def test_cleaning_one_page_again_starts_the_job_for_that_page(api):
+    client, headers, _, _, _, server = api
+    url, _ = _session_with_doubts(api)
+    before = len(server.cleanups)
+
+    started = client.post(f"{url}/pages/2/clean", headers=headers)
+    assert started.status_code == 202 and started.json()["clean_status"] == "pending"
+    done = _until_done(client, headers, url)
+    assert len(server.cleanups) == before + 1 and done["document"]["version"] == 2
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "status"),
+    [
+        ("put", "doubts/d9.9", {"value": "x", "action": "edit"}, 404),  # no such doubt
+        ("delete", "doubts/d1.1", None, 404),  # open: nothing to reopen
+        ("put", "doubts/d1.1", {"value": "", "action": "edit"}, 422),
+        ("put", "doubts/d1.1", {"value": "x" * 201, "action": "edit"}, 422),
+        ("put", "doubts/d1.1", {"value": "x", "action": "skip"}, 422),
+        ("post", "pages/9/clean", None, 404),
+    ],
+)
+def test_a_decision_on_nothing_or_out_of_bounds_is_refused(api, method, path, body, status):
+    client, headers, *_ = api
+    url, _ = _session_with_doubts(api)
+    kwargs = {"json": body} if body is not None else {}
+    answer = getattr(client, method)(f"{url}/{path}", headers=headers, **kwargs)
+    assert answer.status_code == status, answer.text
+
+
+def test_someone_elses_session_takes_no_decisions(api):
+    client, headers, app, project, _, _ = api
+    _, sid = _session_with_doubts(api)
+    with app.state.sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = app.state.projects.create(User(id=2, name="other"), "Private")
+    for url in (f"/api/projects/{theirs.id}/ocr/{sid}", f"/api/projects/{project.id}/ocr/1"):
+        put = client.put(f"{url}/doubts/d1.1", json={"value": "x", "action": "edit"},
+                         headers=headers)  # fmt: skip
+        assert put.status_code == 404, url
+        assert client.delete(f"{url}/doubts/d1.1", headers=headers).status_code == 404
+        assert client.post(f"{url}/pages/1/clean", headers=headers).status_code == 404
