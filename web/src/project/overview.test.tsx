@@ -70,7 +70,9 @@ describe("Overview", () => {
     const opened: Tab[] = [];
     const ocr = {
       id: 2, kind: "ocr" as const, title: "lease-1998-scan.pdf", messages: 0,
-      ocr: { pages: 12, status: "paused" as const }, created_at: "", updated_at: "2026-09-29T09:00:00Z",
+      ocr: { pages: 12, status: "paused" as const, folder: "lease-1998-scan", document_version: 0,
+             open_doubts: 0, figures: 0 },
+      created_at: "", updated_at: "2026-09-29T09:00:00Z",
     };
     renderOverview((tab) => opened.push(tab), { sessions: [ocr], artifacts: [] });
     const row = screen.getAllByRole("row")[1];

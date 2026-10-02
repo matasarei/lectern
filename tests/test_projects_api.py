@@ -279,4 +279,5 @@ def test_overview_lists_an_ocr_session_with_its_pages_and_status(api, tmp_path):
     chat, scan = sessions
     assert chat["kind"] == "chat" and chat["ocr"] is None
     assert (scan["kind"], scan["title"]) == ("ocr", "scan.png")
-    assert scan["ocr"] == {"pages": 12, "status": "paused"}
+    assert scan["ocr"] == {"pages": 12, "status": "paused", "folder": "scan",
+                           "document_version": 0, "open_doubts": 0, "figures": 0}  # fmt: skip

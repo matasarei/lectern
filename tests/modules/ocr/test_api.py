@@ -287,3 +287,12 @@ def test_someone_elses_session_takes_no_decisions(api):
         assert put.status_code == 404, url
         assert client.delete(f"{url}/doubts/d1.1", headers=headers).status_code == 404
         assert client.post(f"{url}/pages/1/clean", headers=headers).status_code == 404
+
+
+def test_overview_learns_an_ocr_sessions_folder_and_its_documents_counts(api):
+    client, headers, _, project, _, _ = api
+    _, sid = _session_with_doubts(api)
+    items = client.get(f"/api/projects/{project.id}/items", headers=headers).json()
+    (scan,) = [s for s in items["sessions"] if s["id"] == sid]
+    assert scan["ocr"] == {"pages": 3, "status": "done", "folder": "lease-scan",
+                           "document_version": 1, "open_doubts": 3, "figures": 0}  # fmt: skip

@@ -118,6 +118,20 @@ class OcrJobs:
                 ocr.updated_at = now()
             return ocr
 
+    def summary(self, project: Project, session_id: int) -> dict:
+        """What Overview shows of an OCR session: its pages, where its job stands, its output
+        folder, and its Document's version, open questions and image regions."""
+        ocr = self.settle(project, session_id)
+        open_doubts, figures = ocr_store.document_counts(project.root, ocr)
+        return {
+            "pages": ocr.pages_total,
+            "status": ocr.status,
+            "folder": ocr.folder,
+            "document_version": ocr.document_version,
+            "open_doubts": open_doubts,
+            "figures": figures,
+        }
+
     # --- starting, pausing, resuming -----------------------------------------------------
 
     async def start(self, project: Project, session_id: int) -> None:
