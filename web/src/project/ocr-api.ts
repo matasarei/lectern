@@ -4,11 +4,11 @@
  * the tab updates page by page without reading the whole session again.
  */
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { apiPost, readEvents } from "../api/client";
-import type { OcrEvent, OcrPage, OcrPhase, OcrSession } from "../api/types";
+import { apiFetch, apiPost, readEvents } from "../api/client";
+import type { DocBlock, DocDoubt, OcrDocument, OcrEvent, OcrPage, OcrPhase, OcrSession } from "../api/types";
 
 export function ocrPath(projectId: number, sessionId?: number): string {
   const base = `/api/projects/${projectId}/ocr`;
@@ -96,7 +96,10 @@ export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
         const cached = queryClient.getQueryData<OcrSession>(key);
         if (cached) queryClient.setQueryData(key, applyOcrEvent(cached, event));
         else void queryClient.invalidateQueries({ queryKey: key });
-        if (event.type === "document") void queryClient.invalidateQueries({ queryKey: key });
+        if (event.type === "document") {
+          void queryClient.invalidateQueries({ queryKey: key });
+          void queryClient.invalidateQueries({ queryKey: documentKey(projectId, sessionId) });
+        }
         if (event.type === "phase" && event.phase === "recognise") {
           // The page images are made: read the session once to know all its pages, not only
           // the ones whose events have come in.
@@ -115,4 +118,83 @@ export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
   }, [projectId, sessionId, queryClient]);
 
   return live;
+}
+
+// --- the Document, and answering its questions (M3b) -------------------------------------
+
+export function documentKey(projectId: number, sessionId: number) {
+  return ["ocr-document", projectId, sessionId];
+}
+
+/** The session's Document, once it has one; read again on each "document" event. */
+export function useOcrDocument(projectId: number, sessionId: number, version: number | null) {
+  return useQuery({
+    queryKey: documentKey(projectId, sessionId),
+    queryFn: () => apiFetch<OcrDocument>(`${ocrPath(projectId, sessionId)}/document`),
+    enabled: version !== null,
+  });
+}
+
+export interface DocumentSummary {
+  version: number;
+  artifact_id: number;
+  open_doubts: number;
+}
+
+export function answerDoubt(
+  projectId: number,
+  sessionId: number,
+  doubtId: string,
+  value: string,
+  action: "accept" | "edit",
+): Promise<DocumentSummary> {
+  return apiFetch<DocumentSummary>(`${ocrPath(projectId, sessionId)}/doubts/${doubtId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value, action }),
+  });
+}
+
+export function reopenDoubt(projectId: number, sessionId: number, doubtId: string): Promise<DocumentSummary> {
+  return apiFetch<DocumentSummary>(`${ocrPath(projectId, sessionId)}/doubts/${doubtId}`, {
+    method: "DELETE",
+  });
+}
+
+export function cleanPageAgain(projectId: number, sessionId: number, page: number): Promise<OcrPage> {
+  return apiPost<OcrPage>(`${ocrPath(projectId, sessionId)}/pages/${page}/clean`);
+}
+
+/** The page a doubt came from: its id says so ("d3.1"), whatever block it sits in. */
+export function doubtPage(doubt: DocDoubt): number {
+  return Number(/^d(\d+)\./.exec(doubt.id)?.[1] ?? 0);
+}
+
+/** What Accept takes: the first candidate that isn't what the page seems to say, else
+ * that ("it really says 2312/2019"). */
+export function suggestion(doubt: DocDoubt): string {
+  return doubt.candidates.find((c) => c.trim() && c !== doubt.raw) ?? doubt.raw;
+}
+
+/** A page's blocks, in order, including one that starts on an earlier page and runs on. */
+export function pageBlocks(doc: OcrDocument, page: number): DocBlock[] {
+  const ids = doc.pages.find((p) => p.n === page)?.blocks ?? [];
+  const byId = new Map(doc.blocks.map((b) => [b.id, b]));
+  return ids.flatMap((id) => byId.get(id) ?? []);
+}
+
+/** A page's questions in reading order: the doubts that came from it. */
+export function pageQuestions(doc: OcrDocument, page: number): DocDoubt[] {
+  return doc.blocks.flatMap((b) => b.doubts.filter((d) => doubtPage(d) === page));
+}
+
+export function openQuestions(doc: OcrDocument): DocDoubt[] {
+  return doc.blocks.flatMap((b) => b.doubts.filter((d) => d.status === "open"));
+}
+
+/** The next page after `page` with an open question, wrapping round; null when none has. */
+export function nextPageWithQuestions(doc: OcrDocument, page: number): number | null {
+  const pages = [...new Set(openQuestions(doc).map(doubtPage))].sort((a, b) => a - b);
+  if (pages.length === 0) return null;
+  return pages.find((p) => p > page) ?? pages[0];
 }

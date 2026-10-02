@@ -296,6 +296,41 @@ export interface OcrSession {
   pages: OcrPage[];
 }
 
+/** The Document an OCR session publishes (document.json, `lectern.document/1`). */
+export interface DocDoubt {
+  id: string; // "d3.1": page 3's first doubt
+  raw: string; // what the page seems to say
+  status: "open" | "resolved";
+  candidates: string[];
+  reason: string;
+  source: "clean" | "ocr";
+  value: string | null; // the reading chosen
+  resolved_by: string | null;
+}
+
+export interface DocBlock {
+  id: string; // "b3.2"
+  type: "heading" | "paragraph" | "table" | "list" | "signature" | "stamp" | "figure";
+  page: number;
+  pages: number[] | null; // every page it spans
+  level: number | null;
+  text: string; // "{d3.1}" marks where a doubt sits
+  rows: string[][] | null;
+  label: string | null;
+  doubts: DocDoubt[];
+}
+
+export interface OcrDocument {
+  schema: string;
+  title: string;
+  version: number;
+  source: { artifact: string; pages: number };
+  pages: { n: number; image: string; size: [number, number]; note: string; blocks: string[]; failed: string | null }[];
+  blocks: DocBlock[];
+  // Decisions whose text is no longer on their page (it was read or cleaned again).
+  unplaced: { page: number; doubt_id: string; raw: string; value: string; action: string }[];
+}
+
 export interface OcrModel {
   id: string;
   title: string;
