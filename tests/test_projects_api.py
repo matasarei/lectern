@@ -281,3 +281,15 @@ def test_overview_lists_an_ocr_session_with_its_pages_and_status(api, tmp_path):
     assert (scan["kind"], scan["title"]) == ("ocr", "scan.png")
     assert scan["ocr"] == {"pages": 12, "status": "paused", "folder": "scan",
                            "document_version": 0, "open_doubts": 0, "figures": 0}  # fmt: skip
+
+
+def test_a_document_tab_is_kept_while_its_session_is_and_never_keeps_a_page(api):
+    client, headers, _ = api
+    pid = _project(client, headers)
+    tab = {"kind": "document", "id": 1, "page": 3}  # the page says where to open it, once
+    saved = {"open": [tab, {"kind": "document", "id": 99}], "active": tab}
+    assert client.put(f"/api/projects/{pid}/tabs", json=saved, headers=headers).status_code == 200
+    assert client.get(f"/api/projects/{pid}/tabs", headers=headers).json() == {
+        "open": [{"kind": "document", "id": 1}],
+        "active": {"kind": "document", "id": 1},
+    }

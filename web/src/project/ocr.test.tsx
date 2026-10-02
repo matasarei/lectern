@@ -68,11 +68,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderTab(onOpen: (tab: Tab) => void = () => {}) {
+function renderTab(onOpen: (tab: Tab) => void = () => {}, initialPage?: number) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <OcrTab projectId={1} sessionId={2} onOpen={onOpen} />
+      <OcrTab projectId={1} sessionId={2} onOpen={onOpen} initialPage={initialPage} />
     </QueryClientProvider>,
   );
 }
@@ -135,6 +135,12 @@ describe("OCR tab", () => {
     renderTab();
     fireEvent.click(within(await screen.findByRole("list", { name: "Pages" })).getByText("Page 2"));
     expect(await screen.findByText("Not read yet.")).toBeTruthy();
+  });
+
+  it("opens at the page it's given (from a question in the Document tab)", async () => {
+    renderTab(() => {}, 2);
+    const list = await screen.findByRole("list", { name: "Pages" });
+    expect(within(list).getByText("Page 2").closest("button")?.getAttribute("aria-current")).toBe("true");
   });
 
   it("saves a page's note and marks it handwritten", async () => {
@@ -234,7 +240,7 @@ describe("OCR tab", () => {
     expect(await screen.findByText("Рахунок № 1")).toBeTruthy();
     expect(screen.queryByText("1?", { selector: "mark" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open the document (version 2)" }));
-    expect(opened).toEqual([{ kind: "artifact", id: 40 }]);
+    expect(opened).toEqual([{ kind: "document", id: 2 }]); // the Document tab, not the bare file
   });
 
   it("says when a page isn't cleaned yet, or why its cleanup failed", async () => {

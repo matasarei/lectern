@@ -143,7 +143,7 @@ function Origin({
 }
 
 /** Downloads through a blob, because a plain link can't carry the token. */
-function Download({ url, name }: { url: string; name: string }) {
+export function Download({ url, name }: { url: string; name: string }) {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   return (

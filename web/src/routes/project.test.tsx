@@ -17,7 +17,8 @@ const RESPONSES: Record<string, unknown> = {
     sessions: [
       { id: 1, kind: "chat", title: "Payment terms", messages: 4, ocr: null, created_at: "", updated_at: "" },
       {
-        id: 2, kind: "ocr", title: "lease-scan.pdf", messages: 0, ocr: { pages: 12, status: "done" },
+        id: 2, kind: "ocr", title: "lease-scan.pdf", messages: 0,
+        ocr: { pages: 12, status: "done", folder: "lease-scan", document_version: 0, open_doubts: 0, figures: 0 },
         created_at: "", updated_at: "",
       },
     ],
@@ -112,5 +113,15 @@ describe("An OCR session's tab", () => {
     expect(await screen.findByRole("tab", { name: "OCR · lease-scan.pdf" })).toBeTruthy();
     expect(await screen.findByText("Done")).toBeTruthy(); // the OCR status strip
     expect(screen.queryByRole("textbox")).toBeNull(); // no chat box
+  });
+});
+
+describe("An OCR session's Document tab", () => {
+  it("is named after the output folder and shows the Document view", async () => {
+    savedTabs = { open: [{ kind: "document", id: 2 }], active: { kind: "document", id: 2 } };
+    renderAt("/projects/1");
+
+    expect(await screen.findByRole("tab", { name: "Document · lease-scan" })).toBeTruthy();
+    expect(await screen.findByText("This session has no Document yet.")).toBeTruthy();
   });
 });
