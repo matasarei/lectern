@@ -242,3 +242,29 @@ class ChunkLabelRow(ProjectBase):
     artifact_id: Mapped[int] = mapped_column(ForeignKey("artifacts.id"), primary_key=True)
     chunk: Mapped[int] = mapped_column(Integer, primary_key=True)
     label: Mapped[str] = mapped_column(String(32))
+
+
+DECISION_ACTIONS = ("accept", "edit")
+
+
+class OcrDecisionRow(ProjectBase):
+    """The person's answer to one of a Document's doubts. Kept apart from document.json:
+    the Document is assembled again from the page cleanups whenever a page is cleaned again,
+    and each assembly applies these. A doubt is named by its page, its id and the text it was
+    about, so a decision still finds it when cleaning the page again renumbers its doubts."""
+
+    __tablename__ = "ocr_decisions"
+    __table_args__ = (
+        CheckConstraint(one_of("action", DECISION_ACTIONS), name="action"),
+        UniqueConstraint("session_id", "page", "doubt_id", name="uq_ocr_decisions_doubt"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    page: Mapped[int] = mapped_column(Integer)
+    doubt_id: Mapped[str] = mapped_column(String(32))  # "d3.1"
+    raw: Mapped[str] = mapped_column(Text)  # what the page seemed to say
+    value: Mapped[str] = mapped_column(Text)  # the reading the person chose
+    action: Mapped[str] = mapped_column(String(16))  # accepted the suggestion, or typed it
+    decided_by: Mapped[int] = mapped_column(Integer)  # the user's id
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
