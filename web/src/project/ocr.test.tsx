@@ -4,11 +4,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OcrSession, Tab } from "../api/types";
+import type { OcrDocument, OcrSession, Tab } from "../api/types";
 import { OcrTab } from "./ocr";
-import { page, session } from "./ocr-fixtures";
+import { block, doubt, documentOf, page, session } from "./ocr-fixtures";
 
 let current: OcrSession;
+const currentDoc: OcrDocument = documentOf([
+  block("b1.1", "Рахунок № {d1.1} від 1998 р.", { doubts: [doubt("d1.1", "1?", { candidates: ["1", "7"] })] }),
+]);
 let posts: { url: string; body: unknown }[] = [];
 let push: (event: object) => void = () => {};
 
@@ -47,6 +50,7 @@ beforeEach(() => {
         ]));
       }
       if (url.endsWith("/image")) return new Response(new Blob(["png"], { type: "image/png" }));
+      if (url.endsWith("/document")) return new Response(JSON.stringify(currentDoc));
       if (url.endsWith("/pages/1/text")) {
         return new Response(JSON.stringify({
           number: 1, model_id: "paddleocr-vl-1.6", text: "Рахунок № 1",
@@ -198,13 +202,13 @@ describe("OCR tab", () => {
     const opened: Tab[] = [];
     renderTab((tab) => opened.push(tab));
 
-    const mark = await screen.findByText("⟦1? | open | 1 · 7⟧");
-    expect(mark.tagName).toBe("MARK");
+    const mark = await screen.findByText("1?", { selector: "mark" });
+    expect(mark.dataset.doubt).toBe("d1.1");
     expect(screen.getByText("Clean 1/2")).toBeTruthy();
     expect(screen.getByText("3 open questions")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Raw OCR" }));
     expect(await screen.findByText("Рахунок № 1")).toBeTruthy();
-    expect(screen.queryByText("⟦1? | open | 1 · 7⟧")).toBeNull();
+    expect(screen.queryByText("1?", { selector: "mark" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open the document (version 2)" }));
     expect(opened).toEqual([{ kind: "artifact", id: 40 }]);
   });
