@@ -270,20 +270,26 @@ def load_document(root: Path, ocr: OcrSessionRow) -> Document | None:
 
 
 def open_doubt_count(root: Path, ocr: OcrSessionRow) -> int:
-    """How many of the Document's questions are open. The session is read on every event the
-    tab gets, so the count is kept until document.json changes."""
+    """How many of the Document's questions are open."""
+    return document_counts(root, ocr)[0]
+
+
+def document_counts(root: Path, ocr: OcrSessionRow) -> tuple[int, int]:
+    """The Document's open questions and its image regions (figures). The session is read on
+    every event the tab gets, and Overview on every visit, so the counts are kept until
+    document.json changes."""
     path = files.inside(root, ocr.folder) / DOCUMENT_JSON
     try:
         stat = path.stat()
     except FileNotFoundError:
-        return 0
-    return _open_doubts(str(path), stat.st_mtime_ns, stat.st_size)
+        return 0, 0
+    return _document_counts(str(path), stat.st_mtime_ns, stat.st_size)
 
 
 @functools.lru_cache(maxsize=64)
-def _open_doubts(path: str, _mtime_ns: int, _size: int) -> int:
+def _document_counts(path: str, _mtime_ns: int, _size: int) -> tuple[int, int]:
     document = Document.from_json(Path(path).read_text(encoding="utf-8"))
-    return len(document.open_doubts())
+    return len(document.open_doubts()), sum(b.type == "figure" for b in document.blocks)
 
 
 # --- review: the person's decisions on the Document's doubts (M3b) --------------------------

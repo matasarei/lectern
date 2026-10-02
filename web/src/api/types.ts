@@ -132,8 +132,16 @@ export interface SessionSummary {
   kind: "chat" | "ocr";
   title: string;
   messages: number;
-  // An OCR session's page count and where its job stands; null for a chat.
-  ocr: { pages: number; status: OcrStatus } | null;
+  // An OCR session's pages, where its job stands, its output folder and its Document
+  // (version 0: none yet; figures are its image regions); null for a chat.
+  ocr: {
+    pages: number;
+    status: OcrStatus;
+    folder: string;
+    document_version: number;
+    open_doubts: number;
+    figures: number;
+  } | null;
   created_at: string;
   updated_at: string;
 }

@@ -185,10 +185,10 @@ def project_items(project_id: int, request: Request, user: CurrentUser) -> dict:
         titles = {c.id: c.title for c in chats}
         rows = [r for r in files.live(session) if r.owner_id == user.id]
         names = {r.id: r.path for r in rows}
-    # An OCR session shows its pages and where its job stands. settle() writes when a job
-    # was interrupted by a restart: it's recorded as paused the first time it's seen.
+    # An OCR session shows its pages, where its job stands, and its Document. settle() writes
+    # when a job was interrupted by a restart: it's recorded as paused the first time it's seen.
     jobs = request.app.state.ocr_jobs
-    ocr = {c.id: jobs.settle(project, c.id) for c in chats if c.kind == "ocr"}
+    ocr = {c.id: jobs.summary(project, c.id) for c in chats if c.kind == "ocr"}
     return {
         "sessions": [
             {
@@ -196,11 +196,7 @@ def project_items(project_id: int, request: Request, user: CurrentUser) -> dict:
                 "kind": c.kind,
                 "title": c.title,
                 "messages": counts.get(c.id, 0),
-                "ocr": (
-                    {"pages": ocr[c.id].pages_total, "status": ocr[c.id].status}
-                    if c.id in ocr
-                    else None
-                ),
+                "ocr": ocr.get(c.id),
                 "created_at": iso(c.created_at),
                 "updated_at": iso(c.updated_at),
             }
