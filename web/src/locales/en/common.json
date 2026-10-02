@@ -184,7 +184,21 @@
     "sorted": "Sorted by: modified",
     "ocrKind": "OCR session",
     "ocrDetails_one": "{{count}} page · {{status}}",
-    "ocrDetails_other": "{{count}} pages · {{status}}"
+    "ocrDetails_other": "{{count}} pages · {{status}}",
+    "folderName": "{{name}}/",
+    "folderKind": "Folder",
+    "ocrFolderKind": "OCR output · folder",
+    "ocrFolderDetails": "document · {{pages}} · {{figures}}",
+    "pages_one": "{{count}} page",
+    "pages_other": "{{count}} pages",
+    "figures_one": "{{count}} image region",
+    "figures_other": "{{count}} image regions",
+    "files_one": "{{count}} file",
+    "files_other": "{{count}} files",
+    "madeByOcr": "made by OCR · {{title}}",
+    "documentKind": "Document",
+    "documentDetails": "version {{version}} · {{open}} open",
+    "insideFolder": "inside {{name}}/"
   },
   "time": {
     "justNow": "just now"

@@ -178,7 +178,7 @@ export interface SearchHit {
 }
 
 export interface Tab {
-  kind: "session" | "artifact";
+  kind: "session" | "artifact" | "document"; // a document tab's id is its OCR session's
   id: number;
 }
 
