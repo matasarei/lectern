@@ -244,7 +244,7 @@ MAX_TABS = 30
 
 
 class Tab(BaseModel):
-    kind: Literal["session", "artifact"]
+    kind: Literal["session", "artifact", "document"]  # a document tab's id is its OCR session's
     id: int
 
 
@@ -272,7 +272,7 @@ def get_tabs(project_id: int, request: Request, user: CurrentUser) -> dict:
         tabs = Tabs.model_validate_json(row.value)
 
     def exists(tab: Tab) -> bool:
-        return tab.id in (chats if tab.kind == "session" else live)
+        return tab.id in (live if tab.kind == "artifact" else chats)
 
     tabs.open = [t for t in tabs.open if exists(t)]
     if tabs.active is not None and not exists(tabs.active):

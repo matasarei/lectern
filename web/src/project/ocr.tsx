@@ -18,10 +18,12 @@ export function OcrTab({
   projectId,
   sessionId,
   onOpen,
+  initialPage = 1,
 }: {
   projectId: number;
   sessionId: number;
   onOpen: (tab: Tab) => void;
+  initialPage?: number;
 }) {
   const { t } = useTranslation();
   const base = ocrPath(projectId, sessionId);
@@ -31,7 +33,7 @@ export function OcrTab({
   });
   const live = useOcrEvents(projectId, sessionId);
   const doc = useOcrDocument(projectId, sessionId, session.data?.document?.version ?? null);
-  const [selected, setSelected] = useState(1);
+  const [selected, setSelected] = useState(initialPage);
 
   if (session.isError) {
     return (
@@ -107,7 +109,7 @@ function StatusStrip({
         {document && (
           <button
             className="text-accent hover:underline"
-            onClick={() => onOpen({ kind: "artifact", id: document.artifact_id })}
+            onClick={() => onOpen({ kind: "document", id: session.id })}
           >
             {t("ocr.openDocument", { version: document.version })}
           </button>

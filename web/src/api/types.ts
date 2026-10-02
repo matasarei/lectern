@@ -180,6 +180,7 @@ export interface SearchHit {
 export interface Tab {
   kind: "session" | "artifact" | "document"; // a document tab's id is its OCR session's
   id: number;
+  page?: number; // an OCR tab: the page to show when it opens (never saved)
 }
 
 export interface Tabs {

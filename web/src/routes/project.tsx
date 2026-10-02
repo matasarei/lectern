@@ -9,6 +9,7 @@ import { ErrorNote } from "../components";
 import { formatMemory } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
 import { ChatTab } from "../project/chat";
+import { DocumentTab } from "../project/document";
 import { FileTab } from "../project/file";
 import { OcrTab } from "../project/ocr";
 import { Overview } from "../project/overview";
@@ -71,6 +72,7 @@ export function ProjectPage() {
       return items.data.artifacts.find((a) => a.id === tab.id)?.name ?? t("project.fileTab");
     }
     const session = sessionOf(tab.id);
+    if (tab.kind === "document") return t("project.documentTab", { title: session?.ocr?.folder ?? "" });
     if (session?.kind === "ocr") return t("project.ocrTab", { title: session.title });
     return session?.title ?? t("project.chatTab");
   };
@@ -108,10 +110,19 @@ export function ProjectPage() {
       <section className="min-h-0 overflow-y-auto">
         {tabs.active === null && <Overview projectId={id} items={items.data} onOpen={open} />}
         {tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
-          <OcrTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />
+          <OcrTab
+            key={tabs.active.id}
+            projectId={id}
+            sessionId={tabs.active.id}
+            onOpen={open}
+            initialPage={tabs.active.page}
+          />
         )}
         {tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
           <ChatTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />
+        )}
+        {tabs.active?.kind === "document" && (
+          <DocumentTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} items={items.data} onOpen={open} />
         )}
         {tabs.active?.kind === "artifact" && (
           <FileTab

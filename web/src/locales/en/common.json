@@ -146,7 +146,8 @@
     "missing": "This tab's item is no longer in the project.",
     "fileTab": "File",
     "chatTab": "Chat",
-    "ocrTab": "OCR · {{title}}"
+    "ocrTab": "OCR · {{title}}",
+    "documentTab": "Document · {{title}}"
   },
   "overview": {
     "filters": {
@@ -362,5 +363,15 @@
       "edit": "E",
       "skip": "Tab"
     }
+  },
+  "document": {
+    "none": "This session has no Document yet.",
+    "pageFailed": "[Page {{page}} wasn't cleaned: {{error}}]",
+    "version": "Version",
+    "pages": "Pages",
+    "openQuestions": "Open questions",
+    "openSession": "OCR session · {{title}}",
+    "notes": "Page notes",
+    "note": "Page {{page}}: {{note}}"
   }
 }
