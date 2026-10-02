@@ -152,4 +152,51 @@ describe("Overview", () => {
     expect(opened).toEqual([{ kind: "artifact", id: 4 }]);
     expect(requests.some((r) => r.url === `/api/projects/1/search?q=${encodeURIComponent("пеня")}`)).toBe(true);
   });
+
+  it("puts a folder's files under one row, which expands", () => {
+    renderOverview(() => {}, {
+      sessions: [],
+      artifacts: [
+        artifact(5, "scripts/count.py", { kind: "generated", mime: "text/x-python", modified_at: "2026-09-29T12:00:00Z" }),
+        artifact(6, "scripts/notes.md", { kind: "generated", mime: "text/markdown", modified_at: "2026-09-29T08:00:00Z" }),
+        artifact(3, "lease-1998-scan.pdf"),
+      ],
+    });
+    const rows = () => screen.getAllByRole("row").slice(1) as HTMLTableRowElement[];
+    expect(rows().map((r) => r.cells[0].textContent)).toEqual(["▸ scripts/", "lease-1998-scan.pdf"]);
+    const folder = rows()[0];
+    expect(within(folder).getByText("Folder")).toBeTruthy();
+    expect(within(folder).getByText("2 files")).toBeTruthy();
+    fireEvent.click(folder);
+    expect(rows().map((r) => r.cells[0].textContent)).toEqual([
+      "▾ scripts/", "count.py", "notes.md", "lease-1998-scan.pdf",
+    ]); // newest file first, inside the folder
+    fireEvent.click(rows()[0]);
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("shows an OCR session's output folder with its Document, which opens the Document tab", () => {
+    const opened: Tab[] = [];
+    const ocr = {
+      id: 2, kind: "ocr" as const, title: "lease-1998-scan.pdf", messages: 0,
+      ocr: { pages: 12, status: "done" as const, folder: "Lease 1998", document_version: 7,
+             open_doubts: 1, figures: 1 },
+      created_at: "", updated_at: "2026-09-29T09:00:00Z",
+    };
+    const doc = artifact(8, "Lease 1998/document.md", {
+      kind: "generated", mime: "text/markdown", text: "indexed",
+      from: { kind: "session", id: 2, note: null, title: "lease-1998-scan.pdf" },
+    });
+    renderOverview((tab) => opened.push(tab), { sessions: [ocr], artifacts: [doc] });
+
+    const folder = screen.getByText("▸ Lease 1998/").closest("tr")!;
+    expect(within(folder).getByText("OCR output · folder")).toBeTruthy();
+    expect(within(folder).getByText("document · 12 pages · 1 image region")).toBeTruthy();
+    expect(within(folder).getByText("made by OCR · lease-1998-scan.pdf")).toBeTruthy();
+    fireEvent.click(folder);
+    const document = screen.getByText("Document").closest("tr")!;
+    expect(within(document).getByText("version 7 · 1 open")).toBeTruthy();
+    fireEvent.click(document);
+    expect(opened).toEqual([{ kind: "document", id: 2 }]);
+  });
 });

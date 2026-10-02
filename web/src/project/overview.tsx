@@ -14,7 +14,36 @@ const FILTERS: Filter[] = ["all", "sessions", "imported", "produced"];
 
 type Row =
   | { kind: "session"; modified: string; session: SessionSummary }
-  | { kind: "artifact"; modified: string; artifact: Artifact };
+  | { kind: "artifact"; modified: string; artifact: Artifact }
+  | { kind: "folder"; modified: string; folder: string; files: Artifact[]; ocr: SessionSummary | undefined };
+
+const DOCUMENT_MD = "document.md";
+
+/** A file's top folder ("Lease 1998" for "Lease 1998/pages/x.md"), or null when it has none. */
+function topFolder(artifact: Artifact): string | null {
+  const slash = artifact.name.indexOf("/");
+  return slash > 0 ? artifact.name.slice(0, slash) : null;
+}
+
+/** Files in a folder go under one row for their top folder; an OCR session's output folder
+ * says so. The folder's Modified is its newest file's. */
+function groupByFolder(artifacts: Artifact[], sessions: SessionSummary[]): Row[] {
+  const loose: Row[] = [];
+  const folders = new Map<string, Artifact[]>();
+  for (const artifact of artifacts) {
+    const folder = topFolder(artifact);
+    if (folder === null) loose.push({ kind: "artifact", modified: artifact.modified_at, artifact });
+    else folders.set(folder, [...(folders.get(folder) ?? []), artifact]);
+  }
+  const grouped = [...folders].map(([folder, files]): Row => ({
+    kind: "folder",
+    folder,
+    files: [...files].sort((a, b) => b.modified_at.localeCompare(a.modified_at)),
+    modified: files.reduce((newest, f) => (f.modified_at > newest ? f.modified_at : newest), ""),
+    ocr: sessions.find((s) => s.ocr?.folder === folder),
+  }));
+  return [...loose, ...grouped];
+}
 
 /** Overview: everything in the project, like a folder, newest first. Drop files anywhere
  * on it to import them. */
@@ -57,24 +86,24 @@ export function Overview({
     enabled: query.trim().length > 1,
   });
 
-  const rows: Row[] = [
-    ...items.sessions.map((s): Row => ({ kind: "session", modified: s.updated_at, session: s })),
-    ...items.artifacts.map((a): Row => ({ kind: "artifact", modified: a.modified_at, artifact: a })),
-  ].sort((a, b) => b.modified.localeCompare(a.modified));
   const counts: Record<Filter, number> = {
-    all: rows.length,
+    all: items.sessions.length + items.artifacts.length,
     sessions: items.sessions.length,
     imported: items.artifacts.filter((a) => a.kind === "imported").length,
     produced: items.artifacts.filter((a) => a.kind === "generated").length,
   };
-  const shown = rows.filter(
-    (row) =>
+  const artifactsShown = items.artifacts.filter(
+    (a) =>
       filter === "all" ||
-      (filter === "sessions" && row.kind === "session") ||
-      (row.kind === "artifact" &&
-        ((filter === "imported" && row.artifact.kind === "imported") ||
-          (filter === "produced" && row.artifact.kind === "generated"))),
+      (filter === "imported" && a.kind === "imported") ||
+      (filter === "produced" && a.kind === "generated"),
   );
+  const shown: Row[] = [
+    ...(filter === "all" || filter === "sessions"
+      ? items.sessions.map((s): Row => ({ kind: "session", modified: s.updated_at, session: s }))
+      : []),
+    ...groupByFolder(artifactsShown, items.sessions),
+  ].sort((a, b) => b.modified.localeCompare(a.modified));
   const error = importFiles.error ?? newChat.error;
 
   return (
@@ -169,6 +198,7 @@ function ItemsTable({
   onOpen: (tab: Tab) => void;
 }) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState<Set<string>>(new Set());
   if (rows.length === 0) return <p className="text-sm text-muted">{t("overview.empty")}</p>;
   return (
     <div className="overflow-x-auto">
@@ -183,62 +213,170 @@ function ItemsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) =>
-            row.kind === "session" ? (
-              <tr
-                key={`s${row.session.id}`}
-                className="cursor-pointer border-t border-line hover:bg-accent-soft"
-                onClick={() => onOpen({ kind: "session", id: row.session.id })}
-              >
-                <td className="py-2 pr-4 font-medium">{row.session.title}</td>
-                <td className="py-2 pr-4">
-                  {t(row.session.ocr ? "overview.ocrKind" : "overview.chatKind")}
-                </td>
-                <td className="py-2 pr-4 text-muted">
-                  {row.session.ocr
-                    ? t("overview.ocrDetails", {
-                        count: row.session.ocr.pages,
-                        status: t(`ocr.status.${row.session.ocr.status}`),
-                      })
-                    : t("overview.messages", { count: row.session.messages })}
-                </td>
-                <td className="py-2 pr-4 text-muted">{t("overview.fromGone")}</td>
-                <td className="py-2 text-muted">{formatAgo(row.modified)}</td>
-              </tr>
-            ) : (
-              <tr
-                key={`a${row.artifact.id}`}
-                className="cursor-pointer border-t border-line hover:bg-accent-soft"
-                onClick={() => onOpen({ kind: "artifact", id: row.artifact.id })}
-              >
-                <td className="py-2 pr-4 font-medium">{row.artifact.name}</td>
-                <td className="py-2 pr-4">
-                  {t(row.artifact.kind === "imported" ? "overview.importedKind" : "overview.generatedKind", {
-                    type: fileType(row.artifact.name, row.artifact.mime),
-                  })}
-                </td>
-                <td className="py-2 pr-4 text-muted">
-                  {formatBytes(row.artifact.size)} ·{" "}
-                  {row.artifact.text === "indexed"
-                    ? t("overview.hasText")
-                    : (row.artifact.text_note ?? "")}
-                  {isPageSource(row.artifact) && (
-                    <>
-                      {" · "}
-                      <OpenAsOcr projectId={projectId} artifact={row.artifact} onOpen={onOpen} compact />
-                    </>
-                  )}
-                </td>
-                <td className="py-2 pr-4 text-muted" data-testid={`from-${row.artifact.id}`}>
-                  <From artifact={row.artifact} />
-                </td>
-                <td className="py-2 text-muted">{formatAgo(row.modified)}</td>
-              </tr>
-            ),
-          )}
+          {rows.map((row) => {
+            if (row.kind === "session") {
+              return (
+                <tr
+                  key={`s${row.session.id}`}
+                  className="cursor-pointer border-t border-line hover:bg-accent-soft"
+                  onClick={() => onOpen({ kind: "session", id: row.session.id })}
+                >
+                  <td className="py-2 pr-4 font-medium">{row.session.title}</td>
+                  <td className="py-2 pr-4">
+                    {t(row.session.ocr ? "overview.ocrKind" : "overview.chatKind")}
+                  </td>
+                  <td className="py-2 pr-4 text-muted">
+                    {row.session.ocr
+                      ? t("overview.ocrDetails", {
+                          count: row.session.ocr.pages,
+                          status: t(`ocr.status.${row.session.ocr.status}`),
+                        })
+                      : t("overview.messages", { count: row.session.messages })}
+                  </td>
+                  <td className="py-2 pr-4 text-muted">{t("overview.fromGone")}</td>
+                  <td className="py-2 text-muted">{formatAgo(row.modified)}</td>
+                </tr>
+              );
+            }
+            if (row.kind === "artifact") {
+              return <FileRow key={`a${row.artifact.id}`} projectId={projectId} artifact={row.artifact} onOpen={onOpen} />;
+            }
+            const expanded = open.has(row.folder);
+            return [
+              <FolderRow
+                key={`f${row.folder}`}
+                row={row}
+                expanded={expanded}
+                onToggle={() =>
+                  setOpen((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(row.folder)) next.delete(row.folder);
+                    else next.add(row.folder);
+                    return next;
+                  })
+                }
+              />,
+              ...(expanded
+                ? row.files.map((file) =>
+                    row.ocr?.ocr && file.name === `${row.folder}/${DOCUMENT_MD}` ? (
+                      <DocumentRow key={`a${file.id}`} artifact={file} session={row.ocr} onOpen={onOpen} />
+                    ) : (
+                      <FileRow key={`a${file.id}`} projectId={projectId} artifact={file} onOpen={onOpen} nested />
+                    ),
+                  )
+                : []),
+            ];
+          })}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function FileRow({
+  projectId,
+  artifact,
+  onOpen,
+  nested = false,
+}: {
+  projectId: number;
+  artifact: Artifact;
+  onOpen: (tab: Tab) => void;
+  nested?: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <tr
+      className="cursor-pointer border-t border-line hover:bg-accent-soft"
+      onClick={() => onOpen({ kind: "artifact", id: artifact.id })}
+    >
+      <td className={`py-2 pr-4 font-medium ${nested ? "pl-6" : ""}`}>
+        {nested ? artifact.name.slice(artifact.name.indexOf("/") + 1) : artifact.name}
+      </td>
+      <td className="py-2 pr-4">
+        {t(artifact.kind === "imported" ? "overview.importedKind" : "overview.generatedKind", {
+          type: fileType(artifact.name, artifact.mime),
+        })}
+      </td>
+      <td className="py-2 pr-4 text-muted">
+        {formatBytes(artifact.size)} ·{" "}
+        {artifact.text === "indexed" ? t("overview.hasText") : (artifact.text_note ?? "")}
+        {isPageSource(artifact) && (
+          <>
+            {" · "}
+            <OpenAsOcr projectId={projectId} artifact={artifact} onOpen={onOpen} compact />
+          </>
+        )}
+      </td>
+      <td className="py-2 pr-4 text-muted" data-testid={`from-${artifact.id}`}>
+        <From artifact={artifact} />
+      </td>
+      <td className="py-2 text-muted">{formatAgo(artifact.modified_at)}</td>
+    </tr>
+  );
+}
+
+/** A folder: one row, its files under it when expanded. An OCR session's output folder
+ * reads "OCR output · folder" with its Document's pages and image regions. */
+function FolderRow({
+  row,
+  expanded,
+  onToggle,
+}: {
+  row: Extract<Row, { kind: "folder" }>;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useTranslation();
+  const ocr = row.ocr?.ocr;
+  return (
+    <tr className="cursor-pointer border-t border-line hover:bg-accent-soft" aria-expanded={expanded} onClick={onToggle}>
+      <td className="py-2 pr-4 font-medium">
+        {expanded ? "▾ " : "▸ "}
+        {t("overview.folderName", { name: row.folder })}
+      </td>
+      <td className="py-2 pr-4">{t(ocr ? "overview.ocrFolderKind" : "overview.folderKind")}</td>
+      <td className="py-2 pr-4 text-muted">
+        {ocr && ocr.document_version > 0
+          ? t("overview.ocrFolderDetails", {
+              pages: t("overview.pages", { count: ocr.pages }),
+              figures: t("overview.figures", { count: ocr.figures }),
+            })
+          : t("overview.files", { count: row.files.length })}
+      </td>
+      <td className="py-2 pr-4 text-muted">
+        {row.ocr ? t("overview.madeByOcr", { title: row.ocr.title }) : t("overview.fromGone")}
+      </td>
+      <td className="py-2 text-muted">{formatAgo(row.modified)}</td>
+    </tr>
+  );
+}
+
+/** An OCR session's Document, inside its folder: opens the Document's own tab. */
+function DocumentRow({
+  artifact,
+  session,
+  onOpen,
+}: {
+  artifact: Artifact;
+  session: SessionSummary;
+  onOpen: (tab: Tab) => void;
+}) {
+  const { t } = useTranslation();
+  const ocr = session.ocr!;
+  return (
+    <tr
+      className="cursor-pointer border-t border-line hover:bg-accent-soft"
+      onClick={() => onOpen({ kind: "document", id: session.id })}
+    >
+      <td className="py-2 pr-4 pl-6 font-medium">{ocr.folder}</td>
+      <td className="py-2 pr-4">{t("overview.documentKind")}</td>
+      <td className="py-2 pr-4 text-muted">
+        {t("overview.documentDetails", { version: ocr.document_version, open: ocr.open_doubts })}
+      </td>
+      <td className="py-2 pr-4 text-muted">{t("overview.insideFolder", { name: ocr.folder })}</td>
+      <td className="py-2 text-muted">{formatAgo(artifact.modified_at)}</td>
+    </tr>
   );
 }
 
