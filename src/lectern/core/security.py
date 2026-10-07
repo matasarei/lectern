@@ -2,7 +2,9 @@
 still send requests there. This middleware makes sure only Lectern's own page can use the API.
 
 - Host check (HTTP and WebSocket): the Host header must be 127.0.0.1:<port> or
-  localhost:<port>. This defeats DNS rebinding.
+  localhost:<port>. This defeats DNS rebinding. Behind a reverse proxy on the same machine
+  (nginx), the public URL it's reached by is set explicitly (LECTERN_PUBLIC_URL), and its
+  host and origin are accepted too: exactly those, nothing near them.
 - Origin check: HTTP requests that change something, and every WebSocket upgrade, must come
   from Lectern's own origin. Browsers don't apply same-origin rules to WebSockets, so there
   the Origin header is required, not just checked when present.
@@ -20,8 +22,10 @@ import os
 import secrets
 import sys
 from collections.abc import Awaitable, Callable, Iterable, MutableMapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
@@ -62,12 +66,48 @@ def load_or_create_token(token_file: Path) -> str:
     return token
 
 
-def allowed_hosts(port: int) -> frozenset[str]:
-    return frozenset({f"127.0.0.1:{port}", f"localhost:{port}"})
+@dataclass(frozen=True)
+class PublicUrl:
+    host: str  # as the Host header carries it: "lectern.lan", "192.168.1.20:8443"
+    origin: str  # as the Origin header carries it: "http://lectern.lan"
 
 
-def allowed_origins(port: int) -> frozenset[str]:
-    return frozenset({f"http://{host}" for host in allowed_hosts(port)})
+def parse_public_urls(value: str) -> list[PublicUrl]:
+    """LECTERN_PUBLIC_URL: one or more `http(s)://host[:port]`, comma-separated. Anything
+    else (a path, a user, a query, another scheme) is refused, so the guard can't be widened
+    by accident."""
+    urls = []
+    for raw in (part.strip() for part in value.split(",")):
+        if not raw:
+            continue
+        try:
+            parts = urlsplit(raw.removesuffix("/"))
+            port = parts.port  # raises for a port out of range
+        except ValueError:
+            parts, port = None, None
+        if (
+            parts is None
+            or parts.scheme not in ("http", "https")
+            or not parts.hostname
+            or parts.path or parts.query or parts.fragment
+            or parts.username or parts.password
+        ):  # fmt: skip
+            raise ValueError(
+                f"LECTERN_PUBLIC_URL must be like http://lectern.lan or "
+                f"https://192.168.1.20:8443, not {raw!r}."
+            )
+        host = parts.hostname.lower() + (f":{port}" if port is not None else "")
+        urls.append(PublicUrl(host=host, origin=f"{parts.scheme}://{host}"))
+    return urls
+
+
+def allowed_hosts(port: int, public: Iterable[PublicUrl] = ()) -> frozenset[str]:
+    return frozenset({f"127.0.0.1:{port}", f"localhost:{port}", *(u.host for u in public)})
+
+
+def allowed_origins(port: int, public: Iterable[PublicUrl] = ()) -> frozenset[str]:
+    local = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+    return frozenset({*local, *(u.origin for u in public)})
 
 
 def _header(scope: Scope, name: bytes) -> str | None:
@@ -75,6 +115,12 @@ def _header(scope: Scope, name: bytes) -> str | None:
         if key == name:
             return value.decode("latin-1")
     return None
+
+
+def _host(scope: Scope) -> str | None:
+    """The Host header; host names aren't case-sensitive."""
+    host = _header(scope, b"host")
+    return host.lower() if host is not None else None
 
 
 def _ws_subprotocols(scope: Scope) -> Iterable[str]:
@@ -88,10 +134,13 @@ def _tokens_match(given: str | None, expected: str) -> bool:
 class LocalGuard:
     """ASGI middleware applying the host, origin and token checks, and the CSP."""
 
-    def __init__(self, app: ASGIApp, *, port: int, token: str) -> None:
+    def __init__(
+        self, app: ASGIApp, *, port: int, token: str, public: Iterable[PublicUrl] = ()
+    ) -> None:
         self.app = app
-        self.hosts = allowed_hosts(port)
-        self.origins = allowed_origins(port)
+        public = list(public)
+        self.hosts = allowed_hosts(port, public)
+        self.origins = allowed_origins(port, public)
         self.token = token
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -109,7 +158,7 @@ class LocalGuard:
                 message["headers"] = [*message.get("headers", []), *SECURITY_HEADERS]
             await send(message)
 
-        if _header(scope, b"host") not in self.hosts:
+        if _host(scope) not in self.hosts:
             await _plain_error(send_with_headers, 421, "Misdirected request")
             return
         origin = _header(scope, b"origin")
@@ -134,7 +183,7 @@ class LocalGuard:
             None,
         )
         allowed = (
-            _header(scope, b"host") in self.hosts
+            _host(scope) in self.hosts
             and _header(scope, b"origin") in self.origins
             and _tokens_match(token, self.token)
         )
