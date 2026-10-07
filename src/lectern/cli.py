@@ -25,16 +25,55 @@ app = typer.Typer(help="Lectern: a local, modular AI workbench.", no_args_is_hel
 def serve(
     port: int = typer.Option(DEFAULT_PORT, help="Port on 127.0.0.1."),
     browser: bool = typer.Option(True, help="Open the browser once the server starts."),
+    public_url: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--public-url",
+            help="The address a reverse proxy on this machine serves Lectern at, e.g. "
+            "http://lectern.lan (repeatable; default: LECTERN_PUBLIC_URL).",
+        ),
+    ] = None,
 ) -> None:
     """Start the Lectern server on 127.0.0.1 (never on any other address)."""
     from lectern.app import create_app
 
-    lectern_app = create_app(port=port)
-    url = f"http://127.0.0.1:{port}/#token={lectern_app.state.token}"
+    try:
+        lectern_app = create_app(port=port, public_urls=public_url or None)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from None
+    token = lectern_app.state.token
+    url = f"http://127.0.0.1:{port}/#token={token}"
     typer.echo(f"Lectern is running at {url}")
+    for origin in lectern_app.state.public_urls:
+        typer.echo(f"and at {origin}/#token={token}")
     if browser:
         open_when_listening(url, port)
     LecternServer(server_config(lectern_app, port)).run()
+
+
+@app.command()
+def url(
+    port: int = typer.Option(DEFAULT_PORT, help="Port of the running `lectern serve`."),
+) -> None:
+    """Print the link to open Lectern with, its access token included: the way into a
+    server with no browser (run it as the user Lectern runs as). The first LECTERN_PUBLIC_URL
+    when set, else 127.0.0.1."""
+    from lectern.config import get_paths
+    from lectern.core.security import parse_public_urls
+
+    token_file = get_paths().token_file
+    token = token_file.read_text(encoding="utf-8").strip() if token_file.is_file() else ""
+    if not token:
+        typer.echo("Lectern hasn't run here yet (no access token). Start it first.", err=True)
+        raise typer.Exit(1)
+    try:
+        public = parse_public_urls(os.environ.get("LECTERN_PUBLIC_URL", ""))
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from None
+    base = public[0].origin if public else f"http://127.0.0.1:{port}"
+    typer.echo(f"{base}/#token={token}")
 
 
 # The page keeps event streams open (runtime and download progress). Uvicorn's graceful

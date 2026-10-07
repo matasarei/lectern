@@ -132,3 +132,40 @@ def test_ocr_check_stops_on_a_bad_tags_file_before_any_model_runs(tmp_path, monk
     result = _ocr_check(str(folder), "--port", str(free_port))
 
     assert result.exit_code == 2 and "tags.yaml should have one line per page" in result.output
+
+
+def _run(*args: str):  # noqa: ANN202
+    from typer.testing import CliRunner
+
+    return CliRunner().invoke(cli.app, list(args))
+
+
+def test_url_prints_the_link_with_the_token_from_the_running_install(paths, monkeypatch):
+    from lectern.core.security import load_or_create_token
+
+    token = load_or_create_token(paths.token_file)
+    monkeypatch.delenv("LECTERN_PUBLIC_URL", raising=False)
+    assert _run("url").output.strip() == f"http://127.0.0.1:8765/#token={token}"
+    assert _run("url", "--port", "9000").output.strip() == f"http://127.0.0.1:9000/#token={token}"
+    monkeypatch.setenv("LECTERN_PUBLIC_URL", "http://lectern.lan/, https://other.lan")
+    assert _run("url").output.strip() == f"http://lectern.lan/#token={token}"
+
+
+def test_url_says_so_when_lectern_has_never_run(paths):
+    result = _run("url")
+    assert result.exit_code == 1 and "hasn't run here yet" in result.output
+
+
+def test_serve_refuses_a_malformed_public_url_before_starting(paths, monkeypatch):
+    started = []
+    monkeypatch.setattr(cli.LecternServer, "run", lambda self: started.append(True))
+    result = _run("serve", "--no-browser", "--public-url", "lectern.lan")
+    assert result.exit_code == 2 and "LECTERN_PUBLIC_URL must be like" in result.output
+    assert started == []
+
+
+def test_serve_prints_the_public_link_too(paths, monkeypatch):
+    monkeypatch.setattr(cli.LecternServer, "run", lambda self: None)
+    result = _run("serve", "--no-browser", "--public-url", "http://lectern.lan")
+    assert "Lectern is running at http://127.0.0.1:8765/#token=" in result.output
+    assert "and at http://lectern.lan/#token=" in result.output
