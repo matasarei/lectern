@@ -292,3 +292,26 @@ def test_a_stale_follow_up_also_runs_after_the_chats_next_turn(follow):
     asyncio.run(go())
     assert RAN == [{"chat": 1, "format": "odt"}]
     assert [r[1] for r in _transcript(db)][:2] == ["hi", "Hello."]
+
+
+def test_a_follow_up_whose_tool_breaks_ends_its_turn_with_the_error(follow, store):
+    manager, project, db, ocr_id, _ = follow([])
+
+    def broken(ctx, params):  # noqa: ANN001, ANN202
+        raise OSError("disk full")
+
+    manager._registry = lambda: Registry([*CORE_TOOLS, AgentTool(
+        name="export.run", description="Export.", params=_EchoParams, run=broken)])  # fmt: skip
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={}, label="x")
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    events = manager.channel((project.id, 1)).events
+    assert {"type": "error", "detail": "The follow-up couldn't run: disk full"}.items() <= events[
+        -2
+    ].items()
+    assert events[-1]["type"] == "turn" and events[-1]["status"] == "error"
+    assert manager.state((project.id, 1)) == "idle"

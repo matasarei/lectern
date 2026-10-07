@@ -248,13 +248,22 @@ class TurnManager:
 
             async def turn() -> str:
                 run.registry = await run_in_threadpool(self._registry)
-                if status == "done":
-                    await _run_follow_up(run, taken, notice)
-                else:
-                    text = f"{notice} The follow-up ({taken.label}) was dropped."
-                    await run_in_threadpool(
-                        lambda: store_message(run, role="assistant", content=text)
+                try:
+                    if status == "done":
+                        await _run_follow_up(run, taken, notice)
+                    else:
+                        text = f"{notice} The follow-up ({taken.label}) was dropped."
+                        await run_in_threadpool(
+                            lambda: store_message(run, role="assistant", content=text)
+                        )
+                except Exception as exc:  # noqa: BLE001 — a tool's own failure (a full disk…)
+                    # The page shows the turn as running until it hears it ended.
+                    channel.publish(
+                        {"type": "error", "detail": f"The follow-up couldn't run: {exc}"}
                     )
+                    channel.publish({"type": "turn", "status": "error"})
+                    channel.settle()
+                    return "error"
                 result = await run_turn(run)
                 channel.publish({"type": "turn", "status": result})
                 channel.settle()
