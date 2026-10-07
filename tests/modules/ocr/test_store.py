@@ -195,3 +195,26 @@ def test_deciding_a_doubt_the_document_doesnt_have_is_refused(store, tmp_path):
                          user_id=LOCAL_USER.id)  # fmt: skip
     with pytest.raises(ocr_store.NoSuchDoubt):
         ocr_store.reopen(project.root, db, sid, "d1.1")  # open already: nothing to reopen
+
+
+def test_answering_a_renumbered_page_keeps_the_answer_that_moved(store, tmp_path):
+    """Page 1 is cleaned again and its "1?" becomes d1.2; answering the new d1.1 must not
+    take away the answer to "1?" that was given while it was d1.1."""
+    from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
+
+    project, db, sid = _cleaned_session(store, tmp_path)
+    ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+    ocr_store.decide(project.root, db, sid, "d1.1", value="15", action="accept",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    (page,) = ocr_store.pages(db, sid)
+    cleaned_again = CleanedPage(
+        blocks=[CleanBlock(type="paragraph", text="вул. Хр?щатик, оплата до 1? числа.")],
+        doubts=[CleanDoubt(block=0, raw="Хр?щатик"), CleanDoubt(block=0, raw="1?")],
+    )
+    ocr_store.save_cleanup(project.root, db, ocr_store._ocr(db, sid), page.id, cleaned_again)
+    ocr, _ = ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+
+    ocr, _ = ocr_store.decide(project.root, db, sid, "d1.1", value="Хрещатик", action="edit",
+                              user_id=LOCAL_USER.id)  # fmt: skip
+    doc = ocr_store.load_document(project.root, ocr)
+    assert {d.id: d.value for d in doc.blocks[0].doubts} == {"d1.1": "Хрещатик", "d1.2": "15"}

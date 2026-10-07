@@ -354,8 +354,10 @@ def decide(
     action: str,
     user_id: int,
 ) -> tuple[OcrSessionRow, list[Decision]]:
-    """The person's reading for one of the current Document's doubts, replacing any earlier
-    decision on it; the Document is published again."""
+    """The person's reading for one of the current Document's doubts, replacing the decision
+    that resolves it now, if any; the Document is published again. A decision that only
+    shares its page and id (made before the page was cleaned again, now about another doubt)
+    is left alone."""
     with document_lock(root, session_id):
         ocr = _ocr(db, session_id)
         document = load_document(root, ocr)
@@ -373,14 +375,8 @@ def decide(
         earlier, _ = match_decisions(document, decisions(db, session_id))
         page = doubt_page(doubt) or 0
         with db.begin() as session:
-            stale = select(OcrDecisionRow).where(
-                OcrDecisionRow.session_id == session_id,
-                (OcrDecisionRow.page == page) & (OcrDecisionRow.doubt_id == doubt_id)
-                | (OcrDecisionRow.id == (earlier[doubt_id].id if doubt_id in earlier else -1)),
-            )
-            for row in session.scalars(stale).all():
-                session.delete(row)
-            session.flush()
+            if doubt_id in earlier:
+                session.delete(session.get(OcrDecisionRow, earlier[doubt_id].id))
             session.add(
                 OcrDecisionRow(session_id=session_id, page=page, doubt_id=doubt_id,
                                raw=doubt.raw, value=value, action=action, decided_by=user_id)
