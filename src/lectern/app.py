@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,7 +18,7 @@ from lectern.api import api_router
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
 from lectern.core.db import make_engine, make_sessionmaker, migrate
-from lectern.core.security import LocalGuard, load_or_create_token
+from lectern.core.security import LocalGuard, load_or_create_token, parse_public_urls
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.modules import (
@@ -42,8 +43,15 @@ def create_app(
     downloads: DownloadManager | None = None,
     runtime: ModelRuntime | None = None,
     web_dist: Path = WEB_DIST,
+    public_urls: list[str] | None = None,
 ) -> FastAPI:
+    """`public_urls`: the addresses a reverse proxy serves Lectern at; LECTERN_PUBLIC_URL when
+    not given. A malformed one raises ValueError here, before anything starts."""
     paths = paths or get_paths()
+    public = parse_public_urls(
+        ",".join(public_urls) if public_urls is not None
+        else os.environ.get("LECTERN_PUBLIC_URL", "")
+    )  # fmt: skip
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -94,5 +102,6 @@ def create_app(
 
     app.include_router(api_router(module_routers(modules)))
     mount_web(app, web_dist)  # last: it answers every path the API didn't
-    app.add_middleware(LocalGuard, port=port, token=app.state.token)
+    app.add_middleware(LocalGuard, port=port, token=app.state.token, public=public)
+    app.state.public_urls = [u.origin for u in public]
     return app
