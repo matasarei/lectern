@@ -34,3 +34,12 @@ def test_the_prompt_saves_files_only_when_asked():
     prompt = system_prompt("x", sandbox=True)
     assert "artifact_write only when the person asks for a file" in prompt
     assert "Otherwise answer in the chat." in prompt
+
+
+def test_the_prompt_has_the_rules_for_open_questions_notes_exports_and_scans():
+    prompt = system_prompt("x", sandbox=True)
+    assert "Text marked ⟦… | open …⟧ is unresolved" in prompt
+    assert "suggest answering it in the OCR tab" in prompt
+    assert "Page notes and pinned items take priority" in prompt
+    assert "call export_formats before offering a format" in prompt
+    assert "ocr_start" in prompt

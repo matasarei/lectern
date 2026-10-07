@@ -195,3 +195,12 @@ def test_pins_and_the_summary_are_never_stubbed_even_when_turns_must_go():
 def test_stored_message_ids_are_not_sent_to_the_model():
     built = run(history=[{"id": 7, "role": "user", "content": "hi"}], ctx=4096)
     assert built.messages[1] == {"role": "user", "content": "hi"}
+
+
+def test_pending_follow_ups_go_with_the_pins_and_are_never_left_out():
+    history = [user("q " + "y" * 900), assistant("a " + "z" * 900), user("latest")]
+    built = run(history=history, followups=["after OCR · lease-scan.pdf: export to ODT"], ctx=2048)
+    system = built.messages[0]["content"]
+    assert "# Pending follow-ups (they run when their session finishes)\n" in system
+    assert "- after OCR · lease-scan.pdf: export to ODT" in system
+    assert "Pending follow-ups" not in run(history=[user("hi")], ctx=4096).messages[0]["content"]
