@@ -234,8 +234,6 @@ class TurnManager:
         while self.state(key) != "idle":  # the chat is answering: after its turn
             await self.wait(key)
             await asyncio.sleep(0)
-        if self.state(key) != "idle":
-            return await self._follow_up(project, sessions, chat_id, follow, status, notice)
         self._starting.add(key)  # before the first await, so a message can't slip in
         try:
             taken = await run_in_threadpool(followups.take, sessions, chat_id, follow.id)
