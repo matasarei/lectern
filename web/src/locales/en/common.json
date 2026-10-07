@@ -256,7 +256,9 @@
       "files": "files",
       "summary": "summary",
       "turns": "recent"
-    }
+    },
+    "followups": "Waiting",
+    "followupRunning": "Follow-up: {{label}}"
   },
   "file": {
     "details": "Details",

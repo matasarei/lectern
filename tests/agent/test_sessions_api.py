@@ -234,3 +234,15 @@ def test_unpinning_needs_the_chat_to_be_yours(api):
     theirs = app.state.projects.create(User(id=2, name="other"), "Theirs")
     url = f"/api/projects/{theirs.id}/sessions/1/pins/abc"
     assert client.delete(url, headers=headers).status_code == 404
+
+
+def test_the_chat_shows_its_pending_follow_ups(api):
+    from lectern.agent import followups
+
+    client, headers, app, pid, _ = api([])
+    project = app.state.projects.get(User(id=1, name="local"), pid)
+    db = app.state.projects.db(project)
+    added = followups.add(db, 1, ocr_session_id=5, tool="export.run", arguments={},
+                          label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+    chat = client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()
+    assert chat["followups"] == [{"id": added.id, "label": added.label}]

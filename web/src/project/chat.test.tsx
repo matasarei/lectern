@@ -19,7 +19,7 @@ let push: (event: object) => void = () => {};
 beforeEach(() => {
   posts = [];
   chat = {
-    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [],
+    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [], followups: [],
     summary: { upto: 0, version: 0, messages: 0 },
     messages: [
       message(1, { content: "Is there a lease file?", attachments: [{ id: 3, name: "notes.md" }] }),
@@ -268,6 +268,17 @@ describe("Pinned items, the summary and the context", () => {
     expect(strip.textContent).toContain("instruction Answer in Ukrainian");
     fireEvent.click(screen.getByLabelText("Unpin: Answer in Ukrainian"));
     await waitFor(() => expect(posts).toEqual([{ url: "/api/projects/1/sessions/1/pins/p1", body: "DELETE" }]));
+  });
+
+  it("shows the follow-ups waiting for an OCR session, and says when one runs", async () => {
+    chat.followups = [{ id: "f1", label: "after OCR · lease-scan.pdf: export to ODT" }];
+    renderChat();
+    const strip = await screen.findByTestId("followups");
+    expect(strip.textContent).toBe("Waitingafter OCR · lease-scan.pdf: export to ODT");
+    await events({ type: "turn", status: "running", followup: "after OCR · lease-scan.pdf: export to ODT" });
+    expect(screen.getByTestId("followup-turn").textContent).toBe(
+      "Follow-up: after OCR · lease-scan.pdf: export to ODT",
+    );
   });
 
   it("marks where the summary ends", async () => {
