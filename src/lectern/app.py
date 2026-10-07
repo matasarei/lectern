@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from lectern import __version__
 from lectern.agent.core_tools import CORE_TOOLS
+from lectern.agent.export_tools import export_tools
 from lectern.agent.turns import TurnManager
 from lectern.api import api_router
 from lectern.catalog import catalog
@@ -19,7 +20,13 @@ from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.security import LocalGuard, load_or_create_token
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
-from lectern.modules import EnvProbe, load_modules, module_routers, tool_registry
+from lectern.modules import (
+    EnvProbe,
+    load_modules,
+    module_exporters,
+    module_routers,
+    tool_registry,
+)
 from lectern.modules.ocr.jobs import OcrJobs
 from lectern.modules.sandbox.container import Sandbox
 from lectern.projects.store import ProjectStore
@@ -71,7 +78,8 @@ def create_app(
     app.state.turns = TurnManager(
         app.state.runtime,
         app.state.projects,
-        tool_registry(CORE_TOOLS, modules, EnvProbe()),
+        # The export tools offer whatever export modules are installed.
+        tool_registry([*CORE_TOOLS, *export_tools(module_exporters(modules))], modules, EnvProbe()),
         downloads=app.state.downloads,
         sandbox=Sandbox(),
     )
