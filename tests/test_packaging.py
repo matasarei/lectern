@@ -174,7 +174,70 @@ def test_uninstall_keeps_the_data_unless_purged(tmp_path):
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
 def test_the_scripts_pass_shellcheck():
-    scripts = [LINUX / "install.sh", LINUX / "uninstall.sh", ROOT / "packaging/build_wheel.sh"]
+    scripts = [
+        LINUX / "install.sh",
+        LINUX / "uninstall.sh",
+        ROOT / "packaging/build_wheel.sh",
+        ROOT / "packaging/make_package.sh",
+        ROOT / "install.sh",
+        ROOT / "uninstall.sh",
+    ]
     checked = subprocess.run(["shellcheck", "-x", *map(str, scripts)],  # noqa: S603, S607
                              capture_output=True, text=True, cwd=ROOT)  # fmt: skip
     assert checked.returncode == 0, checked.stdout
+
+
+def _copy_scripts(to: Path) -> None:
+    """The install scripts as a package or a working copy has them."""
+    (to / "packaging").mkdir(parents=True)
+    shutil.copytree(LINUX, to / "packaging/linux")
+    shutil.copy(ROOT / "packaging/pins.sh", to / "packaging/pins.sh")
+    shutil.copy(ROOT / "install.sh", to / "install.sh")
+
+
+def _run_top(tmp_path: Path, top: Path, **extra: str) -> subprocess.CompletedProcess:
+    _install(tmp_path, _wheel(tmp_path, "0.0.1"))  # makes the fakes and the log
+    (tmp_path / "log").write_text("")
+    env = {
+        "PATH": f"{tmp_path / 'fakebin'}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "LECTERN_INSTALL_ROOT": str(tmp_path / "pkgroot"),
+        "LECTERN_UV_BIN": str(tmp_path / "fakebin/uv"),
+        "LOG": str(tmp_path / "log"),
+        "STATE": str(tmp_path / "state"),
+        "HOME": str(tmp_path),
+        **extra,
+    }
+    return subprocess.run(["bash", str(top / "install.sh")], env=env,  # noqa: S603, S607
+                          capture_output=True, text=True, timeout=60)  # fmt: skip
+
+
+def test_a_package_installs_the_wheel_beside_it_with_no_argument(tmp_path):
+    package = tmp_path / "lectern-0.3.0"
+    _copy_scripts(package)
+    (package / "lectern_ai-0.3.0-py3-none-any.whl").write_bytes(b"PK")
+
+    done = _run_top(tmp_path, package)
+    assert done.returncode == 0, done.stderr
+    venv = (tmp_path / "pkgroot/opt/lectern/venv").resolve()
+    assert venv.name.startswith("0.3.0-")
+    assert "Lectern runs on this machine at http://127.0.0.1:8765" in done.stdout
+
+
+def test_a_working_copy_without_node_says_how_to_get_it(tmp_path):
+    copy = tmp_path / "aihub"
+    _copy_scripts(copy)
+    (copy / "pyproject.toml").write_text("[project]\nname = 'lectern-ai'\n")
+    (copy / "web").mkdir()
+
+    done = _run_top(tmp_path, copy, LECTERN_NPM="no-such-npm")
+    assert done.returncode == 1
+    assert "building the web UI needs Node.js (npm)" in done.stderr
+    assert "packaging/make_package.sh" in done.stderr
+    assert not (tmp_path / "pkgroot/opt/lectern").exists()
+
+
+def test_a_folder_with_neither_a_wheel_nor_the_source_says_so(tmp_path):
+    empty = tmp_path / "somewhere"
+    _copy_scripts(empty)
+    done = _run_top(tmp_path, empty)
+    assert done.returncode == 1 and "no Lectern wheel next to this script" in done.stderr
