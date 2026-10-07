@@ -7,7 +7,8 @@ tools for what's available right now (`ToolEnv`), so the sandbox's tools appear 
 or Podman starts and go away when it stops.
 
 A module may also bring API routes: a `router` attribute (a FastAPI APIRouter), mounted
-under /api behind the same user check as every other route.
+under /api behind the same user check as every other route. An export module brings
+exporters: an `exporters()` method (see lectern.documents.export).
 """
 
 from __future__ import annotations
@@ -48,6 +49,11 @@ class Module(Protocol):
 def module_routers(modules: list[Module]) -> list[APIRouter]:
     """The routers the modules bring, if any (`router` is optional)."""
     return [r for m in modules if (r := getattr(m, "router", None)) is not None]
+
+
+def module_exporters(modules: list[Module]) -> list:
+    """The exporters the modules offer (`exporters()` is optional), in module order."""
+    return [e for m in modules if (offer := getattr(m, "exporters", None)) for e in offer()]
 
 
 def load_modules() -> list[Module]:

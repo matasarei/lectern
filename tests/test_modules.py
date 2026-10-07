@@ -107,3 +107,20 @@ def test_a_modules_routes_are_served_under_api_behind_the_user_check(paths, monk
 
     assert signed.json() == {"hello": "from a module"}
     assert anonymous.status_code == 401
+
+
+def test_only_modules_that_offer_exporters_add_them():
+    from lectern.modules import module_exporters
+
+    class _Export:
+        id = "export-demo"
+        exporter = object()
+
+        def tools(self, env: ToolEnv) -> list[AgentTool]:
+            return []
+
+        def exporters(self) -> list:
+            return [self.exporter]
+
+    demo = _Export()
+    assert module_exporters([DemoModule(), demo]) == [demo.exporter]
