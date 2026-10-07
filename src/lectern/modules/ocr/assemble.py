@@ -16,8 +16,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from lectern.documents.document import Block, Document, Doubt, PageInfo, Source
 from lectern.modules.ocr.clean import PAGE_NUMBER, CleanBlock, CleanedPage
-from lectern.modules.ocr.document import Block, Document, Doubt, PageInfo, Source
 from lectern.modules.ocr.doubts import ocr_doubts
 
 DIGITS = re.compile(r"\d+")

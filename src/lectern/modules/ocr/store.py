@@ -19,9 +19,9 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from lectern.documents.document import Document, render_markdown
 from lectern.modules.ocr.assemble import PageInput, assemble
 from lectern.modules.ocr.clean import CleanedPage
-from lectern.modules.ocr.document import Document, render_markdown
 from lectern.modules.ocr.doubts import unsure_words
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, PageImage, page_file
 from lectern.modules.ocr.recognise import PageText

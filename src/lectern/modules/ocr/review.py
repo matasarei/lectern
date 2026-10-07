@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from lectern.modules.ocr.document import Document, Doubt
+from lectern.documents.document import Document, Doubt
 
 RESOLVED_BY = "person"
 DOUBT_PAGE = re.compile(r"^d(\d+)\.")

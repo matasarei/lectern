@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from lectern.modules.ocr.document import Block, Document, Doubt, PageInfo, Source, render_markdown
+from lectern.documents.document import Block, Document, Doubt, PageInfo, Source, render_markdown
 
 
 def _lease() -> Document:

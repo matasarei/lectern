@@ -23,8 +23,8 @@ from lectern.api.sessions import open_session
 from lectern.api.sse import event_response, pump
 from lectern.catalog import catalog
 from lectern.core.auth import User
+from lectern.documents.document import render_page
 from lectern.modules.ocr import store as ocr_store
-from lectern.modules.ocr.document import render_page
 from lectern.modules.ocr.jobs import NotNow, OcrJobs, page_dict
 from lectern.modules.ocr.review import match_decisions
 from lectern.projects.store import Project

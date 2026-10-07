@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from lectern.documents.document import render_markdown
 from lectern.modules.ocr.assemble import PageInput, assemble
 from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
-from lectern.modules.ocr.document import render_markdown
 
 
 def _page(n: int, *blocks: CleanBlock, doubts=(), note: str = "", unsure=()) -> PageInput:  # noqa: ANN001
