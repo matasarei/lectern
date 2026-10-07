@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from lectern.agent.followups import FollowUp
 from lectern.projects.tables import ChatStateRow, now
 
 MAX_PINS = 20
@@ -37,6 +38,7 @@ class ChatState:
     summary: str = ""
     summary_upto: int = 0  # the last message id the summary covers; 0 = no summary
     summary_version: int = 0
+    followups: list[FollowUp] = field(default_factory=list)  # waiting for an OCR session
 
 
 def load(sessions: sessionmaker[Session], session_id: int) -> ChatState:
@@ -53,6 +55,7 @@ def _state(row: ChatStateRow | None) -> ChatState:
         summary=row.summary,
         summary_upto=row.summary_upto,
         summary_version=row.summary_version,
+        followups=[FollowUp(**f) for f in json.loads(row.followups or "[]")],
     )
 
 

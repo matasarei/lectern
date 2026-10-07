@@ -237,3 +237,18 @@ def test_a_project_at_p0005_gets_the_table_of_decisions_on_doubts(store, paths):
         session.add(OcrDecisionRow(**decision | {"doubt_id": "d3.2"}, action="skip",
                                    decided_by=LOCAL_USER.id))  # fmt: skip
     fresh.dispose()
+
+
+def test_a_project_at_p0006_gets_follow_ups_in_its_chats_state(store, paths):
+    from lectern.agent import followups
+
+    project = store.create(LOCAL_USER, "Before M3c")
+    store.dispose()
+    _migrate_to(project, "p0006")  # as a project made in M3b is
+    _migrate_to(project, "head")
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    db = fresh.db(project)
+    followups.add(db, 1, ocr_session_id=2, tool="export.run", arguments={}, label="export")
+    assert [f.label for f in followups.pending(db, 1)] == ["export"]
+    fresh.dispose()
