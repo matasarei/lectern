@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from lectern.documents.document import render_markdown
 from lectern.modules.ocr.assemble import PageInput, assemble
 from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
-from lectern.modules.ocr.document import render_markdown
 
 
 def _page(n: int, *blocks: CleanBlock, doubts=(), note: str = "", unsure=()) -> PageInput:  # noqa: ANN001
@@ -206,3 +206,14 @@ def test_a_page_number_the_model_called_a_signature_is_dropped_and_the_break_joi
     (block,) = doc.blocks
     assert block.text == "пеню у розмірі 0,5% від суми заборгованості, включно з днем оплати."
     assert block.pages == [2, 3]
+
+
+def test_a_question_in_a_table_given_as_text_and_rows_is_marked_in_its_cell():
+    """Seen on a real invoice: cleanup gave the table both as text and as rows. The table is
+    shown from its rows, so a question marked only in its text would vanish."""
+    both = CleanBlock(type="table", text="Rate\n100.00", rows=[["Rate"], ["100.00"]])
+    doc = assemble("L", "l.pdf", [_page(5, both, doubts=[CleanDoubt(block=0, raw="100.00")])])
+
+    (block,) = doc.blocks
+    assert block.rows == [["Rate"], ["{d5.1}"]]
+    assert "| ⟦100.00 \\| open⟧ |" in render_markdown(doc)  # in its cell, | escaped

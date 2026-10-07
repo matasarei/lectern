@@ -1,0 +1,180 @@
+"""The shared exporter tests (blueprint: every exporter passes one set of test documents).
+
+Each installed exporter writes the shared lease; its output is read back with a reader for
+its format, and the same things must hold: the table that ran across pages is whole, an
+answered question is its value, an open question is a comment with its candidates (or an
+inline mark where the format has no comments), the figure is a visible placeholder, and
+page notes appear only when asked for."""
+
+from __future__ import annotations
+
+import io
+from dataclasses import dataclass, field
+
+import pytest
+
+from lectern.documents.document import Doubt
+from lectern.documents.export import Exporter, ExportOptions, resolved_options
+from lectern.documents.from_text import parse_markdown
+from lectern.modules import load_modules, module_exporters
+
+from .fixtures import lease
+
+
+@dataclass
+class Read:
+    body: str  # all the text, paragraphs and cells, in order
+    tables: list[list[list[str]]] = field(default_factory=list)
+    comments: list[str] = field(default_factory=list)
+
+
+def _read_md(data: bytes) -> Read:
+    text = data.decode("utf-8")
+    tables = [b.rows for b in parse_markdown("x", text).blocks if b.type == "table"]
+    return Read(text, tables)
+
+
+def _read_docx(data: bytes) -> Read:
+    import docx
+    from docx.table import Table
+
+    document = docx.Document(io.BytesIO(data))
+    body, tables = [], []
+    for item in document.iter_inner_content():
+        if isinstance(item, Table):
+            rows = [[cell.text for cell in row.cells] for row in item.rows]
+            tables.append(rows)
+            body += [cell for row in rows for cell in row]
+        else:
+            body.append(item.text)
+    return Read("\n".join(body), tables, [c.text for c in document.comments])
+
+
+ODF_TEXT = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ODF_TABLE = "urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+ODF_OFFICE = "urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+
+
+def _odf_text(element) -> str:  # noqa: ANN001
+    """An element's text without the comments inside it (an annotation's own text), but
+    with the text that follows each one."""
+    parts = [element.text or ""]
+    for child in element:
+        if child.tag == f"{{{ODF_TEXT}}}s":  # spaces: ODF keeps them as elements
+            parts.append(" " * int(child.get(f"{{{ODF_TEXT}}}c", "1")))
+        elif child.tag == f"{{{ODF_TEXT}}}line-break":
+            parts.append("\n")
+        elif child.tag != f"{{{ODF_OFFICE}}}annotation":
+            parts.append(_odf_text(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
+def _read_odt(data: bytes) -> Read:
+    import zipfile
+
+    from lxml import etree
+
+    root = etree.fromstring(zipfile.ZipFile(io.BytesIO(data)).read("content.xml"))
+    annotation = f"{{{ODF_OFFICE}}}annotation"
+    body, tables = [], []
+    for element in root.iter(f"{{{ODF_TEXT}}}p", f"{{{ODF_TEXT}}}h"):
+        if any(a.tag == annotation for a in element.iterancestors()):
+            continue
+        body.append(_odf_text(element))
+    for table in root.iter(f"{{{ODF_TABLE}}}table"):
+        tables.append([
+            [_odf_text(p) for cell in row.iter(f"{{{ODF_TABLE}}}table-cell")
+             for p in cell.iter(f"{{{ODF_TEXT}}}p")]
+            for row in table.iter(f"{{{ODF_TABLE}}}table-row")
+        ])  # fmt: skip
+    comments = [
+        "\n".join(p.xpath("string()") for p in a.iter(f"{{{ODF_TEXT}}}p"))
+        for a in root.iter(annotation)
+    ]
+    return Read("\n".join(body), tables, comments)
+
+
+READERS = {"md": _read_md, "docx": _read_docx, "odt": _read_odt}
+
+
+def _exporters() -> list[Exporter]:
+    return module_exporters(load_modules())
+
+
+def _formats() -> list[str]:
+    return [e.format for e in _exporters()]
+
+
+def _export(fmt: str, **opts: str) -> tuple[Exporter, Read]:
+    (exporter,) = [e for e in _exporters() if e.format == fmt]
+    options = resolved_options(ExportOptions(**opts), exporter)
+    data = exporter.export(lease(), options)
+    assert isinstance(data, bytes) and data
+    return exporter, READERS[fmt](data)
+
+
+def test_every_exporter_has_a_reader_here_and_the_formats_are_installed():
+    assert {"md", "docx", "odt"} <= set(_formats()) and set(_formats()) <= set(READERS)
+
+
+@pytest.mark.parametrize("fmt", _formats())
+def test_the_table_that_ran_across_pages_is_whole(fmt):
+    _, read = _export(fmt)
+    (table,) = read.tables
+    assert table == [["Період", "Сума, грн"], ["березень 1998", "250,00"],
+                     ["квітень 1998", "250,00"], ["Разом", "750,00"]]  # fmt: skip
+
+
+@pytest.mark.parametrize("fmt", _formats())
+def test_an_answered_question_is_its_value_and_its_raw_text_is_gone(fmt):
+    _, read = _export(fmt)
+    assert "250,00" in read.body and "2?0,00" not in read.body + "".join(read.comments)
+
+
+@pytest.mark.parametrize("fmt", _formats())
+def test_an_open_question_is_a_comment_where_the_format_has_them_else_an_inline_mark(fmt):
+    exporter, read = _export(fmt)
+    if "comments" in exporter.capabilities:
+        assert "⟦" not in read.body and "Оплата не пізніше 1? числа" in read.body
+        assert any("10 · 15 · 18" in c and "smudged digit" in c for c in read.comments)
+    else:
+        assert "Оплата не пізніше ⟦1? → 10 · 15 · 18⟧ числа" in read.body
+    _, inline = _export(fmt, open_doubts="inline")
+    assert "⟦1? → 10 · 15 · 18⟧" in inline.body
+
+
+@pytest.mark.parametrize("fmt", _formats())
+def test_the_figure_is_a_visible_placeholder_and_the_heading_and_text_are_there(fmt):
+    _, read = _export(fmt)
+    for text in (
+        "[Image 1: stamp, page 3]",
+        "3. Орендна плата",
+        "Договір діє до 31 грудня 1999 року.",
+    ):
+        assert text in read.body
+
+
+@pytest.mark.parametrize("fmt", _formats())
+def test_page_notes_appear_only_when_asked_for(fmt):
+    _, plain = _export(fmt)
+    assert "landlord" not in plain.body + "".join(plain.comments)
+    exporter, asked = _export(fmt, notes="comment")
+    where = asked.comments if "comments" in exporter.capabilities else [asked.body]
+    assert any("Note for page 3: The stamp is the landlord's." in w for w in where)
+
+
+@pytest.mark.parametrize("fmt", _formats())
+def test_a_question_marked_where_the_format_doesnt_print_still_comes_out(fmt):
+    """Documents assembled before the fix kept a table's question in its text, which no
+    exporter prints; the question still has to come out, after the table."""
+    doc = lease()
+    table = doc.blocks[2]
+    table.text = "Сума {d3.9}"
+    table.doubts.append(Doubt(id="d3.9", raw="7?0,00", candidates=["750,00"]))
+    (exporter,) = [e for e in _exporters() if e.format == fmt]
+    read = READERS[fmt](exporter.export(doc, resolved_options(ExportOptions(), exporter)))
+    if "comments" in exporter.capabilities:
+        assert "7?0,00" in read.body and any("750,00" in c for c in read.comments)
+    else:
+        assert "⟦7?0,00 → 750,00⟧" in read.body

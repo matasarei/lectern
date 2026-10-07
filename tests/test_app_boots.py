@@ -18,3 +18,9 @@ def test_home_comes_from_env(paths):
     from lectern.config import get_paths
 
     assert get_paths().home == paths.home
+
+
+def test_the_chat_gets_the_export_tools_over_the_installed_exporters(paths):
+    app = create_app(paths)
+    names = [t.name for t in app.state.turns._registry().all()]
+    assert {"export.formats", "export.run"} <= set(names)

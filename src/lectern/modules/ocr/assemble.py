@@ -16,8 +16,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from lectern.documents.document import Block, Document, Doubt, PageInfo, Source
 from lectern.modules.ocr.clean import PAGE_NUMBER, CleanBlock, CleanedPage
-from lectern.modules.ocr.document import Block, Document, Doubt, PageInfo, Source
 from lectern.modules.ocr.doubts import ocr_doubts
 
 DIGITS = re.compile(r"\d+")
@@ -134,16 +134,18 @@ def _rows(block: CleanBlock) -> list[list[str]]:
 
 
 def _place(block: Block, raw: str, doubt_id: str) -> bool:
-    """Put {dN} where `raw` first appears in the block's text or cells."""
+    """Put {dN} where `raw` first appears in the block's cells or text. Cells first: a table
+    is shown from its rows, and cleanup sometimes gives its text as well, where a mark would
+    never be seen."""
     mark = f"{{{doubt_id}}}"
-    if raw in block.text:
-        block.text = block.text.replace(raw, mark, 1)
-        return True
     for row in block.rows or []:
         for i, cell in enumerate(row):
             if raw in cell:
                 row[i] = cell.replace(raw, mark, 1)
                 return True
+    if raw in block.text:
+        block.text = block.text.replace(raw, mark, 1)
+        return True
     return False
 
 

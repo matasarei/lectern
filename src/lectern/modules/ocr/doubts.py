@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from lectern.modules.ocr.document import Doubt
+from lectern.documents.document import Doubt
 
 # Tuned in M3a's acceptance run (12 pages, 1017 words, 3 misread): PaddleOCR-VL's misreads sat
 # between -1.0 and -0.5, among many words it read right, and cleanup doubted all three on its

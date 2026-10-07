@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lectern.modules.ocr.document import Block, Document, Doubt, PageInfo, Source, render_markdown
+from lectern.documents.document import Block, Document, Doubt, PageInfo, Source, render_markdown
 from lectern.modules.ocr.review import Decision, apply_decisions
 
 
