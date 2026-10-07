@@ -11,7 +11,7 @@
 #
 # - uv (pinned, checksum checked) and a Python 3.12 that uv manages live in /opt/lectern;
 #   the system's Python and any uv of yours are never touched.
-# - Each install goes into /opt/lectern/versions/<version>-<time>; /opt/lectern/venv points
+# - Each install goes into /opt/lectern/versions/<version>-<time>-<pid>; /opt/lectern/venv points
 #   at the one in use, and only moves once an install has fully succeeded. A failed upgrade
 #   leaves the running version as it was. Once the new version answers on /health, the one
 #   before it is kept (to go back to) and older ones are removed.
@@ -136,7 +136,7 @@ chown lectern:lectern "$data"
 
 # --- the app ----------------------------------------------------------------------------
 export UV_PYTHON_INSTALL_DIR="$prefix/python" UV_CACHE_DIR="$prefix/cache" UV_NO_CONFIG=1
-target="$prefix/versions/$version-$(date +%Y%m%d%H%M%S)"
+target="$prefix/versions/$version-$(date +%Y%m%d%H%M%S)-$$"  # $$: two runs in a second
 echo "Installing Lectern $version…"
 if ! { "$uv" venv --quiet --python 3.12 "$target" \
        && "$uv" pip install --quiet --refresh-package lectern-ai \

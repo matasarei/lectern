@@ -274,9 +274,6 @@ def test_an_update_with_the_same_version_replaces_the_code_and_keeps_the_data(tm
     first = (tmp_path / "root/opt/lectern/venv").resolve()
     (tmp_path / "state/active").touch()
 
-    import time
-
-    time.sleep(1.1)  # versions are stamped to the second
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
     assert done.returncode == 0, done.stderr
     second = (tmp_path / "root/opt/lectern/venv").resolve()
