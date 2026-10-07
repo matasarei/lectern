@@ -233,8 +233,6 @@ def test_a_project_at_p0005_gets_the_table_of_decisions_on_doubts(store, paths):
         chat = session.scalars(select(SessionRow)).first()
         decision = dict(session_id=chat.id, page=3, doubt_id="d3.1", raw="1?", value="10")
         session.add(OcrDecisionRow(**decision, action="accept", decided_by=LOCAL_USER.id))
-    with pytest.raises(IntegrityError), fresh.db(project).begin() as session:  # one per doubt
-        session.add(OcrDecisionRow(**decision, action="edit", decided_by=LOCAL_USER.id))
     with pytest.raises(IntegrityError), fresh.db(project).begin() as session:
         session.add(OcrDecisionRow(**decision | {"doubt_id": "d3.2"}, action="skip",
                                    decided_by=LOCAL_USER.id))  # fmt: skip

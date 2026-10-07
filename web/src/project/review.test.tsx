@@ -113,6 +113,15 @@ describe("reviewing a page", () => {
     expect(within(card()).getByText("1? → 15")).toBeTruthy();
   });
 
+  it("leaves Enter and Tab to a button inside the review", () => {
+    renderPage();
+    const skipButton = within(card()).getByRole("button", { name: "Skip" });
+    fireEvent.keyDown(skipButton, { key: "Enter" });
+    fireEvent.keyDown(skipButton, { key: "Tab" });
+    expect(calls).toEqual([]); // not accepted
+    expect(within(card()).getByText("1? → 15")).toBeTruthy(); // not skipped either
+  });
+
   it("reopens an answered question", async () => {
     const doc = lease();
     doc.blocks[1].doubts[0] = doubt("d1.1", "1?", { status: "resolved", value: "15" });

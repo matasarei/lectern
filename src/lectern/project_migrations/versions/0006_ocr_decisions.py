@@ -29,7 +29,6 @@ def upgrade() -> None:
         sa.Column("decided_by", sa.Integer(), nullable=False),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("action IN ('accept', 'edit')", name="action"),
-        sa.UniqueConstraint("session_id", "page", "doubt_id", name="uq_ocr_decisions_doubt"),
     )
     op.create_index("ix_ocr_decisions_session_id", "ocr_decisions", ["session_id"])
 

@@ -345,6 +345,19 @@ def redo_document(
         return publish_document(root, db, session_id, owner_id, document), unplaced
 
 
+def _republish(
+    root: Path, db: sessionmaker[Session], session_id: int
+) -> tuple[OcrSessionRow, list[Decision]]:
+    """The current Document with the decisions applied again, as the next version. A decision
+    changes no page's text, so nothing is assembled: a page being cleaned again meanwhile
+    keeps its blocks until the job assembles. Applying resets every doubt, so it can repeat."""
+    ocr = _ocr(db, session_id)
+    document = load_document(root, ocr)
+    document, unplaced = apply_decisions(document, decisions(db, session_id))
+    document.version = ocr.document_version + 1
+    return publish_document(root, db, session_id, _owner(db, session_id), document), unplaced
+
+
 def _owner(db: sessionmaker[Session], session_id: int) -> int:
     with db() as session:
         return session.get(SessionRow, session_id).owner_id
@@ -360,8 +373,10 @@ def decide(
     action: str,
     user_id: int,
 ) -> tuple[OcrSessionRow, list[Decision]]:
-    """The person's reading for one of the current Document's doubts, replacing any earlier
-    decision on it; the Document is published again."""
+    """The person's reading for one of the current Document's doubts, replacing the decision
+    that resolves it now, if any; the Document is published again. A decision that only
+    shares its page and id (made before the page was cleaned again, now about another doubt)
+    is left alone."""
     with document_lock(root, session_id):
         ocr = _ocr(db, session_id)
         document = load_document(root, ocr)
@@ -379,19 +394,13 @@ def decide(
         earlier, _ = match_decisions(document, decisions(db, session_id))
         page = doubt_page(doubt) or 0
         with db.begin() as session:
-            stale = select(OcrDecisionRow).where(
-                OcrDecisionRow.session_id == session_id,
-                (OcrDecisionRow.page == page) & (OcrDecisionRow.doubt_id == doubt_id)
-                | (OcrDecisionRow.id == (earlier[doubt_id].id if doubt_id in earlier else -1)),
-            )
-            for row in session.scalars(stale).all():
-                session.delete(row)
-            session.flush()
+            if doubt_id in earlier:
+                session.delete(session.get(OcrDecisionRow, earlier[doubt_id].id))
             session.add(
                 OcrDecisionRow(session_id=session_id, page=page, doubt_id=doubt_id,
                                raw=doubt.raw, value=value, action=action, decided_by=user_id)
             )  # fmt: skip
-        return redo_document(root, db, session_id, owner_id=_owner(db, session_id))
+        return _republish(root, db, session_id)
 
 
 def reopen(root: Path, db: sessionmaker[Session], session_id: int, doubt_id: str) -> OcrSessionRow:
@@ -405,7 +414,7 @@ def reopen(root: Path, db: sessionmaker[Session], session_id: int, doubt_id: str
             raise NoSuchDoubt(doubt_id)
         with db.begin() as session:
             session.delete(session.get(OcrDecisionRow, matched[doubt_id].id))
-        ocr, _ = redo_document(root, db, session_id, owner_id=_owner(db, session_id))
+        ocr, _ = _republish(root, db, session_id)
         return ocr
 
 

@@ -84,7 +84,9 @@ export function ReviewPage({
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    if (editing || target.closest("input, textarea, select") || !current || answer.isPending) return;
+    // On a control (the card's buttons, a question chip, the edit box) the keys keep their
+    // usual meaning: Enter presses it, Tab moves on. They answer only from the review itself.
+    if (editing || target.closest("input, textarea, select, button") || !current || answer.isPending) return;
     if (e.key === "Enter") {
       e.preventDefault();
       accept();
