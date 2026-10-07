@@ -1,0 +1,3 @@
+# The image needs only the wheel (packaging/build_wheel.sh puts it in dist/).
+*
+!dist/lectern_ai-*.whl
