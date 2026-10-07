@@ -125,3 +125,19 @@ describe("An OCR session's Document tab", () => {
     expect(await screen.findByText("This session has no Document yet.")).toBeTruthy();
   });
 });
+
+describe("A tab for something the page hasn't heard of yet", () => {
+  it("reads the project's items again and doesn't take a new OCR session for a chat", async () => {
+    savedTabs = { open: [{ kind: "session", id: 9 }], active: { kind: "session", id: 9 } };
+    const fetches = () =>
+      (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.filter(
+        ([url]) => url === "/api/projects/1/items",
+      ).length;
+    renderAt("/projects/1");
+
+    await screen.findByRole("tab", { name: "Overview" });
+    await waitFor(() => expect(fetches()).toBeGreaterThan(1)); // asked again for session 9
+    expect(screen.queryByRole("textbox")).toBeNull(); // no chat box guessed for it
+    expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
+  });
+});
