@@ -347,6 +347,7 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         downloads=run.downloads,
         sandbox=run.sandbox,
         ocr_jobs=run.ocr_jobs,
+        registry=run.registry,
     )
     if tool.confirm:
         try:

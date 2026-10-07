@@ -85,6 +85,8 @@ def create_app(
         sandbox=Sandbox(),
         ocr_jobs=app.state.ocr_jobs,
     )
+    # When an OCR session finishes, the chats waiting on it run their follow-ups.
+    app.state.ocr_jobs.on_status = app.state.turns.after_session
 
     @app.get("/health")
     def health() -> dict[str, str]:

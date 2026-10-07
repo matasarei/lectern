@@ -48,6 +48,7 @@ class ToolContext:
     downloads: Any = None  # lectern.downloads.manager.DownloadManager
     sandbox: Any = None  # lectern.modules.sandbox.container.Sandbox
     ocr_jobs: Any = None  # lectern.modules.ocr.jobs.OcrJobs
+    registry: Any = None  # this turn's Registry, for tools that name other tools
 
 
 @dataclass
