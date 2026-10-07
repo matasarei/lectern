@@ -117,6 +117,7 @@ def test_an_upgrade_keeps_the_settings_and_restarts_and_drops_the_old_version(tm
     versions = [p.name for p in (tmp_path / "root/opt/lectern/versions").iterdir()]
     assert len(versions) == 1 and versions[0].startswith("0.2.0-")
     assert "systemctl restart lectern" in _log(tmp_path)
+    assert any("--refresh-package lectern-ai" in c for c in _log(tmp_path) if "pip install" in c)
     assert _log(tmp_path).count("useradd --system --home-dir /var/lib/lectern --no-create-home "
                                 "--shell /usr/sbin/nologin lectern") == 1  # fmt: skip
 
@@ -241,3 +242,24 @@ def test_a_folder_with_neither_a_wheel_nor_the_source_says_so(tmp_path):
     _copy_scripts(empty)
     done = _run_top(tmp_path, empty)
     assert done.returncode == 1 and "no Lectern wheel next to this script" in done.stderr
+
+
+def test_an_update_with_the_same_version_replaces_the_code_and_keeps_the_data(tmp_path):
+    """A small fix built without a version bump: the new code goes in, the data stays."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    data = tmp_path / "root/var/lib/lectern"
+    (data / "lectern.db").write_text("the app's database")
+    (data / "users/local/projects/Lease").mkdir(parents=True)
+    first = (tmp_path / "root/opt/lectern/venv").resolve()
+    (tmp_path / "state/active").touch()
+
+    import time
+
+    time.sleep(1.1)  # versions are stamped to the second
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 0, done.stderr
+    second = (tmp_path / "root/opt/lectern/venv").resolve()
+    assert second != first and not first.exists()  # a fresh install of the code
+    assert (data / "lectern.db").read_text() == "the app's database"
+    assert (data / "users/local/projects/Lease").is_dir()
+    assert "Upgraded to Lectern 0.1.0" in done.stdout

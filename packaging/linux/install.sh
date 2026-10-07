@@ -16,7 +16,10 @@
 #   leaves the running version as it was.
 # - Data (models, projects): /var/lib/lectern. Settings: /etc/lectern/lectern.env, written
 #   only when it doesn't exist, so your edits survive upgrades.
-# - Runs again safely: an upgrade is the same command with a newer wheel.
+# - Runs again safely: an update is the same command from the newer copy or package. The
+#   database, models, projects and settings stay; the new code replaces the old (even a fix
+#   built with the same version number: Lectern's wheel is never taken from uv's cache), and
+#   the database is migrated forward when the new version starts.
 #
 # LECTERN_INSTALL_ROOT (tests only) prefixes every path; LECTERN_UV_BIN uses a uv you
 # already have instead of downloading one.
@@ -134,7 +137,8 @@ export UV_PYTHON_INSTALL_DIR="$prefix/python" UV_CACHE_DIR="$prefix/cache" UV_NO
 target="$prefix/versions/$version-$(date +%Y%m%d%H%M%S)"
 echo "Installing Lectern $version…"
 if ! { "$uv" venv --quiet --python 3.12 "$target" \
-       && "$uv" pip install --quiet --python "$target/bin/python" "$wheel"; }; then
+       && "$uv" pip install --quiet --refresh-package lectern-ai \
+              --python "$target/bin/python" "$wheel"; }; then
     rm -rf "$target"
     die "installing Lectern $version failed (see above); the version in use is unchanged."
 fi
