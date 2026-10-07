@@ -215,6 +215,7 @@ export interface Chat {
   messages: ChatMessage[];
   pending: { confirmation_id: number; call_id: string; name: string }[];
   pinned: { id: string; kind: "instruction" | "fact"; text: string }[];
+  followups: { id: string; label: string }[]; // waiting for an OCR session to finish
   // Messages up to `upto` reach the model only as the summary.
   summary: { upto: number; version: number; messages: number };
 }
@@ -229,6 +230,7 @@ export interface ToolRef {
 /** What the chat's event stream sends. Every event also has `seq`. */
 export type ChatEvent = { seq: number } & (
   | { type: "turn"; status: "running"; message_id: number; text: string; attachments: number[] }
+  | { type: "turn"; status: "running"; followup: string } // a follow-up's turn: no message
   | { type: "turn"; status: "done" | "error" | "stopped" }
   | { type: "model"; model_id: string; ctx: number }
   | { type: "usage"; parts: Record<string, number>; budget: number }

@@ -52,6 +52,22 @@ def rasterise(source: Path, out_dir: Path) -> list[PageImage]:
     raise NotAPageSource(f"{source.name} isn't a PDF or an image (PNG, JPEG, TIFF or WebP).")
 
 
+def page_count(source: Path) -> int:
+    """How many pages a PDF or image would make, without making them."""
+    if source.suffix.lower() in IMAGE_SUFFIXES:
+        return 1
+    import pypdfium2 as pdfium
+
+    try:
+        pdf = pdfium.PdfDocument(source)
+    except pdfium.PdfiumError:
+        raise NotAPageSource(f"{source.name} couldn't be opened as a PDF.") from None
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
 def _too_many(name: str, count: int) -> NotAPageSource:
     return NotAPageSource(f"{name} has {count} pages; an OCR session takes at most {MAX_PAGES}.")
 

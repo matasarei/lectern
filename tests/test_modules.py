@@ -29,9 +29,10 @@ def test_the_sandbox_module_is_found_through_its_entry_point():
     assert "sandbox" in [m.id for m in load_modules()]
 
 
-def test_the_ocr_module_is_found_and_adds_no_tools_yet():
+def test_the_ocr_module_is_found_and_brings_its_chat_tools():
     (ocr,) = [m for m in load_modules() if m.id == "ocr"]
-    assert ocr.tools(ToolEnv(sandbox=True)) == []  # ocr.start and ocr.note come in M3
+    names = [t.name for t in ocr.tools(ToolEnv(sandbox=False))]
+    assert names == ["ocr.start", "ocr.note"]  # with or without a sandbox
 
 
 def test_a_modules_tools_follow_what_is_available():

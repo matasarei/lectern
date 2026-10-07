@@ -646,3 +646,38 @@ def test_a_decision_made_while_the_job_assembles_is_in_the_last_version(
     doc = ocr_store.load_document(project.root, ocr)
     assert ocr.document_version == 3  # neither publish wrote over the other
     assert doc.blocks[0].doubts[0].value == "15"
+
+
+def test_a_finished_or_failed_session_tells_whoever_waits_on_it(store, tmp_path):
+    heard: list[tuple[int, str, str]] = []
+
+    async def on_status(project, session_id, status, notice):  # noqa: ANN001, ANN202
+        heard.append((session_id, status, notice))
+
+    server = FakeServer(clean=_with_a_doubt)
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+    jobs.on_status = on_status
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert heard == [(sid, "done", "OCR · lease-scan.pdf finished · 2 pages · 2 open questions.")]
+
+    heard.clear()
+    failing, _ = _runtime(FakeServer(), fail=True)
+    (tmp_path / "b").mkdir()
+    project2, sid2 = _session(store, tmp_path / "b", pages=1)
+    jobs2 = OcrJobs(failing, store)
+    jobs2.on_status = on_status
+
+    async def go2():  # noqa: ANN202
+        await jobs2.start(project2, sid2)
+        await jobs2.idle()
+
+    asyncio.run(go2())
+    ((_, status, notice),) = heard
+    assert status == "failed" and notice.startswith("OCR · lease-scan.pdf stopped: ")

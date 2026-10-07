@@ -105,6 +105,16 @@ export function ChatTab({
         }}
       >
         <PinnedStrip projectId={projectId} sessionId={sessionId} pinned={chat.data.pinned} />
+        {chat.data.followups.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="followups">
+            <span className="font-semibold text-muted">{t("chat.followups")}</span>
+            {chat.data.followups.map((f) => (
+              <span key={f.id} className="rounded-full bg-paper px-3 py-0.5">
+                {f.label}
+              </span>
+            ))}
+          </div>
+        )}
         {attached.length > 0 && (
           <ul className="flex flex-wrap gap-2">
             {attached.map((a) => (
@@ -386,6 +396,11 @@ function LiveReply({
       {live.text && (
         <p className="whitespace-pre-wrap text-sm leading-relaxed" data-testid="streaming">
           {live.text}
+        </p>
+      )}
+      {live.running && live.followup && (
+        <p className="text-xs text-muted" data-testid="followup-turn">
+          {t("chat.followupRunning", { label: live.followup })}
         </p>
       )}
       {live.running && !live.text && live.cards.every((c) => c.approved !== null) && (

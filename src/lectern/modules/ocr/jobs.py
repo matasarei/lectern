@@ -95,6 +95,9 @@ class OcrJobs:
         # again with its reason: re-reading one page mustn't restart the whole batch.
         self._only: dict[Key, tuple[set[int], str | None]] = {}
         self._worker: asyncio.Task[None] | None = None
+        # Told when a session ends done or failed: (project, session id, status, notice).
+        # The app points it at the chat's follow-ups (TurnManager.after_session).
+        self.on_status: Callable[[Project, int, str, str], Awaitable[None]] | None = None
 
     def channel(self, key: Key) -> Channel:
         return self._channels.setdefault(key, Channel())
@@ -253,6 +256,32 @@ class OcrJobs:
                 self._pausing.discard(queued.key)
                 self._pause_signal(queued.key).clear()
                 self._only.pop(queued.key, None)
+            await self._tell(queued.project, queued.key[1])
+
+    async def _tell(self, project: Project, session_id: int) -> None:
+        """A job ended done or failed: tell `on_status` (the chat's follow-ups), with a line
+        saying what happened. A paused one isn't over, so it says nothing."""
+        if self.on_status is None:
+            return
+
+        def notice() -> tuple[str, str]:
+            summary = self.summary(project, session_id)
+            with self.projects.db(project)() as session:
+                title = session.get(SessionRow, session_id).title
+                error = session.get(OcrSessionRow, session_id).error
+            if summary["status"] != "done":
+                return summary["status"], f"OCR · {title} stopped: {error or 'it failed'}."
+            count = summary["open_doubts"]
+            questions = f"{count} open question{'s' if count != 1 else ''}"
+            pages = f"{summary['pages']} page{'s' if summary['pages'] != 1 else ''}"
+            return "done", f"OCR · {title} finished · {pages} · {questions}."
+
+        status, text = await asyncio.to_thread(notice)
+        if status in ("done", "failed"):
+            try:
+                await self.on_status(project, session_id, status, text)
+            except Exception:  # noqa: BLE001 — a follow-up's problem mustn't stop the queue
+                log.exception("Telling about OCR session %s failed", session_id)
 
     async def _run(self, project: Project, session_id: int) -> None:
         """The phases in order; each returns False when the session stopped (paused or

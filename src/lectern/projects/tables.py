@@ -160,6 +160,7 @@ class ChatStateRow(ProjectBase):
 
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), primary_key=True)
     pinned: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of pins
+    followups: Mapped[str] = mapped_column(Text, default="[]")  # JSON: lectern.agent.followups
     summary: Mapped[str] = mapped_column(Text, default="")
     summary_upto: Mapped[int] = mapped_column(Integer, default=0)  # last message id it covers
     summary_version: Mapped[int] = mapped_column(Integer, default=0)

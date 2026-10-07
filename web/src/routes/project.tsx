@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, ApiError } from "../api/client";
@@ -54,6 +54,24 @@ export function ProjectPage() {
     save.mutate(next);
   };
   const open = (tab: Tab) => tabs && update(openTab(tabs, tab));
+
+  // A tab the chat just opened can name something the page hasn't loaded yet (a new OCR
+  // session, an exported file): read the project's items again, once per tab, rather than
+  // show it as gone or as the wrong kind of tab.
+  const asked = useRef(new Set<string>());
+  const [checked, setChecked] = useState<string[]>([]); // tabs whose items were read again
+  const active = tabs?.active ?? null;
+  const activeKey = active ? `${active.kind}-${active.id}` : "";
+  const activeKnown = active === null || items.data === undefined || known(items.data, active);
+  useEffect(() => {
+    if (active === null || activeKnown || asked.current.has(activeKey)) return;
+    asked.current.add(activeKey);
+    void queryClient
+      .invalidateQueries({ queryKey: ["items", id] })
+      .finally(() => setChecked((prev) => [...prev, activeKey]));
+  }, [active, activeKnown, activeKey, id, queryClient]);
+  // Still unknown once read again: it's gone, and the tab says so as it always has.
+  const loadingActive = !activeKnown && !checked.includes(activeKey);
 
   if (project.isError) {
     return (
@@ -109,7 +127,8 @@ export function ProjectPage() {
       </nav>
       <section className="min-h-0 overflow-y-auto">
         {tabs.active === null && <Overview projectId={id} items={items.data} onOpen={open} />}
-        {tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
+        {loadingActive && <p className="p-4 text-muted">{t("common.loading")}</p>}
+        {!loadingActive && tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
           <OcrTab
             key={tabs.active.id}
             projectId={id}
@@ -118,13 +137,13 @@ export function ProjectPage() {
             initialPage={tabs.active.page}
           />
         )}
-        {tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
+        {!loadingActive && tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
           <ChatTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />
         )}
-        {tabs.active?.kind === "document" && (
+        {!loadingActive && tabs.active?.kind === "document" && (
           <DocumentTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} items={items.data} onOpen={open} />
         )}
-        {tabs.active?.kind === "artifact" && (
+        {!loadingActive && tabs.active?.kind === "artifact" && (
           <FileTab
             key={tabs.active.id}
             projectId={id}
@@ -238,4 +257,10 @@ function VramChip() {
         : t("project.vramIdle", { budget })}
     </span>
   );
+}
+
+function known(items: ProjectItems, tab: Tab): boolean {
+  return tab.kind === "artifact"
+    ? items.artifacts.some((a) => a.id === tab.id)
+    : items.sessions.some((s) => s.id === tab.id);
 }

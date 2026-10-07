@@ -18,6 +18,7 @@ export interface LiveTurn {
   compaction: "working" | { summarised: number } | { failed: string } | null;
   error: string | null;
   stopped: boolean;
+  followup: string | null; // this turn is a follow-up's, started when an OCR session finished
   lastSeq: number;
 }
 
@@ -33,6 +34,7 @@ export const IDLE: LiveTurn = {
   compaction: null,
   error: null,
   stopped: false,
+  followup: null,
   lastSeq: 0,
 };
 
@@ -42,7 +44,14 @@ export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
   switch (event.type) {
     case "turn":
       return event.status === "running"
-        ? { ...IDLE, running: true, model: state.model, usage: state.usage, lastSeq: event.seq }
+        ? {
+            ...IDLE,
+            running: true,
+            model: state.model,
+            usage: state.usage,
+            followup: "followup" in event ? event.followup : null,
+            lastSeq: event.seq,
+          }
         : { ...next, running: false, text: "" };
     case "model":
       return { ...next, model: { model_id: event.model_id, ctx: event.ctx } };

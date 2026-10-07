@@ -61,6 +61,7 @@ class TurnRun:
     turn_state: Callable[[int], str] = lambda _sid: "idle"
     downloads: object = None  # passed on to tools (the coding model's download)
     sandbox: object = None  # passed on to tools (the Sandbox module)
+    ocr_jobs: object = None  # passed on to tools (the OCR module)
     stats: dict = field(default_factory=dict)
 
 
@@ -188,6 +189,7 @@ async def build_context(run: TurnRun, history: History, ctx: int, counter: Count
             counter=counter,
             pins=[(p.kind, p.text) for p in history.state.pinned],
             summary=history.state.summary,
+            followups=[f.label for f in history.state.followups],
         )
     except ContextTooSmall as exc:
         raise TurnFailed(str(exc)) from None
@@ -344,6 +346,8 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         runtime=run.runtime,
         downloads=run.downloads,
         sandbox=run.sandbox,
+        ocr_jobs=run.ocr_jobs,
+        registry=run.registry,
     )
     if tool.confirm:
         try:

@@ -36,7 +36,7 @@ def test_every_tool_has_a_wire_name_and_a_schema():
     assert all(set(n) <= set("abcdefghijklmnopqrstuvwxyz_") for n in names)
     find = registry.get("project_find").schema()["function"]["parameters"]
     assert find["required"] == ["query"] and "title" not in find
-    assert [t.name for t in CORE_TOOLS if t.confirm] == ["artifact.trash"]
+    assert [t.name for t in CORE_TOOLS if t.confirm] == ["artifact.trash", "task.after"]
 
 
 def test_bad_arguments_come_back_as_a_message_the_model_can_use():

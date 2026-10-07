@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from lectern.agent import state
+from lectern.agent.followups import TASK_AFTER
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult, page
 from lectern.projects import files, search
 from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow
@@ -528,7 +529,9 @@ UNPIN = AgentTool(
 )
 
 
-CORE_TOOLS = [LIST, FIND, SEARCH, OUTLINE, READ, WRITE, TRASH, STATUS, OPEN, PIN, UNPIN]
+CORE_TOOLS = [
+    LIST, FIND, SEARCH, OUTLINE, READ, WRITE, TRASH, STATUS, OPEN, PIN, UNPIN, TASK_AFTER,
+]  # fmt: skip
 
 
 def core_registry() -> Registry:

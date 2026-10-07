@@ -423,3 +423,20 @@ def _ocr(db: sessionmaker[Session], session_id: int) -> OcrSessionRow:
         ocr = session.get(OcrSessionRow, session_id)
         session.expunge(ocr)
         return ocr
+
+
+def set_note(
+    db: sessionmaker[Session], session_id: int, number: int, note: str
+) -> OcrPageRow | None:
+    """The page's note (cleanup follows it); None when the session has no such page."""
+    with db.begin() as session:
+        page = session.scalars(
+            select(OcrPageRow).where(
+                OcrPageRow.session_id == session_id, OcrPageRow.number == number
+            )
+        ).first()
+        if page is None:
+            return None
+        page.note = note
+        page.updated_at = now()
+        return page

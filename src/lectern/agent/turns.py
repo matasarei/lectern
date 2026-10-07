@@ -15,9 +15,10 @@ from dataclasses import dataclass, field
 
 from starlette.concurrency import run_in_threadpool
 
-from lectern.agent.loop import TurnRun, run_turn, store_message
+from lectern.agent import followups
+from lectern.agent.loop import TurnRun, run_tool, run_turn, store_message
 from lectern.agent.tools import Registry
-from lectern.core.auth import User
+from lectern.core.auth import LOCAL_USER, User
 from lectern.projects.store import NEW_CHAT, UNTITLED, Project, ProjectStore
 from lectern.projects.tables import ArtifactRow, SessionRow
 from lectern.runtime.supervisor import ModelRuntime
@@ -81,10 +82,12 @@ class TurnManager:
         *,
         downloads: object = None,
         sandbox: object = None,
+        ocr_jobs: object = None,
     ) -> None:
         self.runtime = runtime
         self.downloads = downloads
         self.sandbox = sandbox
+        self.ocr_jobs = ocr_jobs
         self.projects = projects
         # A fixed registry, or a function giving each turn's (modules offer tools depending
         # on what's available right now, such as a running container engine).
@@ -94,6 +97,8 @@ class TurnManager:
         # Chats whose message is being stored and whose turn hasn't started yet: a second
         # send in that gap must see the chat as busy.
         self._starting: set[Key] = set()
+        self._follow_ups: set[asyncio.Task[None]] = set()
+        self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
 
     def channel(self, key: Key) -> Channel:
         return self._channels.setdefault(key, Channel())
@@ -130,19 +135,7 @@ class TurnManager:
     ) -> int:
         sessions = await run_in_threadpool(self.projects.db, project)
         valid = await run_in_threadpool(_live_attachments, sessions, user, attachments)
-        run = TurnRun(
-            project=project,
-            sessions=sessions,
-            user=user,
-            session_id=session_id,
-            runtime=self.runtime,
-            registry=Registry([]),  # built in the turn: checking the engine can take seconds
-            emit=lambda event: None,
-            decide=lambda confirmation_id: self._decision(key, confirmation_id),
-            turn_state=lambda sid: self.state((project.id, sid)),
-            downloads=self.downloads,
-            sandbox=self.sandbox,
-        )
+        run = self._new_run(key, project, sessions, user, session_id)
         message_id = await run_in_threadpool(
             lambda: store_message(
                 run, role="user", content=text, attachments=json.dumps(valid) if valid else None
@@ -163,10 +156,123 @@ class TurnManager:
             status = await run_turn(run)
             channel.publish({"type": "turn", "status": status})
             channel.settle()
+            await self.resume_follow_ups(project, session_id)  # any whose session ended meanwhile
             return status
 
         self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"))
         return message_id
+
+    def _new_run(
+        self, key: Key, project: Project, sessions: object, user: User, session_id: int
+    ) -> TurnRun:
+        return TurnRun(
+            project=project,
+            sessions=sessions,
+            user=user,
+            session_id=session_id,
+            runtime=self.runtime,
+            registry=Registry([]),  # built in the turn: checking the engine can take seconds
+            emit=lambda event: None,
+            decide=lambda confirmation_id: self._decision(key, confirmation_id),
+            turn_state=lambda sid: self.state((project.id, sid)),
+            downloads=self.downloads,
+            sandbox=self.sandbox,
+            ocr_jobs=self.ocr_jobs,
+        )
+
+    # --- follow-ups: what a chat queued for when an OCR session finishes --------------------
+
+    async def after_session(self, project: Project, ocr_session_id: int, status: str,
+                            notice: str) -> None:  # fmt: skip
+        """An OCR session stopped. Done: each chat's follow-up for it runs, then the model
+        reports. Failed: they're dropped, and the model says so. Anything else (paused): they
+        keep waiting. Each runs in its own task, once its chat is idle."""
+        if status not in ("done", "failed"):
+            return
+        sessions = await run_in_threadpool(self.projects.db, project)
+        waiting = await run_in_threadpool(followups.waiting_on, sessions, ocr_session_id)
+        for chat_id, follow in waiting:
+            self._schedule(project, sessions, chat_id, follow, status, notice)
+
+    async def resume_follow_ups(self, project: Project, chat_id: int) -> None:
+        """The chat's follow-ups whose session already finished, failed or is gone, run or
+        dropped now. The signal from the session is sent once; if the app stopped before a
+        follow-up ran, this is what runs it. Called when the chat is opened and after each of
+        its turns."""
+        sessions = await run_in_threadpool(self.projects.db, project)
+        stale = await run_in_threadpool(followups.stale, sessions, chat_id)
+        for follow, status, notice in stale:
+            self._schedule(project, sessions, chat_id, follow, status, notice)
+
+    def _schedule(self, project: Project, sessions: object, chat_id: int,
+                  follow: followups.FollowUp, status: str, notice: str) -> None:  # fmt: skip
+        """One task per follow-up at a time, however many signals arrive."""
+        key = (project.id, chat_id, follow.id)
+        if key in self._follow_up_keys:
+            return
+        self._follow_up_keys.add(key)
+        task = asyncio.create_task(
+            self._follow_up(project, sessions, chat_id, follow, status, notice),
+            name=f"follow-up-{project.id}-{chat_id}-{follow.id}",
+        )
+        self._follow_ups.add(task)
+        task.add_done_callback(self._follow_ups.discard)
+        task.add_done_callback(lambda _t: self._follow_up_keys.discard(key))
+
+    async def follow_ups_settled(self) -> None:
+        """For tests and shutdown: until every follow-up and the turn it started are over."""
+        # A turn's end can schedule a follow-up, whose turn can end and schedule another.
+        while True:
+            busy = [*self._follow_ups, *(t.task for t in self._turns.values() if not t.task.done())]
+            if not busy:
+                return
+            await asyncio.gather(*busy, return_exceptions=True)
+
+    async def _follow_up(self, project: Project, sessions: object, chat_id: int,
+                         follow: followups.FollowUp, status: str, notice: str) -> None:  # fmt: skip
+        key = (project.id, chat_id)
+        while self.state(key) != "idle":  # the chat is answering: after its turn
+            await self.wait(key)
+            await asyncio.sleep(0)
+        self._starting.add(key)  # before the first await, so a message can't slip in
+        try:
+            taken = await run_in_threadpool(followups.take, sessions, chat_id, follow.id)
+            if taken is None:  # already run by an earlier signal
+                return
+            owner = await run_in_threadpool(_owner, sessions, chat_id)
+            run = self._new_run(key, project, sessions, owner, chat_id)
+            channel = self.channel(key)
+            channel.events.clear()
+            run.emit = channel.publish
+            channel.publish({"type": "turn", "status": "running", "followup": taken.label})
+
+            async def turn() -> str:
+                run.registry = await run_in_threadpool(self._registry)
+                try:
+                    if status == "done":
+                        await _run_follow_up(run, taken, notice)
+                    else:
+                        text = f"{notice} The follow-up ({taken.label}) was dropped."
+                        await run_in_threadpool(
+                            lambda: store_message(run, role="assistant", content=text)
+                        )
+                except Exception as exc:  # noqa: BLE001 — a tool's own failure (a full disk…)
+                    # The page shows the turn as running until it hears it ended.
+                    channel.publish(
+                        {"type": "error", "detail": f"The follow-up couldn't run: {exc}"}
+                    )
+                    channel.publish({"type": "turn", "status": "error"})
+                    channel.settle()
+                    return "error"
+                result = await run_turn(run)
+                channel.publish({"type": "turn", "status": result})
+                channel.settle()
+                await self.resume_follow_ups(project, chat_id)
+                return result
+
+            self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"))
+        finally:
+            self._starting.discard(key)
 
     def _decision(self, key: Key, confirmation_id: int) -> asyncio.Future[bool]:
         future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
@@ -233,3 +339,36 @@ def _live_attachments(sessions, user: User, ids: list[int]) -> list[int]:  # noq
             and row.trashed_at is None
             and row.owner_id == user.id
         ]
+
+
+async def _run_follow_up(run: TurnRun, follow: followups.FollowUp, notice: str) -> None:
+    """The follow-up's tool call, stored as the model's (after the notice of what finished)
+    with its result, so the model's report reads it like any tool result."""
+    call = {
+        "id": f"followup-{follow.id}",
+        "type": "function",
+        "function": {
+            "name": follow.tool.replace(".", "_"),
+            "arguments": json.dumps(follow.arguments, ensure_ascii=False),
+        },
+    }
+    message_id = await run_in_threadpool(
+        lambda: store_message(run, role="assistant", content=notice, tool_calls=json.dumps([call]))
+    )
+    run.emit({"type": "assistant", "message_id": message_id, "tool_calls": [call]})
+    result = await run_tool(run, call, {})
+    tool = run.registry.get(call["function"]["name"])
+    await run_in_threadpool(
+        lambda: store_message(run, role="tool", content=result.text, tool_call_id=call["id"],
+                              tool_name=tool.name if tool else follow.tool)
+    )  # fmt: skip
+    run.emit({"type": "tool_result", "call_id": call["id"], "text": result.text[:600],
+              "error": result.text.startswith("Error:"), "refs": result.refs,
+              "action": result.action})  # fmt: skip
+
+
+def _owner(sessions, chat_id: int) -> User:  # noqa: ANN001
+    """Who the chat belongs to: a follow-up runs as them."""
+    with sessions() as session:
+        owner_id = session.get(SessionRow, chat_id).owner_id
+    return LOCAL_USER if owner_id == LOCAL_USER.id else User(id=owner_id, name="")

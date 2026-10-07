@@ -135,6 +135,8 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             for m in messages
         ],
         "pinned": [{"id": p.id, "kind": p.kind, "text": p.text} for p in chat_state.pinned],
+        # What runs when an OCR session finishes (task.after, ocr.start's then_export).
+        "followups": [{"id": f.id, "label": f.label} for f in chat_state.followups],
         # Where the summary ends: messages up to this id reach the model only as the summary.
         "summary": {
             "upto": chat_state.summary_upto,
@@ -181,6 +183,8 @@ async def send(
 async def events(project_id: int, session_id: int, request: Request, user: CurrentUser):  # noqa: ANN201
     project = await open_chat(request, project_id, session_id, user)
     channel = turns(request).channel((project.id, session_id))
+    # The chat is open: a follow-up whose session ended while the app was down runs now.
+    await turns(request).resume_follow_ups(project, session_id)
 
     async def stream() -> AsyncIterator[bytes]:
         async with channel.listen() as (so_far, queue):

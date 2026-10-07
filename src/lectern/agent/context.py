@@ -108,6 +108,7 @@ async def build(
     counter: Counter,
     pins: list[tuple[str, str]] = (),  # (kind, text), in the order they were pinned
     summary: str = "",
+    followups: list[str] = (),  # what's waiting for an OCR session, in words
 ) -> Built:
     """`history` is the transcript in OpenAI message form, oldest first, ending with the
     current turn (its user message, and any tool calls made so far in it). When the chat has
@@ -117,7 +118,7 @@ async def build(
     system_tokens = await counter.count(system) + TOOL_OVERHEAD_TOKENS
     # Pinned items and the summary always go in whole: pins are short by rule, and the
     # summary is written to a fixed size (see compaction.py).
-    pinned = _pins_section(pins)
+    pinned = _pins_section(pins) + _followups_section(followups)
     summarised = (
         f"\n\n# Earlier in this chat (summary)\n{summary.strip()}" if summary.strip() else ""
     )
@@ -187,6 +188,13 @@ async def build(
         },
         budget=budget,
     )
+
+
+def _followups_section(followups: list[str]) -> str:
+    if not followups:
+        return ""
+    lines = "\n".join(f"- {f}" for f in followups)
+    return f"\n\n# Pending follow-ups (they run when their session finishes)\n{lines}"
 
 
 def _pins_section(pins: list[tuple[str, str]]) -> str:
