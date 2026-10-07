@@ -225,3 +225,19 @@ def test_task_after_queues_a_follow_up_and_refuses_one_that_would_ask(follow):
         bad = TASK_AFTER.validate({"session": "lease-scan", "tool": tool, "label": "x"})
         with pytest.raises(ToolError):
             TASK_AFTER.confirm_text(ctx, bad)
+
+
+def test_queueing_what_is_already_queued_says_so_whatever_the_arguments(follow):
+    """Seen in the real run: after ocr.start(then_export=odt) the 4B called task.after with
+    empty arguments again and again. "Already queued" stops it at the first try."""
+    manager, project, db, ocr_id, _ = follow([])
+    ctx = ToolContext(project=project, sessions=db, user=LOCAL_USER, session_id=1,
+                      registry=Registry([*CORE_TOOLS, ECHO, CARDED]))  # fmt: skip
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={"format": "odt"},
+                  label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+    again = TASK_AFTER.validate({"session": "lease-scan.pdf", "tool": "export_run",
+                                 "label": "export to ODT"})  # fmt: skip
+    with pytest.raises(ToolError, match="Already queued: after OCR · lease-scan.pdf: export to "
+                                        "ODT. Nothing more to do now"):  # fmt: skip
+        TASK_AFTER.confirm_text(ctx, again)
+    assert len(followups.pending(db, 1)) == 1

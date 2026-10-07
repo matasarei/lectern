@@ -87,7 +87,11 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
                 label=f"after OCR · {_name(row)}: export to {fmt.upper()}",
             )
         )  # fmt: skip
-        text += f" After it finishes I'll export to {fmt.upper()}."
+        # Said so a small model doesn't try to queue it again (seen: task.after, 7 times).
+        text += (
+            f" The export to {fmt.upper()} is queued: it runs by itself when the session "
+            "finishes, so there's nothing more to do now."
+        )
     tab = {"kind": "session", "id": chat.id}
     return ToolResult(
         text,

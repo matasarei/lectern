@@ -127,9 +127,13 @@ def _checked(ctx: ToolContext, params: AfterParams) -> tuple[SessionRow, AgentTo
     """The session and the tool, or a ToolError before any card: a follow-up never runs a
     tool that would have asked, and never waits for a session that won't finish."""
     chat, ocr = _ocr_session(ctx, params.session)
+    wire = params.tool.replace(".", "_")
+    for waiting in pending(ctx.sessions, ctx.session_id):
+        if waiting.ocr_session_id == chat.id and waiting.tool.replace(".", "_") == wire:
+            raise ToolError(f"Already queued: {waiting.label}. Nothing more to do now.")
     if ocr.status == "done":
         raise ToolError(f"{chat.title} has already finished: run {params.tool} now instead.")
-    tool = ctx.registry.get(params.tool.replace(".", "_")) if ctx.registry else None
+    tool = ctx.registry.get(wire) if ctx.registry else None
     if tool is None or tool.name == "task.after":
         raise ToolError(f"{params.tool} can't be a follow-up: there's no such tool here.")
     if tool.confirm:
