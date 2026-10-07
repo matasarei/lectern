@@ -32,13 +32,12 @@ from sqlalchemy import select
 
 from lectern.agent.turns import Channel
 from lectern.modules.ocr import store as ocr_store
-from lectern.modules.ocr.assemble import assemble
 from lectern.modules.ocr.clean import CleanFailed, clean_page
 from lectern.modules.ocr.doubts import mark_unsure, unsure_words
 from lectern.modules.ocr.pages import NotAPageSource, rasterise
 from lectern.modules.ocr.recognise import RecogniseFailed, recognise
 from lectern.projects.store import Project, ProjectStore
-from lectern.projects.tables import ArtifactRow, OcrPageRow, OcrSessionRow, SessionRow, now
+from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, now
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable, Priority
 from lectern.runtime.wiring import pick
@@ -183,6 +182,30 @@ class OcrJobs:
         await self.start(project, session_id)
         return page
 
+    async def reclean(self, project: Project, session_id: int, number: int) -> OcrPageRow:
+        """Clean one page again (its note changed), without reading it, then assemble."""
+
+        def reset() -> OcrPageRow:
+            with self.projects.db(project).begin() as session:
+                page = session.scalars(
+                    select(OcrPageRow).where(
+                        OcrPageRow.session_id == session_id, OcrPageRow.number == number
+                    )
+                ).one()
+                page.clean_status, page.clean_error = "pending", None
+                page.updated_at = now()
+                return page
+
+        key = (project.id, session_id)
+        ocr = await asyncio.to_thread(self.settle, project, session_id)
+        page = await asyncio.to_thread(reset)
+        self.channel(key).publish({"type": "page", **page_dict(page)})
+        if ocr.status == "paused" or key in self._only:
+            numbers, reason = self._only.get(key, (set(), ocr.paused_reason))
+            self._only[key] = (numbers | {number}, reason)
+        await self.start(project, session_id)
+        return page
+
     async def stop_all(self) -> None:
         """At shutdown. Sessions keep their status: the next read shows them as paused."""
         self._queue.clear()
@@ -310,6 +333,7 @@ class OcrJobs:
                 return await self._stop(project, ocr, "paused", reason=PAUSED)
             raw, before, after = await asyncio.to_thread(self._texts_around, project, db, ocr, page)
             tokens = await asyncio.to_thread(ocr_store.page_tokens, project.root, ocr, page)
+            decided = await asyncio.to_thread(ocr_store.decisions, db, ocr.session_id)
             marked = mark_unsure(raw, unsure_words(tokens))
             try:
                 if self._held_for_the_chat("main"):
@@ -326,6 +350,7 @@ class OcrJobs:
                         note=page.note,
                         before=before,
                         after=after,
+                        confirmed=[(d.raw, d.value) for d in decided],
                     ),
                 )
                 if cleaned is None:  # paused while waiting for the model
@@ -351,18 +376,12 @@ class OcrJobs:
         self._publish(key, {"type": "phase", "phase": "assemble"})
 
         def build() -> OcrSessionRow:
-            current = self._ocr_row(db, ocr.session_id)
-            inputs = ocr_store.assembly_inputs(project.root, db, current)
             with db() as session:
-                source = session.get(ArtifactRow, current.source_artifact_id)
                 owner = session.get(SessionRow, ocr.session_id).owner_id
-            document = assemble(
-                current.folder,
-                source.path.rsplit("/", 1)[-1] if source else current.folder,
-                inputs,
-                version=current.document_version + 1,
+            published, _unplaced = ocr_store.redo_document(
+                project.root, db, ocr.session_id, owner_id=owner
             )
-            return ocr_store.publish_document(project.root, db, ocr.session_id, owner, document)
+            return published
 
         published = await asyncio.to_thread(build)
         self._publish(

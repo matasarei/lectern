@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, ValidationError
 CLEAN_TOKENS = 3072  # a page's blocks; a dense page is ~1.5k tokens of text
 EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross the break
 CLEAN_TIMEOUT = 600.0
+CONFIRMED_LIMIT = 30  # readings the person confirmed, newest first, given to a later cleanup
 WHY_CHARS = 300  # a fix's reason; a small model has written its whole reasoning there
 PAGE_NUMBER = re.compile(
     r"""^\s*[-–—]?\s*
@@ -136,10 +137,23 @@ class CleanFailed(Exception):
     """The page couldn't be cleaned. The message says why, for the person."""
 
 
-def page_message(number: int, raw: str, note: str, before: str, after: str) -> str:
+def page_message(
+    number: int,
+    raw: str,
+    note: str,
+    before: str,
+    after: str,
+    confirmed: list[tuple[str, str]] = (),
+) -> str:
     parts = [f"Page {number}."]
     if note.strip():
         parts.append(f"Note from the person for this page: {note.strip()}")
+    if confirmed:
+        readings = "; ".join(f"«{raw}» is «{value}»" for raw, value in confirmed[:CONFIRMED_LIMIT])
+        parts.append(
+            "Readings the person confirmed elsewhere in this document (use them when the same "
+            f"text appears): {readings}."
+        )
     if before:
         parts.append(f"The previous page ends with:\n{before[-EDGE_CHARS:]}")
     if after:
@@ -156,10 +170,12 @@ async def clean_page(
     note: str = "",
     before: str = "",
     after: str = "",
+    confirmed: list[tuple[str, str]] = (),
 ) -> CleanedPage:
+    """`confirmed` is the person's decisions so far, (raw, value), newest first."""
     messages = [
         {"role": "system", "content": CLEAN_PROMPT},
-        {"role": "user", "content": page_message(number, raw, note, before, after)},
+        {"role": "user", "content": page_message(number, raw, note, before, after, confirmed)},
     ]
     problem = ""
     for attempt in range(2):

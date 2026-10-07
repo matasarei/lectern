@@ -216,3 +216,24 @@ def test_a_project_with_an_ocr_session_migrates_to_p0005_with_its_pages_to_clean
         0,
     )
     assert (ocr_row.document_version, ocr_row.document_artifact_id) == (0, None)
+
+
+def test_a_project_at_p0005_gets_the_table_of_decisions_on_doubts(store, paths):
+    from sqlalchemy.exc import IntegrityError
+
+    from lectern.projects.tables import OcrDecisionRow
+
+    project = store.create(LOCAL_USER, "Before M3b")
+    store.dispose()
+    _migrate_to(project, "p0005")  # as a project made in M3a is
+    _migrate_to(project, "head")
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    with fresh.db(project).begin() as session:
+        chat = session.scalars(select(SessionRow)).first()
+        decision = dict(session_id=chat.id, page=3, doubt_id="d3.1", raw="1?", value="10")
+        session.add(OcrDecisionRow(**decision, action="accept", decided_by=LOCAL_USER.id))
+    with pytest.raises(IntegrityError), fresh.db(project).begin() as session:
+        session.add(OcrDecisionRow(**decision | {"doubt_id": "d3.2"}, action="skip",
+                                   decided_by=LOCAL_USER.id))  # fmt: skip
+    fresh.dispose()

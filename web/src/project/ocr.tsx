@@ -3,14 +3,14 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, ApiError } from "../api/client";
-import type { OcrModel, OcrPage, OcrSession, Tab } from "../api/types";
+import type { OcrDocument, OcrModel, OcrPage, OcrSession, Tab } from "../api/types";
 import { ErrorNote } from "../components";
 import { ImagePreview } from "./file";
-import { ocrPath, useOcrEvents, type OcrLive } from "./ocr-api";
+import { cleanPageAgain, ocrPath, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
+import { ReviewPage } from "./review";
 
 type View = "split" | "scan" | "text" | "raw";
 const VIEWS: View[] = ["split", "scan", "text", "raw"];
-const DOUBT = /(⟦[^⟧]*⟧)/; // an open question as document.md marks it
 
 /** An OCR session in a tab: where its job stands, the pages on the left (30%), and the
  * selected page on the right (70%), its scan beside the text the model read. */
@@ -30,6 +30,7 @@ export function OcrTab({
     queryFn: () => apiFetch<OcrSession>(base),
   });
   const live = useOcrEvents(projectId, sessionId);
+  const doc = useOcrDocument(projectId, sessionId, session.data?.document?.version ?? null);
   const [selected, setSelected] = useState(1);
 
   if (session.isError) {
@@ -54,8 +55,11 @@ export function OcrTab({
             <PageView
               key={page.number}
               projectId={projectId}
+              sessionId={sessionId}
               base={base}
               page={page}
+              doc={doc.data}
+              onSelectPage={setSelected}
               jobRunning={session.data.status === "running" || session.data.status === "queued"}
             />
           )}
@@ -177,13 +181,19 @@ function PageList({
 
 function PageView({
   projectId,
+  sessionId,
   base,
   page,
+  doc,
+  onSelectPage,
   jobRunning,
 }: {
   projectId: number;
+  sessionId: number;
   base: string;
   page: OcrPage;
+  doc: OcrDocument | undefined;
+  onSelectPage: (page: number) => void;
   jobRunning: boolean;
 }) {
   const { t } = useTranslation();
@@ -212,53 +222,45 @@ function PageView({
         </div>
       </div>
       {page.error && <ErrorNote message={page.error} />}
-      <PageTools projectId={projectId} base={base} page={page} jobRunning={jobRunning} />
+      <PageTools projectId={projectId} sessionId={sessionId} base={base} page={page} jobRunning={jobRunning} />
       <div className={`grid min-h-0 gap-3 ${view === "split" ? "grid-cols-2" : ""}`}>
         {(view === "split" || view === "scan") && (
           <ImagePreview url={`${base}/pages/${page.number}/image`} name={t("ocr.pageTitle", { number: page.number })} />
         )}
-        {view !== "scan" && <PageText base={base} page={page} raw={view === "raw"} />}
+        {view !== "scan" &&
+          (view !== "raw" && page.clean_status === "done" && doc && doc.pages.some((p) => p.n === page.number && !p.failed) ? (
+            <ReviewPage projectId={projectId} sessionId={sessionId} doc={doc} page={page.number} onSelectPage={onSelectPage} />
+          ) : (
+            <PageText base={base} page={page} raw={view === "raw"} />
+          ))}
       </div>
     </div>
   );
 }
 
-/** The page's text: cleaned (as document.md writes it, open questions highlighted), or the
- * raw OCR text, which also shows while the page isn't cleaned yet. */
+/** The raw OCR text: the Raw OCR view, and the page's text until it's cleaned and in the
+ * Document (then the review shows it). */
 function PageText({ base, page, raw }: { base: string; page: OcrPage; raw: boolean }) {
   const { t } = useTranslation();
   // Read again whenever the page's reading or cleanup changes.
   const text = useQuery({
     queryKey: ["ocr-text", base, page.number, page.status, page.model_id, page.seconds, page.clean_status],
     queryFn: () =>
-      apiFetch<{ text: string | null; cleaned: string | null }>(`${base}/pages/${page.number}/text`),
+      apiFetch<{ text: string | null }>(`${base}/pages/${page.number}/text`),
   });
   if (text.isError) {
     return <ErrorNote message={text.error instanceof ApiError ? text.error.detail : t("common.loadFailed")} />;
   }
   if (!text.data) return <p className="text-muted">{t("common.loading")}</p>;
   if (text.data.text === null) return <p className="text-muted">{t("ocr.notReadYet")}</p>;
-  const cleaned = !raw && page.clean_status === "done" ? text.data.cleaned : null;
   return (
     <div className="grid content-start gap-2">
       {!raw && page.clean_status === "failed" && (
         <ErrorNote message={t("ocr.cleanFailed", { error: page.clean_error ?? "" })} />
       )}
-      {!raw && !cleaned && page.clean_status !== "failed" && (
-        <p className="text-xs text-muted">{t("ocr.notCleanedYet")}</p>
-      )}
+      {!raw && page.clean_status !== "failed" && <p className="text-xs text-muted">{t("ocr.notCleanedYet")}</p>}
       <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
-        {cleaned
-          ? cleaned.split(DOUBT).map((part, i) =>
-              DOUBT.test(part) ? (
-                <mark key={i} className="rounded bg-accent-soft px-0.5">
-                  {part}
-                </mark>
-              ) : (
-                part
-              ),
-            )
-          : text.data.text}
+        {text.data.text}
       </pre>
     </div>
   );
@@ -268,11 +270,13 @@ function PageText({ base, page, raw }: { base: string; page: OcrPage; raw: boole
  * reading goes to the handwriting model), and reading it again with another model. */
 function PageTools({
   projectId,
+  sessionId,
   base,
   page,
   jobRunning,
 }: {
   projectId: number;
+  sessionId: number;
   base: string;
   page: OcrPage;
   jobRunning: boolean;
@@ -296,7 +300,13 @@ function PageTools({
   const rerun = useMutation({
     mutationFn: () => apiPost(`${pagePath}/rerun`, { model_id: model || null }),
   });
-  const error = change.error ?? rerun.error;
+  // A note changed on a page that's already cleaned: offer to clean it again with the note.
+  const [offerClean, setOfferClean] = useState(false);
+  const cleanAgain = useMutation({
+    mutationFn: () => cleanPageAgain(projectId, sessionId, page.number),
+    onSuccess: () => setOfferClean(false),
+  });
+  const error = change.error ?? rerun.error ?? cleanAgain.error;
   // Off while the page is being read, or is next in a running job anyway. A page not read yet
   // in a paused session can be read on its own, with the model chosen here.
   const reading = page.status === "recognising" || (page.status === "pending" && jobRunning);
@@ -317,11 +327,18 @@ function PageTools({
         <button
           className="btn-secondary"
           disabled={note === page.note || change.isPending}
-          onClick={() => change.mutate({ note })}
+          onClick={() =>
+            change.mutate({ note }, { onSuccess: () => setOfferClean(page.clean_status === "done") })
+          }
         >
           {t("ocr.note.save")}
         </button>
         {note === page.note && page.note && <span className="text-muted">{t("ocr.note.saved")}</span>}
+        {offerClean && (
+          <button className="btn-primary" disabled={cleanAgain.isPending} onClick={() => cleanAgain.mutate()}>
+            {t("ocr.note.cleanAgain")}
+          </button>
+        )}
         <label className="flex items-center gap-2">
           <input
             type="checkbox"

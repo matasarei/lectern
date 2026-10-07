@@ -35,6 +35,7 @@ class FakeServer:
                                              "doubts": [], "fixes": []})  # fmt: skip
         self.requests: list[str] = []  # OCR readings, by model
         self.cleanups: list[str] = []  # the page text each cleanup got
+        self.clean_messages: list[str] = []  # each cleanup's whole message
         self.hold: asyncio.Queue[None] | None = None
 
     def handle(self, model_id: str):  # noqa: ANN201
@@ -51,6 +52,7 @@ class FakeServer:
                         page = body["messages"][1]["content"].split("<page>\n", 1)[1]
                         page = page.rsplit("\n</page>", 1)[0]
                         server.cleanups.append(page)
+                        server.clean_messages.append(body["messages"][1]["content"])
                         reply = server.clean(page)
                         content = reply if isinstance(reply, str) else json.dumps(reply)
                         choice = {"message": {"content": content}, "finish_reason": "stop"}
@@ -584,3 +586,63 @@ def test_pause_during_cleanup_stops_after_the_current_page(store, tmp_path):
         "done", "pending", "pending"
     ]  # fmt: skip
     assert _status(store, project, sid).status == "paused"
+
+
+def _with_a_doubt(text: str) -> dict:
+    return {"blocks": [{"type": "paragraph", "text": f"{text} до 1? числа"}],
+            "doubts": [{"block": 0, "raw": "1?", "candidates": ["15"]}], "fixes": []}  # fmt: skip
+
+
+def test_a_page_cleaned_again_keeps_its_decision_and_the_cleanup_is_told_of_it(store, tmp_path):
+    async def decide_then_clean_again(jobs, project, sid):  # noqa: ANN001, ANN202
+        await asyncio.to_thread(ocr_store.decide, project.root, store.db(project), sid, "d1.1",
+                                value="15", action="accept", user_id=LOCAL_USER.id)  # fmt: skip
+        await jobs.reclean(project, sid, 1)
+
+    server = FakeServer(clean=_with_a_doubt)
+    project, sid, *_ = _run_job(store, tmp_path, server, after=decide_then_clean_again)
+
+    ocr = _status(store, project, sid)
+    doc = ocr_store.load_document(project.root, ocr)
+    assert ocr.document_version == 3  # assembled, decided, cleaned again and assembled
+    doubts = {d.id: (d.status, d.value) for b in doc.blocks for d in b.doubts}
+    assert doubts == {"d1.1": ("resolved", "15"), "d2.1": ("open", None)}
+    assert len(server.cleanups) == 3 and len(server.requests) == 2  # page 1 wasn't read again
+    assert "Readings the person confirmed" not in server.clean_messages[0]
+    assert "«1?» is «15»" in server.clean_messages[-1]
+    pages = ocr_store.pages(store.db(project), sid)
+    assert [(p.reading, p.clean_status) for p in pages] == [(1, "done"), (1, "done")]
+
+
+def test_a_decision_made_while_the_job_assembles_is_in_the_last_version(
+    store, tmp_path, monkeypatch
+):
+    import threading
+
+    assembling, go_on = threading.Event(), threading.Event()
+    real_inputs = ocr_store.assembly_inputs
+
+    def slow_inputs(*args):  # noqa: ANN002, ANN202
+        if ocr_store.load_document(args[0], args[2]) is not None:  # the second assembly
+            assembling.set()
+            go_on.wait(5)
+        return real_inputs(*args)
+
+    async def decide_while_assembling(jobs, project, sid):  # noqa: ANN001, ANN202
+        monkeypatch.setattr(ocr_store, "assembly_inputs", slow_inputs)
+        await jobs.reclean(project, sid, 2)
+        await asyncio.to_thread(assembling.wait, 5)
+        decision = asyncio.create_task(asyncio.to_thread(
+            ocr_store.decide, project.root, store.db(project), sid, "d1.1", value="15",
+            action="edit", user_id=LOCAL_USER.id))  # fmt: skip
+        await asyncio.sleep(0.05)
+        go_on.set()
+        await decision
+
+    server = FakeServer(clean=_with_a_doubt)
+    project, sid, *_ = _run_job(store, tmp_path, server, after=decide_while_assembling)
+
+    ocr = _status(store, project, sid)
+    doc = ocr_store.load_document(project.root, ocr)
+    assert ocr.document_version == 3  # neither publish wrote over the other
+    assert doc.blocks[0].doubts[0].value == "15"

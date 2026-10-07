@@ -303,7 +303,8 @@
       "label": "Note for this page",
       "placeholder": "For example: the stamp is the landlord's; keep the table as it is.",
       "save": "Save note",
-      "saved": "Saved · used when this page is cleaned up"
+      "saved": "Saved · used when this page is cleaned up",
+      "cleanAgain": "Clean this page again with this note"
     },
     "handwritten": "Handwritten (read it with the handwriting model)",
     "rerun": {
@@ -323,5 +324,29 @@
     "openQuestions_other": "{{count}} open questions",
     "notCleanedYet": "Not cleaned yet: this is the raw OCR text.",
     "cleanFailed": "This page wasn't cleaned: {{error}}"
+  },
+  "review": {
+    "questions": "Questions on this page",
+    "bar_one": "Page {{page}}: {{count}} question · document: {{total}}",
+    "bar_other": "Page {{page}}: {{count}} questions · document: {{total}}",
+    "accept": "Accept {{value}}",
+    "edit": "Edit",
+    "skip": "Skip",
+    "save": "Save",
+    "editLabel": "The reading",
+    "reopen": "Reopen",
+    "nextPage": "Next page with questions ›",
+    "cardTitle": "Question {{index}} of {{total}}",
+    "candidates": "Could be: {{list}}",
+    "source": {
+      "clean": "cleanup",
+      "ocr": "OCR"
+    },
+    "figure": "[Image: {{label}} · no cut-out yet]",
+    "keys": {
+      "accept": "Enter",
+      "edit": "E",
+      "skip": "Tab"
+    }
   }
 }

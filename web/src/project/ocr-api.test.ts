@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { applyOcrEvent, applyToLive } from "./ocr-api";
-import { page, session } from "./ocr-fixtures";
+import {
+  applyOcrEvent,
+  applyToLive,
+  nextPageWithQuestions,
+  pageBlocks,
+  pageQuestions,
+  suggestion,
+} from "./ocr-api";
+import { block, doubt, documentOf, page, session } from "./ocr-fixtures";
 
 describe("applyOcrEvent", () => {
   it("replaces a page by its number", () => {
@@ -51,5 +58,34 @@ describe("applyToLive", () => {
       seq: 7, type: "document", version: 2, artifact_id: 40,
     });
     expect(next.document).toEqual({ version: 2, artifact_id: 40, open_doubts: 2 });
+  });
+});
+
+describe("the Document's questions", () => {
+  const doc = documentOf([
+    block("b1.1", "Оплата до {d1.1} числа, {d2.1}", {
+      pages: [1, 2],
+      doubts: [doubt("d1.1", "1?", { candidates: ["1?", "15"] }), doubt("d2.1", "Хр?щатик")],
+    }),
+    block("b2.1", "Без питань."),
+    block("b3.1", "{d3.1}", { doubts: [doubt("d3.1", "2?0,00", { status: "resolved", value: "250,00" })] }),
+  ]);
+
+  it("suggests the first candidate that differs from the page, else the page's text", () => {
+    expect(suggestion(doubt("d1.1", "1?", { candidates: ["1?", "15", "18"] }))).toBe("15");
+    expect(suggestion(doubt("d1.1", "2312/2019", { candidates: ["2312/2019"] }))).toBe("2312/2019");
+    expect(suggestion(doubt("d1.1", "4id"))).toBe("4id");
+  });
+
+  it("puts a question on the page it came from, even in a block that started earlier", () => {
+    expect(pageQuestions(doc, 1).map((d) => d.id)).toEqual(["d1.1"]);
+    expect(pageQuestions(doc, 2).map((d) => d.id)).toEqual(["d2.1"]);
+    expect(pageBlocks(doc, 2).map((b) => b.id)).toEqual(["b1.1", "b2.1"]);
+  });
+
+  it("finds the next page with open questions, wrapping round, and none when all are answered", () => {
+    expect(nextPageWithQuestions(doc, 1)).toBe(2);
+    expect(nextPageWithQuestions(doc, 2)).toBe(1); // page 3's is answered
+    expect(nextPageWithQuestions(documentOf([block("b1.1", "x")]), 1)).toBeNull();
   });
 });
