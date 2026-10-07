@@ -200,6 +200,7 @@ def test_the_scripts_pass_shellcheck():
         LINUX / "uninstall.sh",
         ROOT / "packaging/build_wheel.sh",
         ROOT / "packaging/make_package.sh",
+        ROOT / "packaging/pins.sh",  # sourced, but checked on its own too
         ROOT / "install.sh",
         ROOT / "uninstall.sh",
     ]

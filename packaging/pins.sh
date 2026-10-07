@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2034  # sourced by the scripts that use these
 # The uv release a host install uses: pinned, with the sha256 from astral-sh/uv's release
 # data (gh api repos/astral-sh/uv/releases/tags/0.12.23, 2026-10-07). Sourced by install.sh.
 UV_VERSION="0.12.23"
