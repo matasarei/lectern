@@ -37,6 +37,7 @@ lectern = "lectern.cli:app"
 [project.entry-points."lectern.modules"]
 sandbox = "lectern.modules.sandbox:module"
 ocr = "lectern.modules.ocr:module"
+export-md = "lectern.modules.export_md:module"
 
 [dependency-groups]
 dev = [
