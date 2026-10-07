@@ -61,6 +61,7 @@ class TurnRun:
     turn_state: Callable[[int], str] = lambda _sid: "idle"
     downloads: object = None  # passed on to tools (the coding model's download)
     sandbox: object = None  # passed on to tools (the Sandbox module)
+    ocr_jobs: object = None  # passed on to tools (the OCR module)
     stats: dict = field(default_factory=dict)
 
 
@@ -345,6 +346,7 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         runtime=run.runtime,
         downloads=run.downloads,
         sandbox=run.sandbox,
+        ocr_jobs=run.ocr_jobs,
     )
     if tool.confirm:
         try:

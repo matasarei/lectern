@@ -1,12 +1,12 @@
 """The OCR module: page images from PDFs and scans, recognition through the `ocr` and
-`ocr.hand` models, and OCR sessions (`store`, `jobs`, and their API). Its agent tools
-(`ocr.start`, `ocr.note`) come in M3."""
+`ocr.hand` models, OCR sessions (`store`, `jobs`, and their API), and its chat tools
+(`ocr.start`, `ocr.note`)."""
 
 from __future__ import annotations
 
 from lectern.agent.tools import AgentTool
 from lectern.modules import ToolEnv
-from lectern.modules.ocr import api
+from lectern.modules.ocr import api, tools
 
 
 class OcrModule:
@@ -14,7 +14,7 @@ class OcrModule:
     router = api.router  # /api/projects/{id}/ocr/…
 
     def tools(self, env: ToolEnv) -> list[AgentTool]:
-        return []
+        return [tools.START, tools.NOTE]
 
 
 module = OcrModule()

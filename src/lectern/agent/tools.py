@@ -47,6 +47,7 @@ class ToolContext:
     runtime: Any = None  # lectern.runtime.supervisor.ModelRuntime
     downloads: Any = None  # lectern.downloads.manager.DownloadManager
     sandbox: Any = None  # lectern.modules.sandbox.container.Sandbox
+    ocr_jobs: Any = None  # lectern.modules.ocr.jobs.OcrJobs
 
 
 @dataclass

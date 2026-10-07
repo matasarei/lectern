@@ -75,6 +75,7 @@ def create_app(
     )
 
     modules = load_modules()
+    app.state.ocr_jobs = OcrJobs(app.state.runtime, app.state.projects)
     app.state.turns = TurnManager(
         app.state.runtime,
         app.state.projects,
@@ -82,9 +83,8 @@ def create_app(
         tool_registry([*CORE_TOOLS, *export_tools(module_exporters(modules))], modules, EnvProbe()),
         downloads=app.state.downloads,
         sandbox=Sandbox(),
+        ocr_jobs=app.state.ocr_jobs,
     )
-
-    app.state.ocr_jobs = OcrJobs(app.state.runtime, app.state.projects)
 
     @app.get("/health")
     def health() -> dict[str, str]:

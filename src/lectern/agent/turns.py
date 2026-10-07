@@ -81,10 +81,12 @@ class TurnManager:
         *,
         downloads: object = None,
         sandbox: object = None,
+        ocr_jobs: object = None,
     ) -> None:
         self.runtime = runtime
         self.downloads = downloads
         self.sandbox = sandbox
+        self.ocr_jobs = ocr_jobs
         self.projects = projects
         # A fixed registry, or a function giving each turn's (modules offer tools depending
         # on what's available right now, such as a running container engine).
@@ -142,6 +144,7 @@ class TurnManager:
             turn_state=lambda sid: self.state((project.id, sid)),
             downloads=self.downloads,
             sandbox=self.sandbox,
+            ocr_jobs=self.ocr_jobs,
         )
         message_id = await run_in_threadpool(
             lambda: store_message(
