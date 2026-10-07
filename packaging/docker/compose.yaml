@@ -1,0 +1,30 @@
+# Lectern in Docker with the GPU (needs the NVIDIA Container Toolkit on the host). Linux only:
+# it uses the host's network, so Lectern's 127.0.0.1 is the host's and only nginx on the host
+# reaches it, as with the host install.
+#   LECTERN_PUBLIC_URL=http://lectern.lan docker compose -f packaging/docker/compose.yaml up -d
+#   docker compose -f packaging/docker/compose.yaml exec lectern lectern url
+services:
+  lectern:
+    image: lectern
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    network_mode: host
+    environment:
+      LECTERN_PUBLIC_URL: ${LECTERN_PUBLIC_URL:-}
+      LECTERN_PORT: ${LECTERN_PORT:-8765}
+    volumes:
+      - lectern-data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    stop_signal: SIGINT  # Lectern stops its model runners on SIGINT
+    stop_grace_period: 30s
+
+volumes:
+  lectern-data:

@@ -1,0 +1,28 @@
+# Lectern on a host, as its own user. Installed by packaging/linux/install.sh; settings in
+# /etc/lectern/lectern.env. It listens on 127.0.0.1 only: nginx on this machine is the way in.
+[Unit]
+Description=Lectern, a local AI workbench
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lectern
+Group=lectern
+EnvironmentFile=/etc/lectern/lectern.env
+ExecStart=/opt/lectern/venv/bin/lectern serve --no-browser --port ${LECTERN_PORT}
+# Lectern stops its model runners on SIGINT, as on Ctrl+C.
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Hardening that still lets the models reach the GPU (no PrivateDevices).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/lectern
+
+[Install]
+WantedBy=multi-user.target
