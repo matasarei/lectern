@@ -339,6 +339,19 @@ def redo_document(
         return publish_document(root, db, session_id, owner_id, document), unplaced
 
 
+def _republish(
+    root: Path, db: sessionmaker[Session], session_id: int
+) -> tuple[OcrSessionRow, list[Decision]]:
+    """The current Document with the decisions applied again, as the next version. A decision
+    changes no page's text, so nothing is assembled: a page being cleaned again meanwhile
+    keeps its blocks until the job assembles. Applying resets every doubt, so it can repeat."""
+    ocr = _ocr(db, session_id)
+    document = load_document(root, ocr)
+    document, unplaced = apply_decisions(document, decisions(db, session_id))
+    document.version = ocr.document_version + 1
+    return publish_document(root, db, session_id, _owner(db, session_id), document), unplaced
+
+
 def _owner(db: sessionmaker[Session], session_id: int) -> int:
     with db() as session:
         return session.get(SessionRow, session_id).owner_id
@@ -381,7 +394,7 @@ def decide(
                 OcrDecisionRow(session_id=session_id, page=page, doubt_id=doubt_id,
                                raw=doubt.raw, value=value, action=action, decided_by=user_id)
             )  # fmt: skip
-        return redo_document(root, db, session_id, owner_id=_owner(db, session_id))
+        return _republish(root, db, session_id)
 
 
 def reopen(root: Path, db: sessionmaker[Session], session_id: int, doubt_id: str) -> OcrSessionRow:
@@ -395,7 +408,7 @@ def reopen(root: Path, db: sessionmaker[Session], session_id: int, doubt_id: str
             raise NoSuchDoubt(doubt_id)
         with db.begin() as session:
             session.delete(session.get(OcrDecisionRow, matched[doubt_id].id))
-        ocr, _ = redo_document(root, db, session_id, owner_id=_owner(db, session_id))
+        ocr, _ = _republish(root, db, session_id)
         return ocr
 
 

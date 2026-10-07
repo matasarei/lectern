@@ -218,3 +218,18 @@ def test_answering_a_renumbered_page_keeps_the_answer_that_moved(store, tmp_path
                               user_id=LOCAL_USER.id)  # fmt: skip
     doc = ocr_store.load_document(project.root, ocr)
     assert {d.id: d.value for d in doc.blocks[0].doubts} == {"d1.1": "Хрещатик", "d1.2": "15"}
+
+
+def test_answering_while_a_page_is_cleaned_again_keeps_that_page_in_the_document(store, tmp_path):
+    project, db, sid = _cleaned_session(store, tmp_path)
+    ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+    (page,) = ocr_store.pages(db, sid)
+    ocr_store.mark_cleaning(db, page.id, "cleaning")  # "Clean this page again" is running
+
+    ocr, _ = ocr_store.decide(project.root, db, sid, "d1.1", value="15", action="accept",
+                              user_id=LOCAL_USER.id)  # fmt: skip
+    doc = ocr_store.load_document(project.root, ocr)
+    assert ocr.document_version == 2 and doc.pages[0].failed is None
+    assert doc.blocks[0].doubts[0].value == "15"
+    ocr = ocr_store.reopen(project.root, db, sid, "d1.1")
+    assert ocr_store.load_document(project.root, ocr).pages[0].failed is None
