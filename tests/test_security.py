@@ -218,3 +218,13 @@ def test_public_urls_are_read_comma_separated_and_a_trailing_slash_is_fine():
         ("lectern.example:8443", "https://lectern.example:8443"),
     ]
     assert parse_public_urls("") == []
+
+
+def test_an_ipv6_public_url_keeps_its_brackets_as_browsers_send_them():
+    from lectern.core.security import parse_public_urls
+
+    urls = parse_public_urls("http://[FD00::5]:8080, https://[fd00::6]")
+    assert [(u.host, u.origin) for u in urls] == [
+        ("[fd00::5]:8080", "http://[fd00::5]:8080"),
+        ("[fd00::6]", "https://[fd00::6]"),
+    ]

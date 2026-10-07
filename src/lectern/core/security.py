@@ -96,7 +96,10 @@ def parse_public_urls(value: str) -> list[PublicUrl]:
                 f"LECTERN_PUBLIC_URL must be like http://lectern.lan or "
                 f"https://192.168.1.20:8443, not {raw!r}."
             )
-        host = parts.hostname.lower() + (f":{port}" if port is not None else "")
+        name = parts.hostname.lower()
+        if ":" in name:  # IPv6: browsers send it bracketed, Host: [fd00::5]:8080
+            name = f"[{name}]"
+        host = name + (f":{port}" if port is not None else "")
         urls.append(PublicUrl(host=host, origin=f"{parts.scheme}://{host}"))
     return urls
 
