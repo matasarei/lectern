@@ -38,6 +38,7 @@ lectern = "lectern.cli:app"
 sandbox = "lectern.modules.sandbox:module"
 ocr = "lectern.modules.ocr:module"
 export-md = "lectern.modules.export_md:module"
+export-docx = "lectern.modules.export_docx:module"
 
 [dependency-groups]
 dev = [

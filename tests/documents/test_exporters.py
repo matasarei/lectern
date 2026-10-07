@@ -8,6 +8,7 @@ page notes appear only when asked for."""
 
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass, field
 
 import pytest
@@ -32,7 +33,23 @@ def _read_md(data: bytes) -> Read:
     return Read(text, tables)
 
 
-READERS = {"md": _read_md}
+def _read_docx(data: bytes) -> Read:
+    import docx
+    from docx.table import Table
+
+    document = docx.Document(io.BytesIO(data))
+    body, tables = [], []
+    for item in document.iter_inner_content():
+        if isinstance(item, Table):
+            rows = [[cell.text for cell in row.cells] for row in item.rows]
+            tables.append(rows)
+            body += [cell for row in rows for cell in row]
+        else:
+            body.append(item.text)
+    return Read("\n".join(body), tables, [c.text for c in document.comments])
+
+
+READERS = {"md": _read_md, "docx": _read_docx}
 
 
 def _exporters() -> list[Exporter]:
@@ -52,7 +69,7 @@ def _export(fmt: str, **opts: str) -> tuple[Exporter, Read]:
 
 
 def test_every_exporter_has_a_reader_here_and_the_formats_are_installed():
-    assert {"md"} <= set(_formats()) and set(_formats()) <= set(READERS)
+    assert {"md", "docx"} <= set(_formats()) and set(_formats()) <= set(READERS)
 
 
 @pytest.mark.parametrize("fmt", _formats())
