@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from lectern.documents.document import Doubt
 from lectern.documents.export import Exporter, ExportOptions, resolved_options
 from lectern.documents.from_text import parse_markdown
 from lectern.modules import load_modules, module_exporters
@@ -161,3 +162,19 @@ def test_page_notes_appear_only_when_asked_for(fmt):
     exporter, asked = _export(fmt, notes="comment")
     where = asked.comments if "comments" in exporter.capabilities else [asked.body]
     assert any("Note for page 3: The stamp is the landlord's." in w for w in where)
+
+
+@pytest.mark.parametrize("fmt", _formats())
+def test_a_question_marked_where_the_format_doesnt_print_still_comes_out(fmt):
+    """Documents assembled before the fix kept a table's question in its text, which no
+    exporter prints; the question still has to come out, after the table."""
+    doc = lease()
+    table = doc.blocks[2]
+    table.text = "Сума {d3.9}"
+    table.doubts.append(Doubt(id="d3.9", raw="7?0,00", candidates=["750,00"]))
+    (exporter,) = [e for e in _exporters() if e.format == fmt]
+    read = READERS[fmt](exporter.export(doc, resolved_options(ExportOptions(), exporter)))
+    if "comments" in exporter.capabilities:
+        assert "7?0,00" in read.body and any("750,00" in c for c in read.comments)
+    else:
+        assert "⟦7?0,00 → 750,00⟧" in read.body

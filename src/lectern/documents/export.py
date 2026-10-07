@@ -119,9 +119,27 @@ def note_text(page: int, note: str) -> str:
     return f"Note for page {page}: {note.strip()}"
 
 
+def stray_block(block: Block) -> Block | None:
+    """A paragraph holding the block's open questions whose mark isn't anywhere the block is
+    printed (a table's text: tables print their rows; a figure), or None. A Document
+    assembled before that was fixed still has such questions; they come out after their
+    block, never dropped."""
+    printed = (
+        " ".join(c for row in block.rows or [] for c in row) if block.type == "table" else
+        "" if block.type == "figure" else block.text
+    )  # fmt: skip
+    strays = [d for d in block.doubts if d.status == "open" and f"{{{d.id}}}" not in printed]
+    if not strays:
+        return None
+    marks = " ".join(f"{{{d.id}}}" for d in strays)
+    return Block(id=block.id, type="paragraph", page=block.page, text=f"Not shown above: {marks}",
+                 doubts=strays)  # fmt: skip
+
+
 def reading_order(doc: Document) -> list[tuple[Block, str | None, int]]:
     """Each block once, in order, with the note of the page it starts (when that page has
-    one and this is its first block) and its figure number (0 for other blocks)."""
+    one and this is its first block) and its figure number (0 for other blocks). A block
+    with open questions it doesn't print is followed by them (`stray_block`)."""
     notes = {p.n: p.note for p in doc.pages if p.note.strip()}
     seen_pages: set[int] = set()
     figures = 0
@@ -134,6 +152,8 @@ def reading_order(doc: Document) -> list[tuple[Block, str | None, int]]:
         if block.type == "figure":
             figures += 1
         order.append((block, note, figures if block.type == "figure" else 0))
+        if (stray := stray_block(block)) is not None:
+            order.append((stray, None, 0))
     return order
 
 
