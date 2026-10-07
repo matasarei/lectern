@@ -241,3 +241,54 @@ def test_queueing_what_is_already_queued_says_so_whatever_the_arguments(follow):
                                         "ODT. Nothing more to do now"):  # fmt: skip
         TASK_AFTER.confirm_text(ctx, again)
     assert len(followups.pending(db, 1)) == 1
+
+
+def _set_status(db, ocr_id: int, status: str) -> None:  # noqa: ANN001
+    with db.begin() as session:
+        session.get(OcrSessionRow, ocr_id).status = status
+
+
+def test_a_follow_up_whose_session_finished_unseen_runs_when_the_chat_is_next_used(follow):
+    """The app stopped between the session finishing and the follow-up running (or the
+    signal was lost): nothing would ever trigger it again."""
+    manager, project, db, ocr_id, _ = follow([text_reply("Exported.")])
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={"format": "odt"},
+                  label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+    _set_status(db, ocr_id, "done")
+
+    async def go():  # noqa: ANN202
+        await manager.resume_follow_ups(project, 1)
+        await manager.resume_follow_ups(project, 1)  # opened twice: still once
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert RAN == [{"chat": 1, "format": "odt"}] and followups.pending(db, 1) == []
+    assert _transcript(db)[0][1] == "OCR · lease-scan.pdf finished."
+
+
+def test_a_follow_up_whose_session_is_gone_is_dropped_and_one_still_running_waits(follow):
+    manager, project, db, ocr_id, _ = follow([text_reply("It can't run now.")])
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={}, label="waits")
+    followups.add(db, 1, ocr_session_id=999, tool="export.run", arguments={}, label="gone one")
+
+    async def go():  # noqa: ANN202
+        await manager.resume_follow_ups(project, 1)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert RAN == [] and [f.label for f in followups.pending(db, 1)] == ["waits"]
+    assert _transcript(db)[0][1] == "The OCR session is gone. The follow-up (gone one) was dropped."
+
+
+def test_a_stale_follow_up_also_runs_after_the_chats_next_turn(follow):
+    manager, project, db, ocr_id, _ = follow([text_reply("Hello."), text_reply("Exported.")])
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={}, label="x")
+    _set_status(db, ocr_id, "done")
+
+    async def go():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "hi", [])
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert RAN == [{"chat": 1, "format": "odt"}]
+    assert [r[1] for r in _transcript(db)][:2] == ["hi", "Hello."]

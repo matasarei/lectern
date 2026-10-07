@@ -98,6 +98,7 @@ class TurnManager:
         # send in that gap must see the chat as busy.
         self._starting: set[Key] = set()
         self._follow_ups: set[asyncio.Task[None]] = set()
+        self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
 
     def channel(self, key: Key) -> Channel:
         return self._channels.setdefault(key, Channel())
@@ -155,6 +156,7 @@ class TurnManager:
             status = await run_turn(run)
             channel.publish({"type": "turn", "status": status})
             channel.settle()
+            await self.resume_follow_ups(project, session_id)  # any whose session ended meanwhile
             return status
 
         self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"))
@@ -190,19 +192,41 @@ class TurnManager:
         sessions = await run_in_threadpool(self.projects.db, project)
         waiting = await run_in_threadpool(followups.waiting_on, sessions, ocr_session_id)
         for chat_id, follow in waiting:
-            task = asyncio.create_task(
-                self._follow_up(project, sessions, chat_id, follow, status, notice),
-                name=f"follow-up-{project.id}-{chat_id}-{follow.id}",
-            )
-            self._follow_ups.add(task)
-            task.add_done_callback(self._follow_ups.discard)
+            self._schedule(project, sessions, chat_id, follow, status, notice)
+
+    async def resume_follow_ups(self, project: Project, chat_id: int) -> None:
+        """The chat's follow-ups whose session already finished, failed or is gone, run or
+        dropped now. The signal from the session is sent once; if the app stopped before a
+        follow-up ran, this is what runs it. Called when the chat is opened and after each of
+        its turns."""
+        sessions = await run_in_threadpool(self.projects.db, project)
+        stale = await run_in_threadpool(followups.stale, sessions, chat_id)
+        for follow, status, notice in stale:
+            self._schedule(project, sessions, chat_id, follow, status, notice)
+
+    def _schedule(self, project: Project, sessions: object, chat_id: int,
+                  follow: followups.FollowUp, status: str, notice: str) -> None:  # fmt: skip
+        """One task per follow-up at a time, however many signals arrive."""
+        key = (project.id, chat_id, follow.id)
+        if key in self._follow_up_keys:
+            return
+        self._follow_up_keys.add(key)
+        task = asyncio.create_task(
+            self._follow_up(project, sessions, chat_id, follow, status, notice),
+            name=f"follow-up-{project.id}-{chat_id}-{follow.id}",
+        )
+        self._follow_ups.add(task)
+        task.add_done_callback(self._follow_ups.discard)
+        task.add_done_callback(lambda _t: self._follow_up_keys.discard(key))
 
     async def follow_ups_settled(self) -> None:
         """For tests and shutdown: until every follow-up and the turn it started are over."""
-        while self._follow_ups:
-            await asyncio.gather(*list(self._follow_ups), return_exceptions=True)
-        for key in list(self._turns):
-            await self.wait(key)
+        # A turn's end can schedule a follow-up, whose turn can end and schedule another.
+        while True:
+            busy = [*self._follow_ups, *(t.task for t in self._turns.values() if not t.task.done())]
+            if not busy:
+                return
+            await asyncio.gather(*busy, return_exceptions=True)
 
     async def _follow_up(self, project: Project, sessions: object, chat_id: int,
                          follow: followups.FollowUp, status: str, notice: str) -> None:  # fmt: skip
@@ -236,6 +260,7 @@ class TurnManager:
                 result = await run_turn(run)
                 channel.publish({"type": "turn", "status": result})
                 channel.settle()
+                await self.resume_follow_ups(project, chat_id)
                 return result
 
             self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"))

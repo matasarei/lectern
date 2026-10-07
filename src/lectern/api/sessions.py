@@ -183,6 +183,8 @@ async def send(
 async def events(project_id: int, session_id: int, request: Request, user: CurrentUser):  # noqa: ANN201
     project = await open_chat(request, project_id, session_id, user)
     channel = turns(request).channel((project.id, session_id))
+    # The chat is open: a follow-up whose session ended while the app was down runs now.
+    await turns(request).resume_follow_ups(project, session_id)
 
     async def stream() -> AsyncIterator[bytes]:
         async with channel.listen() as (so_far, queue):

@@ -99,6 +99,27 @@ def take(sessions: sessionmaker[Session], chat_id: int, followup_id: str) -> Fol
         return found
 
 
+def stale(sessions: sessionmaker[Session], chat_id: int) -> list[tuple[FollowUp, str, str]]:
+    """The chat's follow-ups whose OCR session is over, as (follow-up, status, notice): done
+    (run it), failed or gone (drop it). Their session's signal was missed if they're still
+    here, e.g. the app stopped first."""
+    found = []
+    with sessions() as session:
+        for follow in _load(session.get(ChatStateRow, chat_id)):
+            ocr = session.get(OcrSessionRow, follow.ocr_session_id)
+            chat = session.get(SessionRow, follow.ocr_session_id)
+            title = chat.title if chat else ""
+            if ocr is None:
+                found.append((follow, "failed", "The OCR session is gone."))
+            elif ocr.status == "done":
+                found.append((follow, "done", f"OCR · {title} finished."))
+            elif ocr.status == "failed":
+                found.append(
+                    (follow, "failed", f"OCR · {title} stopped: {ocr.error or 'it failed'}.")
+                )
+    return found
+
+
 # --- task.after: queue a follow-up from the chat ------------------------------------------
 
 
