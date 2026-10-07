@@ -13,7 +13,8 @@
 #   the system's Python and any uv of yours are never touched.
 # - Each install goes into /opt/lectern/versions/<version>-<time>; /opt/lectern/venv points
 #   at the one in use, and only moves once an install has fully succeeded. A failed upgrade
-#   leaves the running version as it was.
+#   leaves the running version as it was. Once the new version answers on /health, the one
+#   before it is kept (to go back to) and older ones are removed.
 # - Data (models, projects): /var/lib/lectern. Settings: /etc/lectern/lectern.env, written
 #   only when it doesn't exist, so your edits survive upgrades.
 # - Runs again safely: an update is the same command from the newer copy or package. The
@@ -22,7 +23,8 @@
 #   the database is migrated forward when the new version starts.
 #
 # LECTERN_INSTALL_ROOT (tests only) prefixes every path; LECTERN_UV_BIN uses a uv you
-# already have instead of downloading one.
+# already have instead of downloading one; LECTERN_HEALTH_WAIT is how many seconds to wait
+# for the service to answer (60).
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -149,11 +151,6 @@ if ! mv -T "$prefix/venv.next" "$prefix/venv" 2>/dev/null; then
     rm -f "$prefix/venv" "$prefix/venv.next"  # BSD mv (the tests on macOS)
     ln -s "$target" "$prefix/venv"
 fi
-# Older versions go once the new one is in place.
-for old in "$prefix"/versions/*; do
-    [ "$old" = "$target" ] || rm -rf "$old"
-done
-
 # The way to the access link: Lectern's settings loaded, as the lectern user (it owns the
 # token): sudo -u lectern /opt/lectern/bin/lectern-url
 cat > "$prefix/bin/lectern-url" <<'URL'
@@ -180,11 +177,35 @@ install -m 0644 "$here/lectern.service" "$units/lectern.service"
 systemctl daemon-reload
 if [ -n "$previous" ] && systemctl is-active --quiet lectern; then
     systemctl restart lectern
-    echo "Upgraded to Lectern $version and restarted it."
+    started="Upgraded to Lectern $version and restarted it."
 else
     systemctl enable --now lectern
-    echo "Lectern $version is installed and running."
+    started="Lectern $version is installed and running."
 fi
+
+# Only a version that answers counts as installed. Until then nothing older is deleted.
+port="$(sed -n 's/^LECTERN_PORT=//p' "$etc/lectern.env" | tail -1)"
+port="${port:-8765}"
+echo "Waiting for Lectern to answer on 127.0.0.1:$port…"
+up=""
+for _ in $(seq "${LECTERN_HEALTH_WAIT:-60}"); do
+    if curl -fsS "http://127.0.0.1:$port/health" >/dev/null 2>&1; then up=1; break; fi
+    sleep 1
+done
+if [ -z "$up" ]; then
+    echo "install.sh: Lectern $version didn't start; see: journalctl -u lectern -n 50" >&2
+    if [ -n "$previous" ] && [ -d "$previous" ]; then
+        echo "The previous version is kept in $previous. To go back to it:" >&2
+        echo "  sudo ln -sfn $previous $prefix/venv && sudo systemctl restart lectern" >&2
+        echo "(only if the new version hasn't migrated the database yet: the log says)" >&2
+    fi
+    exit 1
+fi
+echo "$started"
+# The new version works: keep it and the one before it (to go back to), drop the rest.
+for old in "$prefix"/versions/*; do
+    [ "$old" = "$target" ] || [ "$old" = "$previous" ] || rm -rf "$old"
+done
 
 cat <<NEXT
 

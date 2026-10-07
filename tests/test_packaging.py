@@ -49,6 +49,10 @@ FAKES = {
     'printf "#!/bin/sh\\n" > "$d/bin/lectern"; '
     'elif [ "$1" = pip ] && [ -n "${FAIL_PIP:-}" ]; then echo "no network" >&2; exit 1; '
     'elif [ "$1" = --version ]; then echo "uv 0.12.23"; fi',
+    # curl: the service's /health answers unless told not to (STATE/down); anything else is
+    # the real curl (the uv download in the checksum test).
+    "curl": 'case "$*" in *127.0.0.1:*/health*) echo "curl $*" >> "$LOG"; '
+    '[ ! -f "$STATE/down" ];; *) exec /usr/bin/curl "$@";; esac',
 }
 
 
@@ -66,6 +70,7 @@ def _install(tmp_path: Path, wheel: Path, *, fail_pip: bool = False, script: str
         "LECTERN_UV_BIN": str(bin_dir / "uv"),
         "LOG": str(tmp_path / "log"),
         "STATE": str(state),
+        "LECTERN_HEALTH_WAIT": "2",
         **({"FAIL_PIP": "1"} if fail_pip else {}),
     }
     return subprocess.run(  # noqa: S603
@@ -104,7 +109,8 @@ def test_a_first_install_makes_the_user_the_app_the_settings_and_the_service(tmp
     assert "Lectern 0.1.0 is installed and running." in done.stdout
 
 
-def test_an_upgrade_keeps_the_settings_and_restarts_and_drops_the_old_version(tmp_path):
+def test_an_upgrade_keeps_the_settings_and_restarts_and_keeps_one_version_back(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.0.9")).returncode == 0
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     env_file = tmp_path / "root/etc/lectern/lectern.env"
     public = "LECTERN_PUBLIC_URL=http://lectern.lan"
@@ -114,9 +120,10 @@ def test_an_upgrade_keeps_the_settings_and_restarts_and_drops_the_old_version(tm
     done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
     assert done.returncode == 0, done.stderr
     assert "LECTERN_PUBLIC_URL=http://lectern.lan" in env_file.read_text()  # kept
-    versions = [p.name for p in (tmp_path / "root/opt/lectern/versions").iterdir()]
-    assert len(versions) == 1 and versions[0].startswith("0.2.0-")
+    versions = sorted(p.name for p in (tmp_path / "root/opt/lectern/versions").iterdir())
+    assert [v.split("-")[0] for v in versions] == ["0.1.0", "0.2.0"]  # 0.0.9 dropped
     assert "systemctl restart lectern" in _log(tmp_path)
+    assert any(c.endswith("/health") for c in _log(tmp_path) if c.startswith("curl"))
     assert any("--refresh-package lectern-ai" in c for c in _log(tmp_path) if "pip install" in c)
     assert _log(tmp_path).count("useradd --system --home-dir /var/lib/lectern --no-create-home "
                                 "--shell /usr/sbin/nologin lectern") == 1  # fmt: skip
@@ -131,6 +138,19 @@ def test_a_failed_upgrade_leaves_the_version_in_use_as_it_was(tmp_path):
     assert (tmp_path / "root/opt/lectern/venv").resolve() == before and before.exists()
     versions = list((tmp_path / "root/opt/lectern/versions").iterdir())
     assert versions == [before]  # nothing half-made left behind
+
+
+def test_an_upgrade_that_doesnt_start_says_so_and_keeps_the_previous_version(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    before = (tmp_path / "root/opt/lectern/venv").resolve()
+    (tmp_path / "state/active").touch()
+    (tmp_path / "state/down").touch()
+
+    done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
+    assert done.returncode == 1
+    assert "Lectern 0.2.0 didn't start" in done.stderr and "journalctl -u lectern" in done.stderr
+    assert f"sudo ln -sfn {before}" in done.stderr  # the way back
+    assert before.exists() and "Upgraded" not in done.stdout
 
 
 def test_a_wrong_uv_checksum_is_refused(tmp_path):
@@ -259,7 +279,7 @@ def test_an_update_with_the_same_version_replaces_the_code_and_keeps_the_data(tm
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
     assert done.returncode == 0, done.stderr
     second = (tmp_path / "root/opt/lectern/venv").resolve()
-    assert second != first and not first.exists()  # a fresh install of the code
+    assert second != first and first.exists()  # a fresh install; the old one kept to go back
     assert (data / "lectern.db").read_text() == "the app's database"
     assert (data / "users/local/projects/Lease").is_dir()
     assert "Upgraded to Lectern 0.1.0" in done.stdout

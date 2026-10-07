@@ -48,7 +48,8 @@ the first run. Python isn't needed: the installer brings its own.
    ```
 
 **Upgrade:** run `./install.sh` again from the newer copy or package. Your settings and data are kept, and
-if the install fails, the running version stays as it was.
+if the install fails, the running version stays as it was. If the new version doesn't start, it says so,
+keeps the previous one and prints how to go back to it.
 **Uninstall:** `sudo ./uninstall.sh` keeps `/var/lib/lectern` and
 `/etc/lectern`; add `--purge` to remove them and the `lectern` user too.
 **Logs:** `journalctl -u lectern`. They show the access link at start, so keep the journal to
