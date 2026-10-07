@@ -49,7 +49,52 @@ def _read_docx(data: bytes) -> Read:
     return Read("\n".join(body), tables, [c.text for c in document.comments])
 
 
-READERS = {"md": _read_md, "docx": _read_docx}
+ODF_TEXT = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ODF_TABLE = "urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+ODF_OFFICE = "urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+
+
+def _odf_text(element) -> str:  # noqa: ANN001
+    """An element's text without the comments inside it (an annotation's own text), but
+    with the text that follows each one."""
+    parts = [element.text or ""]
+    for child in element:
+        if child.tag == f"{{{ODF_TEXT}}}s":  # spaces: ODF keeps them as elements
+            parts.append(" " * int(child.get(f"{{{ODF_TEXT}}}c", "1")))
+        elif child.tag == f"{{{ODF_TEXT}}}line-break":
+            parts.append("\n")
+        elif child.tag != f"{{{ODF_OFFICE}}}annotation":
+            parts.append(_odf_text(child))
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
+def _read_odt(data: bytes) -> Read:
+    import zipfile
+
+    from lxml import etree
+
+    root = etree.fromstring(zipfile.ZipFile(io.BytesIO(data)).read("content.xml"))
+    annotation = f"{{{ODF_OFFICE}}}annotation"
+    body, tables = [], []
+    for element in root.iter(f"{{{ODF_TEXT}}}p", f"{{{ODF_TEXT}}}h"):
+        if any(a.tag == annotation for a in element.iterancestors()):
+            continue
+        body.append(_odf_text(element))
+    for table in root.iter(f"{{{ODF_TABLE}}}table"):
+        tables.append([
+            [_odf_text(p) for cell in row.iter(f"{{{ODF_TABLE}}}table-cell")
+             for p in cell.iter(f"{{{ODF_TEXT}}}p")]
+            for row in table.iter(f"{{{ODF_TABLE}}}table-row")
+        ])  # fmt: skip
+    comments = [
+        "\n".join(p.xpath("string()") for p in a.iter(f"{{{ODF_TEXT}}}p"))
+        for a in root.iter(annotation)
+    ]
+    return Read("\n".join(body), tables, comments)
+
+
+READERS = {"md": _read_md, "docx": _read_docx, "odt": _read_odt}
 
 
 def _exporters() -> list[Exporter]:
@@ -69,7 +114,7 @@ def _export(fmt: str, **opts: str) -> tuple[Exporter, Read]:
 
 
 def test_every_exporter_has_a_reader_here_and_the_formats_are_installed():
-    assert {"md", "docx"} <= set(_formats()) and set(_formats()) <= set(READERS)
+    assert {"md", "docx", "odt"} <= set(_formats()) and set(_formats()) <= set(READERS)
 
 
 @pytest.mark.parametrize("fmt", _formats())
