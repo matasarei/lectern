@@ -59,15 +59,19 @@ export function ProjectPage() {
   // session, an exported file): read the project's items again, once per tab, rather than
   // show it as gone or as the wrong kind of tab.
   const asked = useRef(new Set<string>());
+  const [checked, setChecked] = useState<string[]>([]); // tabs whose items were read again
   const active = tabs?.active ?? null;
+  const activeKey = active ? `${active.kind}-${active.id}` : "";
   const activeKnown = active === null || items.data === undefined || known(items.data, active);
   useEffect(() => {
-    if (active === null || activeKnown) return;
-    const tabKey = `${active.kind}-${active.id}`;
-    if (asked.current.has(tabKey)) return;
-    asked.current.add(tabKey);
-    void queryClient.invalidateQueries({ queryKey: ["items", id] });
-  }, [active, activeKnown, id, queryClient]);
+    if (active === null || activeKnown || asked.current.has(activeKey)) return;
+    asked.current.add(activeKey);
+    void queryClient
+      .invalidateQueries({ queryKey: ["items", id] })
+      .finally(() => setChecked((prev) => [...prev, activeKey]));
+  }, [active, activeKnown, activeKey, id, queryClient]);
+  // Still unknown once read again: it's gone, and the tab says so as it always has.
+  const loadingActive = !activeKnown && !checked.includes(activeKey);
 
   if (project.isError) {
     return (
@@ -123,8 +127,8 @@ export function ProjectPage() {
       </nav>
       <section className="min-h-0 overflow-y-auto">
         {tabs.active === null && <Overview projectId={id} items={items.data} onOpen={open} />}
-        {!activeKnown && <p className="p-4 text-muted">{t("common.loading")}</p>}
-        {activeKnown && tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
+        {loadingActive && <p className="p-4 text-muted">{t("common.loading")}</p>}
+        {!loadingActive && tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
           <OcrTab
             key={tabs.active.id}
             projectId={id}
@@ -133,13 +137,13 @@ export function ProjectPage() {
             initialPage={tabs.active.page}
           />
         )}
-        {activeKnown && tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
+        {!loadingActive && tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
           <ChatTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} onOpen={open} />
         )}
-        {activeKnown && tabs.active?.kind === "document" && (
+        {!loadingActive && tabs.active?.kind === "document" && (
           <DocumentTab key={tabs.active.id} projectId={id} sessionId={tabs.active.id} items={items.data} onOpen={open} />
         )}
-        {activeKnown && tabs.active?.kind === "artifact" && (
+        {!loadingActive && tabs.active?.kind === "artifact" && (
           <FileTab
             key={tabs.active.id}
             projectId={id}

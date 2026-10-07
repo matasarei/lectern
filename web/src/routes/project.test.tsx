@@ -127,17 +127,37 @@ describe("An OCR session's Document tab", () => {
 });
 
 describe("A tab for something the page hasn't heard of yet", () => {
-  it("reads the project's items again and doesn't take a new OCR session for a chat", async () => {
+  it("reads the project's items again and shows a new OCR session as one, not as a chat", async () => {
     savedTabs = { open: [{ kind: "session", id: 9 }], active: { kind: "session", id: 9 } };
-    const fetches = () =>
-      (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.filter(
-        ([url]) => url === "/api/projects/1/items",
-      ).length;
-    renderAt("/projects/1");
+    const items = RESPONSES["/api/projects/1/items"] as { sessions: object[] };
+    const before = items.sessions;
+    let reads = 0;
+    const real = fetch as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/projects/1/items" && ++reads > 1) {
+        // The second read knows the session ocr.start just made.
+        items.sessions = [...before, { id: 9, kind: "ocr", title: "scan.pdf", messages: 0,
+          ocr: { pages: 1, status: "running", folder: "scan", document_version: 0, open_doubts: 0,
+                 figures: 0 }, created_at: "", updated_at: "" }];
+      }
+      return real(url, init);
+    }));
+    try {
+      renderAt("/projects/1");
+      expect(await screen.findByRole("tab", { name: "OCR · scan.pdf" })).toBeTruthy();
+      expect(reads).toBeGreaterThan(1);
+      expect(screen.queryByRole("textbox")).toBeNull(); // never shown as a chat
+    } finally {
+      items.sessions = before;
+    }
+  });
+});
 
-    await screen.findByRole("tab", { name: "Overview" });
-    await waitFor(() => expect(fetches()).toBeGreaterThan(1)); // asked again for session 9
-    expect(screen.queryByRole("textbox")).toBeNull(); // no chat box guessed for it
-    expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
+describe("A tab for something that's gone", () => {
+  it("says so once the items are read again, instead of loading forever", async () => {
+    savedTabs = { open: [{ kind: "artifact", id: 99 }], active: { kind: "artifact", id: 99 } };
+    renderAt("/projects/1");
+    expect(await screen.findByText("This file is no longer in the project.")).toBeTruthy();
+    expect(screen.queryByText("Loading…")).toBeNull();
   });
 });
