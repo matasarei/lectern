@@ -9,6 +9,7 @@ import { ErrorNote } from "../components";
 import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
 import { formatTokens } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
+import { Markdown } from "../markdown";
 import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
 
@@ -317,9 +318,7 @@ function Transcript({
                   progress={live.progress[call.id]}
                 />
               ))}
-              {message.content && (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
-              )}
+              {message.content && <Markdown text={message.content} />}
             </>
           )}
         </div>
@@ -484,9 +483,9 @@ function LiveReply({
         </div>
       ))}
       {live.text && (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed" data-testid="streaming">
-          {live.text}
-        </p>
+        <div data-testid="streaming">
+          <Markdown text={live.text} />
+        </div>
       )}
       {live.running && live.followup && (
         <p className="text-xs text-muted" data-testid="followup-turn">

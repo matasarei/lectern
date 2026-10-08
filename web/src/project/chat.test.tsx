@@ -111,6 +111,18 @@ describe("Chat", () => {
     expect(line.textContent).toContain("more"); // the full result, inside the fold
   });
 
+  it("renders a reply's Markdown, and leaves the person's text as they typed it", async () => {
+    chat.messages = [
+      message(1, { content: "show **me**" }),
+      message(2, { role: "assistant", content: "Two **files**:\n\n- a.md\n- b.md" }),
+    ];
+    const { container } = renderChat();
+    expect(await screen.findByText("files")).toBeTruthy();
+    expect(container.querySelector("strong")?.textContent).toBe("files");
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["a.md", "b.md"]);
+    expect(screen.getByText("show **me**")).toBeTruthy();
+  });
+
   it("says what the reply waits for: the engine downloading, then the model loading", async () => {
     runtimeState = {
       residents: [], hold: null,
