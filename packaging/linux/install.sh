@@ -6,7 +6,7 @@
 #
 # In a working copy of the repository it builds the app from it first (the web UI, then the
 # wheel; that needs Node.js). In a package (packaging/make_package.sh) the wheel is already
-# there. nginx and the public address are yours to set up afterwards; it says how.
+# there. How other computers reach it (a reverse proxy, a tunnel) is yours to set up.
 # A wheel can also be given: ./install.sh lectern_ai-<version>-py3-none-any.whl
 #
 #   ~/.lectern/src          where the README says to clone (any copy works)
@@ -161,7 +161,8 @@ if [ ! -f "$settings" ]; then
 #   systemctl --user restart lectern
 LECTERN_HOME=$data
 LECTERN_PORT=8765
-# The address nginx serves Lectern at, e.g. http://lectern.lan (comma-separate several).
+# The address(es) people use to reach Lectern, through whatever you put in front of it,
+# e.g. https://lectern.example.com (comma-separate several).
 LECTERN_PUBLIC_URL=
 ENV
 fi
@@ -225,8 +226,7 @@ Lectern runs on this machine at http://127.0.0.1:$port (LECTERN_PORT in $setting
 The link with its access token:  $dir/bin/lectern-url
 Update: git pull && ./install.sh   Logs: journalctl --user -u lectern
 
-To reach it from your network (by hand, see README "Install on a Linux server"):
-  1. Put the address you'll use in $settings (LECTERN_PUBLIC_URL=http://<name>),
-     then: systemctl --user restart lectern
-  2. Add the nginx site: packaging/linux/nginx-lectern.conf
+To reach it from other computers, put a reverse proxy or a tunnel in front of
+127.0.0.1:$port and set its address as LECTERN_PUBLIC_URL in $settings, then:
+systemctl --user restart lectern. README "Reaching it from other computers" has examples.
 NEXT

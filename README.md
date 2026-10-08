@@ -13,14 +13,14 @@ Status: pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html). 
 The main way to run Lectern is straight on a machine's own OS, so the models get the GPU
 directly: a general-purpose or older Linux computer with 4 GB of VRAM and 16 GB of RAM is
 the target. Lectern installs for you, in your home folder, and runs as your own service
-(`systemctl --user`), listening on 127.0.0.1 only; nginx on the same machine is the way in
-from your network. There's no login yet, so keep it to your local network: anyone who has
-the access link can use it.
+(`systemctl --user`). It listens on `127.0.0.1:8765` only and knows nothing about what sits
+in front of it: reaching it from other computers is up to you (see
+[Reaching it from other computers](#reaching-it-from-other-computers)).
 
 **Needs:** Linux on x86_64 with systemd, the NVIDIA driver for an NVIDIA GPU (no CUDA
 toolkit: Lectern downloads a llama.cpp build that brings its own), Node.js to build from the
-repository (`sudo dnf install nodejs`), nginx, and internet for the first run. Python isn't
-needed: the installer brings its own.
+repository (`sudo dnf install nodejs`), and internet for the first run. Python isn't needed:
+the installer brings its own.
 
 1. **Clone Lectern and run one script, as yourself** (no sudo):
    ```sh
@@ -32,7 +32,8 @@ needed: the installer brings its own.
    `./packaging/make_package.sh` → `dist/lectern-<version>-linux.tar.gz`, copy that over,
    unpack it anywhere, and run its `./install.sh`.
 
-   Everything goes in `~/.lectern` (`LECTERN_DIR` moves it):
+   Everything goes in `~/.lectern`, wherever the copy you ran it from is (`LECTERN_DIR`
+   moves it):
 
    | | |
    |---|---|
@@ -45,21 +46,14 @@ needed: the installer brings its own.
    The service is `~/.config/systemd/user/lectern.service`. So that it starts at boot without
    you logging in, the installer turns on lingering, or prints the line if that needs admin
    rights (`sudo loginctl enable-linger $USER`). If the GPU has a render node and you aren't
-   in the `render` group, it prints `sudo usermod -aG render,video $USER` too.
-2. **Set the address you'll use** (the server's name or IP on your network), then restart:
-   ```sh
-   nano ~/.lectern/lectern.env      # LECTERN_PUBLIC_URL=http://lectern.lan
-   systemctl --user restart lectern
-   ```
-3. **Add the nginx site:** copy `packaging/linux/nginx-lectern.conf` to
-   `/etc/nginx/conf.d/lectern.conf`, set its `server_name` to the same address, then
-   `sudo nginx -t && sudo systemctl reload nginx`. On Fedora/RHEL (SELinux), let nginx reach
-   Lectern's port, and only that one: `sudo semanage port -a -t http_port_t -p tcp 8765`.
-4. **Open it:** this prints the link with the access token. Open it on any computer on your
-   network; the first run checks the hardware and downloads the chat model.
+   in the `render` group, it prints `sudo usermod -aG render,video $USER` too (Vulkan needs
+   it; CUDA doesn't).
+2. **Open it:** this prints the link with the access token. On the machine itself it works
+   as it is; from other computers, set up a way in first (below).
    ```sh
    ~/.lectern/bin/lectern-url
    ```
+   The first run checks the hardware and downloads the chat model.
 
 **Update:** `cd ~/.lectern/src && git pull && ./install.sh` (or run a newer package's
 `./install.sh`). Your data and settings are kept, and if the install fails, the running
@@ -67,16 +61,47 @@ version stays as it was. If the new version doesn't start, it says so, keeps the
 and prints how to go back to it.
 **Uninstall:** `./uninstall.sh` keeps `~/.lectern/data` and `~/.lectern/lectern.env`; add
 `--purge` to remove them too. `~/.lectern/src` always stays.
-**Logs:** `journalctl --user -u lectern`. They show the access link at start.
+**Logs:** `journalctl --user -u lectern`. They show the access link at start, so keep the
+journal to people you'd give the link to.
 **It runs as you,** so it can read what you can. The scripts the chat writes are the part
 that's isolated: they run in Podman or Docker, with only their project folder mounted.
 Without either, that feature switches itself off; on Fedora, rootless Podman works for your
 user as it is (`sudo dnf install podman`).
 
+### Reaching it from other computers
+
+Lectern only ever listens on `127.0.0.1`. To use it from elsewhere, put something in front
+of it that forwards to `http://127.0.0.1:8765`, and tell Lectern the address people will use,
+because it refuses requests for any other host or origin:
+
+```sh
+nano ~/.lectern/lectern.env      # LECTERN_PUBLIC_URL=https://lectern.example.com
+systemctl --user restart lectern
+```
+
+`LECTERN_PUBLIC_URL` takes one or more `http(s)://host[:port]`, comma-separated, exactly as
+they appear in the browser's address bar. Whatever you put in front has to pass the `Host`
+header through unchanged and allow WebSockets and streamed responses (the chat and progress
+updates). How you set that up is yours; two ways that work:
+
+- **A Cloudflare Tunnel, with Cloudflare Access** (from anywhere, nothing opened on the
+  server). In the tunnel, point a public hostname at `http://127.0.0.1:8765` and leave
+  `httpHostHeader` unset. **Lectern has no login yet**: the access link is the only lock, so
+  put a Cloudflare Access application in front of that hostname (Zero Trust → Access →
+  Applications, a policy allowing only your email, with a one-time code). On the free plan
+  Cloudflare refuses uploads over 100 MB, and cuts a request after about 100 seconds without
+  a response.
+- **nginx on the same machine** (your local network). `packaging/linux/nginx-lectern.conf`
+  is an example: copy it to `/etc/nginx/conf.d/lectern.conf`, set its `server_name`, then
+  `sudo nginx -t && sudo systemctl reload nginx`. On Fedora/RHEL (SELinux), let nginx reach
+  Lectern's port, and only that one: `sudo semanage port -a -t http_port_t -p tcp 8765`.
+  Without a login, keep this to your local network.
+
 ### Or in Docker
 
 The same, in a container: it needs the NVIDIA Container Toolkit for the GPU, and runs on the
-host's network so that Lectern still listens on the host's 127.0.0.1 and nginx is the way in.
+host's network so that Lectern still listens on the host's 127.0.0.1 only; the way in is the
+same as above.
 ```sh
 ./packaging/build_wheel.sh
 docker build -f packaging/docker/Dockerfile -t lectern .

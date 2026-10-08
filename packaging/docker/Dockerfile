@@ -14,7 +14,7 @@ COPY dist/lectern_ai-*.whl /tmp/
 RUN uv pip install --system --no-cache /tmp/lectern_ai-*.whl && rm /tmp/lectern_ai-*.whl
 
 # Models, projects and the token live in the /data volume. Lectern listens on 127.0.0.1:
-# with the host's network (compose.yaml), that's the host's, and nginx there is the way in.
+# with the host's network (compose.yaml), that's the host's; what forwards to it is up to you.
 ENV LECTERN_HOME=/data \
     LECTERN_PORT=8765
 USER lectern
