@@ -189,3 +189,13 @@ def test_docx_markdown_writes_real_markdown_tables(tmp_path):
     got = docx_markdown(write_docx(tmp_path / "lease.docx"))
     assert "# Договір оренди" in got and "## Підписи" in got
     assert "| Сума | 250,00 грн |\n| --- | --- |\n| Пеня | 0,5% на день |" in got
+
+
+def test_export_gets_every_page_even_past_the_index_limit(tmp_path, monkeypatch):
+    from lectern.projects.text import pdf_pages
+
+    monkeypatch.setattr(text, "TEXT_LIMIT", 30)
+    pages = ["Payment is due by the tenth", "Penalty clause applies", "Signatures follow"]
+    pdf = write_pdf(tmp_path / "long.pdf", pages)
+    assert "only the first" in (extract(pdf).note or "")  # the index stops early, and says so
+    assert pdf_pages(pdf) == pages  # an export doesn't: it would lose pages silently

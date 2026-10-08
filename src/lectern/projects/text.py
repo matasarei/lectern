@@ -194,18 +194,19 @@ def _pdf(path: Path) -> Extracted:
 
 
 def pdf_pages(path: Path) -> list[str]:
-    """Every page's text, "" for a page without any, read the same way as at import (up to
-    TEXT_LIMIT characters). Raises ValueError when the PDF can't be opened."""
+    """Every page's text, "" for a page without any, read the same way as at import but all
+    of it: TEXT_LIMIT bounds what the chat reads, and an export cut short would lose pages
+    without saying so. Raises ValueError when the PDF can't be opened."""
     with PDFIUM_LOCK:
-        read = _read_pages(path)
+        read = _read_pages(path, limit=None)
     if read is None:
         raise ValueError(f"{path.name}: the PDF couldn't be opened")
     return read[0]
 
 
-def _read_pages(path: Path) -> tuple[list[str], int] | None:
-    """With PDFIUM_LOCK held. The pages' texts (stopping past TEXT_LIMIT) and the page count,
-    or None when the PDF can't be opened."""
+def _read_pages(path: Path, limit: int | None) -> tuple[list[str], int] | None:
+    """With PDFIUM_LOCK held. The pages' texts (stopping once past `limit` characters, if
+    given) and the page count, or None when the PDF can't be opened."""
     import pypdfium2 as pdfium
 
     try:
@@ -223,7 +224,7 @@ def _read_pages(path: Path) -> tuple[list[str], int] | None:
             page.close()
             pages.append(text)
             total += len(text)
-            if total > TEXT_LIMIT:
+            if limit is not None and total > limit:
                 break
         return pages, len(pdf)
     finally:
@@ -231,7 +232,7 @@ def _read_pages(path: Path) -> tuple[list[str], int] | None:
 
 
 def _pdf_text(path: Path) -> Extracted:
-    read = _read_pages(path)
+    read = _read_pages(path, limit=TEXT_LIMIT)
     if read is None:
         return Extracted(note="the PDF couldn't be opened")
     pages, count = read
