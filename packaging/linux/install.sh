@@ -164,6 +164,10 @@ LECTERN_PORT=8765
 # The address(es) people use to reach Lectern, through whatever you put in front of it,
 # e.g. https://lectern.example.com (comma-separate several).
 LECTERN_PUBLIC_URL=
+# To reach Lectern on your network without a proxy, uncomment this and set LECTERN_PUBLIC_URL
+# to the address people type, e.g. http://192.168.1.2:8765. There's no login yet and it's
+# plain http: see README "Reaching it from other computers".
+# LECTERN_HOST=0.0.0.0
 ENV
 fi
 sed "s|@LECTERN_DIR@|$dir|g" "$here/lectern.service" > "$units/lectern.service"
