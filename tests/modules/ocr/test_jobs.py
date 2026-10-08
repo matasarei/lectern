@@ -719,3 +719,36 @@ def test_a_page_waiting_for_the_chat_is_not_shown_as_being_read(store, tmp_path)
     assert seen["waiting"]["resume_in"] is None  # until the reply ends, not a countdown
     assert seen["pages"] == ["pending"] and seen["reading"] == []
     assert _status(store, project, sid).status == "done"
+
+
+def _plain(text: str) -> dict:
+    return {"blocks": [{"type": "paragraph", "text": text}], "doubts": [], "fixes": []}
+
+
+def test_a_session_is_clear_once_done_with_nothing_open_and_every_page_cleaned(store, tmp_path):
+    project, sid, *_, jobs = _run_job(store, tmp_path, FakeServer(clean=_plain))
+    summary = jobs.summary(project, sid)
+    assert (summary["clear"], summary["open_doubts"], summary["failed_pages"]) == (True, 0, [])
+
+
+def test_open_questions_or_a_page_that_wasnt_cleaned_leave_it_not_clear(store, tmp_path):
+    project, sid, *_, jobs = _run_job(store, tmp_path, FakeServer(clean=_with_a_doubt))
+    summary = jobs.summary(project, sid)
+    assert summary["status"] == "done" and summary["open_doubts"] == 2
+    assert summary["clear"] is False and summary["failed_pages"] == []
+
+    def clean(text: str) -> dict | str:
+        return "{not json" if "page 2" in text else _plain(text)
+
+    (tmp_path / "b").mkdir()
+    project, sid, *_, jobs = _run_job(store, tmp_path / "b", FakeServer(clean=clean))
+    summary = jobs.summary(project, sid)
+    assert (summary["status"], summary["clear"], summary["failed_pages"]) == ("done", False, [2])
+
+
+def test_a_session_still_at_work_isnt_clear(store, tmp_path):
+    runtime, _ = _runtime(FakeServer())
+    project, sid = _session(store, tmp_path, pages=1)
+    jobs = OcrJobs(runtime, store)
+    summary = jobs.summary(project, sid)  # never started
+    assert summary["status"] != "done" and summary["clear"] is False

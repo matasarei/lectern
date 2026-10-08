@@ -128,9 +128,16 @@ class OcrJobs:
 
     def summary(self, project: Project, session_id: int) -> dict:
         """What Overview shows of an OCR session: its pages, where its job stands, its output
-        folder, and its Document's version, open questions and image regions."""
+        folder, and its Document's version, open questions and image regions. `clear` is the
+        finished result: done, every page read and cleaned, no question open. An export queued
+        after OCR waits for it."""
         ocr = self.settle(project, session_id)
         open_doubts, figures = ocr_store.document_counts(project.root, ocr)
+        failed = [
+            p.number
+            for p in ocr_store.pages(self.projects.db(project), session_id)
+            if p.status == "failed" or p.clean_status == "failed"
+        ]
         return {
             "pages": ocr.pages_total,
             "status": ocr.status,
@@ -138,6 +145,8 @@ class OcrJobs:
             "document_version": ocr.document_version,
             "open_doubts": open_doubts,
             "figures": figures,
+            "failed_pages": failed,  # read or cleanup failed: their text isn't final
+            "clear": ocr.status == "done" and not open_doubts and not failed,
         }
 
     # --- starting, pausing, resuming -----------------------------------------------------

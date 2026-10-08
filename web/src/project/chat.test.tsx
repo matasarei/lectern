@@ -574,7 +574,7 @@ describe("Adding files already in the project", () => {
 describe("The OCR line under ocr.start", () => {
   const ocrSummary = (status: string) => ({
     id: 8, kind: "ocr", title: "scan.jpg", messages: 0, created_at: "", updated_at: "",
-    ocr: { pages: 2, status, folder: "scan", document_version: 0, open_doubts: 1, figures: 0 },
+    ocr: { pages: 2, status, folder: "scan", document_version: 0, open_doubts: 1, figures: 0, failed_pages: [], clear: false },
   });
   const started = () => {
     chat.messages = [

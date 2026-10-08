@@ -312,5 +312,7 @@ def test_overview_learns_an_ocr_sessions_folder_and_its_documents_counts(api):
     _, sid = _session_with_doubts(api)
     items = client.get(f"/api/projects/{project.id}/items", headers=headers).json()
     (scan,) = [s for s in items["sessions"] if s["id"] == sid]
+    # done, but 3 questions open: not clear
     assert scan["ocr"] == {"pages": 3, "status": "done", "folder": "lease-scan",
-                           "document_version": 1, "open_doubts": 3, "figures": 0}  # fmt: skip
+                           "document_version": 1, "open_doubts": 3, "figures": 0,
+                           "failed_pages": [], "clear": False}  # fmt: skip
