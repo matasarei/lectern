@@ -36,9 +36,7 @@ describe("ocrStepText", () => {
     expect(step({ phase: "recognise" }, loading("main"))).toBe("reading page 1 of 3");
   });
 
-  it("says done with pages and open questions, or why it stopped", () => {
-    expect(step({ status: "done", pagesTotal: 1 })).toBe("done · 1 page");
-    expect(step({ status: "done", openQuestions: 2 })).toBe("done · 3 pages · 2 open questions");
+  it("says why it stopped", () => {
     expect(step({ status: "paused" })).toBe("paused");
     expect(step({ status: "paused", reason: "the chat needed the memory" })).toBe(
       "paused · the chat needed the memory",
@@ -48,6 +46,5 @@ describe("ocrStepText", () => {
 
   it("leaves a wait for the chat to HoldNote", () => {
     expect(step({ phase: "recognise" }, undefined, true)).toBeNull();
-    expect(step({ status: "done" }, undefined, true)).toBe("done · 3 pages"); // finished wins
   });
 });

@@ -85,21 +85,15 @@ export function ocrLoadingText(
   return null;
 }
 
-/** The step an OCR session is at, in words: the model loading (the gaps between reading and
- * cleaning are swaps), the page it's on, done. Null while it waits for the chat: the caller
- * shows HoldNote there, with its countdown and Start now. */
+/** Where an OCR session at work is, in words: the model loading (the gaps between reading and
+ * cleaning are swaps), the page it's on, or why it stopped. A finished one is `ocrSteps`'
+ * (Your questions, or done). Null while it waits for the chat. */
 export function ocrStepText(
   s: OcrStepInput,
   waitingForChat: boolean,
   runtime: RuntimeState | undefined,
   t: TFunction,
 ): string | null {
-  if (s.status === "done") {
-    const pages = t("ocrStep.pages", { count: s.pagesTotal });
-    return s.openQuestions > 0
-      ? `${t("ocrStep.done")} · ${pages} · ${t("ocrStep.questions", { count: s.openQuestions })}`
-      : `${t("ocrStep.done")} · ${pages}`;
-  }
   if (s.status === "failed") return t("ocrStep.failed", { reason: s.reason ?? "" });
   if (s.status === "paused") {
     return s.reason ? t("ocrStep.pausedBecause", { reason: s.reason }) : t("ocrStep.paused");
