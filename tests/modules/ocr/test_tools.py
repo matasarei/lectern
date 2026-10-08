@@ -120,6 +120,15 @@ def test_keep_layout_reads_a_pdf_with_text_and_the_card_says_why(ctx):
     assert follow.arguments == {"name": "letter/", "format": "docx"}
 
 
+def test_starting_without_an_export_asks_for_a_notice_when_it_finishes(ctx):
+    _call(START, ctx, name="lease-scan.pdf")
+
+    (sid,) = ctx.ocr_jobs.started
+    (notice,) = followups.pending(ctx.sessions, 1)
+    assert (notice.ocr_session_id, notice.tool, notice.what) == (sid, "", "")
+    assert followups.is_notice(notice)
+
+
 def test_starting_opens_the_session_and_queues_the_export(ctx):
     result = _call(START, ctx, name="lease-scan.pdf", then_export="odt")
 
@@ -131,6 +140,7 @@ def test_starting_opens_the_session_and_queues_the_export(ctx):
     assert (follow.ocr_session_id, follow.tool) == (sid, "export.run")
     assert follow.arguments == {"name": "lease-scan/", "format": "odt"}
     assert follow.label == "after OCR · lease-scan.pdf: export to ODT"
+    assert follow.what == "export to ODT"  # and no notice beside it
     assert 'Its document will be "lease-scan/" when it finishes.' in result.text
     assert (
         "The export to ODT is queued: it runs by itself when the session finishes, so there's "

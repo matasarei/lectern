@@ -17,7 +17,7 @@ export function OcrLine({
 }: {
   projectId: number;
   sessionId: number;
-  then: string[]; // the follow-ups' labels waiting for it
+  then: string[]; // what waits for it, in words: "export to DOCX"
   onOpen: (tab: Tab) => void;
 }) {
   const items = useQuery({
@@ -117,9 +117,6 @@ function Line({
   const { t } = useTranslation();
   const runtime = useRuntime();
   const text = ocrStepText(step, waitingForChat, runtime.data, t);
-  // Its label reads "after OCR · <title>: export to DOCX"; the line already names the session
-  const prefix = `after OCR · ${summary.title}: `;
-  const next = then.map((label) => (label.startsWith(prefix) ? label.slice(prefix.length) : label));
   return (
     <div
       className="flex flex-wrap items-center gap-2 text-sm"
@@ -133,8 +130,8 @@ function Line({
         {t("chat.ocrLine", { title: summary.title })}
       </button>
       {text === null ? hold : <span>{text}</span>}
-      {step.status !== "done" && step.status !== "failed" && next.length > 0 && (
-        <span className="text-muted">{t("chat.ocrThen", { what: next.join(", ") })}</span>
+      {step.status !== "done" && step.status !== "failed" && then.length > 0 && (
+        <span className="text-muted">{t("chat.ocrThen", { what: then.join(", ") })}</span>
       )}
     </div>
   );

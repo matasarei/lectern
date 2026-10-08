@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
@@ -136,6 +138,7 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
                 ctx.sessions, ctx.session_id, ocr_session_id=chat.id, tool="export.run",
                 arguments={"name": f"{ocr.folder}/", "format": fmt},
                 label=f"after OCR · {_name(row)}: export to {fmt.upper()}",
+                what=f"export to {fmt.upper()}",
             )
         )  # fmt: skip
         # Said so a small model doesn't try to queue it again (seen: task.after, 7 times).
@@ -143,6 +146,16 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
             f" The export to {fmt.upper()} is queued: it runs by itself when the session "
             "finishes, so there's nothing more to do now."
         )
+    else:
+        # No export asked: the chat says when it's done, without a model turn. A task.after
+        # export queued later makes this notice redundant; it's dropped then.
+        with contextlib.suppress(followups.FollowUpError):  # 5 waiting: the line still shows
+            await run_in_threadpool(
+                lambda: followups.add(
+                    ctx.sessions, ctx.session_id, ocr_session_id=chat.id, tool="", arguments={},
+                    label=f"after OCR · {_name(row)}: say it's done",
+                )
+            )  # fmt: skip
     tab = {"kind": "session", "id": chat.id}
     return ToolResult(
         text,

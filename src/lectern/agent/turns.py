@@ -195,7 +195,7 @@ class TurnManager:
             return
         sessions = await run_in_threadpool(self.projects.db, project)
         waiting = await run_in_threadpool(followups.waiting_on, sessions, ocr_session_id)
-        for chat_id, follow in waiting:
+        for chat_id, follow in await self._without_redundant_notices(sessions, waiting):
             self._schedule(project, sessions, chat_id, follow, status, notice)
 
     async def resume_follow_ups(self, project: Project, chat_id: int) -> None:
@@ -205,8 +205,19 @@ class TurnManager:
         its turns."""
         sessions = await run_in_threadpool(self.projects.db, project)
         stale = await run_in_threadpool(followups.stale, sessions, chat_id)
+        keep = await self._without_redundant_notices(sessions, [(chat_id, f) for f, _, _ in stale])
         for follow, status, notice in stale:
-            self._schedule(project, sessions, chat_id, follow, status, notice)
+            if (chat_id, follow) in keep:
+                self._schedule(project, sessions, chat_id, follow, status, notice)
+
+    @staticmethod
+    async def _without_redundant_notices(sessions: object, waiting: list) -> list:  # noqa: ANN001
+        """`waiting` minus the notices another follow-up for the same session makes redundant
+        (the model reports on that one); those are taken out of the chat for good."""
+        redundant = followups.redundant_notices(waiting)
+        for chat_id, notice in redundant:
+            await run_in_threadpool(followups.take, sessions, chat_id, notice.id)
+        return [w for w in waiting if w not in redundant]
 
     def _schedule(self, project: Project, sessions: object, chat_id: int,
                   follow: followups.FollowUp, status: str, notice: str) -> None:  # fmt: skip
@@ -260,6 +271,12 @@ class TurnManager:
 
             async def follow_up_turn() -> str:
                 run.registry = await run_in_threadpool(self._registry)
+                if followups.is_notice(taken):  # a plain message, no tool and no model
+                    await _post_notice(run, taken, notice)
+                    channel.publish({"type": "turn", "status": "done"})
+                    channel.settle()
+                    await self.resume_follow_ups(project, chat_id)
+                    return "done"
                 try:
                     if status == "done":
                         await _run_follow_up(run, taken, notice)
@@ -351,6 +368,17 @@ def _live_attachments(sessions, user: User, ids: list[int]) -> list[int]:  # noq
             and row.trashed_at is None
             and row.owner_id == user.id
         ]
+
+
+async def _post_notice(run: TurnRun, follow: followups.FollowUp, notice: str) -> None:
+    """The chat's message that its OCR session ended ("OCR · scan.pdf finished · 3 pages · 1
+    open question", or why it stopped), pointing at the session and its document."""
+    refs = await run_in_threadpool(followups.notice_refs, run.sessions, follow.ocr_session_id)
+    message_id = await run_in_threadpool(
+        lambda: store_message(run, role="assistant", content=notice,
+                              refs=json.dumps(refs) if refs else None)
+    )  # fmt: skip
+    run.emit({"type": "assistant", "message_id": message_id, "tool_calls": []})
 
 
 async def _run_follow_up(run: TurnRun, follow: followups.FollowUp, notice: str) -> None:

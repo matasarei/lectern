@@ -189,7 +189,7 @@ async def build_context(run: TurnRun, history: History, ctx: int, counter: Count
             counter=counter,
             pins=[(p.kind, p.text) for p in history.state.pinned],
             summary=history.state.summary,
-            followups=[f.label for f in history.state.followups],
+            followups=[f.label for f in history.state.followups if f.tool],  # not notices
         )
     except ContextTooSmall as exc:
         raise TurnFailed(str(exc)) from None

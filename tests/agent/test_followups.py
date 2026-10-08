@@ -173,6 +173,113 @@ def test_when_its_session_fails_the_follow_up_is_dropped_and_reported(follow):
     assert followups.pending(db, 1) == []
 
 
+def _notice(db, ocr_id: int, chat: int = 1):  # noqa: ANN001, ANN202
+    return followups.add(db, chat, ocr_session_id=ocr_id, tool="", arguments={},
+                         label="after OCR · lease-scan.pdf: say it's done")  # fmt: skip
+
+
+def _refs(db, chat: int = 1) -> list:  # noqa: ANN001
+    with db() as session:
+        rows = session.scalars(select(MessageRow).where(MessageRow.session_id == chat)
+                               .order_by(MessageRow.id)).all()  # fmt: skip
+    return [json.loads(r.refs) if r.refs else [] for r in rows]
+
+
+def test_a_notice_posts_a_plain_message_with_the_document_and_runs_no_model(follow):
+    manager, project, db, ocr_id, handle = follow([])
+    with db.begin() as session:
+        doc = ArtifactRow(owner_id=LOCAL_USER.id, path="lease-scan/document.md",
+                          kind="generated", mime="text/markdown", size=1, sha256="1" * 64,
+                          from_kind="session")  # fmt: skip
+        session.add(doc)
+        session.flush()
+        session.get(OcrSessionRow, ocr_id).document_artifact_id = doc.id
+        doc_id = doc.id
+    _notice(db, ocr_id)
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert _transcript(db) == [("assistant", DONE, None)]
+    assert _refs(db) == [[
+        {"kind": "session", "id": ocr_id, "name": "lease-scan.pdf", "ref": None},
+        {"kind": "artifact", "id": doc_id, "name": "lease-scan/document.md", "ref": None},
+    ]]  # fmt: skip
+    assert handle.requests == []  # no model turn, so no swap back to the chat's model
+    assert followups.pending(db, 1) == []
+
+
+def test_a_notice_for_a_failed_session_says_why_it_stopped(follow):
+    manager, project, db, ocr_id, handle = follow([])
+    _notice(db, ocr_id)
+    stopped = "OCR · lease-scan.pdf stopped: no model."
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "failed", stopped)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert _transcript(db) == [("assistant", stopped, None)]
+    assert handle.requests == []
+
+
+def test_a_notice_is_dropped_when_an_export_for_the_same_session_reports_instead(follow):
+    manager, project, db, ocr_id, _ = follow([text_reply("Done: Lease 1998.odt is saved.")])
+    _notice(db, ocr_id)
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={"format": "odt"},
+                  label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert [m[2] for m in _transcript(db)] == ["export_run", "export.run", None]  # one report
+    assert followups.pending(db, 1) == []
+
+
+def test_a_notice_whose_session_finished_unseen_posts_when_the_chat_is_next_opened(follow):
+    manager, project, db, ocr_id, handle = follow([])
+    _notice(db, ocr_id)
+    with db.begin() as session:
+        session.get(OcrSessionRow, ocr_id).status = "done"
+
+    async def go():  # noqa: ANN202
+        await manager.resume_follow_ups(project, 1)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert _transcript(db) == [("assistant", "OCR · lease-scan.pdf finished.", None)]
+    assert handle.requests == []
+
+
+def test_the_model_sees_waiting_exports_but_not_notices(follow):
+    manager, project, _, ocr_id, handle = follow([text_reply("ok")])
+    db = manager.projects.db(project)
+    _notice(db, ocr_id)
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={"format": "odt"},
+                  label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+
+    async def go():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "Anything new?", [])
+        await manager.wait((project.id, 1))
+
+    asyncio.run(go())
+    prompt = json.dumps(handle.requests[0]["messages"], ensure_ascii=False)
+    assert "export to ODT" in prompt
+    assert "say it's done" not in prompt
+
+
+def test_only_notices_beside_a_working_follow_up_for_the_same_session_are_redundant():
+    notice = followups.FollowUp("n", 7, "", {}, "say it's done")
+    export = followups.FollowUp("e", 7, "export.run", {}, "export")
+    other = followups.FollowUp("o", 8, "", {}, "say it's done")
+    waiting = [(1, notice), (1, export), (1, other), (2, notice)]
+    assert followups.redundant_notices(waiting) == [(1, notice)]
+
+
 def test_a_paused_session_keeps_its_follow_up_waiting(follow):
     manager, project, db, ocr_id, _ = follow([])
     followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={}, label="x")

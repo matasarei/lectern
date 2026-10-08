@@ -435,7 +435,10 @@ describe("Pinned items, the summary and the context", () => {
   });
 
   it("shows the follow-ups waiting for an OCR session, and says when one runs", async () => {
-    chat.followups = [{ id: "f1", label: "after OCR · lease-scan.pdf: export to ODT", ocr_session_id: 2 }];
+    chat.followups = [
+      { id: "f1", label: "after OCR · lease-scan.pdf: export to ODT", ocr_session_id: 2, tool: "export.run", what: "export to ODT" },
+      { id: "f2", label: "after OCR · lease-scan.pdf: say it's done", ocr_session_id: 2, tool: "", what: "" },
+    ];
     renderChat();
     const strip = await screen.findByTestId("followups");
     expect(strip.textContent).toBe("Waitingafter OCR · lease-scan.pdf: export to ODT");
@@ -582,7 +585,10 @@ describe("The OCR line under ocr.start", () => {
         refs: [{ kind: "session", id: 8, name: "scan.jpg", ref: null }],
       }),
     ];
-    chat.followups = [{ id: "f1", label: "after OCR · scan.jpg: export to DOCX", ocr_session_id: 8 }];
+    chat.followups = [
+      { id: "f1", label: "after OCR · scan.jpg: export to DOCX", ocr_session_id: 8, tool: "export.run", what: "export to DOCX" },
+      { id: "f2", label: "after OCR · scan.jpg: say it's done", ocr_session_id: 8, tool: "", what: "" },
+    ];
   };
   const page = (number: number, status: string, clean_status = "pending") => ({
     number, key: `p00${number}`, status, clean_status, model_id: null, lease_key: null,
@@ -602,6 +608,7 @@ describe("The OCR line under ocr.start", () => {
     await waitFor(() => expect(line.textContent).toContain("waiting to start"));
     expect(line.getAttribute("role")).toBe("status"); // announced as it moves on
     expect(line.textContent).toContain("then: export to DOCX");
+    expect(line.textContent).not.toContain("say it's done"); // a notice isn't a step
 
     await act(async () => {
       pushOcr({ seq: 1, type: "waiting", reason: "chat", resume_in: null });
