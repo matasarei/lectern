@@ -21,27 +21,63 @@ from lectern.config import DEFAULT_PORT
 app = typer.Typer(help="Lectern: a local, modular AI workbench.", no_args_is_help=True)
 
 
+# Where `serve` may listen. 0.0.0.0 still answers on 127.0.0.1, which the installer's health
+# check, the browser opener and ocr-check's running-server check connect to; a single other
+# address wouldn't, so it's not offered (a firewall keeps Lectern to one network).
+LOCAL_HOST = "127.0.0.1"
+EVERY_ADDRESS = "0.0.0.0"  # noqa: S104
+
+
 @app.command()
 def serve(
-    port: int = typer.Option(DEFAULT_PORT, help="Port on 127.0.0.1."),
+    port: int = typer.Option(DEFAULT_PORT, help="Port to listen on."),
+    host: str = typer.Option(
+        LOCAL_HOST,
+        "--host",
+        envvar="LECTERN_HOST",
+        help="127.0.0.1 (this machine only), or 0.0.0.0 to be reached on your network without "
+        "a proxy; that needs --public-url / LECTERN_PUBLIC_URL, and there's no login yet.",
+    ),
     browser: bool = typer.Option(True, help="Open the browser once the server starts."),
     public_url: Annotated[
         list[str] | None,
         typer.Option(
             "--public-url",
-            help="The address a reverse proxy on this machine serves Lectern at, e.g. "
-            "http://lectern.lan (repeatable; default: LECTERN_PUBLIC_URL).",
+            help="The address people reach Lectern at: through a proxy or tunnel, or this "
+            "machine's own with --host 0.0.0.0, e.g. http://lectern.lan (repeatable; default: "
+            "LECTERN_PUBLIC_URL).",
         ),
     ] = None,
 ) -> None:
-    """Start the Lectern server on 127.0.0.1 (never on any other address)."""
+    """Start the Lectern server: on 127.0.0.1, unless LECTERN_HOST / --host says 0.0.0.0."""
     from lectern.app import create_app
 
+    if host not in (LOCAL_HOST, EVERY_ADDRESS):
+        typer.echo(
+            f"LECTERN_HOST must be {LOCAL_HOST} (this machine only) or {EVERY_ADDRESS} "
+            f"(every network address), not {host!r}.",
+            err=True,
+        )
+        raise typer.Exit(2)
     try:
         lectern_app = create_app(port=port, public_urls=public_url or None)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from None
+    if host == EVERY_ADDRESS:
+        if not lectern_app.state.public_urls:
+            # Without it the guard answers 421 to everything that comes from the network.
+            typer.echo(
+                f"LECTERN_HOST={EVERY_ADDRESS} needs LECTERN_PUBLIC_URL (or --public-url): the "
+                f"address people will type, e.g. http://192.168.1.2:{port}.",
+                err=True,
+            )
+            raise typer.Exit(2)
+        typer.echo(
+            "Listening on every network address, with no login: anyone on this network who "
+            "has the link can use Lectern, and on plain http the token can be read off the "
+            "network."
+        )
     token = lectern_app.state.token
     url = f"http://127.0.0.1:{port}/#token={token}"
     typer.echo(f"Lectern is running at {url}")
@@ -49,7 +85,7 @@ def serve(
         typer.echo(f"and at {origin}/#token={token}")
     if browser:
         open_when_listening(url, port)
-    LecternServer(server_config(lectern_app, port)).run()
+    LecternServer(server_config(lectern_app, port, host)).run()
 
 
 @app.command()
@@ -99,10 +135,10 @@ class LecternServer(uvicorn.Server):
         super().handle_exit(sig, frame)
 
 
-def server_config(lectern_app, port: int) -> uvicorn.Config:  # noqa: ANN001
+def server_config(lectern_app, port: int, host: str = LOCAL_HOST) -> uvicorn.Config:  # noqa: ANN001
     return uvicorn.Config(
         lectern_app,
-        host="127.0.0.1",
+        host=host,
         port=port,
         timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
     )
