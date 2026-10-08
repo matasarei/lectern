@@ -28,6 +28,7 @@ from lectern.documents.export import (
 )
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow
+from lectern.projects.text import PDF_PAGE_MIN_CHARS
 
 
 class FormatsParams(BaseModel):
@@ -119,13 +120,17 @@ def _from_text_layer(source: ArtifactRow, doc: Document) -> str:
         "the layout matters (a statement, a form, tables), offer ocr_start with "
         "keep_layout=true, which reads it again with OCR."
     )
-    empty = [p.n for p in doc.pages if not p.blocks]
+    # The same rule as "has text" at import: a scan may still carry a page number or a header.
+    chars = {p.n: 0 for p in doc.pages}
+    for block in doc.blocks:
+        chars[block.page] = chars.get(block.page, 0) + len(block.text)
+    empty = [n for n, count in chars.items() if count < PDF_PAGE_MIN_CHARS]
     if empty:
         listed = ", ".join(str(n) for n in empty)
         text += (
-            f" Page {listed} has no text (a scan): only OCR reads it."
+            f" Page {listed} has little or no text (maybe a scan): only OCR reads that."
             if len(empty) == 1
-            else f" Pages {listed} have no text (scans): only OCR reads them."
+            else f" Pages {listed} have little or no text (maybe scans): only OCR reads those."
         )
     return text
 
