@@ -111,8 +111,17 @@ const components: Components = {
       <table className="border-collapse text-left">{children}</table>
     </div>
   ),
-  th: ({ children }) => <th className="border border-line bg-paper px-2 py-1 font-semibold">{children}</th>,
-  td: ({ children }) => <td className="border border-line px-2 py-1">{children}</td>,
+  // style carries the column's alignment from the table's |:--|--:| row
+  th: ({ children, style }) => (
+    <th style={style} className="border border-line bg-paper px-2 py-1 font-semibold">
+      {children}
+    </th>
+  ),
+  td: ({ children, style }) => (
+    <td style={style} className="border border-line px-2 py-1">
+      {children}
+    </td>
+  ),
   hr: () => <hr className="my-3 border-line" />,
 };
 

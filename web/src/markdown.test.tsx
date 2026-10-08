@@ -72,6 +72,13 @@ describe("Markdown renders what models write", () => {
     expect(screen.getAllByRole("cell").map((c) => c.textContent)).toEqual(["1", "2"]);
   });
 
+  it("keeps a table's column alignment", () => {
+    render(<Markdown text={"| name | sum |\n|:--|--:|\n| rent | 120 |"} />);
+    const [name, sum] = screen.getAllByRole("cell");
+    expect(name.style.textAlign).toBe("left");
+    expect(sum.style.textAlign).toBe("right");
+  });
+
   it("a fenced block shows its language and copies its code", async () => {
     const writeText = vi.fn(async () => undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
