@@ -338,6 +338,12 @@ function Transcript({
   const viewStarts = summarised + leftOut;
   const groups = groupReplies(messages, [summarised, viewStarts]);
   const last = groups.at(-1);
+  // The live reply joins the last card only when that card answers this turn's message: until
+  // the transcript is read again, the last card is still the previous turn's. A follow-up's
+  // turn has no message of its own and continues the last reply.
+  const liveJoins =
+    last?.kind === "reply" &&
+    (live.messageId === null || groups.at(-2)?.messages[0].id === live.messageId);
   return (
     <>
       {groups.map((group) => (
@@ -355,7 +361,7 @@ function Transcript({
           {group.kind === "user" ? (
             <UserMessage message={group.messages[0]} />
           ) : (
-            (shows(group) || (group === last && liveReply)) && (
+            (shows(group) || (group === last && liveJoins && liveReply)) && (
               <Reply>
                 {group.messages
                   .filter((message) => message.role === "assistant") // results show under their call
@@ -373,13 +379,13 @@ function Transcript({
                       {message.content && <Markdown text={message.content} />}
                     </Fragment>
                   ))}
-                {group === last && liveReply}
+                {group === last && liveJoins && liveReply}
               </Reply>
             )
           )}
         </div>
       ))}
-      {last?.kind !== "reply" && liveReply && <Reply>{liveReply}</Reply>}
+      {!liveJoins && liveReply && <Reply>{liveReply}</Reply>}
       {live.context && live.context.released > 0 && (
         <p className="text-xs text-muted" role="note">
           {t("chat.released", { count: live.context.released })}

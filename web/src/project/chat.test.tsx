@@ -153,6 +153,31 @@ describe("Chat", () => {
     expect(within(replies[1]).getByTestId("streaming").textContent).toBe("Ten years.");
   });
 
+  it("doesn't stream into the previous reply's card before the new message is in the transcript", async () => {
+    renderChat(); // ends with a reply; message 5 isn't loaded yet
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "And the term?", attachments: [] },
+      { type: "delta", text: "Ten years." },
+    );
+    const replies = screen.getAllByTestId("reply");
+    expect(replies).toHaveLength(2);
+    expect(within(replies[0]).queryByTestId("streaming")).toBeNull();
+    expect(within(replies[1]).getByTestId("streaming").textContent).toBe("Ten years.");
+  });
+
+  it("streams a follow-up's turn (no message of its own) into the last reply's card", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", followup: "Export DOCX" },
+      { type: "delta", text: "Exporting." },
+    );
+    const replies = screen.getAllByTestId("reply");
+    expect(replies).toHaveLength(1);
+    expect(within(replies[0]).getByTestId("streaming").textContent).toBe("Exporting.");
+  });
+
   it("says what the reply waits for: the engine downloading, then the model loading", async () => {
     runtimeState = {
       residents: [], hold: null,

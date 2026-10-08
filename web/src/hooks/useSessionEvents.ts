@@ -19,6 +19,7 @@ export interface LiveTurn {
   error: string | null;
   stopped: boolean;
   followup: string | null; // this turn is a follow-up's, started when an OCR session finished
+  messageId: number | null; // the person's message this turn answers; null for a follow-up's turn
   lastSeq: number;
 }
 
@@ -35,6 +36,7 @@ export const IDLE: LiveTurn = {
   error: null,
   stopped: false,
   followup: null,
+  messageId: null,
   lastSeq: 0,
 };
 
@@ -50,6 +52,7 @@ export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
             model: state.model,
             usage: state.usage,
             followup: "followup" in event ? event.followup : null,
+            messageId: "message_id" in event ? event.message_id : null,
             lastSeq: event.seq,
           }
         : { ...next, running: false, text: "" };

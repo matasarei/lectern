@@ -116,21 +116,24 @@ export function ProjectPage() {
           {t("project.settings")}
         </Link>
       </header>
-      <nav role="tablist" className="flex gap-1 overflow-x-auto border-b border-line bg-paper px-2">
-        <TabButton active={tabs.active === null} onClick={() => update(showOverview(tabs))}>
-          {t("project.overview")}
-        </TabButton>
-        {tabs.open.map((tab) => (
-          <TabButton
-            key={`${tab.kind}-${tab.id}`}
-            active={sameTab(tabs.active, tab)}
-            onClick={() => update(openTab(tabs, tab))}
-            onClose={() => update(closeTab(tabs, tab))}
-            closeLabel={t("project.close", { title: titleOf(tab) })}
-          >
-            {titleOf(tab)}
+      <nav className="flex gap-1 overflow-x-auto border-b border-line bg-paper px-2">
+        {/* Only tabs in the tablist; the "+" sits beside it */}
+        <div role="tablist" className="flex gap-1">
+          <TabButton active={tabs.active === null} onClick={() => update(showOverview(tabs))}>
+            {t("project.overview")}
           </TabButton>
-        ))}
+          {tabs.open.map((tab) => (
+            <TabButton
+              key={`${tab.kind}-${tab.id}`}
+              active={sameTab(tabs.active, tab)}
+              onClick={() => update(openTab(tabs, tab))}
+              onClose={() => update(closeTab(tabs, tab))}
+              closeLabel={t("project.close", { title: titleOf(tab) })}
+            >
+              {titleOf(tab)}
+            </TabButton>
+          ))}
+        </div>
         <button
           aria-label={t("project.newChat")}
           title={t("project.newChat")}
@@ -203,11 +206,34 @@ function TabButton({
         active ? "border-accent font-semibold text-ink" : "border-transparent text-muted"
       }`}
     >
-      <button role="tab" aria-selected={active} className="truncate" onClick={onClick}>
+      <button
+        role="tab"
+        aria-selected={active}
+        aria-keyshortcuts={onClose ? "Delete" : undefined}
+        className="truncate"
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (e.key !== "Delete" || !onClose) return;
+          // Keep the keyboard in the tab bar: on the next tab, or the previous one if this was last
+          const list = e.currentTarget.closest('[role="tablist"]');
+          const tabs = [...(list?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])];
+          const here = tabs.indexOf(e.currentTarget);
+          onClose();
+          (tabs[here + 1] ?? tabs[here - 1])?.focus();
+        }}
+      >
         {children}
       </button>
+      {/* For the mouse: a tablist holds only tabs, so the keyboard and screen readers close a
+          tab with Delete on it instead (the WAI-ARIA pattern for closable tabs) */}
       {onClose && (
-        <button aria-label={closeLabel} className="text-muted hover:text-ink" onClick={onClose}>
+        <button
+          aria-label={closeLabel}
+          aria-hidden
+          tabIndex={-1}
+          className="text-muted hover:text-ink"
+          onClick={onClose}
+        >
           ×
         </button>
       )}
