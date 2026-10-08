@@ -4,6 +4,7 @@ import stat
 import sys
 
 import pytest
+import uvicorn
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -228,3 +229,37 @@ def test_an_ipv6_public_url_keeps_its_brackets_as_browsers_send_them():
         ("[fd00::5]:8080", "http://[fd00::5]:8080"),
         ("[fd00::6]", "https://[fd00::6]"),
     ]
+
+
+def test_on_every_address_the_guard_still_decides_by_host_and_token(paths, free_port):
+    """`serve` with LECTERN_HOST=0.0.0.0: a real server, so the address it binds is real."""
+    import threading
+
+    import httpx2
+
+    from lectern.cli import EVERY_ADDRESS, server_config
+
+    lan = f"192.168.1.2:{free_port}"
+    app = create_app(paths, port=free_port, public_urls=[f"http://{lan}"])
+    server = uvicorn.Server(server_config(app, free_port, EVERY_ADDRESS))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            threading.Event().wait(0.02)
+        assert server.started
+        bound = {sock.getsockname()[0] for srv in server.servers for sock in srv.sockets}
+        assert bound == {EVERY_ADDRESS}
+        base = f"http://127.0.0.1:{free_port}"  # 0.0.0.0 includes the loopback
+        assert httpx2.get(f"{base}/health", headers={"Host": lan}).status_code == 200
+        assert httpx2.get(f"{base}/health").status_code == 200  # the local checks still work
+        foreign = httpx2.get(f"{base}/health", headers={"Host": "evil.example"})
+        assert foreign.status_code == 421
+        assert httpx2.get(f"{base}{API_GET}", headers={"Host": lan}).status_code == 401
+        token = {"X-Lectern-Token": app.state.token, "Host": lan}
+        assert httpx2.get(f"{base}{API_GET}", headers=token).status_code == 200
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
