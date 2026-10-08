@@ -413,6 +413,18 @@
     "anyway": "Export anyway",
     "cancel": "Cancel"
   },
+  "ocrSteps": {
+    "read": "Reading",
+    "clean": "Cleaning",
+    "questions": "Your questions",
+    "done": "Done",
+    "afterReply": "starts after this reply",
+    "open_one": "{{count}} open question",
+    "open_other": "{{count}} open questions",
+    "notCleaned_one": "page {{pages}} couldn't be cleaned",
+    "notCleaned_other": "pages {{pages}} couldn't be cleaned",
+    "exporting": "running now"
+  },
   "ocrStep": {
     "queued": "waiting to start",
     "rasterise": "preparing the pages",
