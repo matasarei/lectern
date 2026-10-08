@@ -14,9 +14,11 @@ exporter's output (blueprint, "Export modules"). It declares what it can represe
 from __future__ import annotations
 
 import re
+import zipfile
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
+from docx.opc.exceptions import OpcError
 from pydantic import BaseModel
 
 from lectern.documents.document import DOUBT_MARK, Block, Document, Doubt
@@ -181,7 +183,11 @@ def load_for_export(root: Path, path: str) -> Document:
             )
         return parse_pages(name.stem, pages, source=name.name)
     if suffix == ".docx" and target.is_file():
-        return parse_markdown(name.stem, docx_markdown(target), source=name.name)
+        try:
+            markdown = docx_markdown(target)
+        except (OpcError, zipfile.BadZipFile, KeyError) as exc:  # not a Word file inside
+            raise ValueError(f"{path} isn't a readable DOCX ({exc}).") from None
+        return parse_markdown(name.stem, markdown, source=name.name)
     raise ValueError(
         f"{path} isn't a Document, a PDF with text, a DOCX or a text file: export an OCR "
         "session's document (its folder), a PDF with a text layer, a DOCX, or a Markdown or "

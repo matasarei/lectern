@@ -110,3 +110,9 @@ def test_a_docx_loads_with_its_headings_and_tables(tmp_path):
     assert doc.title == "lease" and doc.source.artifact == "lease.docx"
     assert [b.type for b in doc.blocks] == ["heading", "paragraph", "table", "heading", "paragraph"]
     assert doc.blocks[2].rows == [["Сума", "250,00 грн"], ["Пеня", "0,5% на день"]]
+
+
+def test_a_file_called_docx_that_isnt_one_says_so(tmp_path):
+    (tmp_path / "fake.docx").write_bytes(b"not a zip")
+    with pytest.raises(ValueError, match="fake.docx isn't a readable DOCX"):
+        load_for_export(tmp_path, "fake.docx")
