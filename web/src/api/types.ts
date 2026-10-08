@@ -79,7 +79,17 @@ export interface FirstRun {
     licence: string;
     download: DownloadState;
   };
+  /** The llama.cpp build for this machine; null where there's none to download. */
+  engine: EngineState | null;
   can_finish: boolean;
+}
+
+export interface EngineState {
+  variant: string;
+  status: "none" | "downloading" | "done" | "failed";
+  bytes_done: number;
+  bytes_total: number;
+  error: string | null;
 }
 
 export interface Resident {
