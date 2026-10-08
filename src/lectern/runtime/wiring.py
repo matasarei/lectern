@@ -121,14 +121,17 @@ def build_runtime(
             variant = select_variant(hw)
         except UnsupportedPlatform as exc:
             raise NotAvailable(str(exc)) from exc
-        return InstallingLlamaCppRunner(installer, variant, paths.home / "run")
+        return InstallingLlamaCppRunner(
+            installer, variant, paths.home / "run",
+            on_progress=lambda *progress: runtime.engine_progress(*progress),
+        )  # fmt: skip
 
     # The only setting so far (Models & memory): a job pauses after its current item for a
     # chat, and resumes when the chat has been idle for CHAT_IDLE_RESUME seconds.
     chat_during_job = settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
         "chat_during_job"
     ]
-    return ModelRuntime(
+    runtime = ModelRuntime(
         budget=budget,
         unified=unified,
         tier=tier,
@@ -138,3 +141,4 @@ def build_runtime(
         if chat_during_job == "pause_job_after_current_item"
         else 0,
     )
+    return runtime  # runner_for reports the engine's download to it

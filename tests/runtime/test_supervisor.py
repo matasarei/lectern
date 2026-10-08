@@ -390,3 +390,56 @@ def test_a_chat_waiting_for_the_gpu_counts_as_active():
             pass
 
     assert asyncio.run(go()) == 0.0
+
+
+class GatedRunner(FakeRunner):
+    """Its starts wait for `gate`, so a load can be seen while it's happening."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gate = asyncio.Event()
+
+    async def start(self, spec: RunnerSpec) -> FakeHandle:
+        await self.gate.wait()
+        return await super().start(spec)
+
+
+def test_the_runtime_says_which_model_it_is_loading():
+    runner = GatedRunner()
+    runtime, _ = _runtime(8, {"main": 5}, runner)
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            chat = asyncio.create_task(lease_once())
+            await _until(lambda: runtime.state()["activity"] is not None)
+            during = runtime.state()["activity"]
+            runner.gate.set()
+            await chat
+            events = [queue.get_nowait() for _ in range(queue.qsize())]
+            return during, runtime.state()["activity"], events
+
+    async def lease_once() -> None:
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+
+    during, after, events = asyncio.run(go())
+    assert during == {"kind": "loading", "role": "main", "model_id": "main-model"}
+    assert after is None
+    assert [e["event"] for e in events][:2] == ["loading", "loaded"]
+
+
+def test_the_engine_download_shows_as_activity_until_it_is_done():
+    runtime, _ = _runtime(8, {"main": 5})
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            runtime.engine_progress("cuda-12", 40, 400)
+            during = runtime.state()["activity"]
+            runtime.engine_progress("cuda-12", 400, 400)
+            events = [queue.get_nowait() for _ in range(queue.qsize())]
+            return during, runtime.state()["activity"], events
+
+    during, after, events = asyncio.run(go())
+    assert during == {"kind": "engine", "variant": "cuda-12", "done": 40, "total": 400}
+    assert after is None
+    assert [(e["event"], e.get("done")) for e in events] == [("engine", 40), ("engine", 400)]

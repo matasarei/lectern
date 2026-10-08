@@ -98,3 +98,26 @@ def test_a_chosen_model_must_be_downloaded(resolve, monkeypatch):
         NotAvailable, match="Chandra OCR 2 isn't downloaded yet. Download it in Models"
     ):
         resolve("ocr.hand@chandra-ocr-2")
+
+
+def test_the_engines_download_progress_reaches_the_runtime(paths, monkeypatch):
+    from lectern.runners.llamacpp import InstallingLlamaCppRunner
+
+    monkeypatch.delenv("LECTERN_BUDGET_MB", raising=False)
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    monkeypatch.setattr(DownloadManager, "is_downloaded", lambda self, entry: True)
+    monkeypatch.setattr(wiring, "_shape", lambda path: planner.ModelShape(8, 8, 1, 64, 64))
+    runtime = build_runtime(paths, DownloadManager(paths.models, sessions),
+                            _hw(int(7.4 * GIB)), sessions)  # fmt: skip
+
+    runner = runtime.runner_for(runtime.resolve("main"))
+    assert isinstance(runner, InstallingLlamaCppRunner)
+    runner.on_progress(runner.variant, 5, 50)
+    assert runtime.state()["activity"] == {
+        "kind": "engine",
+        "variant": runner.variant,
+        "done": 5,
+        "total": 50,
+    }

@@ -206,6 +206,12 @@ class LlamaCppInstaller:
         server = self.install_dir(variant) / json.loads(marker.read_text())["server"]
         return server if server.is_file() else None
 
+    def size(self, variant: str) -> int:
+        """Bytes to download for the variant (0 once it's installed)."""
+        if self.server_path(variant) is not None:
+            return 0
+        return sum(a.size for a in self.variants.get(variant, ()))
+
     async def install(self, variant: str, on_bytes: Callable[[int], None] = lambda n: None) -> Path:
         existing = self.server_path(variant)
         if existing is not None:

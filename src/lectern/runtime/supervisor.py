@@ -107,6 +107,10 @@ class ModelRuntime:
         self._cond = asyncio.Condition()
         self._chat_leases = 0
         self._chat_ended: float | None = None  # when the last chat lease ended
+        # What a wait is for, when it isn't a model in use: the engine downloading, or a model
+        # loading. Shown in the chat, the OCR tab and Models & memory.
+        self.activity: dict | None = None
+        self._loading: dict | None = None  # what activity goes back to after the engine
 
     # --- reporting ---------------------------------------------------------------------------
 
@@ -123,6 +127,7 @@ class ModelRuntime:
             "used": self.resident_bytes(),
             "swaps": self.swaps,
             "waiting": len(self._queue),
+            "activity": self.activity,
             "residents": [
                 {
                     "role": role,
@@ -168,6 +173,15 @@ class ModelRuntime:
         if self._chat_ended is None:
             return float("inf")
         return time.monotonic() - self._chat_ended
+
+    def engine_progress(self, variant: str, done: int, total: int) -> None:
+        """The llama.cpp build downloading (the runner's installer reports it, throttled)."""
+        finished = done >= total
+        # It downloads during a model's load (the first start), which the status goes back to.
+        self.activity = self._loading if finished else {
+            "kind": "engine", "variant": variant, "done": done, "total": total
+        }  # fmt: skip
+        self._emit("engine", variant=variant, done=done, total=total)
 
     def _emit(self, event: str, **data: object) -> None:
         self.events.publish({"type": "runtime", "event": event, "swaps": self.swaps, **data})
@@ -274,6 +288,14 @@ class ModelRuntime:
 
     async def _load(self, role: str, choice: ModelChoice, plan: planner.FitPlan) -> Resident:
         self._emit("loading", role=role, model_id=choice.model_id, bytes=plan.est_bytes)
+        self._loading = {"kind": "loading", "role": role, "model_id": choice.model_id}
+        self.activity = self._loading
+        try:
+            return await self._start(role, choice, plan)
+        finally:
+            self._loading = self.activity = None
+
+    async def _start(self, role: str, choice: ModelChoice, plan: planner.FitPlan) -> Resident:
         spec = RunnerSpec(
             model_id=choice.model_id,
             model_file=choice.model_file,
