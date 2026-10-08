@@ -370,6 +370,23 @@ describe("Adding files already in the project", () => {
     expect(posts).toEqual([]); // Enter picked; it didn't send
   });
 
+  it("with no matching file, Enter sends the message (\"@\" is just text then)", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+
+    fireEvent.change(box(), { target: { value: "ping @team", selectionStart: 10 } });
+    await screen.findByText("No file matches");
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        url: "/api/projects/1/sessions/1/messages",
+        body: { text: "ping @team", attachments: [] },
+      }),
+    );
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
   it("arrows move through the list and Escape closes it", async () => {
     renderChat();
     await screen.findByText("Yes: lease.md.");

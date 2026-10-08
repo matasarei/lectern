@@ -71,7 +71,11 @@ export function listKey(
   if (key === "ArrowDown") setActive(Math.min(active + 1, files.length - 1));
   else if (key === "ArrowUp") setActive(Math.max(active - 1, 0));
   else if (key === "Enter") {
-    if (files[active]) onPick(files[active]);
+    if (!files[active]) {
+      onClose(); // nothing to pick: the "@" was just text, and Enter does what it usually does
+      return false;
+    }
+    onPick(files[active]);
   } else if (key === "Escape") onClose();
   else return false;
   return true;
