@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
-# Remove Lectern from a host: the service and /opt/lectern. The models and projects
-# (/var/lib/lectern) and the settings (/etc/lectern) stay unless --purge is given.
+# Remove your Lectern: its service, ~/.lectern/app and ~/.lectern/bin. The data (models,
+# projects, the database) and the settings stay unless --purge is given. ~/.lectern/src, the
+# copy you may be running this from, always stays. Lingering is left as it is: other user
+# services may need it.
 #
-#   sudo ./uninstall.sh [--purge]
+#   ./uninstall.sh [--purge]
 set -euo pipefail
 
-root="${LECTERN_INSTALL_ROOT:-}"
 purge=false
 [ "${1:-}" = "--purge" ] && purge=true
-if [ -z "$root" ] && [ "$(id -u)" -ne 0 ]; then
-    echo "uninstall.sh: run it with sudo." >&2
+if [ "$(id -u)" -eq 0 ]; then
+    echo "uninstall.sh: run it as yourself, not with sudo: Lectern is installed per user." >&2
     exit 1
 fi
 
-if systemctl list-unit-files lectern.service >/dev/null 2>&1; then
-    systemctl disable --now lectern || true
+dir="${LECTERN_DIR:-$HOME/.lectern}"
+unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lectern.service"
+
+if [ -f "$unit" ]; then
+    systemctl --user disable --now lectern || true
+    rm -f "$unit"
+    systemctl --user daemon-reload
 fi
-rm -f "$root/etc/systemd/system/lectern.service"
-systemctl daemon-reload
-rm -rf "$root/opt/lectern"
+rm -rf "${dir:?}/app" "${dir:?}/bin"
 if $purge; then
-    rm -rf "$root/var/lib/lectern" "$root/etc/lectern"
-    if getent passwd lectern >/dev/null; then userdel lectern; fi
-    echo "Lectern is removed, with its models, projects and settings."
+    rm -rf "${dir:?}/data" "${dir:?}/lectern.env"
+    echo "Lectern is removed, with its models, projects and settings. Kept: $dir/src, if any."
 else
-    echo "Lectern is removed. Kept: /var/lib/lectern (models, projects), /etc/lectern."
+    echo "Lectern is removed. Kept: $dir/data (models, projects), $dir/lectern.env."
 fi

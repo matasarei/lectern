@@ -1,28 +1,24 @@
-# Lectern on a host, as its own user. Installed by packaging/linux/install.sh; settings in
-# /etc/lectern/lectern.env. It listens on 127.0.0.1 only: nginx on this machine is the way in.
+# Lectern as your own service (systemctl --user). Installed by packaging/linux/install.sh,
+# which puts the install folder (~/.lectern) in place of @LECTERN_DIR@. Settings in
+# @LECTERN_DIR@/lectern.env. It listens on 127.0.0.1 only: nginx on this machine is the way in.
+#
+# No ProtectSystem/ProtectHome/PrivateTmp/NoNewPrivileges here: in a user service they need
+# user namespaces, and NoNewPrivileges breaks rootless Podman (its setuid newuidmap), which
+# the chat's scripts run in. Those scripts are what's isolated: in a container, with only
+# their project folder mounted.
 [Unit]
 Description=Lectern, a local AI workbench
 After=network-online.target
-Wants=network-online.target
 
 [Service]
 Type=simple
-User=lectern
-Group=lectern
-EnvironmentFile=/etc/lectern/lectern.env
-ExecStart=/opt/lectern/venv/bin/lectern serve --no-browser --port ${LECTERN_PORT}
+EnvironmentFile=@LECTERN_DIR@/lectern.env
+ExecStart=@LECTERN_DIR@/app/venv/bin/lectern serve --no-browser --port ${LECTERN_PORT}
 # Lectern stops its model runners on SIGINT, as on Ctrl+C.
 KillSignal=SIGINT
 TimeoutStopSec=30
 Restart=on-failure
 RestartSec=5
 
-# Hardening that still lets the models reach the GPU (no PrivateDevices).
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/lib/lectern
-
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

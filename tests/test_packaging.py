@@ -30,18 +30,20 @@ def test_the_wheel_carries_the_web_ui_and_the_model_catalog(tmp_path):
     assert "lectern/catalog/models.yaml" in names
 
 
-# --- install.sh / uninstall.sh against a fake root and fake system commands ---------------
+# --- install.sh / uninstall.sh in a fake home, with fake system commands ------------------
 
 LINUX = ROOT / "packaging" / "linux"
 FAKES = {
     # Every call is logged as "<name> <args>"; a few answer like the real thing would.
-    "systemctl": 'echo "systemctl $*" >> "$LOG"; [ "$1" != is-active ] || [ -f "$STATE/active" ]',
-    "useradd": 'echo "useradd $*" >> "$LOG"; touch "$STATE/user"',
-    "userdel": 'echo "userdel $*" >> "$LOG"; rm -f "$STATE/user"',
-    "usermod": 'echo "usermod $*" >> "$LOG"',
-    "chown": 'echo "chown $*" >> "$LOG"',
-    "getent": 'case "$1 $2" in "passwd lectern") [ -f "$STATE/user" ];; "group video") true;; '
-    "*) false;; esac",
+    "systemctl": 'echo "systemctl $*" >> "$LOG"; case " $* " in '
+    '*" is-active "*) [ -f "$STATE/active" ];; *" show-environment "*) [ ! -f "$STATE/nobus" ];; '
+    "esac",
+    # loginctl: lingering is off until enabled; enabling can be refused (STATE/linger-denied).
+    "loginctl": 'echo "loginctl $*" >> "$LOG"; case "$1" in '
+    'show-user) cat "$STATE/linger" 2>/dev/null || echo no;; '
+    'enable-linger) [ ! -f "$STATE/linger-denied" ] && echo yes > "$STATE/linger";; esac',
+    # The tests run on macOS too: the installer is told it's on Linux x86_64.
+    "uname": 'case "$1" in -s) echo Linux;; -m) echo x86_64;; *) /usr/bin/uname "$@";; esac',
     # uv: `venv` makes the folder with a python and a lectern; `pip install` can be told to
     # fail (FAIL_PIP).
     "uv": 'echo "uv $*" >> "$LOG"; '
@@ -56,23 +58,30 @@ FAKES = {
 }
 
 
-def _install(tmp_path: Path, wheel: Path, *, fail_pip: bool = False, script: str = "install.sh",
-             args: tuple[str, ...] = ()) -> subprocess.CompletedProcess:  # fmt: skip
+def _env(tmp_path: Path, **extra: str) -> dict[str, str]:
     bin_dir, state = tmp_path / "fakebin", tmp_path / "state"
     bin_dir.mkdir(exist_ok=True)
     state.mkdir(exist_ok=True)
+    (tmp_path / "home").mkdir(exist_ok=True)
     for name, body in FAKES.items():
         (bin_dir / name).write_text(f"#!/usr/bin/env bash\n{body}\n")
         (bin_dir / name).chmod(0o755)
-    env = {
+    return {
         "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin",
-        "LECTERN_INSTALL_ROOT": str(tmp_path / "root"),
+        "HOME": str(tmp_path / "home"),  # ~/.lectern and ~/.config are the defaults
+        "USER": "someone",
         "LECTERN_UV_BIN": str(bin_dir / "uv"),
+        "LECTERN_DRI": str(tmp_path / "no-dri"),
+        "LECTERN_HEALTH_WAIT": "2",
         "LOG": str(tmp_path / "log"),
         "STATE": str(state),
-        "LECTERN_HEALTH_WAIT": "2",
-        **({"FAIL_PIP": "1"} if fail_pip else {}),
+        **extra,
     }
+
+
+def _install(tmp_path: Path, wheel: Path, *, fail_pip: bool = False, script: str = "install.sh",
+             args: tuple[str, ...] = (), **extra: str) -> subprocess.CompletedProcess:  # fmt: skip
+    env = _env(tmp_path, **({"FAIL_PIP": "1"} if fail_pip else {}), **extra)
     return subprocess.run(  # noqa: S603
         ["bash", str(LINUX / script), *([str(wheel)] if script == "install.sh" else []), *args],  # noqa: S607
         env=env, capture_output=True, text=True, timeout=60,
@@ -89,30 +98,92 @@ def _log(tmp_path: Path) -> list[str]:
     return (tmp_path / "log").read_text().splitlines()
 
 
-def test_a_first_install_makes_the_user_the_app_the_settings_and_the_service(tmp_path):
+def _home(tmp_path: Path) -> Path:
+    return tmp_path / "home/.lectern"
+
+
+def test_a_first_install_puts_everything_in_the_home_folder_and_starts_a_user_service(tmp_path):
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
     assert done.returncode == 0, done.stderr
-    root = tmp_path / "root"
-    venv = (root / "opt/lectern/venv").resolve()
-    assert venv.parent == (root / "opt/lectern/versions").resolve()
+    home = _home(tmp_path)
+    venv = (home / "app/venv").resolve()
+    assert venv.parent == (home / "app/versions").resolve()
     assert venv.name.startswith("0.1.0-") and (venv / "bin/lectern").exists()
-    env = (root / "etc/lectern/lectern.env").read_text()
-    assert "LECTERN_HOME=/var/lib/lectern" in env and "LECTERN_PUBLIC_URL=" in env
-    unit = (root / "etc/systemd/system/lectern.service").read_text()
-    assert "User=lectern" in unit and "KillSignal=SIGINT" in unit
-    assert (root / "opt/lectern/bin/lectern-url").stat().st_mode & 0o111
+    env = (home / "lectern.env").read_text()
+    assert f"LECTERN_HOME={home}/data" in env and "LECTERN_PUBLIC_URL=" in env
+    assert (home / "data").is_dir()
+    unit = (tmp_path / "home/.config/systemd/user/lectern.service").read_text()
+    assert f"ExecStart={home}/app/venv/bin/lectern serve" in unit
+    assert f"EnvironmentFile={home}/lectern.env" in unit
+    assert "WantedBy=default.target" in unit and "User=" not in unit and "@LECTERN_DIR@" not in unit
+    assert "KillSignal=SIGINT" in unit
+    assert (home / "bin/lectern-url").stat().st_mode & 0o111
+    assert f"{home}/lectern.env" in (home / "bin/lectern-url").read_text()
     log = _log(tmp_path)
-    assert any(c.startswith("useradd --system") for c in log)
-    assert "usermod -aG video lectern" in log  # its GPU; render doesn't exist here
+    systemctl = [c for c in log if c.startswith("systemctl ")]
+    assert systemctl and all(c.startswith("systemctl --user ") for c in systemctl)
+    assert "systemctl --user enable --now lectern" in log
+    assert not any(c.split()[0] in ("sudo", "useradd", "usermod", "chown") for c in log)
     assert any(c.startswith("uv venv --quiet --python 3.12") for c in log)
-    assert "systemctl enable --now lectern" in log
     assert "Lectern 0.1.0 is installed and running." in done.stdout
+    # Nothing written outside the home folder (beyond the test's own fakes and wheels).
+    outside = {p.name for p in tmp_path.iterdir()} - {"home", "fakebin", "state", "log"}
+    assert all(name.endswith(".whl") for name in outside), outside
+
+
+def test_run_as_root_it_refuses(tmp_path):
+    env = _env(tmp_path)
+    (tmp_path / "fakebin/id").write_text(
+        '#!/usr/bin/env bash\nif [ "$1" = -u ]; then echo 0; else /usr/bin/id "$@"; fi\n'
+    )
+    (tmp_path / "fakebin/id").chmod(0o755)
+    done = subprocess.run(  # noqa: S603
+        ["bash", str(LINUX / "install.sh"), str(_wheel(tmp_path, "0.1.0"))],  # noqa: S607
+        env=env, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert done.returncode == 1 and "run it as yourself" in done.stderr
+    assert not _home(tmp_path).exists()
+
+
+def test_without_a_user_session_it_says_how_to_get_one(tmp_path):
+    _env(tmp_path)
+    (tmp_path / "state/nobus").touch()
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 1 and "systemctl --user" in done.stderr
+    assert "machinectl shell" in done.stderr
+
+
+def test_lingering_is_turned_on_so_it_starts_at_boot(tmp_path):
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 0, done.stderr
+    assert "loginctl enable-linger" in _log(tmp_path)
+    assert "sudo loginctl enable-linger" not in done.stdout
+
+    again = _install(tmp_path, _wheel(tmp_path, "0.1.0"))  # already on: left alone
+    assert _log(tmp_path).count("loginctl enable-linger") == 1, again.stdout
+
+
+def test_lingering_refused_prints_the_sudo_line(tmp_path):
+    _env(tmp_path)
+    (tmp_path / "state/linger-denied").touch()
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 0, done.stderr
+    assert "sudo loginctl enable-linger someone" in done.stdout
+
+
+def test_a_gpu_render_node_without_the_render_group_prints_the_usermod_line(tmp_path):
+    dri = tmp_path / "dri"
+    dri.mkdir()
+    (dri / "renderD128").touch()
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"), LECTERN_DRI=str(dri))
+    assert done.returncode == 0, done.stderr
+    assert "sudo usermod -aG render,video someone" in done.stdout
 
 
 def test_an_upgrade_keeps_the_settings_and_restarts_and_keeps_one_version_back(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.0.9")).returncode == 0
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
-    env_file = tmp_path / "root/etc/lectern/lectern.env"
+    env_file = _home(tmp_path) / "lectern.env"
     public = "LECTERN_PUBLIC_URL=http://lectern.lan"
     env_file.write_text(env_file.read_text().replace("LECTERN_PUBLIC_URL=", public))
     (tmp_path / "state/active").touch()
@@ -120,53 +191,49 @@ def test_an_upgrade_keeps_the_settings_and_restarts_and_keeps_one_version_back(t
     done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
     assert done.returncode == 0, done.stderr
     assert "LECTERN_PUBLIC_URL=http://lectern.lan" in env_file.read_text()  # kept
-    versions = sorted(p.name for p in (tmp_path / "root/opt/lectern/versions").iterdir())
+    versions = sorted(p.name for p in (_home(tmp_path) / "app/versions").iterdir())
     assert [v.split("-")[0] for v in versions] == ["0.1.0", "0.2.0"]  # 0.0.9 dropped
-    assert "systemctl restart lectern" in _log(tmp_path)
+    assert "systemctl --user restart lectern" in _log(tmp_path)
     assert any(c.endswith("/health") for c in _log(tmp_path) if c.startswith("curl"))
     assert any("--refresh-package lectern-ai" in c for c in _log(tmp_path) if "pip install" in c)
-    assert _log(tmp_path).count("useradd --system --home-dir /var/lib/lectern --no-create-home "
-                                "--shell /usr/sbin/nologin lectern") == 1  # fmt: skip
 
 
 def test_a_failed_upgrade_leaves_the_version_in_use_as_it_was(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
-    before = (tmp_path / "root/opt/lectern/venv").resolve()
+    before = (_home(tmp_path) / "app/venv").resolve()
 
     failed = _install(tmp_path, _wheel(tmp_path, "0.2.0"), fail_pip=True)
     assert failed.returncode == 1 and "the version in use is unchanged" in failed.stderr
-    assert (tmp_path / "root/opt/lectern/venv").resolve() == before and before.exists()
-    versions = list((tmp_path / "root/opt/lectern/versions").iterdir())
+    assert (_home(tmp_path) / "app/venv").resolve() == before and before.exists()
+    versions = list((_home(tmp_path) / "app/versions").iterdir())
     assert versions == [before]  # nothing half-made left behind
 
 
 def test_an_upgrade_that_doesnt_start_says_so_and_keeps_the_previous_version(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
-    before = (tmp_path / "root/opt/lectern/venv").resolve()
+    before = (_home(tmp_path) / "app/venv").resolve()
     (tmp_path / "state/active").touch()
     (tmp_path / "state/down").touch()
 
     done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
     assert done.returncode == 1
-    assert "Lectern 0.2.0 didn't start" in done.stderr and "journalctl -u lectern" in done.stderr
-    assert f"sudo ln -sfn {before}" in done.stderr  # the way back
+    assert "Lectern 0.2.0 didn't start" in done.stderr
+    assert "journalctl --user -u lectern" in done.stderr
+    assert f"ln -sfn {before}" in done.stderr and "systemctl --user restart lectern" in done.stderr
     assert before.exists() and "Upgraded" not in done.stdout
 
 
 def test_a_wrong_uv_checksum_is_refused(tmp_path):
     fake = tmp_path / "uv.tar.gz"
     fake.write_bytes(b"not uv")
-    bin_dir = tmp_path / "fakebin"
-    _install(tmp_path, _wheel(tmp_path, "0.1.0"))  # makes the fakes
-    env_vars = {"PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin",
-                "LECTERN_INSTALL_ROOT": str(tmp_path / "root2"), "LOG": str(tmp_path / "log"),
-                "STATE": str(tmp_path / "state"), "LECTERN_UV_URL": fake.as_uri()}  # fmt: skip
+    env = _env(tmp_path, LECTERN_UV_URL=fake.as_uri())
+    del env["LECTERN_UV_BIN"]
     done = subprocess.run(  # noqa: S603
         ["bash", str(LINUX / "install.sh"), str(_wheel(tmp_path, "0.1.0"))],  # noqa: S607
-        env=env_vars, capture_output=True, text=True, timeout=60,
+        env=env, capture_output=True, text=True, timeout=60,
     )  # fmt: skip
     assert done.returncode == 1 and "uv's checksum is wrong" in done.stderr
-    assert not (tmp_path / "root2/opt/lectern/bin/uv").exists()
+    assert not (_home(tmp_path) / "app/bin/uv").exists()
 
 
 def test_a_wheel_that_isnt_lecterns_is_refused(tmp_path):
@@ -178,19 +245,22 @@ def test_a_wheel_that_isnt_lecterns_is_refused(tmp_path):
 
 def test_uninstall_keeps_the_data_unless_purged(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
-    (tmp_path / "root/var/lib/lectern/models").mkdir(parents=True)
+    home = _home(tmp_path)
+    (home / "data/models").mkdir(parents=True)
+    (home / "src").mkdir()
+    unit = tmp_path / "home/.config/systemd/user/lectern.service"
 
     kept = _install(tmp_path, Path("-"), script="uninstall.sh")
     assert kept.returncode == 0, kept.stderr
-    assert not (tmp_path / "root/opt/lectern").exists()
-    assert (tmp_path / "root/var/lib/lectern/models").exists()
-    assert (tmp_path / "root/etc/lectern/lectern.env").exists()
-    assert "systemctl disable --now lectern" in _log(tmp_path)
+    assert not (home / "app").exists() and not (home / "bin").exists() and not unit.exists()
+    assert (home / "data/models").exists() and (home / "lectern.env").exists()
+    assert (home / "src").exists()
+    assert "systemctl --user disable --now lectern" in _log(tmp_path)
 
     purged = _install(tmp_path, Path("-"), script="uninstall.sh", args=("--purge",))
     assert purged.returncode == 0, purged.stderr
-    assert not (tmp_path / "root/var/lib/lectern").exists()
-    assert "userdel lectern" in _log(tmp_path)
+    assert not (home / "data").exists() and not (home / "lectern.env").exists()
+    assert (home / "src").exists()  # the copy it may be running from
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
@@ -218,18 +288,7 @@ def _copy_scripts(to: Path) -> None:
 
 
 def _run_top(tmp_path: Path, top: Path, **extra: str) -> subprocess.CompletedProcess:
-    _install(tmp_path, _wheel(tmp_path, "0.0.1"))  # makes the fakes and the log
-    (tmp_path / "log").write_text("")
-    env = {
-        "PATH": f"{tmp_path / 'fakebin'}:/usr/bin:/bin:/usr/sbin:/sbin",
-        "LECTERN_INSTALL_ROOT": str(tmp_path / "pkgroot"),
-        "LECTERN_UV_BIN": str(tmp_path / "fakebin/uv"),
-        "LOG": str(tmp_path / "log"),
-        "STATE": str(tmp_path / "state"),
-        "HOME": str(tmp_path),
-        **extra,
-    }
-    return subprocess.run(["bash", str(top / "install.sh")], env=env,  # noqa: S603, S607
+    return subprocess.run(["bash", str(top / "install.sh")], env=_env(tmp_path, **extra),  # noqa: S603, S607
                           capture_output=True, text=True, timeout=60)  # fmt: skip
 
 
@@ -240,8 +299,7 @@ def test_a_package_installs_the_wheel_beside_it_with_no_argument(tmp_path):
 
     done = _run_top(tmp_path, package)
     assert done.returncode == 0, done.stderr
-    venv = (tmp_path / "pkgroot/opt/lectern/venv").resolve()
-    assert venv.name.startswith("0.3.0-")
+    assert (_home(tmp_path) / "app/venv").resolve().name.startswith("0.3.0-")
     assert "Lectern runs on this machine at http://127.0.0.1:8765" in done.stdout
 
 
@@ -255,7 +313,7 @@ def test_a_working_copy_without_node_says_how_to_get_it(tmp_path):
     assert done.returncode == 1
     assert "building the web UI needs Node.js (npm)" in done.stderr
     assert "packaging/make_package.sh" in done.stderr
-    assert not (tmp_path / "pkgroot/opt/lectern").exists()
+    assert not (_home(tmp_path) / "app/venv").exists()
 
 
 def test_a_folder_with_neither_a_wheel_nor_the_source_says_so(tmp_path):
@@ -265,19 +323,31 @@ def test_a_folder_with_neither_a_wheel_nor_the_source_says_so(tmp_path):
     assert done.returncode == 1 and "no Lectern wheel next to this script" in done.stderr
 
 
+def test_lectern_dir_moves_the_whole_install(tmp_path):
+    elsewhere = tmp_path / "disk2/lectern"
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"), LECTERN_DIR=str(elsewhere))
+    assert done.returncode == 0, done.stderr
+    assert (elsewhere / "app/venv/bin/lectern").exists()
+    assert f"LECTERN_HOME={elsewhere}/data" in (elsewhere / "lectern.env").read_text()
+    unit = (tmp_path / "home/.config/systemd/user/lectern.service").read_text()
+    assert f"ExecStart={elsewhere}/app/venv/bin/lectern serve" in unit
+    assert not _home(tmp_path).exists()
+
+
 def test_an_update_with_the_same_version_replaces_the_code_and_keeps_the_data(tmp_path):
     """A small fix built without a version bump: the new code goes in, the data stays."""
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
-    data = tmp_path / "root/var/lib/lectern"
-    (data / "lectern.db").write_text("the app's database")
+    data = _home(tmp_path) / "data"
+    (data / "lectern.sqlite").write_text("the app's database")
     (data / "users/local/projects/Lease").mkdir(parents=True)
-    first = (tmp_path / "root/opt/lectern/venv").resolve()
+    (data / "token").write_text("t")
+    first = (_home(tmp_path) / "app/venv").resolve()
     (tmp_path / "state/active").touch()
 
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
     assert done.returncode == 0, done.stderr
-    second = (tmp_path / "root/opt/lectern/venv").resolve()
+    second = (_home(tmp_path) / "app/venv").resolve()
     assert second != first and first.exists()  # a fresh install; the old one kept to go back
-    assert (data / "lectern.db").read_text() == "the app's database"
-    assert (data / "users/local/projects/Lease").is_dir()
+    assert (data / "lectern.sqlite").read_text() == "the app's database"
+    assert (data / "users/local/projects/Lease").is_dir() and (data / "token").read_text() == "t"
     assert "Upgraded to Lectern 0.1.0" in done.stdout
