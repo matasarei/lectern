@@ -612,3 +612,68 @@ def test_start_now_with_no_job_waiting_does_not_skip_a_later_hold():
         return runtime.job_hold("ocr", since)
 
     assert asyncio.run(go()) > 3000  # still held: the stray click was ignored
+
+
+def test_a_turn_waiting_for_a_card_lets_a_held_job_in():
+    """The chat asks the person (a card) mid-turn: the model is idle, so a held job goes.
+    Once answered, the chat's next call waits for the job's page, not the other way round;
+    no idle window follows (the job started after the message)."""
+    import time
+
+    runtime, runner = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0
+    order: list[str] = []
+    page_may_end = asyncio.Event()
+
+    async def go():  # noqa: ANN202
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass  # the call that ran ocr.start
+        job_since = time.monotonic()  # the job started after the message that asked for it
+        job = asyncio.create_task(job_page(job_since))
+        await _until(lambda: runtime.state()["hold"] is not None)
+        held = runtime.state()["hold"]
+        async with runtime.waiting_for_person():  # the export card
+            await _until(lambda: "page" in order)
+        reply = asyncio.create_task(chat_call())
+        await _until(lambda: runtime.state()["waiting"] > 0)  # the reply queues behind the page
+        order.append("answered")
+        page_may_end.set()
+        await asyncio.wait_for(asyncio.gather(job, reply), 5)
+        await runtime.turn_ended()
+        await asyncio.wait_for(job_page(job_since), 5)  # its next page: no 3600 s window
+        return held
+
+    async def job_page(since: float) -> None:
+        async with runtime.lease("ocr", Priority.JOB, since=since):
+            order.append("page")
+            await page_may_end.wait()
+            order.append("page done")
+
+    async def chat_call() -> None:
+        async with runtime.lease("main", Priority.CHAT):
+            order.append("reply")
+
+    held = asyncio.run(go())
+    assert held == {"role": "ocr", "resume_in": None}
+    assert order[:4] == ["page", "answered", "page done", "reply"]
+    assert runner.started[:3] == ["main-model", "ocr-model", "main-model"]
+
+
+def test_waiting_for_a_person_is_reported_and_undone_on_error():
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            await runtime.turn_started(message=True)
+            with pytest.raises(RuntimeError):
+                async with runtime.waiting_for_person():
+                    raise RuntimeError("cancelled card")
+            active = runtime.chat_idle_seconds() == 0  # the turn counts again
+            return active, [e.get("status") for e in
+                            (queue.get_nowait() for _ in range(queue.qsize()))
+                            if e["event"] == "turn"]  # fmt: skip
+
+    active, statuses = asyncio.run(go())
+    assert active
+    assert statuses == ["started", "waiting", "resumed"]
