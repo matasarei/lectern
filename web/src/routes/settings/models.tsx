@@ -8,6 +8,7 @@ import type {
   Resident,
   Role,
   RuntimeSettings,
+  RuntimeState,
   RuntimeSettingsValues,
   SystemReport,
 } from "../../api/types";
@@ -22,6 +23,7 @@ import {
 import { formatBytes, formatMemory, percent } from "../../format";
 import { useDownloadEvents } from "../../hooks/useDownloadEvents";
 import { useRuntime } from "../../hooks/useRuntime";
+import { formatCountdown, modelWaitText, useCountdown } from "../../status";
 
 const ROLES: Role[] = ["main", "ocr", "ocr.hand", "code"];
 const ROLE_COLOURS: Record<Role, string> = {
@@ -83,7 +85,16 @@ export function ModelsPage() {
           />
           <p className="text-sm text-muted">
             {t("memory.swaps", { count: runtime.data.swaps })}
-            {runtime.data.waiting > 0 && ` · ${t("memory.waiting", { count: runtime.data.waiting })}`}
+            {runtime.data.hold ? (
+              <>
+                {" · "}
+                <HeldFor hold={runtime.data.hold} since={runtime.dataUpdatedAt} />
+              </>
+            ) : runtime.data.activity ? (
+              ` · ${modelWaitText(runtime.data, t)}`
+            ) : (
+              runtime.data.waiting > 0 && ` · ${t("memory.waiting", { count: runtime.data.waiting })}`
+            )}
           </p>
         </Card>
       )}
@@ -338,4 +349,13 @@ function SettingsCard() {
 
 function Page({ children }: { children: React.ReactNode }) {
   return <main className="mx-auto grid max-w-3xl gap-5 px-4 py-12">{children}</main>;
+}
+
+/** A job waiting for the chat: until its reply ends, or for the rest of the quiet window. */
+function HeldFor({ hold, since }: { hold: NonNullable<RuntimeState["hold"]>; since: number }) {
+  const { t } = useTranslation();
+  const left = useCountdown(hold.resume_in, since);
+  return (
+    <>{left === null ? t("memory.heldReply") : t("memory.heldFor", { time: formatCountdown(left) })}</>
+  );
 }

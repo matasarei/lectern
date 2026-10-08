@@ -241,3 +241,29 @@ def test_bind_failures_give_up_after_three_attempts(tmp_path):
     with pytest.raises(RunnerError, match="couldn't bind"):
         asyncio.run(runner.start(_spec()))
     assert _starts(server) == 3
+
+
+def test_the_engine_download_reports_its_progress_a_few_times_not_per_chunk(tmp_path):
+    import asyncio
+
+    from lectern.runners.llamacpp import InstallingLlamaCppRunner
+
+    class FakeInstaller:
+        def size(self, variant: str) -> int:
+            return 1000
+
+        async def install(self, variant: str, on_bytes=lambda n: None):  # noqa: ANN001, ANN202
+            for _ in range(100):
+                on_bytes(10)  # 100 chunks of 10 bytes
+            raise RuntimeError("stop before starting a server")
+
+    seen: list[tuple[str, int, int]] = []
+    runner = InstallingLlamaCppRunner(
+        FakeInstaller(), "cuda-12", tmp_path, on_progress=lambda *a: seen.append(a)
+    )
+    with pytest.raises(RuntimeError):
+        asyncio.run(runner.start(None))  # type: ignore[arg-type]
+
+    assert seen[-1] == ("cuda-12", 1000, 1000)  # the end is always reported
+    assert 2 <= len(seen) <= 101 and len(seen) < 100  # throttled, not one per chunk
+    assert [d for _, d, _ in seen] == sorted(d for _, d, _ in seen)

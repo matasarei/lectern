@@ -7,6 +7,8 @@ import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall } from ".
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
 import { formatTokens } from "../format";
+import { useRuntime } from "../hooks/useRuntime";
+import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
 
 const ARGS_SHOWN = 80;
@@ -405,7 +407,7 @@ function LiveReply({
       )}
       {live.running && !live.text && live.cards.every((c) => c.approved !== null) && (
         <p className="text-sm text-muted" role="status">
-          {live.model ? t("chat.working") : t("chat.waitingModel")}
+          {live.model ? t("chat.working") : <ModelWait />}
         </p>
       )}
       {!live.running && live.stats?.tps && (
@@ -483,4 +485,11 @@ function CompactionNote({ state }: { state: LiveTurn["compaction"] }) {
       {text}
     </p>
   );
+}
+
+/** Before the model answers: what it's waiting for (the engine, a load, an OCR page). */
+function ModelWait() {
+  const { t } = useTranslation();
+  const runtime = useRuntime();
+  return <>{modelWaitText(runtime.data, t)}</>;
 }

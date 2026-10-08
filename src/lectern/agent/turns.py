@@ -152,8 +152,12 @@ class TurnManager:
         )  # fmt: skip
 
         async def turn() -> str:
-            run.registry = await run_in_threadpool(self._registry)
-            status = await run_turn(run)
+            await self.runtime.turn_started(message=True)  # jobs wait for the reply
+            try:
+                run.registry = await run_in_threadpool(self._registry)
+                status = await run_turn(run)
+            finally:
+                await self.runtime.turn_ended()
             channel.publish({"type": "turn", "status": status})
             channel.settle()
             await self.resume_follow_ups(project, session_id)  # any whose session ended meanwhile
@@ -247,6 +251,14 @@ class TurnManager:
             channel.publish({"type": "turn", "status": "running", "followup": taken.label})
 
             async def turn() -> str:
+                # A turn, but not the person's message: no idle window for running jobs.
+                await self.runtime.turn_started(message=False)
+                try:
+                    return await follow_up_turn()
+                finally:
+                    await self.runtime.turn_ended()
+
+            async def follow_up_turn() -> str:
                 run.registry = await run_in_threadpool(self._registry)
                 try:
                     if status == "done":

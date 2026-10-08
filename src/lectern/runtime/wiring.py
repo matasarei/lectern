@@ -16,7 +16,7 @@ from lectern.hardware.tiers import Tier, effective_tier
 from lectern.runners import mlx
 from lectern.runners.base import Runner
 from lectern.runners.binaries import LlamaCppInstaller, UnsupportedPlatform, select_variant
-from lectern.runners.llamacpp import InstallingLlamaCppRunner
+from lectern.runners.llamacpp import InstallingLlamaCppRunner, install_reporting
 from lectern.runtime import planner
 from lectern.runtime.supervisor import (
     CHAT_IDLE_RESUME,
@@ -121,14 +121,22 @@ def build_runtime(
             variant = select_variant(hw)
         except UnsupportedPlatform as exc:
             raise NotAvailable(str(exc)) from exc
-        return InstallingLlamaCppRunner(installer, variant, paths.home / "run")
+        return InstallingLlamaCppRunner(
+            installer, variant, paths.home / "run",
+            on_progress=lambda *progress: runtime.engine_progress(*progress),
+        )  # fmt: skip
 
     # The only setting so far (Models & memory): a job pauses after its current item for a
     # chat, and resumes when the chat has been idle for CHAT_IDLE_RESUME seconds.
     chat_during_job = settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
         "chat_during_job"
     ]
-    return ModelRuntime(
+    try:
+        engine_variant: str | None = select_variant(hw)
+    except UnsupportedPlatform:
+        engine_variant = None
+
+    runtime = ModelRuntime(
         budget=budget,
         unified=unified,
         tier=tier,
@@ -138,3 +146,27 @@ def build_runtime(
         if chat_during_job == "pause_job_after_current_item"
         else 0,
     )
+    # runner_for reports the engine's download to it; first-run downloads it ahead of time.
+    runtime.engine = (
+        Engine(installer, engine_variant, runtime) if engine_variant is not None else None
+    )
+    return runtime
+
+
+class Engine:
+    """The llama.cpp build this machine runs, for first-run to download ahead of the first
+    chat (which otherwise downloads it while loading the model)."""
+
+    def __init__(self, installer: LlamaCppInstaller, variant: str, runtime: ModelRuntime):
+        self.installer = installer
+        self.variant = variant
+        self.runtime = runtime
+
+    def installed(self) -> bool:
+        return self.installer.server_path(self.variant) is not None
+
+    def size(self) -> int:
+        return self.installer.size(self.variant)
+
+    async def install(self) -> None:
+        await install_reporting(self.installer, self.variant, self.runtime.engine_progress)

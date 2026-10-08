@@ -18,6 +18,7 @@ import re
 import secrets
 import socket
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx2
@@ -207,13 +208,44 @@ class LlamaCppRunner:
 
 
 class InstallingLlamaCppRunner:
-    """A LlamaCppRunner that installs its llama.cpp build on first use."""
+    """A LlamaCppRunner that installs its llama.cpp build on first use, reporting the
+    download's progress (cumulative bytes) to `on_progress`, a few dozen times at most."""
 
-    def __init__(self, installer, variant: str, work_dir: Path) -> None:  # noqa: ANN001
+    STEP = 0.02  # report every 2 % of the download, and at its end
+
+    def __init__(
+        self,
+        installer,  # noqa: ANN001
+        variant: str,
+        work_dir: Path,
+        on_progress: Callable[[str, int, int], None] = lambda *_: None,
+    ) -> None:
         self.installer = installer
         self.variant = variant
         self.work_dir = work_dir
+        self.on_progress = on_progress
 
     async def start(self, spec: RunnerSpec) -> LlamaCppHandle:
-        server = await self.installer.install(self.variant)
+        server = await install_reporting(self.installer, self.variant, self.on_progress)
         return await LlamaCppRunner(server, self.work_dir).start(spec)
+
+
+async def install_reporting(
+    installer,  # noqa: ANN001
+    variant: str,
+    on_progress: Callable[[str, int, int], None],
+    step: float = InstallingLlamaCppRunner.STEP,
+) -> Path:
+    """Install the variant (or find it installed), reporting cumulative bytes every `step`
+    of the download and at its end: the first chat's load and first-run both use it."""
+    total = installer.size(variant)
+    done = reported = 0
+
+    def on_bytes(n: int) -> None:
+        nonlocal done, reported
+        done = max(0, done + n)  # negative: a resumed file was restarted
+        if done >= total or done - reported >= total * step:
+            reported = done
+            on_progress(variant, min(done, total), total)
+
+    return await installer.install(variant, on_bytes=on_bytes)

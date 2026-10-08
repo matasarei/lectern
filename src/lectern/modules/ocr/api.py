@@ -308,6 +308,15 @@ async def clean_page_again(
     return page_dict(page)
 
 
+@router.post("/projects/{project_id}/ocr/{session_id}/start-now")
+async def start_now(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
+    """Start now: the session's next page doesn't wait for the chat to be idle (it never
+    takes a model in use)."""
+    project = _lookup(request, project_id, session_id, user)
+    await request.app.state.runtime.skip_hold()
+    return await run_in_threadpool(_session_dict, request, project, session_id)
+
+
 @router.post("/projects/{project_id}/ocr/{session_id}/pause")
 async def pause(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
     project = await open_ocr(request, project_id, session_id, user)

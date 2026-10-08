@@ -72,6 +72,9 @@
     "continue": "Continue",
     "download": "Download",
     "resume": "Resume download",
+    "engine": "Engine",
+    "engineName": "llama.cpp ({{variant}}), runs the models",
+    "engineRetry": "Try the engine again",
     "finish": "Finish setup",
     "notEnoughDisk": "There isn't enough free disk space for this model, plus 1 GB to spare. Free some space, then reload.",
     "sandboxCard": "Script sandbox",
@@ -108,7 +111,9 @@
     "swaps_one": "{{count}} swap since start",
     "swaps_other": "{{count}} swaps since start",
     "waiting_one": "{{count}} request waiting for memory",
-    "waiting_other": "{{count}} requests waiting for memory"
+    "waiting_other": "{{count}} requests waiting for memory",
+    "heldReply": "OCR waits for the chat's reply to finish",
+    "heldFor": "OCR waits for the chat to be quiet · starts in {{time}}"
   },
   "roleState": {
     "loaded": "Loaded",
@@ -380,5 +385,13 @@
     "openSession": "OCR session · {{title}}",
     "notes": "Page notes",
     "note": "Page {{page}}: {{note}}"
+  },
+  "status": {
+    "engine": "Downloading the llama.cpp engine · {{done}} of {{total}}",
+    "loading": "Loading {{model}} into memory…",
+    "jobPage": "Waiting for the OCR job to finish its page…",
+    "startsIn": "Starts in {{time}}, when the chat has been quiet for 2 minutes",
+    "afterReply": "Starts when the chat's reply is finished",
+    "startNow": "Start now"
   }
 }

@@ -16,7 +16,11 @@ let chat: Chat;
 let posts: { url: string; body: unknown }[] = [];
 let push: (event: object) => void = () => {};
 
+// The runtime the page reads for "what it's waiting for"; its own event stream is empty.
+let runtimeState: Record<string, unknown> = {};
+
 beforeEach(() => {
+  runtimeState = { residents: [], activity: null, hold: null };
   posts = [];
   chat = {
     id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [], followups: [],
@@ -35,6 +39,8 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
+      if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
       if (url.endsWith("/events")) {
         const encoder = new TextEncoder();
         return new Response(
@@ -96,6 +102,35 @@ describe("Chat", () => {
     expect(within(line).getByText('project.find("lease") → lease.md · file · 24 B')).toBeTruthy();
     expect(line.hasAttribute("open")).toBe(false);
     expect(line.textContent).toContain("more"); // the full result, inside the fold
+  });
+
+  it("says what the reply waits for: the engine downloading, then the model loading", async () => {
+    runtimeState = {
+      residents: [], hold: null,
+      activity: { kind: "engine", variant: "linux-cuda12", done: 120 * 10 ** 6, total: 420 * 10 ** 6 },
+    };
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events({ type: "turn", status: "running", message_id: 5, text: "hi", attachments: [] });
+
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "Downloading the llama.cpp engine · 120 MB of 420 MB",
+    );
+  });
+
+  it("says when the reply waits for an OCR page to finish", async () => {
+    runtimeState = {
+      activity: null, hold: null,
+      residents: [{ role: "ocr", model_id: "paddleocr-vl-1.6", leases: 1, bytes: 1, ctx: 4096,
+                    kv_type: "f16", on_gpu: true, status: "loaded", pid: 1 }],
+    };
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events({ type: "turn", status: "running", message_id: 5, text: "hi", attachments: [] });
+
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "Waiting for the OCR job to finish its page…",
+    );
   });
 
   it("streams a reply and offers Stop while it runs", async () => {

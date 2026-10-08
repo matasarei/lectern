@@ -3,7 +3,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, ApiError } from "../api/client";
-import type { DownloadState, FirstRun, SandboxStatus, SystemReport } from "../api/types";
+import type {
+  DownloadState,
+  EngineState,
+  FirstRun,
+  SandboxStatus,
+  SystemReport,
+} from "../api/types";
 import {
   Card,
   DownloadProgress,
@@ -22,6 +28,7 @@ const DISK_HEADROOM = 1024 ** 3;
 // While no engine is running, check again this often, so starting Docker or Podman shows up
 // without a reload.
 const SANDBOX_POLL_MS = 10_000;
+const ENGINE_POLL_MS = 1_000;
 
 export function FirstRunPage() {
   const { t } = useTranslation();
@@ -36,6 +43,9 @@ export function FirstRunPage() {
   const firstRun = useQuery({
     queryKey: ["first-run"],
     queryFn: () => apiFetch<FirstRun>("/api/first-run"),
+    // The engine's download is followed here; the chat model's through its own events.
+    refetchInterval: (query) =>
+      query.state.data?.engine?.status === "downloading" ? ENGINE_POLL_MS : false,
   });
 
   const advance = useMutation({
@@ -48,6 +58,10 @@ export function FirstRunPage() {
   const download = useMutation({
     mutationFn: (id: string) => apiPost<DownloadState>(`/api/models/${id}/download`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["first-run"] }),
+  });
+  const fetchEngine = useMutation({
+    mutationFn: () => apiPost<FirstRun>("/api/first-run/engine"),
+    onSuccess: (data) => queryClient.setQueryData(["first-run"], data),
   });
 
   if (system.isPending || firstRun.isPending) {
@@ -66,6 +80,10 @@ export function FirstRunPage() {
   const model = run.chat_model;
   const state = live[model.id] ?? model.download;
   const enoughDisk = system.data.disk_free >= model.size - state.bytes_done + DISK_HEADROOM;
+  const engine = run.engine;
+  const chatToFetch = state.status !== "done" && !ACTIVE.includes(state.status);
+  const engineToFetch = engine?.status === "none";
+  const bothThere = state.status === "done" && (!engine || engine.status === "done");
 
   return (
     <Page>
@@ -96,16 +114,21 @@ export function FirstRunPage() {
           {!enoughDisk && state.status !== "done" && (
             <ErrorNote message={t("firstRun.notEnoughDisk")} />
           )}
-          {state.status !== "done" && !ACTIVE.includes(state.status) && (
+          {engine && <EngineRows engine={engine} onRetry={() => fetchEngine.mutate()} />}
+          {(chatToFetch || engineToFetch) && (
             <button
               className="btn-primary mt-2 w-fit"
-              disabled={download.isPending || !enoughDisk}
-              onClick={() => download.mutate(model.id)}
+              disabled={download.isPending || fetchEngine.isPending || !enoughDisk}
+              onClick={() => {
+                // One click fetches both, so the first chat only has to load the model.
+                if (chatToFetch) download.mutate(model.id);
+                if (engineToFetch) fetchEngine.mutate();
+              }}
             >
               {state.bytes_done > 0 ? t("firstRun.resume") : t("firstRun.download")}
             </button>
           )}
-          {state.status === "done" && run.step === "download" && (
+          {bothThere && run.step === "download" && (
             <button className="btn-primary mt-2 w-fit" onClick={() => advance.mutate("done")}>
               {t("firstRun.finish")}
             </button>
@@ -167,4 +190,39 @@ function SandboxCard({ initial }: { initial: SandboxStatus }) {
 
 function Page({ children }: { children: React.ReactNode }) {
   return <main className="mx-auto grid max-w-2xl gap-5 px-4 py-12">{children}</main>;
+}
+
+/** The llama.cpp build: what it is, where its download is, and why it stopped. */
+function EngineRows({ engine, onRetry }: { engine: EngineState; onRetry: () => void }) {
+  const { t } = useTranslation();
+  const progress: DownloadState = {
+    model_id: "engine",
+    status: engine.status === "downloading" ? "downloading" : "none",
+    bytes_done: engine.bytes_done,
+    bytes_total: engine.bytes_total,
+    rate: 0,
+    error: null,
+  };
+  return (
+    <>
+      <Row
+        label={t("firstRun.engine")}
+        value={
+          <span data-testid="engine-status">
+            {t("firstRun.engineName", { variant: engine.variant })} ·{" "}
+            {t(`download.status.${engine.status}`)}
+          </span>
+        }
+      />
+      {engine.status === "downloading" && <DownloadProgress state={progress} />}
+      {engine.status === "failed" && (
+        <>
+          <ErrorNote message={engine.error ?? t("common.loadFailed")} />
+          <button className="btn-secondary mt-1 w-fit" onClick={onRetry}>
+            {t("firstRun.engineRetry")}
+          </button>
+        </>
+      )}
+    </>
+  );
 }

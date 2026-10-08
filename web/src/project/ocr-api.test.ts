@@ -34,20 +34,26 @@ describe("applyOcrEvent", () => {
 });
 
 describe("applyToLive", () => {
-  const idle = { phase: null, waitingForChat: false } as const;
+  const idle = { phase: null, waitingForChat: false, resumeIn: null, waitingSince: 0 } as const;
 
-  it("follows the phase, and waiting for the chat until the next page", () => {
+  it("follows the phase, and the wait for the chat until the page's model is the job's", () => {
     let live = applyToLive(idle, { seq: 1, type: "phase", phase: "recognise" });
-    live = applyToLive(live, { seq: 2, type: "waiting", reason: "chat" });
-    expect(live).toEqual({ phase: "recognise", waitingForChat: true });
+    live = applyToLive(live, { seq: 2, type: "waiting", reason: "chat", resume_in: 100 });
+    expect([live.phase, live.waitingForChat, live.resumeIn]).toEqual(["recognise", true, 100]);
+    expect(live.waitingSince).toBeGreaterThan(0); // the countdown counts from here
+    // The page is marked "recognising" only once the job has the model: the wait is over.
+    // (It used to be marked before the wait, and this test kept the wait shown through it.)
     live = applyToLive(live, { seq: 3, type: "page", ...page(3, { status: "recognising" }) });
-    expect(live.waitingForChat).toBe(true); // still waiting until the page is read
-    live = applyToLive(live, { seq: 4, type: "page", ...page(3, { status: "done" }) });
     expect(live.waitingForChat).toBe(false);
   });
 
+  it("waits for the chat's reply when there's no countdown", () => {
+    const live = applyToLive(idle, { seq: 2, type: "waiting", reason: "chat", resume_in: null });
+    expect([live.waitingForChat, live.resumeIn]).toEqual([true, null]);
+  });
+
   it("clears when the job stops", () => {
-    const live = applyToLive({ phase: "recognise", waitingForChat: true }, {
+    const live = applyToLive({ ...idle, phase: "recognise", waitingForChat: true }, {
       seq: 5, type: "session", status: "paused", reason: "Paused", error: null,
     });
     expect(live).toEqual(idle);

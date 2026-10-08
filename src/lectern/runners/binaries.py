@@ -6,6 +6,7 @@ that tag, so installing needs no GitHub API call, only the download itself.
 
 from __future__ import annotations
 
+import asyncio
 import ctypes.util
 import json
 import shutil
@@ -194,6 +195,9 @@ class LlamaCppInstaller:
         self.client_factory = client_factory
         self.base_url = base_url.rstrip("/")
         self.variants = variants
+        # One install per variant at a time: first-run's engine download and a chat's first
+        # load can both ask, and two downloads into the same files break each other.
+        self._locks: dict[str, asyncio.Lock] = {}
 
     def install_dir(self, variant: str) -> Path:
         return self.runners_dir / "llama.cpp" / LLAMA_CPP_BUILD / variant
@@ -206,7 +210,17 @@ class LlamaCppInstaller:
         server = self.install_dir(variant) / json.loads(marker.read_text())["server"]
         return server if server.is_file() else None
 
+    def size(self, variant: str) -> int:
+        """Bytes to download for the variant (0 once it's installed)."""
+        if self.server_path(variant) is not None:
+            return 0
+        return sum(a.size for a in self.variants.get(variant, ()))
+
     async def install(self, variant: str, on_bytes: Callable[[int], None] = lambda n: None) -> Path:
+        async with self._locks.setdefault(variant, asyncio.Lock()):
+            return await self._install(variant, on_bytes)  # the second finds it installed
+
+    async def _install(self, variant: str, on_bytes: Callable[[int], None]) -> Path:
         existing = self.server_path(variant)
         if existing is not None:
             return existing

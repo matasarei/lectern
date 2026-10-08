@@ -113,6 +113,24 @@ def test_pause_and_resume_answer_by_state(api):
     assert _until_done(client, headers, url)["status"] == "done"
 
 
+def test_start_now_lets_the_job_skip_the_wait_for_the_chat(api, monkeypatch):
+    client, headers, app, project, ids, _ = api
+    sid = _start(client, headers, project, ids["lease-scan.pdf"])
+    calls: list[bool] = []
+
+    async def skip_hold() -> None:
+        calls.append(True)
+
+    monkeypatch.setattr(app.state.runtime, "skip_hold", skip_hold)
+    url = f"/api/projects/{project.id}/ocr/{sid}"
+
+    started = client.post(f"{url}/start-now", headers=headers)
+    elsewhere = client.post(f"/api/projects/{project.id}/ocr/99999/start-now", headers=headers)
+
+    assert started.status_code == 200 and calls == [True]
+    assert elsewhere.status_code == 404
+
+
 def test_only_a_pdf_or_image_starts_a_session(api):
     client, headers, _, project, ids, _ = api
     refused = client.post(f"/api/projects/{project.id}/ocr",

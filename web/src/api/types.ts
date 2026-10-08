@@ -79,7 +79,17 @@ export interface FirstRun {
     licence: string;
     download: DownloadState;
   };
+  /** The llama.cpp build for this machine; null where there's none to download. */
+  engine: EngineState | null;
   can_finish: boolean;
+}
+
+export interface EngineState {
+  variant: string;
+  status: "none" | "downloading" | "done" | "failed";
+  bytes_done: number;
+  bytes_total: number;
+  error: string | null;
 }
 
 export interface Resident {
@@ -102,7 +112,16 @@ export interface RuntimeState {
   swaps: number;
   waiting: number;
   residents: Resident[];
+  /** What a wait is for when it isn't a model in use. */
+  activity: RuntimeActivity | null;
+  /** A job waiting for the chat: resume_in seconds of the idle window, or null until the
+   * chat's reply ends. */
+  hold: { role: Role; resume_in: number | null } | null;
 }
+
+export type RuntimeActivity =
+  | { kind: "engine"; variant: string; done: number; total: number }
+  | { kind: "loading"; role: Role; model_id: string };
 
 export interface RuntimeSettingsValues {
   mlx_enabled: boolean;
@@ -355,6 +374,6 @@ export type OcrEvent = { seq: number } & (
   | { type: "phase"; phase: OcrPhase }
   | { type: "document"; version: number; artifact_id: number }
   | ({ type: "page" } & OcrPage)
-  | { type: "waiting"; reason: "chat" }
+  | { type: "waiting"; reason: "chat"; resume_in?: number | null }
   | { type: "replayed" }
 );

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 import httpx2
@@ -327,33 +328,36 @@ def test_the_runtime_says_when_loading_a_model_would_unload_another():
 
 
 def test_a_job_that_would_unload_the_chats_model_waits_for_the_chat_to_be_idle():
-    import time
-
+    """A reply is several model calls; a job asking in between waits for the reply to end,
+    so the reply isn't split by a swap. (The turn is declared, as the TurnManager does;
+    the idle window after the reply is in test_a_message_after_the_job_started_…)"""
     runtime, runner = _runtime(6, {"main": 5, "ocr": 2})  # they don't fit together
     runtime.chat_idle_resume = 0.3
     events: list[dict] = []
 
     async def go():  # noqa: ANN202
         async with runtime.events.listen() as queue:
+            await runtime.turn_started(message=True)
             async with runtime.lease("main", Priority.CHAT):
                 pass  # the chat's first model call
             job = asyncio.create_task(job_page())
             await asyncio.sleep(0.05)
             async with runtime.lease("main", Priority.CHAT):  # its next call, 50 ms later
                 pass
-            waited = await job
+            during = list(runner.started)
+            await runtime.turn_ended()
+            await asyncio.wait_for(job, 5)
             while not queue.empty():
                 events.append(queue.get_nowait())
-            return waited
+            return during
 
-    async def job_page() -> float:
-        started = time.monotonic()
+    async def job_page() -> None:
         async with runtime.lease("ocr", Priority.JOB):
-            return time.monotonic() - started
+            pass
 
-    waited = asyncio.run(go())
-    assert runner.started == ["main-model", "ocr-model"]  # no swap between the chat's calls
-    assert waited >= 0.3  # 0.3 s after the chat's *last* call, not its first
+    during = asyncio.run(go())
+    assert during == ["main-model"]  # no swap between the chat's calls
+    assert runner.started == ["main-model", "ocr-model"]
     assert any(e["event"] == "wait" and e.get("reason") == "chat" for e in events)
 
 
@@ -390,3 +394,221 @@ def test_a_chat_waiting_for_the_gpu_counts_as_active():
             pass
 
     assert asyncio.run(go()) == 0.0
+
+
+class GatedRunner(FakeRunner):
+    """Its starts wait for `gate`, so a load can be seen while it's happening."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gate = asyncio.Event()
+
+    async def start(self, spec: RunnerSpec) -> FakeHandle:
+        await self.gate.wait()
+        return await super().start(spec)
+
+
+def test_the_runtime_says_which_model_it_is_loading():
+    runner = GatedRunner()
+    runtime, _ = _runtime(8, {"main": 5}, runner)
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            chat = asyncio.create_task(lease_once())
+            await _until(lambda: runtime.state()["activity"] is not None)
+            during = runtime.state()["activity"]
+            runner.gate.set()
+            await chat
+            events = [queue.get_nowait() for _ in range(queue.qsize())]
+            return during, runtime.state()["activity"], events
+
+    async def lease_once() -> None:
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+
+    during, after, events = asyncio.run(go())
+    assert during == {"kind": "loading", "role": "main", "model_id": "main-model"}
+    assert after is None
+    assert [e["event"] for e in events][:2] == ["loading", "loaded"]
+
+
+def test_the_engine_download_shows_as_activity_until_it_is_done():
+    runtime, _ = _runtime(8, {"main": 5})
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            runtime.engine_progress("cuda-12", 40, 400)
+            during = runtime.state()["activity"]
+            runtime.engine_progress("cuda-12", 400, 400)
+            events = [queue.get_nowait() for _ in range(queue.qsize())]
+            return during, runtime.state()["activity"], events
+
+    during, after, events = asyncio.run(go())
+    assert during == {"kind": "engine", "variant": "cuda-12", "done": 40, "total": 400}
+    assert after is None
+    assert [(e["event"], e.get("done")) for e in events] == [("engine", 40), ("engine", 400)]
+
+
+def test_a_job_the_chat_started_waits_for_the_reply_not_for_the_idle_window():
+    """The chat called ocr.start mid-reply: the job waits until that reply is written, then
+    goes, without the idle window (the message that asked for it came before it)."""
+    import time
+
+    runtime, runner = _runtime(6, {"main": 5, "ocr": 2})  # they don't fit together
+    runtime.chat_idle_resume = 3600.0  # a window would never end within the test
+
+    async def go():  # noqa: ANN202
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass  # the call that ran ocr.start
+        job = asyncio.create_task(job_page(time.monotonic()))
+        await _until(lambda: runtime.state()["hold"] is not None)
+        hold = runtime.state()["hold"]
+        async with runtime.lease("main", Priority.CHAT):
+            pass  # the reply's last call: main is still there, no swap in between
+        started_before_end = list(runner.started)
+        await runtime.turn_ended()
+        await asyncio.wait_for(job, 5)
+        return hold, started_before_end
+
+    async def job_page(since: float) -> None:
+        async with runtime.lease("ocr", Priority.JOB, since=since):
+            pass
+
+    hold, before = asyncio.run(go())
+    assert hold == {"role": "ocr", "resume_in": None}  # waiting for the reply to end
+    assert before == ["main-model"]
+    assert runner.started == ["main-model", "ocr-model"]
+
+
+def test_a_message_after_the_job_started_holds_it_for_the_idle_window():
+    """The person writes while a job runs: its next page waits until the chat has been
+    quiet for the window, as before."""
+    import time
+
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 0.3
+
+    async def go():  # noqa: ANN202
+        since = time.monotonic()  # the job started
+        await asyncio.sleep(0.01)
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        await runtime.turn_ended()
+        started = time.monotonic()
+        async with runtime.lease("ocr", Priority.JOB, since=since):
+            return time.monotonic() - started
+
+    assert asyncio.run(go()) >= 0.25
+
+
+def test_start_now_lets_a_held_job_in():
+    import time
+
+    runtime, runner = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0
+
+    async def go():  # noqa: ANN202
+        since = time.monotonic()
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        await runtime.turn_ended()
+        job = asyncio.create_task(job_page(since))
+        await _until(lambda: runtime.state()["hold"] is not None)
+        hold = runtime.state()["hold"]
+        await runtime.skip_hold()
+        await asyncio.wait_for(job, 5)
+        return hold, runtime.state()["hold"]
+
+    async def job_page(since: float) -> None:
+        async with runtime.lease("ocr", Priority.JOB, since=since):
+            pass
+
+    hold, after = asyncio.run(go())
+    assert hold["role"] == "ocr" and 3590 < hold["resume_in"] <= 3600
+    assert after is None
+    assert runner.started == ["main-model", "ocr-model"]
+
+
+def test_a_follow_up_turn_is_not_a_message():
+    """A turn the app starts (a follow-up after OCR) keeps the chat busy while it runs, but
+    doesn't bring back the idle window for the jobs that were already running."""
+    import time
+
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0
+
+    async def go():  # noqa: ANN202
+        since = time.monotonic()
+        await asyncio.sleep(0.01)
+        await runtime.turn_started(message=False)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        await runtime.turn_ended()
+        async with runtime.lease("ocr", Priority.JOB, since=since):
+            return True
+
+    assert asyncio.run(asyncio.wait_for(go(), 5))
+
+
+def test_turns_are_reported_so_the_pages_can_update_the_hold():
+    runtime, _ = _runtime(8, {"main": 5})
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            await runtime.turn_started(message=True)
+            await runtime.turn_ended()
+            return [(e["event"], e.get("status")) for e in
+                    (queue.get_nowait() for _ in range(queue.qsize()))]  # fmt: skip
+
+    assert asyncio.run(go()) == [("turn", "started"), ("turn", "ended")]
+
+
+def test_a_held_job_that_is_cancelled_leaves_no_hold_behind():
+    """Pause cancels a page's lease while it waits for the chat: the hold the pages show
+    goes with it, rather than saying "OCR waits for the chat" until some other job runs."""
+    import time
+
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0
+
+    async def go():  # noqa: ANN202
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        job = asyncio.create_task(job_page(time.monotonic()))
+        await _until(lambda: runtime.state()["hold"] is not None)
+        job.cancel()  # as Pause does
+        with contextlib.suppress(asyncio.CancelledError):
+            await job
+        await runtime.turn_ended()
+        return runtime.state()["hold"]
+
+    async def job_page(since: float) -> None:
+        async with runtime.lease("ocr", Priority.JOB, since=since):
+            pass
+
+    assert asyncio.run(go()) is None
+
+
+def test_start_now_with_no_job_waiting_does_not_skip_a_later_hold():
+    """A click that lands just as the page started mustn't let some later job, after a new
+    message, skip its wait."""
+    import time
+
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0
+
+    async def go():  # noqa: ANN202
+        since = time.monotonic()
+        await runtime.skip_hold()  # nothing is waiting
+        await asyncio.sleep(0.01)
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        await runtime.turn_ended()
+        return runtime.job_hold("ocr", since)
+
+    assert asyncio.run(go()) > 3000  # still held: the stray click was ignored
