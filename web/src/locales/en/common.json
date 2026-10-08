@@ -404,5 +404,22 @@
     "startsIn": "Starts in {{time}}, when the chat has been quiet for 2 minutes",
     "afterReply": "Starts when the chat's reply is finished",
     "startNow": "Start now"
+  },
+  "ocrStep": {
+    "queued": "waiting to start",
+    "rasterise": "preparing the pages",
+    "loadingOcr": "loading the OCR model…",
+    "reading": "reading page {{page}} of {{total}}",
+    "loadingMain": "loading the chat model to clean the text…",
+    "cleaning": "cleaning page {{page}} of {{total}}",
+    "assemble": "putting the document together",
+    "done": "done",
+    "pages_one": "{{count}} page",
+    "pages_other": "{{count}} pages",
+    "questions_one": "{{count}} open question",
+    "questions_other": "{{count}} open questions",
+    "paused": "paused",
+    "pausedBecause": "paused · {{reason}}",
+    "failed": "stopped · {{reason}}"
   }
 }

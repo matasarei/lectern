@@ -8,7 +8,7 @@ import { ErrorNote } from "../components";
 import { useRuntime } from "../hooks/useRuntime";
 import { HoldNote } from "../status";
 import { ImagePreview } from "./file";
-import { cleanPageAgain, ocrPath, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
+import { cleanPageAgain, ocrPath, ocrProgress, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
 import { ReviewPage } from "./review";
 
 type View = "split" | "scan" | "text" | "raw";
@@ -92,8 +92,7 @@ function StatusStrip({
   // The runtime's hold is the live one (it changes when the chat's reply ends); the event's
   // is what the job saw when it began to wait.
   const hold = runtime.data?.hold;
-  const read = session.pages.filter((p) => p.status === "done").length;
-  const cleaned = session.pages.filter((p) => p.clean_status === "done").length;
+  const { read, cleaned } = ocrProgress(session);
   const document = session.document;
   const working = session.status === "running" || session.status === "queued";
   const error = pause.error ?? resume.error ?? startNow.error;

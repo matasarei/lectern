@@ -31,6 +31,14 @@ export interface OcrLive {
 
 const NOT_WAITING = { waitingForChat: false, resumeIn: null, waitingSince: 0 };
 
+/** How far a session has got: pages read, pages cleaned. */
+export function ocrProgress(session: OcrSession): { read: number; cleaned: number } {
+  return {
+    read: session.pages.filter((p) => p.status === "done").length,
+    cleaned: session.pages.filter((p) => p.clean_status === "done").length,
+  };
+}
+
 /** An event applied to the cached session. Pure, so it's tested on its own. */
 export function applyOcrEvent(session: OcrSession, event: OcrEvent): OcrSession {
   switch (event.type) {
