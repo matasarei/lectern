@@ -58,6 +58,14 @@ describe("ocrSteps", () => {
     ]);
   });
 
+  it("works out where a running job is from its pages, before any phase event", () => {
+    expect(at({ read: 1 })[1]).toBe("reading page 2 of 3");
+    expect(at({ read: 3, cleaned: 1 })).toEqual([
+      "read:done clean:current questions:later export:later", "cleaning page 2 of 3",
+    ]);
+    expect(at({ status: "queued" })[1]).toBe("waiting to start");
+  });
+
   it("says why it stopped where it stopped", () => {
     expect(at({ status: "paused", reason: "Paused" })[1]).toBe("paused · Paused");
     expect(at({ status: "failed", reason: "no model", phase: "recognise" })).toEqual([

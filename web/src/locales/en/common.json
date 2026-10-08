@@ -365,7 +365,8 @@
     "openDocument": "Open the document (version {{version}})",
     "openQuestions_one": "{{count}} open question",
     "openQuestions_other": "{{count}} open questions",
-    "notCleanedYet": "Not cleaned yet: this is the raw OCR text.",
+    "notCleanedYet": "Not cleaned yet: this is the raw OCR text. The cleaned text and its questions come next.",
+    "notFinished": "Not finished: {{what}}. Answer the questions in the Document (clean a failed page again here); the final document, and any export waiting for it, come after.",
     "cleanFailed": "This page wasn't cleaned: {{error}}"
   },
   "review": {

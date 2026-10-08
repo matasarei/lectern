@@ -6,8 +6,9 @@ import { apiFetch, apiPost, ApiError } from "../api/client";
 import type { OcrDocument, OcrModel, OcrPage, OcrSession, Tab } from "../api/types";
 import { ErrorNote } from "../components";
 import { useRuntime } from "../hooks/useRuntime";
-import { HoldNote, ocrLoadingText } from "../status";
+import { HoldNote } from "../status";
 import { ExportButtons } from "./export-buttons";
+import { OcrSteps, type OcrStepsInput } from "./ocr-steps";
 import { ImagePreview } from "./file";
 import { cleanPageAgain, ocrPath, ocrProgress, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
 import { ReviewPage } from "./review";
@@ -96,26 +97,31 @@ function StatusStrip({
   // is what the job saw when it began to wait.
   const hold = runtime.data?.hold;
   const { read, cleaned } = ocrProgress(session);
-  const loading = ocrLoadingText(live.phase, runtime.data, t); // the gap between phases
   const document = session.document;
+  const openQuestions = document?.open_doubts ?? 0;
+  const failedPages = session.pages
+    .filter((p) => p.status === "failed" || p.clean_status === "failed")
+    .map((p) => p.number);
+  const steps: OcrStepsInput = {
+    status: session.status,
+    phase: live.phase,
+    pagesTotal: session.pages_total,
+    read,
+    cleaned,
+    openQuestions,
+    reason: session.error ?? session.paused_reason,
+    failedPages,
+    waitingForChat: false, // HoldNote says it here, with the countdown and Start now
+    exports: [], // what the chats queued isn't this tab's: the last step reads Done
+  };
   const working = session.status === "running" || session.status === "queued";
   const error = pause.error ?? resume.error ?? startNow.error;
   return (
     <div className="grid gap-1 border-b border-line bg-surface px-4 py-2">
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span className="font-semibold">{t(`ocr.status.${session.status}`)}</span>
-        <span className={live.phase === "rasterise" ? "text-accent" : "text-muted"}>
-          {t("ocr.phase.rasterise")}
-        </span>
-        <span className={live.phase === "recognise" ? "text-accent" : "text-muted"}>
-          {t("ocr.phase.recognise", { done: read, total: session.pages_total })}
-        </span>
-        <span className={live.phase === "clean" ? "text-accent" : "text-muted"}>
-          {t("ocr.phase.clean", { done: cleaned, total: session.pages_total })}
-        </span>
-        <span className={live.phase === "assemble" ? "text-accent" : "text-muted"}>
-          {t("ocr.phase.assemble")}
-        </span>
+        <OcrSteps input={steps} runtime={runtime.data} />
+        <span className="text-xs text-muted">{t("ocr.phase.recognise", { done: read, total: session.pages_total })}</span>
+        <span className="text-xs text-muted">{t("ocr.phase.clean", { done: cleaned, total: session.pages_total })}</span>
         {document && (
           <button
             className="text-accent hover:underline"
@@ -123,14 +129,6 @@ function StatusStrip({
           >
             {t("ocr.openDocument", { version: document.version })}
           </button>
-        )}
-        {document && document.open_doubts > 0 && (
-          <span className="text-muted">{t("ocr.openQuestions", { count: document.open_doubts })}</span>
-        )}
-        {loading && (
-          <span className="text-muted" role="status">
-            {loading}
-          </span>
         )}
         {live.waitingForChat && (
           <HoldNote
@@ -156,6 +154,21 @@ function StatusStrip({
           )
         )}
       </div>
+      {session.status === "done" && (openQuestions > 0 || failedPages.length > 0) && (
+        // Done reading and cleaning, but not final: say so plainly, and what's left
+        <p className="rounded-md border border-doubt bg-doubt/15 px-3 py-2 text-sm" role="status">
+          {t("ocr.notFinished", {
+            what: [
+              openQuestions > 0 ? t("ocrSteps.open", { count: openQuestions }) : null,
+              failedPages.length > 0
+                ? t("ocrSteps.notCleaned", { count: failedPages.length, pages: failedPages.join(", ") })
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          })}
+        </p>
+      )}
       {session.status === "done" && document && (
         <ExportButtons projectId={projectId} artifactId={document.artifact_id} onOpen={onOpen} />
       )}
@@ -285,7 +298,12 @@ function PageText({ base, page, raw }: { base: string; page: OcrPage; raw: boole
       {!raw && page.clean_status === "failed" && (
         <ErrorNote message={t("ocr.cleanFailed", { error: page.clean_error ?? "" })} />
       )}
-      {!raw && page.clean_status !== "failed" && <p className="text-xs text-muted">{t("ocr.notCleanedYet")}</p>}
+      {!raw && page.clean_status !== "failed" && (
+        // The raw reading shows at once; say plainly it isn't the result yet
+        <p className="rounded-md border border-line bg-paper px-3 py-2 text-sm" role="note">
+          {t("ocr.notCleanedYet")}
+        </p>
+      )}
       <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
         {text.data.text}
       </pre>

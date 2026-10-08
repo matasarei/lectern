@@ -608,7 +608,8 @@ describe("The OCR line under ocr.start", () => {
     };
     renderChat();
     const line = await screen.findByTestId("ocr-line");
-    await waitFor(() => expect(line.textContent).toContain("waiting to start"));
+    // running, nothing read yet: where it is comes from its pages until an event arrives
+    await waitFor(() => expect(line.textContent).toContain("Reading· reading page 1 of 2"));
     expect(line.getAttribute("role")).toBe("status"); // announced as it moves on
     expect(line.textContent).toContain("Export to DOCX"); // the last step: what waits for it
     expect(line.textContent).not.toContain("say it's done"); // a notice isn't a step

@@ -40,12 +40,14 @@ export function ocrSteps(
     current = "questions";
     detail = questionsDetail(s, t);
   } else {
-    // At work, waiting, paused or stopped: the phase it's in, with today's wording
-    current = s.phase === "clean" || s.phase === "assemble" ? "clean" : "read";
-    if (!s.phase && s.read >= s.pagesTotal && s.pagesTotal > 0) current = "clean"; // paused while cleaning
+    // At work, waiting, paused or stopped: the phase it's in, with today's wording. Before
+    // any phase event (the page opened mid-job), the page counts say where it is.
+    const phase = s.phase ?? (s.status === "running" ? phaseFromCounts(s) : null);
+    current = phase === "clean" || phase === "assemble" ? "clean" : "read";
+    if (!phase && s.read >= s.pagesTotal && s.pagesTotal > 0) current = "clean"; // paused while cleaning
     detail = s.waitingForChat
       ? t("ocrSteps.afterReply")
-      : (ocrStepText(s, false, runtime, t) ?? "");
+      : (ocrStepText({ ...s, phase }, false, runtime, t) ?? "");
   }
   const at = keys.indexOf(current);
   const steps = keys.map((key, i): Step => ({
@@ -53,6 +55,12 @@ export function ocrSteps(
     state: i < at || (clear && last === "done") ? "done" : i === at ? "current" : "later",
   }));
   return { steps, detail };
+}
+
+function phaseFromCounts(s: OcrStepsInput): OcrStepsInput["phase"] {
+  if (s.pagesTotal === 0) return "rasterise";
+  if (s.read < s.pagesTotal) return "recognise";
+  return s.cleaned < s.pagesTotal ? "clean" : "assemble";
 }
 
 function questionsDetail(s: OcrStepsInput, t: TFunction): string {
