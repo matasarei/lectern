@@ -193,7 +193,8 @@ done
 # --- starting at boot, and the GPU --------------------------------------------------------
 # A user service runs only while you're logged in, unless lingering is on.
 if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)" != yes ]; then
-    if ! loginctl enable-linger 2>/dev/null; then
+    # Never a password prompt halfway through: when polkit wants an admin, print the line.
+    if ! loginctl --no-ask-password enable-linger 2>/dev/null; then
         echo
         echo "To start Lectern at boot, without logging in, run once:"
         echo "  sudo loginctl enable-linger $USER"

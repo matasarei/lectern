@@ -40,8 +40,8 @@ FAKES = {
     "esac",
     # loginctl: lingering is off until enabled; enabling can be refused (STATE/linger-denied).
     "loginctl": 'echo "loginctl $*" >> "$LOG"; case "$1" in '
-    'show-user) cat "$STATE/linger" 2>/dev/null || echo no;; '
-    'enable-linger) [ ! -f "$STATE/linger-denied" ] && echo yes > "$STATE/linger";; esac',
+    'show-user) cat "$STATE/linger" 2>/dev/null || echo no;; esac; case " $* " in '
+    '*" enable-linger "*) [ ! -f "$STATE/linger-denied" ] && echo yes > "$STATE/linger";; esac',
     # The tests run on macOS too: the installer is told it's on Linux x86_64.
     "uname": 'case "$1" in -s) echo Linux;; -m) echo x86_64;; *) /usr/bin/uname "$@";; esac',
     # uv: `venv` makes the folder with a python and a lectern; `pip install` can be told to
@@ -156,11 +156,12 @@ def test_without_a_user_session_it_says_how_to_get_one(tmp_path):
 def test_lingering_is_turned_on_so_it_starts_at_boot(tmp_path):
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
     assert done.returncode == 0, done.stderr
-    assert "loginctl enable-linger" in _log(tmp_path)
+    linger = "loginctl --no-ask-password enable-linger"  # never a password prompt
+    assert linger in _log(tmp_path)
     assert "sudo loginctl enable-linger" not in done.stdout
 
     again = _install(tmp_path, _wheel(tmp_path, "0.1.0"))  # already on: left alone
-    assert _log(tmp_path).count("loginctl enable-linger") == 1, again.stdout
+    assert _log(tmp_path).count(linger) == 1, again.stdout
 
 
 def test_lingering_refused_prints_the_sudo_line(tmp_path):
