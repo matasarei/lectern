@@ -281,7 +281,8 @@
     "pickerSearch": "Find a file",
     "pickerEmpty": "No file matches",
     "ocrLine": "OCR · {{title}}",
-    "ocrThen": "then: {{what}}"
+    "ocrThen": "then: {{what}}",
+    "openDocument": "Open the document"
   },
   "file": {
     "details": "Details",
@@ -406,6 +407,11 @@
     "startsIn": "Starts in {{time}}, when the chat has been quiet for 2 minutes",
     "afterReply": "Starts when the chat's reply is finished",
     "startNow": "Start now"
+  },
+  "export": {
+    "label": "Export:",
+    "anyway": "Export anyway",
+    "cancel": "Cancel"
   },
   "ocrStep": {
     "queued": "waiting to start",

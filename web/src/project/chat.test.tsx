@@ -55,6 +55,9 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
+      if (url === "/api/exporters") {
+        return new Response(JSON.stringify([{ format: "docx", extension: ".docx", capabilities: [] }]));
+      }
       if (url.includes("/ocr/") && url.endsWith("/events")) {
         ocrStreams += 1;
         const encoder = new TextEncoder();
@@ -651,5 +654,38 @@ describe("The OCR line under ocr.start", () => {
     renderChat((tab) => opened.push(tab));
     fireEvent.click(await screen.findByRole("button", { name: "OCR · scan.jpg" }));
     expect(opened).toEqual([{ kind: "session", id: 8 }]);
+  });
+});
+
+describe("The chat's message when an OCR session finishes", () => {
+  it("opens the document or exports it, without asking the model", async () => {
+    chat.messages = [
+      message(1, { content: "Read the scan" }),
+      message(2, {
+        role: "assistant", content: "OCR · scan.jpg finished · 2 pages · 1 open question.",
+        refs: [
+          { kind: "session", id: 8, name: "scan.jpg", ref: null },
+          { kind: "artifact", id: 40, name: "scan/document.md", ref: null },
+        ],
+      }),
+    ];
+    const opened: Tab[] = [];
+    renderChat((tab) => opened.push(tab));
+    const finished = await screen.findByTestId("finished");
+    fireEvent.click(within(finished).getByRole("button", { name: "Open the document" }));
+    expect(opened).toEqual([{ kind: "document", id: 8 }]);
+    expect(await within(finished).findByRole("button", { name: "DOCX" })).toBeTruthy();
+  });
+
+  it("offers nothing to open when the session stopped", async () => {
+    chat.messages = [
+      message(2, {
+        role: "assistant", content: "OCR · scan.jpg stopped: no model.",
+        refs: [{ kind: "session", id: 8, name: "scan.jpg", ref: null }],
+      }),
+    ];
+    renderChat();
+    await screen.findByText("OCR · scan.jpg stopped: no model.");
+    expect(screen.queryByTestId("finished")).toBeNull();
   });
 });
