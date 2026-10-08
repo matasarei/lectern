@@ -268,7 +268,11 @@
       "turns": "recent"
     },
     "followups": "Waiting",
-    "followupRunning": "Follow-up: {{label}}"
+    "followupRunning": "Follow-up: {{label}}",
+    "fromProject": "From project",
+    "pickerLabel": "Project files",
+    "pickerSearch": "Find a file",
+    "pickerEmpty": "No file matches"
   },
   "file": {
     "details": "Details",

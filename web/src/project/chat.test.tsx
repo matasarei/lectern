@@ -52,7 +52,14 @@ beforeEach(() => {
         );
       }
       if (url === "/api/projects/1/items") {
-        return new Response(JSON.stringify({ sessions: [], artifacts: [{ id: 11, name: "scripts/penalty.py" }] }));
+        return new Response(JSON.stringify({
+          sessions: [],
+          artifacts: [
+            { id: 11, name: "scripts/penalty.py" },
+            { id: 21, name: "lease-1998.docx" },
+            { id: 22, name: "notes.md" },
+          ],
+        }));
       }
       if (url === "/api/projects/1/artifacts/11/content") {
         return new Response("print('penalty', 62.5)\n");
@@ -339,5 +346,97 @@ describe("Pinned items, the summary and the context", () => {
       await new Promise((r) => setTimeout(r, 10));
     });
     expect(screen.getByTestId("compaction").textContent).toBe("Folded 12 older messages into the summary.");
+  });
+});
+
+
+describe("Adding files already in the project", () => {
+  const box = () => screen.getByRole("textbox", { name: "Message" });
+
+  it("@ opens the project's files, filters as you type, and Enter attaches one", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+
+    fireEvent.change(box(), { target: { value: "read @lea", selectionStart: 9 } });
+    const list = await screen.findByRole("listbox", { name: "Project files" });
+    const options = await within(list).findAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["lease-1998.docx"]);
+
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove lease-1998.docx" })).toBeTruthy();
+    expect((box() as HTMLTextAreaElement).value).toBe("read "); // the @lea is gone
+    expect(posts).toEqual([]); // Enter picked; it didn't send
+  });
+
+  it("with no matching file, Enter sends the message (\"@\" is just text then)", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+
+    fireEvent.change(box(), { target: { value: "ping @team", selectionStart: 10 } });
+    await screen.findByText("No file matches");
+    fireEvent.keyDown(box(), { key: "Enter" });
+
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        url: "/api/projects/1/sessions/1/messages",
+        body: { text: "ping @team", attachments: [] },
+      }),
+    );
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("sending with the button closes a list left open", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+
+    fireEvent.change(box(), { target: { value: "see @lea", selectionStart: 8 } });
+    await screen.findAllByRole("option");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(posts.map((p) => p.url)).toContain("/api/projects/1/sessions/1/messages"));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+  });
+
+  it("arrows move through the list and Escape closes it", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+
+    fireEvent.change(box(), { target: { value: "@", selectionStart: 1 } });
+    await screen.findAllByRole("option"); // the project's three files
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    expect(screen.getByRole("option", { selected: true }).textContent).toBe("lease-1998.docx");
+    // A screen reader follows the active option: the box names the list and the option.
+    const listId = screen.getByRole("listbox").id;
+    expect(box().getAttribute("aria-controls")).toBe(listId);
+    expect(box().getAttribute("aria-activedescendant")).toBe(
+      screen.getByRole("option", { selected: true }).id,
+    );
+    fireEvent.keyDown(box(), { key: "Escape" });
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(box().getAttribute("aria-activedescendant")).toBeNull();
+    expect((box() as HTMLTextAreaElement).value).toBe("@");
+  });
+
+  it("From project lists the files to pick from, and the message is sent with it", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+
+    fireEvent.click(screen.getByRole("button", { name: "From project" }));
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Find a file" }), {
+      target: { value: "notes" },
+    });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "notes.md" }));
+    fireEvent.change(box(), { target: { value: "what's next?", selectionStart: 12 } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(posts).toContainEqual({
+        url: "/api/projects/1/sessions/1/messages",
+        body: { text: "what's next?", attachments: [22] },
+      }),
+    );
   });
 });
