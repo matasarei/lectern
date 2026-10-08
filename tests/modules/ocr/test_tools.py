@@ -193,3 +193,11 @@ def test_a_failed_ocr_model_download_starts_no_session(ctx):
     with pytest.raises(ToolError, match="download failed: disk full"):
         _call(START, ctx, name="lease-scan.pdf")
     assert ctx.ocr_jobs.started == []
+
+
+def test_an_ocr_model_download_stopped_midway_starts_no_session(ctx):
+    entry, _ = _missing_ocr_model(ctx, end="paused")
+
+    with pytest.raises(ToolError, match=f"{entry.title}'s download was stopped.*resumes it"):
+        _call(START, ctx, name="lease-scan.pdf")
+    assert ctx.ocr_jobs.started == []
