@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# Remove Lectern from this machine (keeps models, projects and settings unless --purge):
-#   sudo ./uninstall.sh [--purge]
+# Remove your Lectern (keeps models, projects and settings unless --purge):
+#   ./uninstall.sh [--purge]
 exec "$(dirname "$0")/packaging/linux/uninstall.sh" "$@"

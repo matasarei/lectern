@@ -1,52 +1,72 @@
 #!/usr/bin/env bash
-# Install or upgrade Lectern on a Linux host (x86_64, systemd), as the service `lectern`.
+# Install or update Lectern for you on this Linux machine (x86_64, systemd), in ~/.lectern,
+# as your own service (systemctl --user). No sudo.
 #
 #   ./install.sh            (from a copy of the repository, or from a package)
 #
-# Run it as yourself. In a working copy of the repository it builds the app from it first
-# (the web UI, then the wheel; that needs Node.js), as you, never as root. In a package
-# (packaging/make_package.sh) the wheel is already there. Then it asks for sudo once and does
-# the system part. nginx and the public address are yours to set up afterwards; it says how.
+# In a working copy of the repository it builds the app from it first (the web UI, then the
+# wheel; that needs Node.js). In a package (packaging/make_package.sh) the wheel is already
+# there. nginx and the public address are yours to set up afterwards; it says how.
 # A wheel can also be given: ./install.sh lectern_ai-<version>-py3-none-any.whl
 #
-# - uv (pinned, checksum checked) and a Python 3.12 that uv manages live in /opt/lectern;
-#   the system's Python and any uv of yours are never touched.
-# - Each install goes into /opt/lectern/versions/<version>-<time>-<pid>; /opt/lectern/venv points
-#   at the one in use, and only moves once an install has fully succeeded. A failed upgrade
-#   leaves the running version as it was. Once the new version answers on /health, the one
-#   before it is kept (to go back to) and older ones are removed.
-# - Data (models, projects): /var/lib/lectern. Settings: /etc/lectern/lectern.env, written
-#   only when it doesn't exist, so your edits survive upgrades.
-# - Runs again safely: an update is the same command from the newer copy or package. The
-#   database, models, projects and settings stay; the new code replaces the old (even a fix
-#   built with the same version number: Lectern's wheel is never taken from uv's cache), and
-#   the database is migrated forward when the new version starts.
+#   ~/.lectern/src          where the README says to clone (any copy works)
+#   ~/.lectern/app          uv (pinned, checksum checked), its Python 3.12, the installed code
+#   ~/.lectern/data         Lectern's data (LECTERN_HOME): the database, models, projects, token
+#   ~/.lectern/lectern.env  settings, written only when missing, so your edits survive updates
+#   ~/.config/systemd/user/lectern.service
 #
-# LECTERN_INSTALL_ROOT (tests only) prefixes every path; LECTERN_UV_BIN uses a uv you
-# already have instead of downloading one; LECTERN_HEALTH_WAIT is how many seconds to wait
-# for the service to answer (60).
+# - Each install goes into app/versions/<version>-<time>-<pid>; app/venv points at the one
+#   in use, and only moves once an install has fully succeeded. A failed install leaves the
+#   running version as it was. Once the new version answers on /health, the one before it
+#   is kept (to go back to) and older ones are removed.
+# - An update is the same command from the newer copy or package (git pull && ./install.sh).
+#   The data and settings stay; the new code replaces the old (even a fix built with the
+#   same version number: Lectern's wheel is never taken from uv's cache), and the database
+#   is migrated forward when the new version starts.
+#
+# LECTERN_DIR moves ~/.lectern; LECTERN_UV_BIN uses a uv you already have instead of
+# downloading one; LECTERN_HEALTH_WAIT is how many seconds to wait for the service to
+# answer (60); LECTERN_DRI (tests) is where the GPU's render nodes are looked for.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=packaging/pins.sh
 . "$here/../pins.sh" 2>/dev/null || . "$here/pins.sh"
 
-root="${LECTERN_INSTALL_ROOT:-}"
-prefix="$root/opt/lectern"
-etc="$root/etc/lectern"
-data="$root/var/lib/lectern"
-units="$root/etc/systemd/system"
-
 die() { echo "install.sh: $*" >&2; exit 1; }
+user="${USER:-$(id -un)}"  # not every shell sets USER (su, cron)
+
+[ "$(id -u)" -ne 0 ] || die "run it as yourself, not as root or with sudo: Lectern installs \
+into your home folder (~/.lectern) and runs as your own service."
+[ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] \
+    || die "this installer is for Linux on x86_64; this is $(uname -s) $(uname -m)."
+command -v systemctl >/dev/null || die "systemd (systemctl) is needed."
+systemctl --user show-environment >/dev/null 2>&1 || die "there's no systemctl --user \
+session here. Log in as yourself directly (ssh, or the desktop), not through su or sudo; \
+or: sudo machinectl shell $user@"
+
+dir="${LECTERN_DIR:-$HOME/.lectern}"
+# It goes into the unit's ExecStart (split on spaces) and through sed: plain paths only.
+case "$dir" in
+    /*) ;;
+    *) die "the install folder must be an absolute path: $dir" ;;
+esac
+case "$dir" in
+    *[!A-Za-z0-9._/+@-]*) die "the install folder can't hold spaces or special characters: \"$dir\" (LECTERN_DIR)" ;;
+esac
+app="$dir/app"
+data="$dir/data"
+settings="$dir/lectern.env"
+units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 # uv, pinned and checksum-checked, into $1/uv (unless it's already that version).
 fetch_uv() {
-    local dir="$1" tmp got
-    if [ -x "$dir/uv" ] && [ "$("$dir/uv" --version 2>/dev/null | cut -d' ' -f2)" = "$UV_VERSION" ]; then
+    local to="$1" tmp got
+    if [ -x "$to/uv" ] && [ "$("$to/uv" --version 2>/dev/null | cut -d' ' -f2)" = "$UV_VERSION" ]; then
         return
     fi
     echo "Getting uv $UV_VERSION…"
-    mkdir -p "$dir"
+    mkdir -p "$to"
     tmp="$(mktemp -d)"
     curl -fsSL "${LECTERN_UV_URL:-$UV_LINUX_X86_64_URL}" -o "$tmp/uv.tar.gz" \
         || { rm -rf "$tmp"; die "couldn't download uv (is the network up?)."; }
@@ -56,7 +76,7 @@ fetch_uv() {
         die "uv's checksum is wrong ($got); not installing it."
     fi
     tar -xzf "$tmp/uv.tar.gz" -C "$tmp"
-    install -m 0755 "$tmp"/uv-*/uv "$dir/uv"
+    install -m 0755 "$tmp"/uv-*/uv "$to/uv"
     rm -rf "$tmp"
 }
 
@@ -64,25 +84,25 @@ fetch_uv() {
 # shellcheck disable=SC2012
 newest() { { ls -t "$@" 2>/dev/null || true; } | head -1; }  # a glob with no match: ""
 
+# --- uv ---------------------------------------------------------------------------------
+if [ -n "${LECTERN_UV_BIN:-}" ]; then
+    uv="$LECTERN_UV_BIN"
+else
+    fetch_uv "$app/bin"
+    uv="$app/bin/uv"
+fi
+
+# --- the wheel --------------------------------------------------------------------------
 wheel="${1:-}"
 top="$(cd "$here/../.." && pwd)"  # the working copy's root, or the package's
 if [ -z "$wheel" ]; then
     if [ -f "$top/pyproject.toml" ] && [ -d "$top/web" ]; then
-        # A working copy: build its wheel as yourself (it writes node_modules and dist here).
-        if [ -z "$root" ] && [ "$(id -u)" -eq 0 ]; then
-            die "run it as yourself, without sudo: it builds the app from this working copy first, then asks for sudo."
-        fi
+        # A working copy: build its wheel (it writes node_modules and dist here).
         command -v "${LECTERN_NPM:-npm}" >/dev/null || die "building the web UI needs Node.js (npm): \
 sudo dnf install nodejs (Fedora) or sudo apt install nodejs npm (Debian/Ubuntu). Or copy a \
 package made with packaging/make_package.sh, which needs none."
-        if [ -n "${LECTERN_UV_BIN:-}" ]; then
-            build_uv_dir="$(dirname "$LECTERN_UV_BIN")"
-        else
-            build_uv_dir="${XDG_CACHE_HOME:-$HOME/.cache}/lectern-install"
-            fetch_uv "$build_uv_dir"
-        fi
         echo "Building Lectern from $top…"
-        PATH="$build_uv_dir:$PATH" "$top/packaging/build_wheel.sh" >/dev/null \
+        PATH="$(dirname "$uv"):$PATH" "$top/packaging/build_wheel.sh" >/dev/null \
             || die "building the app failed (see above)."
         wheel="$(newest "$top"/dist/lectern_ai-*.whl)"
     else
@@ -98,45 +118,17 @@ esac
 wheel="$(cd "$(dirname "$wheel")" && pwd)/$(basename "$wheel")"
 version="$(basename "$wheel" | cut -d- -f2)"
 
-if [ -z "$root" ]; then
-    [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] \
-        || die "this installer is for Linux on x86_64; this is $(uname -s) $(uname -m)."
-    if [ "$(id -u)" -ne 0 ]; then
-        echo "Now the system part (the lectern user, /opt/lectern, the service): sudo asks for your password."
-        exec sudo "$0" "$wheel"
-    fi
-fi
-command -v systemctl >/dev/null || die "systemd (systemctl) is needed."
-
 if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
     echo "NVIDIA GPU found: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"
 else
     echo "No NVIDIA driver found: Lectern will use Vulkan if present, else the CPU (slow)."
 fi
 
-mkdir -p "$prefix/bin" "$prefix/versions" "$etc" "$data" "$units"
-
-# --- uv ---------------------------------------------------------------------------------
-uv="$prefix/bin/uv"
-if [ -n "${LECTERN_UV_BIN:-}" ]; then
-    uv="$LECTERN_UV_BIN"
-else
-    fetch_uv "$prefix/bin"
-fi
-
-# --- the user ---------------------------------------------------------------------------
-if ! getent passwd lectern >/dev/null; then
-    useradd --system --home-dir /var/lib/lectern --no-create-home \
-        --shell /usr/sbin/nologin lectern
-fi
-for group in video render; do  # the GPU's device files
-    if getent group "$group" >/dev/null; then usermod -aG "$group" lectern; fi
-done
-chown lectern:lectern "$data"
+mkdir -p "$app/versions" "$dir/bin" "$data" "$units"
 
 # --- the app ----------------------------------------------------------------------------
-export UV_PYTHON_INSTALL_DIR="$prefix/python" UV_CACHE_DIR="$prefix/cache" UV_NO_CONFIG=1
-target="$prefix/versions/$version-$(date +%Y%m%d%H%M%S)-$$"  # $$: two runs in a second
+export UV_PYTHON_INSTALL_DIR="$app/python" UV_CACHE_DIR="$app/cache" UV_NO_CONFIG=1
+target="$app/versions/$version-$(date +%Y%m%d%H%M%S)-$$"  # $$: two runs in a second
 echo "Installing Lectern $version…"
 if ! { "$uv" venv --quiet --python 3.12 "$target" \
        && "$uv" pip install --quiet --refresh-package lectern-ai \
@@ -144,47 +136,47 @@ if ! { "$uv" venv --quiet --python 3.12 "$target" \
     rm -rf "$target"
     die "installing Lectern $version failed (see above); the version in use is unchanged."
 fi
-previous="$(readlink "$prefix/venv" 2>/dev/null || true)"
+previous="$(readlink "$app/venv" 2>/dev/null || true)"
 # Switched in one step (GNU mv -T renames over the old link), so the service never sees none.
-ln -sfn "$target" "$prefix/venv.next"
-if ! mv -T "$prefix/venv.next" "$prefix/venv" 2>/dev/null; then
-    rm -f "$prefix/venv" "$prefix/venv.next"  # BSD mv (the tests on macOS)
-    ln -s "$target" "$prefix/venv"
+ln -sfn "$target" "$app/venv.next"
+if ! mv -T "$app/venv.next" "$app/venv" 2>/dev/null; then
+    rm -f "$app/venv" "$app/venv.next"  # BSD mv (the tests on macOS)
+    ln -s "$target" "$app/venv"
 fi
-# The way to the access link: Lectern's settings loaded, as the lectern user (it owns the
-# token): sudo -u lectern /opt/lectern/bin/lectern-url
-cat > "$prefix/bin/lectern-url" <<'URL'
+
+# The way to the access link, with Lectern's settings loaded: ~/.lectern/bin/lectern-url
+cat > "$dir/bin/lectern-url" <<URL
 #!/bin/sh
 set -a
-. /etc/lectern/lectern.env
+. "$settings"
 set +a
-exec /opt/lectern/venv/bin/lectern url --port "${LECTERN_PORT:-8765}"
+exec "$app/venv/bin/lectern" url --port "\${LECTERN_PORT:-8765}"
 URL
-chmod 0755 "$prefix/bin/lectern-url"
+chmod 0755 "$dir/bin/lectern-url"
 
 # --- settings and the service -------------------------------------------------------------
-if [ ! -f "$etc/lectern.env" ]; then
-    cat > "$etc/lectern.env" <<ENV
-# Lectern's settings (read by the lectern service). Restart after a change:
-#   sudo systemctl restart lectern
-LECTERN_HOME=/var/lib/lectern
+if [ ! -f "$settings" ]; then
+    cat > "$settings" <<ENV
+# Lectern's settings (read by its service). Restart after a change:
+#   systemctl --user restart lectern
+LECTERN_HOME=$data
 LECTERN_PORT=8765
 # The address nginx serves Lectern at, e.g. http://lectern.lan (comma-separate several).
 LECTERN_PUBLIC_URL=
 ENV
 fi
-install -m 0644 "$here/lectern.service" "$units/lectern.service"
-systemctl daemon-reload
-if [ -n "$previous" ] && systemctl is-active --quiet lectern; then
-    systemctl restart lectern
+sed "s|@LECTERN_DIR@|$dir|g" "$here/lectern.service" > "$units/lectern.service"
+systemctl --user daemon-reload
+if [ -n "$previous" ] && systemctl --user is-active --quiet lectern; then
+    systemctl --user restart lectern
     started="Upgraded to Lectern $version and restarted it."
 else
-    systemctl enable --now lectern
+    systemctl --user enable --now lectern
     started="Lectern $version is installed and running."
 fi
 
 # Only a version that answers counts as installed. Until then nothing older is deleted.
-port="$(sed -n 's/^LECTERN_PORT=//p' "$etc/lectern.env" | tail -1)"
+port="$(sed -n 's/^LECTERN_PORT=//p' "$settings" | tail -1)"
 port="${port:-8765}"
 echo "Waiting for Lectern to answer on 127.0.0.1:$port…"
 up=""
@@ -193,27 +185,48 @@ for _ in $(seq "${LECTERN_HEALTH_WAIT:-60}"); do
     sleep 1
 done
 if [ -z "$up" ]; then
-    echo "install.sh: Lectern $version didn't start; see: journalctl -u lectern -n 50" >&2
+    echo "install.sh: Lectern $version didn't start; see: journalctl --user -u lectern -n 50" >&2
     if [ -n "$previous" ] && [ -d "$previous" ]; then
         echo "The previous version is kept in $previous. To go back to it:" >&2
-        echo "  sudo ln -sfn $previous $prefix/venv && sudo systemctl restart lectern" >&2
+        echo "  ln -sfn $previous $app/venv && systemctl --user restart lectern" >&2
         echo "(only if the new version hasn't migrated the database yet: the log says)" >&2
     fi
     exit 1
 fi
 echo "$started"
 # The new version works: keep it and the one before it (to go back to), drop the rest.
-for old in "$prefix"/versions/*; do
+for old in "$app"/versions/*; do
     [ "$old" = "$target" ] || [ "$old" = "$previous" ] || rm -rf "$old"
 done
 
+# --- starting at boot, and the GPU --------------------------------------------------------
+# A user service runs only while you're logged in, unless lingering is on.
+if [ "$(loginctl show-user "$user" -p Linger --value 2>/dev/null || true)" != yes ]; then
+    # Never a password prompt halfway through: when polkit wants an admin, print the line.
+    if ! loginctl --no-ask-password enable-linger 2>/dev/null; then
+        echo
+        echo "To start Lectern at boot, without logging in, run once:"
+        echo "  sudo loginctl enable-linger $user"
+    fi
+fi
+# Vulkan (and the GPU when nobody is at the screen) needs the render group.
+if compgen -G "${LECTERN_DRI:-/dev/dri}/renderD*" >/dev/null \
+    && ! id -nG | tr ' ' '\n' | grep -qx render; then
+    echo
+    echo "To let Lectern use the GPU's render node when you're not at the screen, run once,"
+    echo "then reboot (logging out isn't enough: with lingering, your services keep running"
+    echo "with the groups they started with):"
+    echo "  sudo usermod -aG render,video $user"
+fi
+
 cat <<NEXT
 
-Lectern runs on this machine at http://127.0.0.1:8765 (LECTERN_PORT in lectern.env).
-The link with its access token:  sudo -u lectern /opt/lectern/bin/lectern-url
+Lectern runs on this machine at http://127.0.0.1:$port (LECTERN_PORT in $settings).
+The link with its access token:  $dir/bin/lectern-url
+Update: git pull && ./install.sh   Logs: journalctl --user -u lectern
 
 To reach it from your network (by hand, see README "Install on a Linux server"):
-  1. Put the address you'll use in /etc/lectern/lectern.env (LECTERN_PUBLIC_URL=http://<name>),
-     then: sudo systemctl restart lectern
+  1. Put the address you'll use in $settings (LECTERN_PUBLIC_URL=http://<name>),
+     then: systemctl --user restart lectern
   2. Add the nginx site: packaging/linux/nginx-lectern.conf
 NEXT
