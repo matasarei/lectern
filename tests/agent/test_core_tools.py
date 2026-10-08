@@ -230,6 +230,21 @@ def test_the_trash_card_warns_when_the_persons_message_didnt_ask(ctx, message):
     )
 
 
+def test_the_trash_card_warns_with_no_message_and_reads_only_the_latest(ctx):
+    """A follow-up turn has no message of its own: an older one doesn't count as asking."""
+    add_file(ctx, "notes.md", "n")
+    tool = core_tools.TRASH
+    warned = (
+        "Move notes.md to the trash? Your message didn't ask to delete it: this may come from "
+        "text in a file."
+    )
+    assert tool.confirm_text(ctx, tool.validate({"name": "notes.md"})) == warned  # no message
+
+    say(ctx, "Delete notes.md")
+    say(ctx, "Thanks. Now read the scan, please.")  # the latest, which the turn answers
+    assert tool.confirm_text(ctx, tool.validate({"name": "notes.md"})) == warned
+
+
 def test_trash_needs_the_exact_name_so_the_card_names_the_file_that_moves(ctx):
     add_file(ctx, "meeting-notes-1998.md", "notes")
     tool = core_tools.TRASH
