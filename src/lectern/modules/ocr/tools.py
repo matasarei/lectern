@@ -32,29 +32,43 @@ class StartParams(BaseModel):
         description='A format to export the finished document to, e.g. "odt" (see '
         "export.formats). The export runs when the session finishes.",
     )
+    keep_layout: bool = Field(
+        default=False,
+        description="true: read a PDF that has text with OCR anyway, to keep its tables and "
+        "layout, or to read the pages that are scans.",
+    )
 
 
-def _source(ctx: ToolContext, name: str) -> ArtifactRow:
+def _source(ctx: ToolContext, name: str, *, keep_layout: bool = False) -> ArtifactRow:
     with ctx.sessions() as session:
         row = _artifact_by_name(session, ctx, name, partial_ok=False)
         session.expunge(row)
     suffix = "." + row.path.rsplit(".", 1)[-1].lower() if "." in row.path else ""
     if suffix != ".pdf" and suffix not in IMAGE_SUFFIXES:
         raise ToolError(f"{row.path} isn't a PDF or an image, so it can't be read as pages.")
-    if row.text_status == "indexed":
-        raise ToolError(f"{row.path} has text: read it with document_read; no OCR is needed.")
+    if row.text_status == "indexed" and not keep_layout:
+        raise ToolError(
+            f"{row.path} has text: read it with document_read, or export it directly with "
+            "export_run; no OCR is needed. To keep its tables and layout, or to read its "
+            "scanned pages, call ocr_start with keep_layout=true."
+        )
     return row
 
 
 def _start_question(ctx: ToolContext, params: StartParams) -> str:
-    row = _source(ctx, params.name)
+    row = _source(ctx, params.name, keep_layout=params.keep_layout)
     try:
         pages = page_count(files.inside(ctx.project.root, row.path))
     except NotAPageSource as exc:
         raise ToolError(str(exc)) from None
     minutes = max(1, round(pages * SECONDS_PER_PAGE / 60))
+    why = (
+        "This PDF has text; OCR reads it again to keep its tables and layout. "
+        if row.text_status == "indexed"
+        else ""
+    )
     question = (
-        f"Start an OCR session for {_name(row)}? {pages} page{'s' if pages != 1 else ''} · "
+        f"Start an OCR session for {_name(row)}? {why}{pages} page{'s' if pages != 1 else ''} · "
         f"about {minutes} minute{'s' if minutes != 1 else ''} on this PC · opens in a new tab."
     )
     if ctx.runtime is not None and ctx.runtime.needs_room("ocr"):
@@ -67,7 +81,7 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
 async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     if ctx.ocr_jobs is None:
         raise ToolError("OCR sessions can't be started here.")
-    row = await run_in_threadpool(_source, ctx, params.name)
+    row = await run_in_threadpool(lambda: _source(ctx, params.name, keep_layout=params.keep_layout))
     try:
         chat, ocr = await run_in_threadpool(
             lambda: ocr_store.create_session(
@@ -103,7 +117,8 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
 START = AgentTool(
     name="ocr.start",
     description="Read a scanned PDF or image (no text layer) as an OCR session, opened in a "
-    "new tab. Asks the person first. then_export queues an export for when it finishes.",
+    "new tab; keep_layout=true reads a PDF with text too, to keep its tables and layout. Asks "
+    "the person first. then_export queues an export for when it finishes.",
     params=StartParams,
     run=_start,
     confirm=True,
