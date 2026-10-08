@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import shutil
 import subprocess
 import zipfile
@@ -151,6 +152,18 @@ def test_without_a_user_session_it_says_how_to_get_one(tmp_path):
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
     assert done.returncode == 1 and "systemctl --user" in done.stderr
     assert "machinectl shell" in done.stderr
+
+
+def test_without_user_set_it_still_names_you(tmp_path):
+    env = _env(tmp_path)
+    del env["USER"]
+    (tmp_path / "state/nobus").touch()
+    done = subprocess.run(  # noqa: S603
+        ["bash", str(LINUX / "install.sh"), str(_wheel(tmp_path, "0.1.0"))],  # noqa: S607
+        env=env, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert done.returncode == 1 and "unbound variable" not in done.stderr
+    assert f"machinectl shell {getpass.getuser()}@" in done.stderr
 
 
 def test_lingering_is_turned_on_so_it_starts_at_boot(tmp_path):

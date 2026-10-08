@@ -34,6 +34,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/../pins.sh" 2>/dev/null || . "$here/pins.sh"
 
 die() { echo "install.sh: $*" >&2; exit 1; }
+user="${USER:-$(id -un)}"  # not every shell sets USER (su, cron)
 
 [ "$(id -u)" -ne 0 ] || die "run it as yourself, not as root or with sudo: Lectern installs \
 into your home folder (~/.lectern) and runs as your own service."
@@ -42,7 +43,7 @@ into your home folder (~/.lectern) and runs as your own service."
 command -v systemctl >/dev/null || die "systemd (systemctl) is needed."
 systemctl --user show-environment >/dev/null 2>&1 || die "there's no systemctl --user \
 session here. Log in as yourself directly (ssh, or the desktop), not through su or sudo; \
-or: sudo machinectl shell $USER@"
+or: sudo machinectl shell $user@"
 
 dir="${LECTERN_DIR:-$HOME/.lectern}"
 app="$dir/app"
@@ -192,12 +193,12 @@ done
 
 # --- starting at boot, and the GPU --------------------------------------------------------
 # A user service runs only while you're logged in, unless lingering is on.
-if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || true)" != yes ]; then
+if [ "$(loginctl show-user "$user" -p Linger --value 2>/dev/null || true)" != yes ]; then
     # Never a password prompt halfway through: when polkit wants an admin, print the line.
     if ! loginctl --no-ask-password enable-linger 2>/dev/null; then
         echo
         echo "To start Lectern at boot, without logging in, run once:"
-        echo "  sudo loginctl enable-linger $USER"
+        echo "  sudo loginctl enable-linger $user"
     fi
 fi
 # Vulkan (and the GPU when nobody is at the screen) needs the render group.
@@ -207,7 +208,7 @@ if compgen -G "${LECTERN_DRI:-/dev/dri}/renderD*" >/dev/null \
     echo "To let Lectern use the GPU's render node when you're not at the screen, run once,"
     echo "then reboot (logging out isn't enough: with lingering, your services keep running"
     echo "with the groups they started with):"
-    echo "  sudo usermod -aG render,video $USER"
+    echo "  sudo usermod -aG render,video $user"
 fi
 
 cat <<NEXT
