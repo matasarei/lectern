@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
 import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall } from "../api/types";
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
-import { FileList, listKey, matchingFiles } from "./file-picker";
+import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
 import { formatTokens } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
 import { modelWaitText } from "../status";
@@ -42,6 +42,7 @@ export function ChatTab({
   // where the "@" is, so the "@name" text goes when a file is chosen).
   const [pick, setPick] = useState<{ query: string; start: number | null } | null>(null);
   const [active, setActive] = useState(0);
+  const listId = useId();
   const items = useQuery({
     queryKey: ["items", projectId],
     queryFn: () => apiFetch<ProjectItems>(`/api/projects/${projectId}/items`),
@@ -95,6 +96,16 @@ export function ChatTab({
     }
     setPick(null);
   };
+  // The field the list belongs to names it and its active option, for screen readers.
+  const listAria = (open: boolean) =>
+    open
+      ? {
+          "aria-controls": listId,
+          "aria-expanded": true,
+          "aria-autocomplete": "list" as const,
+          "aria-activedescendant": choices[active] ? optionId(listId, choices[active]) : undefined,
+        }
+      : {};
   const onListKey = (key: string) =>
     pick !== null && listKey(key, choices, active, setActive, choose, () => setPick(null));
 
@@ -163,6 +174,7 @@ export function ChatTab({
           rows={2}
           className="w-full resize-none bg-transparent text-sm outline-none"
           value={text}
+          {...listAria(pick?.start != null)}
           onChange={(e) => {
             setText(e.target.value);
             // "@" at the start or after a space opens the list; what follows filters it.
@@ -194,6 +206,7 @@ export function ChatTab({
                 placeholder={t("chat.pickerSearch")}
                 className="rounded-md border border-line bg-paper px-2 py-1 text-sm"
                 value={pick.query}
+                {...listAria(true)}
                 onChange={(e) => {
                   setPick({ query: e.target.value, start: null });
                   setActive(0);
@@ -203,7 +216,13 @@ export function ChatTab({
                 }}
               />
             )}
-            <FileList files={choices} active={active} onPick={choose} loading={items.isPending} />
+            <FileList
+              id={listId}
+              files={choices}
+              active={active}
+              onPick={choose}
+              loading={items.isPending}
+            />
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">

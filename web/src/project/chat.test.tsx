@@ -407,9 +407,16 @@ describe("Adding files already in the project", () => {
     await screen.findAllByRole("option"); // the project's three files
     fireEvent.keyDown(box(), { key: "ArrowDown" });
     expect(screen.getByRole("option", { selected: true }).textContent).toBe("lease-1998.docx");
+    // A screen reader follows the active option: the box names the list and the option.
+    const listId = screen.getByRole("listbox").id;
+    expect(box().getAttribute("aria-controls")).toBe(listId);
+    expect(box().getAttribute("aria-activedescendant")).toBe(
+      screen.getByRole("option", { selected: true }).id,
+    );
     fireEvent.keyDown(box(), { key: "Escape" });
 
     expect(screen.queryByRole("listbox")).toBeNull();
+    expect(box().getAttribute("aria-activedescendant")).toBeNull();
     expect((box() as HTMLTextAreaElement).value).toBe("@");
   });
 

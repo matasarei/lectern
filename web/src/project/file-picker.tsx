@@ -17,11 +17,13 @@ export function matchingFiles(files: Artifact[], query: string, exclude: number[
  * keyboard stays where the person types (the box, or the picker's search field), so the
  * list only shows which one is active and takes clicks. */
 export function FileList({
+  id,
   files,
   active,
   onPick,
   loading,
 }: {
+  id: string;
   files: Artifact[];
   active: number;
   onPick: (file: Artifact) => void;
@@ -30,6 +32,7 @@ export function FileList({
   const { t } = useTranslation();
   return (
     <ul
+      id={id}
       role="listbox"
       aria-label={t("chat.pickerLabel")}
       className="grid max-h-56 overflow-y-auto rounded-md border border-line bg-surface text-sm shadow"
@@ -42,6 +45,7 @@ export function FileList({
       {files.map((file, i) => (
         <li
           key={file.id}
+          id={optionId(id, file)}
           role="option"
           aria-selected={i === active}
           className={`cursor-pointer px-3 py-1.5 ${i === active ? "bg-paper" : ""}`}
@@ -56,6 +60,11 @@ export function FileList({
       ))}
     </ul>
   );
+}
+
+/** The id of a file's option in the list, for aria-activedescendant on the field. */
+export function optionId(listId: string, file: Artifact): string {
+  return `${listId}-${file.id}`;
 }
 
 /** Arrow keys, Enter and Escape on whichever field the list belongs to. Returns true when the
