@@ -271,11 +271,13 @@ class OcrJobs:
                 self._pausing.discard(queued.key)
                 self._pause_signal(queued.key).clear()
                 self._only.pop(queued.key, None)
-            await self._tell(queued.project, queued.key[1])
+            await self.tell(queued.project, queued.key[1])
 
-    async def _tell(self, project: Project, session_id: int) -> None:
-        """A job ended done or failed: tell `on_status` (the chat's follow-ups), with a line
-        saying what happened. A paused one isn't over, so it says nothing."""
+    async def tell(self, project: Project, session_id: int) -> None:
+        """A job ended done or failed, or its Document changed (a question answered): tell
+        `on_status` (the chat's follow-ups), with a line saying where it stands. A follow-up
+        waiting for the Document to be clear runs once it is. A paused or running session
+        isn't over, so it says nothing."""
         if self.on_status is None:
             return
 
