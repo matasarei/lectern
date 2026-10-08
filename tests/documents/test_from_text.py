@@ -58,3 +58,19 @@ def test_plain_text_is_paragraphs_split_on_blank_lines():
 def test_empty_text_is_an_empty_document():
     assert parse_markdown("e", "").blocks == [] and parse_text("e", "  \n").blocks == []
     assert "document: e" in render_markdown(parse_text("e", ""))
+
+
+def test_pages_become_a_document_with_the_pdfs_page_numbers():
+    from lectern.documents.from_text import parse_pages
+
+    statement = "Date Amount\n06.10 -12,50\n07.10 +100,00"
+    doc = parse_pages(
+        "statement", ["Account 123\n\nOpening balance", "", statement], source="statement.pdf"
+    )
+
+    assert doc.source.artifact == "statement.pdf" and doc.source.pages == 3
+    assert [(p.n, p.blocks) for p in doc.pages] == [(1, ["b1.1", "b1.2"]), (2, []), (3, ["b3.1"])]
+    assert [(b.id, b.page, b.type) for b in doc.blocks] == [
+        ("b1.1", 1, "paragraph"), ("b1.2", 1, "paragraph"), ("b3.1", 3, "paragraph"),
+    ]  # fmt: skip
+    assert doc.blocks[2].text == statement  # a statement's rows stay one per line
