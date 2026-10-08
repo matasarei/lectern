@@ -260,6 +260,19 @@ def test_answering_the_last_open_question_tells_whoever_waits_that_its_finished(
     assert heard[-1] == "OCR · lease-scan.pdf finished · 3 pages."
 
 
+def test_an_answer_is_kept_even_when_telling_whoever_waits_fails(api):
+    client, headers, app, *_ = api
+    url, _ = _session_with_doubts(api)
+
+    async def broken(project, session_id):  # noqa: ANN001, ANN202
+        raise RuntimeError("the summary couldn't be read")
+
+    app.state.ocr_jobs.tell = broken
+    answered = client.put(f"{url}/doubts/d1.1", json={"value": "15", "action": "accept"},
+                          headers=headers)  # fmt: skip
+    assert answered.status_code == 200 and answered.json()["open_doubts"] == 2
+
+
 def test_a_doubt_is_accepted_edited_and_reopened_each_a_new_version(api):
     client, headers, *_ = api
     url, _ = _session_with_doubts(api)
