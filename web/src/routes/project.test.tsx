@@ -111,6 +111,29 @@ describe("Project tabs", () => {
   });
 });
 
+describe("The tab bar for assistive tech", () => {
+  it("holds only tabs: the + sits beside it, and the × buttons stay out of the way", async () => {
+    renderAt("/projects/1");
+    const bar = await screen.findByRole("tablist");
+    expect(within(bar).queryAllByRole("button")).toEqual([]); // role queries skip aria-hidden
+    expect(within(bar).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Overview", "Payment terms"]);
+    expect(screen.getByLabelText("Close Payment terms").getAttribute("tabindex")).toBe("-1");
+    expect(within(bar).queryByRole("button", { name: "New chat" })).toBeNull();
+  });
+
+  it("closes a tab with Delete, but not Overview", async () => {
+    renderAt("/projects/1");
+    const overview = await screen.findByRole("tab", { name: "Overview" });
+    fireEvent.keyDown(overview, { key: "Delete" });
+    const chat = screen.getByRole("tab", { name: "Payment terms" });
+    expect(chat.getAttribute("aria-keyshortcuts")).toBe("Delete");
+    expect(overview.hasAttribute("aria-keyshortcuts")).toBe(false);
+    fireEvent.keyDown(chat, { key: "Delete" });
+    await waitFor(() => expect(puts.at(-1)).toEqual({ open: [], active: null }));
+    expect(puts).toHaveLength(1); // Delete on Overview did nothing
+  });
+});
+
 describe("The + in the tab bar", () => {
   it("creates a chat and opens it as the active tab", async () => {
     renderAt("/projects/1");
@@ -130,7 +153,7 @@ describe("The + in the tab bar", () => {
     sessionsFail = true;
     savedTabs = { open: [{ kind: "session", id: 1 }], active: null }; // on Overview: no chat to load
     renderAt("/projects/1");
-    const bar = await screen.findByRole("tablist"); // Overview has a "New chat" of its own
+    const bar = await screen.findByRole("navigation"); // Overview has a "New chat" of its own
     fireEvent.click(within(bar).getByRole("button", { name: "New chat" }));
 
     expect(await screen.findByText("The disk is full.")).toBeTruthy();
