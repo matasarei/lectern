@@ -14,6 +14,13 @@ if [ "$(id -u)" -eq 0 ]; then
     exit 1
 fi
 
+# Without the user session the service can't be stopped, and its files mustn't go under it.
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+    echo "uninstall.sh: there's no systemctl --user session here. Log in as yourself directly" >&2
+    echo "(ssh, or the desktop), not through su or sudo." >&2
+    exit 1
+fi
+
 dir="${LECTERN_DIR:-$HOME/.lectern}"
 unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lectern.service"
 

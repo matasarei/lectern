@@ -278,6 +278,15 @@ def test_uninstall_keeps_the_data_unless_purged(tmp_path):
     assert (home / "src").exists()  # the copy it may be running from
 
 
+def test_uninstall_without_a_user_session_removes_nothing(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    (tmp_path / "state/nobus").touch()
+    done = _install(tmp_path, Path("-"), script="uninstall.sh")
+    assert done.returncode == 1 and "systemctl --user" in done.stderr
+    assert (_home(tmp_path) / "app/venv").exists()
+    assert (tmp_path / "home/.config/systemd/user/lectern.service").exists()
+
+
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
 def test_the_scripts_pass_shellcheck():
     scripts = [
