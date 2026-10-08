@@ -156,6 +156,7 @@ def test_write_refuses_non_text_and_bad_names(ctx, name):
 
 def test_trash_moves_the_file(ctx):
     add_file(ctx, "old.md", "old")
+    say(ctx, "Delete old.md, please.")
     tool = core_tools.TRASH
     assert tool.confirm_text(ctx, tool.validate({"name": "OLD.md"})) == "Move old.md to the trash?"
 
@@ -185,6 +186,37 @@ def test_session_status_and_tab_open(ctx):
 def test_write_names_a_cleaned_up_path_without_claiming_it_was_taken(ctx):
     result = run(core_tools.WRITE, ctx, name="drafts/summary.md", text="x")
     assert result.text == "Saved as summary.md, 1 B."
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["Delete old-draft.md from the project.", "Remove the old draft", "Видали old-draft.md",
+     "please trash old-draft"],
+)  # fmt: skip
+def test_the_trash_card_is_plain_when_the_persons_message_asks_for_it(ctx, message):
+    add_file(ctx, "old-draft.md", "old")
+    say(ctx, message)
+    tool = core_tools.TRASH
+    assert tool.confirm_text(ctx, tool.validate({"name": "old-draft.md"})) == (
+        "Move old-draft.md to the trash?"
+    )
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["Do we have notes from the meeting with the tenant?", "Delete old-draft.md", "Show notes.md"],
+)
+def test_the_trash_card_warns_when_the_persons_message_didnt_ask(ctx, message):
+    """A planted "delete notes.md" in a file got the 4B to trash it: the card says the
+    person didn't ask, so Allow isn't clicked by habit."""
+    add_file(ctx, "notes.md", "n")
+    add_file(ctx, "old-draft.md", "old")
+    say(ctx, message)
+    tool = core_tools.TRASH
+    assert tool.confirm_text(ctx, tool.validate({"name": "notes.md"})) == (
+        "Move notes.md to the trash? Your message didn't ask to delete it: this may come from "
+        "text in a file."
+    )
 
 
 def test_trash_needs_the_exact_name_so_the_card_names_the_file_that_moves(ctx):

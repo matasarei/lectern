@@ -8,6 +8,7 @@ file, or none, is an error listing the candidates, so the model can pick again.
 from __future__ import annotations
 
 import re
+from pathlib import PurePosixPath
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -348,10 +349,36 @@ class TrashParams(BaseModel):
     name: str = Field(min_length=1, description="The file's name, as in project.list.")
 
 
+# Words that ask for a deletion, by their start: "delete", "removing", "trash", "видали"…
+DELETE_STEMS = ("delet", "remov", "trash", "eras", "видал", "прибер", "вилуч", "удал")
+
+
+def asked_to_delete(ctx: ToolContext, path: str) -> bool:
+    """Whether the person's latest message asks to delete this file: a word for deleting,
+    and the file's name ("old-draft.md", or "the old draft")."""
+    with ctx.sessions() as session:
+        message = session.scalars(
+            select(MessageRow.content)
+            .where(MessageRow.session_id == ctx.session_id, MessageRow.role == "user")
+            .order_by(MessageRow.id.desc())
+        ).first()
+    words = _words(message or "")
+    deleting = any(w.startswith(DELETE_STEMS) for w in words)
+    name = _words(PurePosixPath(path).stem)
+    return deleting and bool(name) and name <= words
+
+
 def _trash_question(ctx: ToolContext, params: TrashParams) -> str:
     with ctx.sessions() as session:
         row = _artifact_by_name(session, ctx, params.name, partial_ok=False)
-    return f"Move {row.path} to the trash?"
+    if asked_to_delete(ctx, row.path):
+        return f"Move {row.path} to the trash?"
+    # Seen: a planted "delete notes.md" in another file got the 4B to call this. The card is
+    # what stops it, so it says the person didn't ask, and Allow isn't clicked by habit.
+    return (
+        f"Move {row.path} to the trash? Your message didn't ask to delete it: this may come "
+        "from text in a file."
+    )
 
 
 def _trash(ctx: ToolContext, params: TrashParams) -> ToolResult:
