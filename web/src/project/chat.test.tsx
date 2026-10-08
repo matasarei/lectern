@@ -478,11 +478,13 @@ describe("Adding files already in the project", () => {
     expect((box() as HTMLTextAreaElement).value).toBe("@");
   });
 
-  it("From project lists the files to pick from, and the message is sent with it", async () => {
+  it("@ (a file from the project) lists the files to pick from, and the message is sent with it", async () => {
     renderChat();
     await screen.findByText("Yes: lease.md.");
 
-    fireEvent.click(screen.getByRole("button", { name: "From project" }));
+    const mention = screen.getByRole("button", { name: "Mention a file from the project" });
+    expect(mention.textContent).toBe("@");
+    fireEvent.click(mention);
     fireEvent.change(await screen.findByRole("searchbox", { name: "Find a file" }), {
       target: { value: "notes" },
     });

@@ -13,7 +13,7 @@ export function matchingFiles(files: Artifact[], query: string, exclude: number[
     .slice(0, PICKER_LIMIT);
 }
 
-/** The list a file is picked from, for "From project" and for "@" in the message box. The
+/** The list a file is picked from, for the "@" button and for "@" typed in the message box. The
  * keyboard stays where the person types (the box, or the picker's search field), so the
  * list only shows which one is active and takes clicks. */
 export function FileList({
