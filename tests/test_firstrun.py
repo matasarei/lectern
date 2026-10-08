@@ -62,6 +62,7 @@ def test_cannot_finish_without_the_chat_model(paths):
 
 def test_finishes_once_the_chat_model_is_there(paths):
     client, headers, app = _client(paths)
+    app.state.runtime.engine = FakeEngine(installed=True)  # setup downloads it too now
     client.post("/api/first-run", json={"to": "download"}, headers=headers)
     _fake_downloaded(app, "qwen3.5-4b")
 
@@ -78,3 +79,76 @@ def test_step_survives_a_restart(paths):
     client2, headers2, _ = _client(paths)
 
     assert client2.get("/api/first-run", headers=headers2).json()["step"] == "download"
+
+
+class FakeEngine:
+    """The llama.cpp build, as first-run sees it, without downloading anything."""
+
+    variant = "linux-cuda12"
+
+    def __init__(self, *, installed: bool = False, fail: str | None = None) -> None:
+        self._installed = installed
+        self.fail = fail
+        self.installs = 0
+
+    def installed(self) -> bool:
+        return self._installed
+
+    def size(self) -> int:
+        return 0 if self._installed else 400
+
+    async def install(self) -> None:
+        self.installs += 1
+        if self.fail:
+            raise RuntimeError(self.fail)
+        self._installed = True
+
+
+def _with_engine(paths, engine):  # noqa: ANN001, ANN202
+    app = create_app(paths)
+    app.state.runtime.engine = engine
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+    return app, headers
+
+
+def test_first_run_downloads_the_engine_once_and_reports_it(paths):
+    engine = FakeEngine()
+    app, headers = _with_engine(paths, engine)
+
+    with TestClient(app, base_url=BASE) as client:
+        before = client.get("/api/first-run", headers=headers).json()["engine"]
+        client.post("/api/first-run/engine", headers=headers)
+        client.post("/api/first-run/engine", headers=headers)  # a second click: not twice
+        after = client.get("/api/first-run", headers=headers).json()["engine"]
+
+    assert before == {"variant": "linux-cuda12", "status": "none", "bytes_done": 0,
+                      "bytes_total": 400, "error": None}  # fmt: skip
+    assert after["status"] == "done"
+    assert engine.installs == 1
+
+
+def test_a_failed_engine_download_says_why_and_can_be_tried_again(paths):
+    engine = FakeEngine(fail="no network")
+    app, headers = _with_engine(paths, engine)
+
+    with TestClient(app, base_url=BASE) as client:
+        client.post("/api/first-run/engine", headers=headers)
+        failed = client.get("/api/first-run", headers=headers).json()["engine"]
+        engine.fail = None
+        client.post("/api/first-run/engine", headers=headers)
+        again = client.get("/api/first-run", headers=headers).json()["engine"]
+
+    assert (failed["status"], failed["error"]) == ("failed", "no network")
+    assert again["status"] == "done" and engine.installs == 2
+
+
+def test_cannot_finish_without_the_engine(paths):
+    app, headers = _with_engine(paths, FakeEngine())
+    client = TestClient(app, base_url=BASE)
+    client.post("/api/first-run", json={"to": "download"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-4b")
+
+    response = client.post("/api/first-run", json={"to": "done"}, headers=headers)
+
+    assert response.status_code == 409 and "engine" in response.json()["detail"]
+    assert client.get("/api/first-run", headers=headers).json()["can_finish"] is False

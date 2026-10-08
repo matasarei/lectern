@@ -29,6 +29,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
+from typing import Any
 
 import httpx2
 
@@ -110,6 +111,7 @@ class ModelRuntime:
         # What a wait is for, when it isn't a model in use: the engine downloading, or a model
         # loading. Shown in the chat, the OCR tab and Models & memory.
         self.activity: dict | None = None
+        self.engine: Any = None  # wiring.Engine: the llama.cpp build, for first-run to fetch
         self._loading: dict | None = None  # what activity goes back to after the engine
         # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
         # waits out the idle window only for a message sent after the job started.

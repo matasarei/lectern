@@ -226,15 +226,26 @@ class InstallingLlamaCppRunner:
         self.on_progress = on_progress
 
     async def start(self, spec: RunnerSpec) -> LlamaCppHandle:
-        total = self.installer.size(self.variant)
-        done = reported = 0
-
-        def on_bytes(n: int) -> None:
-            nonlocal done, reported
-            done = max(0, done + n)  # negative: a resumed file was restarted
-            if done >= total or done - reported >= total * self.STEP:
-                reported = done
-                self.on_progress(self.variant, min(done, total), total)
-
-        server = await self.installer.install(self.variant, on_bytes=on_bytes)
+        server = await install_reporting(self.installer, self.variant, self.on_progress)
         return await LlamaCppRunner(server, self.work_dir).start(spec)
+
+
+async def install_reporting(
+    installer,  # noqa: ANN001
+    variant: str,
+    on_progress: Callable[[str, int, int], None],
+    step: float = InstallingLlamaCppRunner.STEP,
+) -> Path:
+    """Install the variant (or find it installed), reporting cumulative bytes every `step`
+    of the download and at its end: the first chat's load and first-run both use it."""
+    total = installer.size(variant)
+    done = reported = 0
+
+    def on_bytes(n: int) -> None:
+        nonlocal done, reported
+        done = max(0, done + n)  # negative: a resumed file was restarted
+        if done >= total or done - reported >= total * step:
+            reported = done
+            on_progress(variant, min(done, total), total)
+
+    return await installer.install(variant, on_bytes=on_bytes)
