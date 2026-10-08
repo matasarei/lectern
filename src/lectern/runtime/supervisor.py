@@ -136,7 +136,9 @@ class ModelRuntime:
             "swaps": self.swaps,
             "waiting": len(self._queue),
             "activity": self.activity,
-            "hold": self._held,
+            "hold": None
+            if self._held is None
+            else {"role": self._held["role"], "resume_in": self._held["resume_in"]},  # fmt: skip
             "residents": [
                 {
                     "role": role,
@@ -268,7 +270,8 @@ class ModelRuntime:
                     if hold > 0:
                         until_reply = hold == float("inf")
                         self._held = {
-                            "role": role, "resume_in": None if until_reply else round(hold)
+                            "role": role, "resume_in": None if until_reply else round(hold),
+                            "ticket": ticket,
                         }  # fmt: skip
                         if not waited:
                             self._emit("wait", role=role, priority="job", reason="chat")
@@ -291,6 +294,8 @@ class ModelRuntime:
                     await self._cond.wait()
             finally:
                 self._queue.remove(ticket)
+                if self._held is not None and self._held["ticket"] == ticket:
+                    self._held = None  # cancelled while held (Pause): nothing waits any more
                 self._cond.notify_all()
 
     def job_hold(self, role: str, since: float | None = None) -> float:

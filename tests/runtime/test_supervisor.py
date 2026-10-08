@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 import httpx2
@@ -563,3 +564,30 @@ def test_turns_are_reported_so_the_pages_can_update_the_hold():
                     (queue.get_nowait() for _ in range(queue.qsize()))]  # fmt: skip
 
     assert asyncio.run(go()) == [("turn", "started"), ("turn", "ended")]
+
+
+def test_a_held_job_that_is_cancelled_leaves_no_hold_behind():
+    """Pause cancels a page's lease while it waits for the chat: the hold the pages show
+    goes with it, rather than saying "OCR waits for the chat" until some other job runs."""
+    import time
+
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0
+
+    async def go():  # noqa: ANN202
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        job = asyncio.create_task(job_page(time.monotonic()))
+        await _until(lambda: runtime.state()["hold"] is not None)
+        job.cancel()  # as Pause does
+        with contextlib.suppress(asyncio.CancelledError):
+            await job
+        await runtime.turn_ended()
+        return runtime.state()["hold"]
+
+    async def job_page(since: float) -> None:
+        async with runtime.lease("ocr", Priority.JOB, since=since):
+            pass
+
+    assert asyncio.run(go()) is None
