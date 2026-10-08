@@ -218,7 +218,7 @@ def test_task_after_queues_a_follow_up_and_refuses_one_that_would_ask(follow):
     TASK_AFTER.run(ctx, params)
     (queued,) = followups.pending(db, 1)
     assert (queued.ocr_session_id, queued.tool) == (ocr_id, "export.run")
-    assert queued.arguments == {"format": "docx"}
+    assert queued.arguments == {"format": "docx", "name": "lease-scan/"}  # the session's folder
     assert queued.label == "after OCR · lease-scan.pdf: export to DOCX"
 
     for tool in ("file.wipe", "task.after", "nothing.here"):
@@ -315,3 +315,26 @@ def test_a_follow_up_whose_tool_breaks_ends_its_turn_with_the_error(follow, stor
     ].items()
     assert events[-1]["type"] == "turn" and events[-1]["status"] == "error"
     assert manager.state((project.id, 1)) == "idle"
+
+
+@pytest.mark.parametrize("named", [None, "lease-scan.pdf"])
+def test_an_export_after_ocr_without_the_documents_name_gets_the_sessions_folder(follow, named):
+    """Seen on the test server: asked to "read the scan and prepare DOCX", the 4B queued
+    task.after(export_run, arguments without a name) — it can't know the session's folder —
+    got "name: Field required" twice, and gave up: nothing followed the OCR. A name that is
+    the scan itself is the same mistake."""
+    from lectern.agent.export_tools import export_tools
+    from lectern.modules import load_modules, module_exporters
+
+    manager, project, db, ocr_id, _ = follow([])
+    real = Registry([*CORE_TOOLS, *export_tools(module_exporters(load_modules()))])
+    ctx = ToolContext(project=project, sessions=db, user=LOCAL_USER, session_id=1, registry=real)
+    arguments = {"format": "docx"} | ({"name": named} if named else {})
+    params = TASK_AFTER.validate({"session": "lease-scan.pdf", "tool": "export_run",
+                                  "arguments": arguments, "label": "export to DOCX"})  # fmt: skip
+
+    TASK_AFTER.confirm_text(ctx, params)  # no "Field required"
+    TASK_AFTER.run(ctx, params)
+
+    (queued,) = followups.pending(db, 1)
+    assert queued.arguments == {"name": "lease-scan/", "format": "docx"}

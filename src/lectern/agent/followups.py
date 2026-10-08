@@ -144,9 +144,21 @@ def _ocr_session(ctx: ToolContext, name: str) -> tuple[SessionRow, OcrSessionRow
     return found[-1]
 
 
-def _checked(ctx: ToolContext, params: AfterParams) -> tuple[SessionRow, AgentTool]:
-    """The session and the tool, or a ToolError before any card: a follow-up never runs a
-    tool that would have asked, and never waits for a session that won't finish."""
+def _arguments(params: AfterParams, chat: SessionRow, ocr: OcrSessionRow) -> dict:
+    """The follow-up's arguments. An export after OCR exports the session's document, whose
+    name is its folder: the model can't know that folder, and leaves the name out or names
+    the scan itself (seen: "name: Field required", then the turn gave up)."""
+    arguments = dict(params.arguments)
+    if params.tool.replace(".", "_") == "export_run":
+        named = str(arguments.get("name") or "").strip()
+        if not named or named.casefold() in (chat.title.casefold(), ocr.folder.casefold()):
+            arguments["name"] = f"{ocr.folder}/"
+    return arguments
+
+
+def _checked(ctx: ToolContext, params: AfterParams) -> tuple[SessionRow, AgentTool, dict]:
+    """The session, the tool and its arguments, or a ToolError before any card: a follow-up
+    never runs a tool that would have asked, and never waits for a session that won't finish."""
     chat, ocr = _ocr_session(ctx, params.session)
     wire = params.tool.replace(".", "_")
     for waiting in pending(ctx.sessions, ctx.session_id):
@@ -159,20 +171,21 @@ def _checked(ctx: ToolContext, params: AfterParams) -> tuple[SessionRow, AgentTo
         raise ToolError(f"{params.tool} can't be a follow-up: there's no such tool here.")
     if tool.confirm:
         raise ToolError(f"{tool.name} asks the person first, so it can't run unattended.")
-    tool.validate(params.arguments)  # ToolError with what's wrong, now rather than later
-    return chat, tool
+    arguments = _arguments(params, chat, ocr)
+    tool.validate(arguments)  # ToolError with what's wrong, now rather than later
+    return chat, tool, arguments
 
 
 def _after_question(ctx: ToolContext, params: AfterParams) -> str:
-    chat, tool = _checked(ctx, params)
+    chat, tool, _ = _checked(ctx, params)
     return f"After OCR · {chat.title} finishes: {params.label} ({tool.name})?"
 
 
 def _after(ctx: ToolContext, params: AfterParams) -> ToolResult:
-    chat, tool = _checked(ctx, params)
+    chat, tool, arguments = _checked(ctx, params)
     try:
         added = add(ctx.sessions, ctx.session_id, ocr_session_id=chat.id, tool=tool.name,
-                    arguments=params.arguments,
+                    arguments=arguments,
                     label=f"after OCR · {chat.title}: {params.label}")  # fmt: skip
     except FollowUpError as exc:
         raise ToolError(str(exc)) from None
