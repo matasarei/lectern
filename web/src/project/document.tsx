@@ -5,6 +5,7 @@ import { apiFetch, ApiError } from "../api/client";
 import type { OcrSession, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { Download } from "./file";
+import { ExportButtons } from "./export-buttons";
 import { doubtPage, ocrPath, openQuestions, pageBlocks, useOcrDocument } from "./ocr-api";
 import { BlockView } from "./review";
 
@@ -87,6 +88,7 @@ export function DocumentTab({
         {artifactId !== undefined && (
           <Download url={`/api/projects/${projectId}/artifacts/${artifactId}/content`} name="document.md" />
         )}
+        {artifactId !== undefined && <ExportButtons projectId={projectId} artifactId={artifactId} onOpen={onOpen} />}
       </aside>
     </div>
   );

@@ -8,10 +8,12 @@ second. It asks first only when the format would lose something asked of it.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from lectern.agent.core_tools import _artifact_by_name, _file_ref, _size
@@ -176,12 +178,26 @@ def _read_by_ocr(ctx: ToolContext, row: ArtifactRow) -> str | None:
 def _write(
     ctx: ToolContext, exporter: Exporter, doc: Document, opts: ExportOptions, source: ArtifactRow
 ) -> ArtifactRow:
+    return write_export(ctx.project.root, ctx.sessions, ctx.user.id, exporter, doc, opts, source)
+
+
+def write_export(
+    root: Path,
+    sessions: sessionmaker[Session],
+    owner_id: int,
+    exporter: Exporter,
+    doc: Document,
+    opts: ExportOptions,
+    source: ArtifactRow,
+) -> ArtifactRow:
+    """The exported file, always a new one at the project's top level, named after the
+    Document and pointing back at its source. export.run and the Export buttons share it."""
     data = exporter.export(doc, opts)
-    with ctx.sessions.begin() as session:
+    with sessions.begin() as session:
         row = files.write_bytes(
-            ctx.project.root,
+            root,
             session,
-            owner_id=ctx.user.id,
+            owner_id=owner_id,
             name=file_title(doc) + exporter.extension,
             data=data,
             origin=files.Origin("artifact", id=source.id),

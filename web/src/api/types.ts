@@ -235,7 +235,8 @@ export interface Chat {
   messages: ChatMessage[];
   pending: { confirmation_id: number; call_id: string; name: string }[];
   pinned: { id: string; kind: "instruction" | "fact"; text: string }[];
-  followups: { id: string; label: string; ocr_session_id: number }[]; // waiting for an OCR session to finish
+  // Waiting for an OCR session to finish. tool "": a notice (a message when it ends), not a step.
+  followups: { id: string; label: string; ocr_session_id: number; tool: string; what: string }[];
   // Messages up to `upto` reach the model only as the summary.
   summary: { upto: number; version: number; messages: number };
 }

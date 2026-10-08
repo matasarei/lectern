@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, WebSocket
 
-from lectern.api import chat, dev, firstrun, models, projects, runtime, sessions, system
+from lectern.api import chat, dev, export, firstrun, models, projects, runtime, sessions, system
 from lectern.core.auth import current_user
 from lectern.core.security import WS_SUBPROTOCOL
 
@@ -28,6 +28,7 @@ def api_router(module_routers: Sequence[APIRouter] = ()) -> APIRouter:
     router.include_router(chat.router)
     router.include_router(projects.router)
     router.include_router(sessions.router)
+    router.include_router(export.router)
     router.include_router(dev.router)
     for extra in module_routers:
         router.include_router(extra)

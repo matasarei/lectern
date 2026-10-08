@@ -55,6 +55,9 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
+      if (url === "/api/exporters") {
+        return new Response(JSON.stringify([{ format: "docx", extension: ".docx", capabilities: [] }]));
+      }
       if (url.includes("/ocr/") && url.endsWith("/events")) {
         ocrStreams += 1;
         const encoder = new TextEncoder();
@@ -435,7 +438,10 @@ describe("Pinned items, the summary and the context", () => {
   });
 
   it("shows the follow-ups waiting for an OCR session, and says when one runs", async () => {
-    chat.followups = [{ id: "f1", label: "after OCR · lease-scan.pdf: export to ODT", ocr_session_id: 2 }];
+    chat.followups = [
+      { id: "f1", label: "after OCR · lease-scan.pdf: export to ODT", ocr_session_id: 2, tool: "export.run", what: "export to ODT" },
+      { id: "f2", label: "after OCR · lease-scan.pdf: say it's done", ocr_session_id: 2, tool: "", what: "" },
+    ];
     renderChat();
     const strip = await screen.findByTestId("followups");
     expect(strip.textContent).toBe("Waitingafter OCR · lease-scan.pdf: export to ODT");
@@ -582,7 +588,10 @@ describe("The OCR line under ocr.start", () => {
         refs: [{ kind: "session", id: 8, name: "scan.jpg", ref: null }],
       }),
     ];
-    chat.followups = [{ id: "f1", label: "after OCR · scan.jpg: export to DOCX", ocr_session_id: 8 }];
+    chat.followups = [
+      { id: "f1", label: "after OCR · scan.jpg: export to DOCX", ocr_session_id: 8, tool: "export.run", what: "export to DOCX" },
+      { id: "f2", label: "after OCR · scan.jpg: say it's done", ocr_session_id: 8, tool: "", what: "" },
+    ];
   };
   const page = (number: number, status: string, clean_status = "pending") => ({
     number, key: `p00${number}`, status, clean_status, model_id: null, lease_key: null,
@@ -602,6 +611,7 @@ describe("The OCR line under ocr.start", () => {
     await waitFor(() => expect(line.textContent).toContain("waiting to start"));
     expect(line.getAttribute("role")).toBe("status"); // announced as it moves on
     expect(line.textContent).toContain("then: export to DOCX");
+    expect(line.textContent).not.toContain("say it's done"); // a notice isn't a step
 
     await act(async () => {
       pushOcr({ seq: 1, type: "waiting", reason: "chat", resume_in: null });
@@ -644,5 +654,38 @@ describe("The OCR line under ocr.start", () => {
     renderChat((tab) => opened.push(tab));
     fireEvent.click(await screen.findByRole("button", { name: "OCR · scan.jpg" }));
     expect(opened).toEqual([{ kind: "session", id: 8 }]);
+  });
+});
+
+describe("The chat's message when an OCR session finishes", () => {
+  it("opens the document or exports it, without asking the model", async () => {
+    chat.messages = [
+      message(1, { content: "Read the scan" }),
+      message(2, {
+        role: "assistant", content: "OCR · scan.jpg finished · 2 pages · 1 open question.",
+        refs: [
+          { kind: "session", id: 8, name: "scan.jpg", ref: null },
+          { kind: "artifact", id: 40, name: "scan/document.md", ref: null },
+        ],
+      }),
+    ];
+    const opened: Tab[] = [];
+    renderChat((tab) => opened.push(tab));
+    const finished = await screen.findByTestId("finished");
+    fireEvent.click(within(finished).getByRole("button", { name: "Open the document" }));
+    expect(opened).toEqual([{ kind: "document", id: 8 }]);
+    expect(await within(finished).findByRole("button", { name: "DOCX" })).toBeTruthy();
+  });
+
+  it("offers nothing to open when the session stopped", async () => {
+    chat.messages = [
+      message(2, {
+        role: "assistant", content: "OCR · scan.jpg stopped: no model.",
+        refs: [{ kind: "session", id: 8, name: "scan.jpg", ref: null }],
+      }),
+    ];
+    renderChat();
+    await screen.findByText("OCR · scan.jpg stopped: no model.");
+    expect(screen.queryByTestId("finished")).toBeNull();
   });
 });

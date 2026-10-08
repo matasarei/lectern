@@ -1,7 +1,7 @@
 import "../i18n";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OcrDocument, OcrSession, ProjectItems, Tab } from "../api/types";
@@ -37,9 +37,15 @@ beforeEach(() => {
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) =>
-      new Response(JSON.stringify(url.endsWith("/document") ? currentDoc : current)),
-    ),
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/exporters") {
+        return new Response(JSON.stringify([{ format: "docx", extension: ".docx", capabilities: [] }]));
+      }
+      if (url === "/api/projects/1/export" && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: 60, name: "Lease.docx" }), { status: 201 });
+      }
+      return new Response(JSON.stringify(url.endsWith("/document") ? currentDoc : current));
+    }),
   );
 });
 
@@ -83,6 +89,12 @@ describe("Document tab", () => {
     const opened = renderTab();
     fireEvent.click(await screen.findByText("1?", { selector: "mark" }));
     expect(opened).toEqual([{ kind: "session", id: 2, page: 2 }]);
+  });
+
+  it("exports the Document and opens the new file", async () => {
+    const opened = renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "DOCX" }));
+    await waitFor(() => expect(opened).toEqual([{ kind: "artifact", id: 60 }]));
   });
 
   it("says so when the session has no Document yet", async () => {

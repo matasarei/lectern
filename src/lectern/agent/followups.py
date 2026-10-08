@@ -1,5 +1,6 @@
 """Follow-ups: tool calls the chat queued to run when an OCR session finishes (task.after,
-or ocr.start's `then`), such as exporting the Document to ODT.
+or ocr.start's `then`), such as exporting the Document to ODT. A follow-up with no tool is a
+notice: when the session ends, the chat gets a plain message saying so, and no model runs.
 
 They live in the chat's state record beside its pins, so they survive a restart and the
 model always sees them (in the pinned part of its context, never summarised). Running one
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult
 from lectern.projects.tables import ChatStateRow, OcrSessionRow, SessionRow, now
 
-MAX_FOLLOWUPS = 5  # per chat: a follow-up is a step the person agreed to, not a queue
+MAX_FOLLOWUPS = 5  # per chat, notices aside: a follow-up is a step the person agreed to
 
 
 class FollowUpError(ValueError):
@@ -30,9 +31,23 @@ class FollowUpError(ValueError):
 class FollowUp:
     id: str
     ocr_session_id: int  # the session it waits for
-    tool: str  # a dotted tool name, "export.run"
+    tool: str  # a dotted tool name, "export.run"; "" for a notice (no tool, no model)
     arguments: dict = field(default_factory=dict)
-    label: str = ""  # for the person and the model: "export to ODT"
+    label: str = ""  # for the person and the model: "after OCR · scan.pdf: export to ODT"
+    what: str = ""  # the label's own part, "export to ODT" (older records: "")
+
+
+def is_notice(follow: FollowUp) -> bool:
+    return not follow.tool
+
+
+def redundant_notices(waiting: list[tuple[int, FollowUp]]) -> list[tuple[int, FollowUp]]:
+    """The notices a chat doesn't need: one of its follow-ups for the same session runs a
+    tool, and the model reports on that, so a notice too would say it twice."""
+    working = {(chat, f.ocr_session_id) for chat, f in waiting if not is_notice(f)}
+    return [
+        (chat, f) for chat, f in waiting if is_notice(f) and (chat, f.ocr_session_id) in working
+    ]
 
 
 def _load(row: ChatStateRow | None) -> list[FollowUp]:
@@ -55,13 +70,16 @@ def add(
     tool: str,
     arguments: dict,
     label: str,
+    what: str = "",
 ) -> FollowUp:
     with sessions.begin() as session:
         row = _row(session, chat_id)
         pending = _load(row)
-        if len(pending) >= MAX_FOLLOWUPS:
+        # A notice isn't a step the person agreed to, only a message: it doesn't count
+        steps = sum(1 for f in pending if not is_notice(f))
+        if tool and steps >= MAX_FOLLOWUPS:
             raise FollowUpError(f"{MAX_FOLLOWUPS} follow-ups are already waiting in this chat.")
-        new = FollowUp(uuid.uuid4().hex[:8], ocr_session_id, tool, dict(arguments), label)
+        new = FollowUp(uuid.uuid4().hex[:8], ocr_session_id, tool, dict(arguments), label, what)
         row.followups = json.dumps([asdict(f) for f in [*pending, new]], ensure_ascii=False)
         row.updated_at = now()
         return new
@@ -118,6 +136,20 @@ def stale(sessions: sessionmaker[Session], chat_id: int) -> list[tuple[FollowUp,
                     (follow, "failed", f"OCR · {title} stopped: {ocr.error or 'it failed'}.")
                 )
     return found
+
+
+def notice_refs(sessions: sessionmaker[Session], ocr_session_id: int) -> list[dict]:
+    """What a notice points at: the session, and its document once there is one."""
+    with sessions() as session:
+        chat = session.get(SessionRow, ocr_session_id)
+        ocr = session.get(OcrSessionRow, ocr_session_id)
+        if chat is None or ocr is None:
+            return []
+        refs = [{"kind": "session", "id": chat.id, "name": chat.title, "ref": None}]
+        if ocr.document_artifact_id is not None:
+            refs.append({"kind": "artifact", "id": ocr.document_artifact_id,
+                         "name": f"{ocr.folder}/document.md", "ref": None})  # fmt: skip
+        return refs
 
 
 # --- task.after: queue a follow-up from the chat ------------------------------------------
@@ -190,8 +222,8 @@ def _after(ctx: ToolContext, params: AfterParams) -> ToolResult:
     chat, tool, arguments = _checked(ctx, params)
     try:
         added = add(ctx.sessions, ctx.session_id, ocr_session_id=chat.id, tool=tool.name,
-                    arguments=arguments,
-                    label=f"after OCR · {chat.title}: {params.label}")  # fmt: skip
+                    arguments=arguments, label=f"after OCR · {chat.title}: {params.label}",
+                    what=params.label)  # fmt: skip
     except FollowUpError as exc:
         raise ToolError(str(exc)) from None
     return ToolResult(f"Queued: {added.label}. It runs when the session finishes.")

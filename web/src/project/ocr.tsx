@@ -7,6 +7,7 @@ import type { OcrDocument, OcrModel, OcrPage, OcrSession, Tab } from "../api/typ
 import { ErrorNote } from "../components";
 import { useRuntime } from "../hooks/useRuntime";
 import { HoldNote, ocrLoadingText } from "../status";
+import { ExportButtons } from "./export-buttons";
 import { ImagePreview } from "./file";
 import { cleanPageAgain, ocrPath, ocrProgress, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
 import { ReviewPage } from "./review";
@@ -49,7 +50,7 @@ export function OcrTab({
 
   return (
     <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
-      <StatusStrip base={base} session={session.data} live={live} onOpen={onOpen} />
+      <StatusStrip projectId={projectId} base={base} session={session.data} live={live} onOpen={onOpen} />
       {session.data.pages.length === 0 ? (
         <p className="p-4 text-muted">{t("ocr.noPagesYet")}</p>
       ) : (
@@ -74,11 +75,13 @@ export function OcrTab({
 }
 
 function StatusStrip({
+  projectId,
   base,
   session,
   live,
   onOpen,
 }: {
+  projectId: number;
   base: string;
   session: OcrSession;
   live: OcrLive;
@@ -153,6 +156,9 @@ function StatusStrip({
           )
         )}
       </div>
+      {session.status === "done" && document && (
+        <ExportButtons projectId={projectId} artifactId={document.artifact_id} onOpen={onOpen} />
+      )}
       {session.error && <ErrorNote message={session.error} />}
       {error && <ErrorNote message={error instanceof ApiError ? error.detail : t("common.loadFailed")} />}
     </div>

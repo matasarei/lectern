@@ -34,6 +34,13 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
+      if (url === "/api/exporters") {
+        return new Response(JSON.stringify([{ format: "odt", extension: ".odt", capabilities: [] }]));
+      }
+      if (url === "/api/projects/1/export") {
+        posts.push({ url, body: JSON.parse(String(init?.body)) });
+        return new Response(JSON.stringify({ id: 50, name: "Lease.odt" }), { status: 201 });
+      }
       if (url.endsWith("/events")) {
         const encoder = new TextEncoder();
         return new Response(
@@ -280,6 +287,27 @@ describe("OCR tab", () => {
     expect(screen.queryByText("1?", { selector: "mark" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open the document (version 2)" }));
     expect(opened).toEqual([{ kind: "document", id: 2 }]); // the Document tab, not the bare file
+  });
+
+  it("exports a finished session's document from its header, and opens the file", async () => {
+    current = session({
+      status: "done",
+      document: { version: 2, artifact_id: 40, open_doubts: 0 },
+      pages: [page(1, { status: "done", clean_status: "done" })],
+    });
+    const opened: Tab[] = [];
+    renderTab((tab) => opened.push(tab));
+    fireEvent.click(await screen.findByRole("button", { name: "ODT" }));
+    await waitFor(() => expect(opened).toEqual([{ kind: "artifact", id: 50 }]));
+    expect(posts.at(-1)).toEqual({
+      url: "/api/projects/1/export", body: { artifact_id: 40, format: "odt", accept_loss: false },
+    });
+  });
+
+  it("offers no export while the session is still at work", async () => {
+    renderTab();
+    await screen.findByRole("list", { name: "Pages" });
+    expect(screen.queryByTestId("export")).toBeNull();
   });
 
   it("says when a page isn't cleaned yet, or why its cleanup failed", async () => {

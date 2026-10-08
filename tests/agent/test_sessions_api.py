@@ -243,9 +243,11 @@ def test_the_chat_shows_its_pending_follow_ups(api):
     project = app.state.projects.get(User(id=1, name="local"), pid)
     db = app.state.projects.db(project)
     added = followups.add(db, 1, ocr_session_id=5, tool="export.run", arguments={},
-                          label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+                          label="after OCR · lease-scan.pdf: export to ODT",
+                          what="export to ODT")  # fmt: skip
     chat = client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()
-    assert chat["followups"] == [{"id": added.id, "label": added.label, "ocr_session_id": 5}]
+    assert chat["followups"] == [{"id": added.id, "label": added.label, "ocr_session_id": 5,
+                                  "tool": "export.run", "what": "export to ODT"}]  # fmt: skip
 
 
 def test_a_tool_results_refs_are_kept_with_it(api):

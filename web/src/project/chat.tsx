@@ -3,13 +3,14 @@ import { Fragment, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
-import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall } from "../api/types";
+import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall, ToolRef } from "../api/types";
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
 import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
 import { formatTokens } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
 import { Markdown } from "../markdown";
+import { ExportButtons } from "./export-buttons";
 import { OcrLine } from "./ocr-line";
 import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
@@ -111,6 +112,8 @@ export function ChatTab({
   const onListKey = (key: string) =>
     pick !== null && listKey(key, choices, active, setActive, choose, () => setPick(null));
 
+  // What waits for an OCR session to run; a notice (no tool) is only a message, not a step
+  const steps = chat.data.followups.filter((f) => f.tool !== "");
   const busy = live.running || chat.data.state !== "idle";
   const canSend = !busy && text.trim().length > 0 && !send.isPending && !attach.isPending;
   const error = send.error ?? stop.error ?? decide.error ?? attach.error;
@@ -150,10 +153,10 @@ export function ChatTab({
         }}
       >
         <PinnedStrip projectId={projectId} sessionId={sessionId} pinned={chat.data.pinned} />
-        {chat.data.followups.length > 0 && (
+        {steps.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="followups">
             <span className="font-semibold text-muted">{t("chat.followups")}</span>
-            {chat.data.followups.map((f) => (
+            {steps.map((f) => (
               <span key={f.id} className="rounded-full bg-paper px-3 py-0.5">
                 {f.label}
               </span>
@@ -386,6 +389,9 @@ function Transcript({
                         />
                       ))}
                       {message.content && <Markdown text={message.content} />}
+                      {message.refs.length > 0 && (
+                        <FinishedActions projectId={projectId} refs={message.refs} onOpen={onOpen} />
+                      )}
                     </Fragment>
                   ))}
                 {group === last && liveJoins && liveReply}
@@ -406,6 +412,34 @@ function Transcript({
         </p>
       )}
     </>
+  );
+}
+
+/** Under a chat's "OCR · … finished" message (the only assistant message with refs): open its
+ * Document, or export it, without asking the model. */
+function FinishedActions({
+  projectId,
+  refs,
+  onOpen,
+}: {
+  projectId: number;
+  refs: ToolRef[];
+  onOpen: (tab: Tab) => void;
+}) {
+  const { t } = useTranslation();
+  const session = refs.find((r) => r.kind === "session");
+  const document = refs.find((r) => r.kind === "artifact");
+  if (!session || !document) return null; // a session that stopped: nothing to open yet
+  return (
+    <div className="grid gap-2" data-testid="finished">
+      <button
+        className="w-fit text-left text-sm text-accent hover:underline"
+        onClick={() => onOpen({ kind: "document", id: session.id })}
+      >
+        {t("chat.openDocument")}
+      </button>
+      <ExportButtons projectId={projectId} artifactId={document.id} onOpen={onOpen} />
+    </div>
   );
 }
 
@@ -464,7 +498,9 @@ function ToolLine({
         <OcrLine
           projectId={projectId}
           sessionId={ocr.id}
-          then={followups.filter((f) => f.ocr_session_id === ocr.id).map((f) => f.label)}
+          then={followups
+            .filter((f) => f.ocr_session_id === ocr.id && f.tool !== "")
+            .map((f) => f.what || f.label)}
           onOpen={onOpen}
         />
       )}
