@@ -689,3 +689,33 @@ def test_a_finished_or_failed_session_tells_whoever_waits_on_it(store, tmp_path)
     asyncio.run(go2())
     ((_, status, notice),) = heard
     assert status == "failed" and notice.startswith("OCR · lease-scan.pdf stopped: ")
+
+
+def test_a_page_waiting_for_the_chat_is_not_shown_as_being_read(store, tmp_path):
+    """Seen on the test server: page 1 said "reading…" for two minutes while the job only
+    waited for the chat. A page is read (and said to be) once the model is the job's."""
+    server = FakeServer()
+    runtime, _ = _runtime(server, budget_gib=6)  # main (5) and ocr (2) don't fit together
+    runtime.chat_idle_resume = 30.0
+    project, sid = _session(store, tmp_path, pages=1)
+    jobs = OcrJobs(runtime, store)
+    seen: dict = {}
+
+    async def go():  # noqa: ANN202
+        await runtime.turn_started(message=True)  # a reply is being written
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        await jobs.start(project, sid)
+        while not any(e["type"] == "waiting" for e in _events(jobs, project, sid)):
+            await asyncio.sleep(0.01)
+        seen["waiting"] = next(e for e in _events(jobs, project, sid) if e["type"] == "waiting")
+        seen["pages"] = [p.status for p in ocr_store.pages(store.db(project), sid)]
+        seen["reading"] = [e for e in _events(jobs, project, sid)
+                           if e["type"] == "page" and e.get("status") == "recognising"]  # fmt: skip
+        await runtime.turn_ended()  # the reply is done: the job goes
+        await asyncio.wait_for(jobs.idle(), 5)
+
+    asyncio.run(go())
+    assert seen["waiting"]["resume_in"] is None  # until the reply ends, not a countdown
+    assert seen["pages"] == ["pending"] and seen["reading"] == []
+    assert _status(store, project, sid).status == "done"

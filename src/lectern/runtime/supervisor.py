@@ -291,6 +291,11 @@ class ModelRuntime:
                 self._queue.remove(ticket)
                 self._cond.notify_all()
 
+    def job_hold(self, role: str, since: float | None = None) -> float:
+        """How long a job lease on `role` would wait for the chat now: 0, inf (until the reply
+        being written ends), or seconds of the idle window. For the OCR tab's status."""
+        return self._job_hold(role, time.monotonic() if since is None else since)
+
     def _job_hold(self, role: str, since: float) -> float:
         """With the lock held. How long a job's lease on `role` must still wait for the chat,
         only when loading it would unload another model: until the reply being written ends

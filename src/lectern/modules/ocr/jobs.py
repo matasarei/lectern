@@ -336,10 +336,12 @@ class OcrJobs:
             image = ocr_store.page_image(project.root, ocr, page)
             try:
                 _role, entry = pick(lease_key, self.runtime.tier)
-                if self._held_for_the_chat(lease_key):
-                    self._publish(key, {"type": "waiting", "reason": "chat"})
-                await asyncio.to_thread(self._mark_reading, db, page.id)
-                self._publish(key, {"type": "page", **page_dict(page), "status": "recognising"})
+                self._say_if_held(key, lease_key)
+
+                async def reading(page=page) -> None:  # noqa: ANN001 — once the model is ours
+                    await asyncio.to_thread(self._mark_reading, db, page.id)
+                    self._publish(key, {"type": "page", **page_dict(page), "status": "recognising"})
+
                 settings = entry.ocr
                 read = await self._leased_unless_paused(
                     key,
@@ -347,6 +349,7 @@ class OcrJobs:
                     functools.partial(
                         recognise, image=image, prompt=settings.prompt, max_side=settings.max_side
                     ),
+                    on_leased=reading,
                 )
                 if read is None:  # paused while waiting for the model: this page wasn't read
                     await asyncio.to_thread(self._unmark_reading, db, page.id)
@@ -385,10 +388,14 @@ class OcrJobs:
             decided = await asyncio.to_thread(ocr_store.decisions, db, ocr.session_id)
             marked = mark_unsure(raw, unsure_words(tokens))
             try:
-                if self._held_for_the_chat("main"):
-                    self._publish(key, {"type": "waiting", "reason": "chat"})
-                page = await asyncio.to_thread(ocr_store.mark_cleaning, db, page.id, "cleaning")
-                self._publish(key, {"type": "page", **page_dict(page)})
+                self._say_if_held(key, "main")
+
+                async def cleaning(page=page) -> None:  # noqa: ANN001 — once the model is ours
+                    marked = await asyncio.to_thread(
+                        ocr_store.mark_cleaning, db, page.id, "cleaning"
+                    )
+                    self._publish(key, {"type": "page", **page_dict(marked)})
+
                 cleaned = await self._leased_unless_paused(
                     key,
                     "main",
@@ -401,6 +408,7 @@ class OcrJobs:
                         after=after,
                         confirmed=[(d.raw, d.value) for d in decided],
                     ),
+                    on_leased=cleaning,
                 )
                 if cleaned is None:  # paused while waiting for the model
                     page = await asyncio.to_thread(ocr_store.mark_cleaning, db, page.id, "pending")
@@ -444,7 +452,11 @@ class OcrJobs:
         return True
 
     async def _leased_unless_paused(
-        self, key: Key, lease_key: str, work: Callable[[httpx2.AsyncClient], Awaitable[T]]
+        self,
+        key: Key,
+        lease_key: str,
+        work: Callable[[httpx2.AsyncClient], Awaitable[T]],
+        on_leased: Callable[[], Awaitable[None]] | None = None,
     ) -> tuple[str, T] | None:
         """Lease the model and do the work with it, or None when a pause comes first. Waiting
         for the model can take minutes (the runtime holds it for the chat), and Pause
@@ -455,6 +467,8 @@ class OcrJobs:
             since = self._since.get(key)
             async with self.runtime.lease(lease_key, Priority.JOB, since=since) as lease:
                 leased.set()
+                if on_leased is not None:  # the page is read (and shown so) from now on
+                    await on_leased()
                 return lease.model_id, await work(lease.client)
 
         worker = asyncio.create_task(run())
@@ -492,14 +506,14 @@ class OcrJobs:
     def _only_pages(self, key: Key) -> set[int] | None:
         return self._only[key][0] if key in self._only else None
 
-    def _held_for_the_chat(self, lease_key: str) -> bool:
-        """The runtime will hold this page's lease for the chat: tell the tab why it waits."""
-        runtime = self.runtime
-        return (
-            runtime.chat_idle_resume > 0
-            and runtime.chat_idle_seconds() < runtime.chat_idle_resume
-            and runtime.needs_room(lease_key)
-        )
+    def _say_if_held(self, key: Key, lease_key: str) -> None:
+        """The runtime will hold this page's lease for the chat: tell the tab why it waits,
+        and for how long (resume_in: seconds of the idle window, or None until the chat's
+        reply ends)."""
+        hold = self.runtime.job_hold(lease_key, self._since.get(key))
+        if hold > 0:
+            resume_in = None if hold == float("inf") else round(hold)
+            self._publish(key, {"type": "waiting", "reason": "chat", "resume_in": resume_in})
 
     @staticmethod
     def _next_page(  # noqa: ANN001 — db is a sessionmaker
