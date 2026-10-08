@@ -282,7 +282,9 @@
     "pickerEmpty": "No file matches",
     "ocrLine": "OCR · {{title}}",
     "ocrThen": "then: {{what}}",
-    "openDocument": "Open the document"
+    "openDocument": "Open the document",
+    "openOcr": "Open the OCR session",
+    "exportNow": "{{what}} now, as it is"
   },
   "file": {
     "details": "Details",
@@ -320,10 +322,8 @@
       "failed": "Stopped"
     },
     "phase": {
-      "rasterise": "Page images",
       "recognise": "Read {{done}}/{{total}}",
-      "clean": "Clean {{done}}/{{total}}",
-      "assemble": "Assemble"
+      "clean": "Clean {{done}}/{{total}}"
     },
     "pageStatus": {
       "pending": "waiting",
@@ -361,9 +361,8 @@
       "failed": "not cleaned"
     },
     "openDocument": "Open the document (version {{version}})",
-    "openQuestions_one": "{{count}} open question",
-    "openQuestions_other": "{{count}} open questions",
-    "notCleanedYet": "Not cleaned yet: this is the raw OCR text.",
+    "notCleanedYet": "Not cleaned yet: this is the raw OCR text. The cleaned text and its questions come next.",
+    "notFinished": "Not finished: {{what}}. Answer the questions in the Document (clean a failed page again here); the final document, and any export waiting for it, come after.",
     "cleanFailed": "This page wasn't cleaned: {{error}}"
   },
   "review": {
@@ -413,6 +412,18 @@
     "anyway": "Export anyway",
     "cancel": "Cancel"
   },
+  "ocrSteps": {
+    "read": "Reading",
+    "clean": "Cleaning",
+    "questions": "Your questions",
+    "done": "Done",
+    "afterReply": "starts after this reply",
+    "open_one": "{{count}} open question",
+    "open_other": "{{count}} open questions",
+    "notCleaned_one": "page {{pages}} couldn't be cleaned",
+    "notCleaned_other": "pages {{pages}} couldn't be cleaned",
+    "exporting": "running now"
+  },
   "ocrStep": {
     "queued": "waiting to start",
     "rasterise": "preparing the pages",
@@ -421,11 +432,6 @@
     "loadingMain": "loading the chat model to clean the text…",
     "cleaning": "cleaning page {{page}} of {{total}}",
     "assemble": "putting the document together",
-    "done": "done",
-    "pages_one": "{{count}} page",
-    "pages_other": "{{count}} pages",
-    "questions_one": "{{count}} open question",
-    "questions_other": "{{count}} open questions",
     "paused": "paused",
     "pausedBecause": "paused · {{reason}}",
     "failed": "stopped · {{reason}}"

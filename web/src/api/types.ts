@@ -160,6 +160,8 @@ export interface SessionSummary {
     document_version: number;
     open_doubts: number;
     figures: number;
+    failed_pages: number[]; // read or cleanup failed: their text isn't final
+    clear: boolean; // done, every page cleaned, no question open: what a queued export waits for
   } | null;
   created_at: string;
   updated_at: string;

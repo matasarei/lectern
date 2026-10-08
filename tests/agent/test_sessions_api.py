@@ -250,6 +250,40 @@ def test_the_chat_shows_its_pending_follow_ups(api):
                                   "tool": "export.run", "what": "export to ODT"}]  # fmt: skip
 
 
+def test_export_now_runs_a_held_follow_up_once(api):
+    from lectern.agent import followups
+
+    client, headers, app, pid, handle = api([text_reply("Exported, with the questions marked.")])
+    project = app.state.projects.get(User(id=1, name="local"), pid)
+    db = app.state.projects.db(project)
+    held = followups.add(db, 1, ocr_session_id=5, tool="export.run",
+                         arguments={"name": "lease-scan/", "format": "docx"},
+                         label="after OCR · lease-scan.pdf: export to DOCX",
+                         what="export to DOCX")  # fmt: skip
+    followups.mark_held(db, 1, [held.id])
+    url = f"/api/projects/{pid}/sessions/1/followups/{held.id}/run"
+
+    with client:
+        ran = client.post(url, headers=headers)
+        chat = _wait_idle(client, headers, pid)
+        again = client.post(url, headers=headers)
+
+    assert ran.status_code == 202 and again.status_code == 404
+    assert chat["followups"] == []
+    calls = [c["function"]["name"] for m in chat["messages"] for c in (m["tool_calls"] or [])]
+    assert calls == ["export_run"]  # run as the held follow-up, once
+    assert chat["messages"][-1]["content"] == "Exported, with the questions marked."
+
+
+def test_export_now_on_someone_elses_chat_is_not_found(api):
+    client, headers, app, _, _ = api([])
+    with app.state.sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = app.state.projects.create(User(id=2, name="other"), "Theirs")
+    url = f"/api/projects/{theirs.id}/sessions/1/followups/abc/run"
+    assert client.post(url, headers=headers).status_code == 404
+
+
 def test_a_tool_results_refs_are_kept_with_it(api):
     client, headers, _, pid, _ = api(
         [tool_reply("project_find", {"query": "lease"}), text_reply("Found it.")]

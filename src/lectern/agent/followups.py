@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -35,6 +35,7 @@ class FollowUp:
     arguments: dict = field(default_factory=dict)
     label: str = ""  # for the person and the model: "after OCR · scan.pdf: export to ODT"
     what: str = ""  # the label's own part, "export to ODT" (older records: "")
+    held: bool = False  # waiting for the Document to be clear, and the chat was told so
 
 
 def is_notice(follow: FollowUp) -> bool:
@@ -83,6 +84,37 @@ def add(
         row.followups = json.dumps([asdict(f) for f in [*pending, new]], ensure_ascii=False)
         row.updated_at = now()
         return new
+
+
+def mark_held(sessions: sessionmaker[Session], chat_id: int, ids: list[str]) -> None:
+    """These follow-ups wait for the Document to be clear, and the chat has been told."""
+    with sessions.begin() as session:
+        row = session.get(ChatStateRow, chat_id)
+        marked = [replace(f, held=True) if f.id in ids else f for f in _load(row)]
+        row.followups = json.dumps([asdict(f) for f in marked], ensure_ascii=False)
+        row.updated_at = now()
+
+
+def hold_text(title: str, summary: dict, whats: list[str]) -> str:
+    """The chat's message while a follow-up waits for the Document to be clear: what's
+    still open, what waits for it, and the two ways on."""
+    count = summary["open_doubts"]
+    pending_parts, fixes = [], []
+    if count:
+        pending_parts.append(f"{count} open question{'s' if count != 1 else ''}")
+        fixes.append("answer the questions in the Document")
+    failed = summary["failed_pages"]
+    if failed:
+        pages = ", ".join(str(n) for n in failed)
+        word = "page" if len(failed) == 1 else "pages"
+        pending_parts.append(f"{word} {pages} couldn't be cleaned")
+        fixes.append(f"clean {word} {pages} again in the OCR tab")
+    waiting = ", ".join(whats)
+    waiting = waiting[:1].upper() + waiting[1:]
+    return (
+        f"OCR · {title} isn't finished yet: {'; '.join(pending_parts)}. {waiting} waits for it: "
+        f"{' and '.join(fixes)}, or export now as it is."
+    )
 
 
 def pending(sessions: sessionmaker[Session], chat_id: int) -> list[FollowUp]:

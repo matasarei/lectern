@@ -71,7 +71,7 @@ describe("Overview", () => {
     const ocr = {
       id: 2, kind: "ocr" as const, title: "lease-1998-scan.pdf", messages: 0,
       ocr: { pages: 12, status: "paused" as const, folder: "lease-1998-scan", document_version: 0,
-             open_doubts: 0, figures: 0 },
+             open_doubts: 0, figures: 0, failed_pages: [], clear: false },
       created_at: "", updated_at: "2026-09-29T09:00:00Z",
     };
     renderOverview((tab) => opened.push(tab), { sessions: [ocr], artifacts: [] });
@@ -180,7 +180,7 @@ describe("Overview", () => {
     const ocr = {
       id: 2, kind: "ocr" as const, title: "lease-1998-scan.pdf", messages: 0,
       ocr: { pages: 12, status: "done" as const, folder: "Lease 1998", document_version: 7,
-             open_doubts: 1, figures: 1 },
+             open_doubts: 1, figures: 1, failed_pages: [], clear: false },
       created_at: "", updated_at: "2026-09-29T09:00:00Z",
     };
     const doc = artifact(8, "Lease 1998/document.md", {

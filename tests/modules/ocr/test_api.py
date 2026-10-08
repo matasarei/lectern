@@ -242,6 +242,37 @@ def _session_with_doubts(api) -> tuple[str, int]:  # noqa: ANN001
     return url, sid
 
 
+def test_answering_the_last_open_question_tells_whoever_waits_that_its_finished(api):
+    client, headers, app, *_ = api
+    url, sid = _session_with_doubts(api)
+    heard: list[str] = []
+
+    async def on_status(project, session_id, status, notice):  # noqa: ANN001, ANN202
+        heard.append(notice)
+
+    app.state.ocr_jobs.on_status = on_status
+    for doubt in ("d1.1", "d2.1"):
+        client.put(f"{url}/doubts/{doubt}", json={"value": "15", "action": "accept"},
+                   headers=headers)  # fmt: skip
+    assert not any("finished ·" in n for n in heard)  # two of three answered: not yet
+
+    client.put(f"{url}/doubts/d3.1", json={"value": "15", "action": "accept"}, headers=headers)
+    assert heard[-1] == "OCR · lease-scan.pdf finished · 3 pages."
+
+
+def test_an_answer_is_kept_even_when_telling_whoever_waits_fails(api):
+    client, headers, app, *_ = api
+    url, _ = _session_with_doubts(api)
+
+    async def broken(project, session_id):  # noqa: ANN001, ANN202
+        raise RuntimeError("the summary couldn't be read")
+
+    app.state.ocr_jobs.tell = broken
+    answered = client.put(f"{url}/doubts/d1.1", json={"value": "15", "action": "accept"},
+                          headers=headers)  # fmt: skip
+    assert answered.status_code == 200 and answered.json()["open_doubts"] == 2
+
+
 def test_a_doubt_is_accepted_edited_and_reopened_each_a_new_version(api):
     client, headers, *_ = api
     url, _ = _session_with_doubts(api)
@@ -312,5 +343,7 @@ def test_overview_learns_an_ocr_sessions_folder_and_its_documents_counts(api):
     _, sid = _session_with_doubts(api)
     items = client.get(f"/api/projects/{project.id}/items", headers=headers).json()
     (scan,) = [s for s in items["sessions"] if s["id"] == sid]
+    # done, but 3 questions open: not clear
     assert scan["ocr"] == {"pages": 3, "status": "done", "folder": "lease-scan",
-                           "document_version": 1, "open_doubts": 3, "figures": 0}  # fmt: skip
+                           "document_version": 1, "open_doubts": 3, "figures": 0,
+                           "failed_pages": [], "clear": False}  # fmt: skip

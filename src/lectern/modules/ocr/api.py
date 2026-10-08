@@ -8,6 +8,7 @@ session's events stream, which starts with the events so far.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 from typing import Literal
@@ -31,6 +32,7 @@ from lectern.projects.store import Project
 from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, iso, now
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 NOTE_LIMIT = 5000
 VALUE_LIMIT = 200  # a reading: a word, a number, a short phrase
 
@@ -205,7 +207,7 @@ def get_document(project_id: int, session_id: int, request: Request, user: Curre
 
 
 @router.put("/projects/{project_id}/ocr/{session_id}/doubts/{doubt_id}")
-def answer_doubt(
+async def answer_doubt(
     project_id: int,
     session_id: int,
     doubt_id: str,
@@ -213,16 +215,24 @@ def answer_doubt(
     request: Request,
     user: CurrentUser,
 ) -> dict:
-    """The person's reading for a doubt; the Document is published again as a new version."""
-    project = _lookup(request, project_id, session_id, user)
+    """The person's reading for a doubt; the Document is published again as a new version.
+    Whoever waits on the session hears of it: the last answer runs a held export."""
+    project = await open_ocr(request, project_id, session_id, user)
     try:
-        ocr, _ = ocr_store.decide(
-            project.root, store(request).db(project), session_id, doubt_id,
-            value=body.value, action=body.action, user_id=user.id,
+        ocr, _ = await run_in_threadpool(
+            lambda: ocr_store.decide(
+                project.root, store(request).db(project), session_id, doubt_id,
+                value=body.value, action=body.action, user_id=user.id,
+            )
         )  # fmt: skip
     except ocr_store.NoSuchDoubt:
         raise HTTPException(404, "The Document has no such question.") from None
-    return _published(request, project, ocr)
+    published = await run_in_threadpool(_published, request, project, ocr)
+    try:
+        await jobs(request).tell(project, session_id)
+    except Exception:  # noqa: BLE001 — the answer is saved; a waiting export hears it later
+        log.exception("Telling about OCR session %s after an answer failed", session_id)
+    return published
 
 
 @router.delete("/projects/{project_id}/ocr/{session_id}/doubts/{doubt_id}")

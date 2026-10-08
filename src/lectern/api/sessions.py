@@ -225,6 +225,21 @@ async def stop(project_id: int, session_id: int, request: Request, user: Current
     return {"stopped": await turns(request).stop((project.id, session_id))}
 
 
+@router.post("/projects/{project_id}/sessions/{session_id}/followups/{followup_id}/run",
+             status_code=202)  # fmt: skip
+async def run_follow_up(
+    project_id: int, session_id: int, followup_id: str, request: Request, user: CurrentUser
+) -> dict:
+    """Export now: a follow-up waiting for its OCR session's Document to be clear runs as it
+    is (open questions are marked). It runs in the chat like any follow-up; the page hears
+    it on the chat's events."""
+    project = await run_in_threadpool(open_project, request, project_id, user)
+    await run_in_threadpool(open_session, request, project, session_id, user)
+    if not await turns(request).run_follow_up_now(project, session_id, followup_id):
+        raise HTTPException(404, "Nothing is waiting with that id.")
+    return {"id": followup_id}
+
+
 @router.delete("/projects/{project_id}/sessions/{session_id}/pins/{pin_id}")
 def unpin(
     project_id: int, session_id: int, pin_id: str, request: Request, user: CurrentUser

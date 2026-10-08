@@ -143,13 +143,17 @@ describe("OCR tab", () => {
     await act(async () => {
       push({ seq: 1, type: "phase", phase: "clean" });
     });
-    expect(await screen.findByText("loading the chat model to clean the text…")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId("ocr-steps").textContent).toContain(
+        "Cleaning· loading the chat model to clean the text…",
+      ),
+    );
 
     await act(async () => {
       push({ seq: 2, type: "phase", phase: "recognise" });
       push({ seq: 3, type: "waiting", reason: "chat", resume_in: 100 });
     });
-    expect(screen.queryByText("loading the chat model to clean the text…")).toBeNull(); // not while reading
+    expect(screen.getByTestId("ocr-steps").textContent).not.toContain("loading the chat model"); // not while reading
     expect(screen.getByRole("button", { name: "Start now" }).className).toContain("btn-primary");
   });
 
@@ -281,7 +285,10 @@ describe("OCR tab", () => {
     const mark = await screen.findByText("1?", { selector: "mark" });
     expect(mark.dataset.doubt).toBe("d1.1");
     expect(screen.getByText("Clean 1/2")).toBeTruthy();
-    expect(screen.getByText("3 open questions")).toBeTruthy();
+    // Done reading and cleaning, but not final: said plainly, and the steps stop at the questions
+    expect(screen.getByText(/^Not finished: 3 open questions\./)).toBeTruthy();
+    expect(screen.getByTestId("ocr-steps").textContent).toContain("Your questions· 3 open questions");
+    expect(screen.getByTestId("ocr-steps").textContent).not.toContain("✓Done");
     fireEvent.click(screen.getByRole("button", { name: "Raw OCR" }));
     expect(await screen.findByText("Рахунок № 1")).toBeTruthy();
     expect(screen.queryByText("1?", { selector: "mark" })).toBeNull();
@@ -321,7 +328,9 @@ describe("OCR tab", () => {
 
     current = session({ pages: [page(1, { status: "done", clean_status: "pending" })] });
     renderTab();
-    expect(await screen.findByText("Not cleaned yet: this is the raw OCR text.")).toBeTruthy();
+    expect(
+      await screen.findByText("Not cleaned yet: this is the raw OCR text. The cleaned text and its questions come next."),
+    ).toBeTruthy();
     expect(screen.getByText("Рахунок № 1")).toBeTruthy();
   });
 });

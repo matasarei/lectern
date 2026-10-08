@@ -20,7 +20,7 @@ const RESPONSES: Record<string, unknown> = {
       { id: 1, kind: "chat", title: "Payment terms", messages: 4, ocr: null, created_at: "", updated_at: "" },
       {
         id: 2, kind: "ocr", title: "lease-scan.pdf", messages: 0,
-        ocr: { pages: 12, status: "done", folder: "lease-scan", document_version: 0, open_doubts: 0, figures: 0 },
+        ocr: { pages: 12, status: "done", folder: "lease-scan", document_version: 0, open_doubts: 0, figures: 0, failed_pages: [], clear: true },
         created_at: "", updated_at: "",
       },
     ],

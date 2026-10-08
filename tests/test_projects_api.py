@@ -280,7 +280,8 @@ def test_overview_lists_an_ocr_session_with_its_pages_and_status(api, tmp_path):
     assert chat["kind"] == "chat" and chat["ocr"] is None
     assert (scan["kind"], scan["title"]) == ("ocr", "scan.png")
     assert scan["ocr"] == {"pages": 12, "status": "paused", "folder": "scan",
-                           "document_version": 0, "open_doubts": 0, "figures": 0}  # fmt: skip
+                           "document_version": 0, "open_doubts": 0, "figures": 0,
+                           "failed_pages": [], "clear": False}  # paused: not finished  # fmt: skip
 
 
 def test_a_document_tab_is_kept_while_its_session_is_and_never_keeps_a_page(api):

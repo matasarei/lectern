@@ -128,9 +128,16 @@ class OcrJobs:
 
     def summary(self, project: Project, session_id: int) -> dict:
         """What Overview shows of an OCR session: its pages, where its job stands, its output
-        folder, and its Document's version, open questions and image regions."""
+        folder, and its Document's version, open questions and image regions. `clear` is the
+        finished result: done, every page read and cleaned, no question open. An export queued
+        after OCR waits for it."""
         ocr = self.settle(project, session_id)
         open_doubts, figures = ocr_store.document_counts(project.root, ocr)
+        failed = [
+            p.number
+            for p in ocr_store.pages(self.projects.db(project), session_id)
+            if p.status == "failed" or p.clean_status == "failed"
+        ]
         return {
             "pages": ocr.pages_total,
             "status": ocr.status,
@@ -138,6 +145,8 @@ class OcrJobs:
             "document_version": ocr.document_version,
             "open_doubts": open_doubts,
             "figures": figures,
+            "failed_pages": failed,  # read or cleanup failed: their text isn't final
+            "clear": ocr.status == "done" and not open_doubts and not failed,
         }
 
     # --- starting, pausing, resuming -----------------------------------------------------
@@ -262,11 +271,13 @@ class OcrJobs:
                 self._pausing.discard(queued.key)
                 self._pause_signal(queued.key).clear()
                 self._only.pop(queued.key, None)
-            await self._tell(queued.project, queued.key[1])
+            await self.tell(queued.project, queued.key[1])
 
-    async def _tell(self, project: Project, session_id: int) -> None:
-        """A job ended done or failed: tell `on_status` (the chat's follow-ups), with a line
-        saying what happened. A paused one isn't over, so it says nothing."""
+    async def tell(self, project: Project, session_id: int) -> None:
+        """A job ended done or failed, or its Document changed (a question answered): tell
+        `on_status` (the chat's follow-ups), with a line saying where it stands. A follow-up
+        waiting for the Document to be clear runs once it is. A paused or running session
+        isn't over, so it says nothing."""
         if self.on_status is None:
             return
 
@@ -277,10 +288,19 @@ class OcrJobs:
                 error = session.get(OcrSessionRow, session_id).error
             if summary["status"] != "done":
                 return summary["status"], f"OCR · {title} stopped: {error or 'it failed'}."
-            count = summary["open_doubts"]
-            questions = f"{count} open question{'s' if count != 1 else ''}"
             pages = f"{summary['pages']} page{'s' if summary['pages'] != 1 else ''}"
-            return "done", f"OCR · {title} finished · {pages} · {questions}."
+            if summary["clear"]:
+                return "done", f"OCR · {title} finished · {pages}."
+            # Not "finished" while the Document isn't final: questions open, a page not cleaned
+            open_parts = []
+            if count := summary["open_doubts"]:
+                open_parts.append(f"{count} open question{'s' if count != 1 else ''}")
+            if failed := summary["failed_pages"]:
+                word = "page" if len(failed) == 1 else "pages"
+                listed = ", ".join(str(n) for n in failed)
+                open_parts.append(f"{word} {listed} couldn't be cleaned")
+            still = "; ".join(open_parts)
+            return "done", f"OCR · {title} isn't finished yet: {pages} read · {still}."
 
         status, text = await asyncio.to_thread(notice)
         if status in ("done", "failed"):
