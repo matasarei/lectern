@@ -349,6 +349,13 @@ def test_lectern_dir_moves_the_whole_install(tmp_path):
     assert not _home(tmp_path).exists()
 
 
+@pytest.mark.parametrize("where", ["has space/lectern", "a|b/lectern", "a&b/lectern"])
+def test_an_install_folder_the_unit_cant_hold_is_refused(tmp_path, where):
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"), LECTERN_DIR=str(tmp_path / where))
+    assert done.returncode == 1 and "can't hold spaces or special characters" in done.stderr
+    assert not (tmp_path / where).exists()
+
+
 def test_an_update_with_the_same_version_replaces_the_code_and_keeps_the_data(tmp_path):
     """A small fix built without a version bump: the new code goes in, the data stays."""
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0

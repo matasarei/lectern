@@ -46,6 +46,14 @@ session here. Log in as yourself directly (ssh, or the desktop), not through su 
 or: sudo machinectl shell $user@"
 
 dir="${LECTERN_DIR:-$HOME/.lectern}"
+# It goes into the unit's ExecStart (split on spaces) and through sed: plain paths only.
+case "$dir" in
+    /*) ;;
+    *) die "the install folder must be an absolute path: $dir" ;;
+esac
+case "$dir" in
+    *[!A-Za-z0-9._/+@-]*) die "the install folder can't hold spaces or special characters: \"$dir\" (LECTERN_DIR)" ;;
+esac
 app="$dir/app"
 data="$dir/data"
 settings="$dir/lectern.env"
