@@ -111,6 +111,12 @@ class ModelRuntime:
         # loading. Shown in the chat, the OCR tab and Models & memory.
         self.activity: dict | None = None
         self._loading: dict | None = None  # what activity goes back to after the engine
+        # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
+        # waits out the idle window only for a message sent after the job started.
+        self._turns = 0
+        self._last_message_at: float | None = None
+        self._skip_hold = False  # "Start now": the next job admission ignores the window
+        self._held: dict | None = None  # the job waiting for the chat, for state()
 
     # --- reporting ---------------------------------------------------------------------------
 
@@ -128,6 +134,7 @@ class ModelRuntime:
             "swaps": self.swaps,
             "waiting": len(self._queue),
             "activity": self.activity,
+            "hold": self._held,
             "residents": [
                 {
                     "role": role,
@@ -168,11 +175,42 @@ class ModelRuntime:
     def chat_idle_seconds(self) -> float:
         """How long since the chat last used a model: 0 while it is or is waiting for one,
         infinity if it never has."""
-        if self._chat_leases or any(p == Priority.CHAT for p, _ in self._queue):
+        if self._chat_active():
             return 0.0
         if self._chat_ended is None:
             return float("inf")
         return time.monotonic() - self._chat_ended
+
+    def _chat_active(self) -> bool:
+        """A reply is being written: a chat lease, a chat waiting for one, or a turn running
+        between its model calls (tools, cards)."""
+        return bool(
+            self._chat_leases or self._turns or any(p == Priority.CHAT for p, _ in self._queue)
+        )
+
+    # --- the chat's turns (from the TurnManager) ---------------------------------------------
+
+    async def turn_started(self, *, message: bool) -> None:
+        """A chat turn begins: the person's message (message=True), or a turn the app runs,
+        such as a follow-up after OCR (False)."""
+        async with self._cond:
+            self._turns += 1
+            if message:
+                self._last_message_at = time.monotonic()
+            self._cond.notify_all()
+
+    async def turn_ended(self) -> None:
+        async with self._cond:
+            self._turns = max(0, self._turns - 1)
+            self._chat_ended = time.monotonic()
+            self._cond.notify_all()
+
+    async def skip_hold(self) -> None:
+        """Start now: the next job that waits for the chat goes at once (between the chat's
+        model calls if it must; never taking a model in use)."""
+        async with self._cond:
+            self._skip_hold = True
+            self._cond.notify_all()
 
     def engine_progress(self, variant: str, done: int, total: int) -> None:
         """The llama.cpp build downloading (the runner's installer reports it, throttled)."""
@@ -189,8 +227,13 @@ class ModelRuntime:
     # --- leasing -----------------------------------------------------------------------------
 
     @contextlib.asynccontextmanager
-    async def lease(self, role: str, priority: Priority = Priority.JOB) -> AsyncIterator[Lease]:
-        resident = await self._acquire(role, priority)
+    async def lease(
+        self, role: str, priority: Priority = Priority.JOB, *, since: float | None = None
+    ) -> AsyncIterator[Lease]:
+        """`since`: when the job asking started (time.monotonic()), so a page of a job that
+        began before the person's last message waits for the chat, and one the chat itself
+        started doesn't. Defaults to now."""
+        resident = await self._acquire(role, priority, since)
         chat = priority is Priority.CHAT
         self._chat_leases += chat
         client = resident.handle.client()
@@ -207,8 +250,9 @@ class ModelRuntime:
                 self._emit("release", role=role, model_id=resident.choice.model_id)
                 self._cond.notify_all()
 
-    async def _acquire(self, role: str, priority: Priority) -> Resident:
+    async def _acquire(self, role: str, priority: Priority, since: float | None) -> Resident:
         ticket = (int(priority), next(self._tickets))
+        since = time.monotonic() if since is None else since
         async with self._cond:
             self._queue.append(ticket)
             self._queue.sort()
@@ -216,13 +260,21 @@ class ModelRuntime:
                 waited = False
                 while True:
                     head = self._queue[0] == ticket
-                    if head and priority is Priority.JOB and (hold := self._job_hold(role)) > 0:
+                    hold = self._job_hold(role, since) if head and priority is Priority.JOB else 0
+                    if hold > 0:
+                        until_reply = hold == float("inf")
+                        self._held = {
+                            "role": role, "resume_in": None if until_reply else round(hold)
+                        }  # fmt: skip
                         if not waited:
                             self._emit("wait", role=role, priority="job", reason="chat")
                             waited = True
                         with contextlib.suppress(TimeoutError):
-                            await asyncio.wait_for(self._cond.wait(), hold)
+                            await asyncio.wait_for(self._cond.wait(), None if until_reply else hold)
                         continue
+                    if priority is Priority.JOB and head:
+                        self._held = None
+                        self._skip_hold = False
                     if head:
                         resident = await self._try_admit(role, chat=priority is Priority.CHAT)
                         if resident is not None:
@@ -237,16 +289,19 @@ class ModelRuntime:
                 self._queue.remove(ticket)
                 self._cond.notify_all()
 
-    def _job_hold(self, role: str) -> float:
-        """With the lock held. How long a job's lease on `role` must still wait for the chat:
-        only when loading it would unload another model, and the chat was active less than
-        chat_idle_resume seconds ago."""
-        if self.chat_idle_resume <= 0:
+    def _job_hold(self, role: str, since: float) -> float:
+        """With the lock held. How long a job's lease on `role` must still wait for the chat,
+        only when loading it would unload another model: until the reply being written ends
+        (inf), and then, only if the person wrote after the job started, until the chat has
+        been quiet for chat_idle_resume seconds. A chat-started job doesn't wait for its own
+        chat's quiet time; a chat reply's model calls aren't split by a swap."""
+        if self.chat_idle_resume <= 0 or self._skip_hold or not self.needs_room(role):
             return 0.0
-        idle = self.chat_idle_seconds()
-        if idle >= self.chat_idle_resume or not self.needs_room(role):
+        if self._chat_active():
+            return float("inf")
+        if self._last_message_at is None or self._last_message_at <= since:
             return 0.0
-        return self.chat_idle_resume - idle
+        return max(0.0, self.chat_idle_resume - self.chat_idle_seconds())
 
     async def _try_admit(self, role: str, *, chat: bool) -> Resident | None:
         """With the lock held. The role's resident, or a newly loaded one, or None to wait."""

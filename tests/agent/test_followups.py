@@ -354,3 +354,28 @@ def test_an_export_after_ocr_without_a_format_says_how_to_give_one(follow):
 
     with pytest.raises(ToolError, match=r'arguments=\{"format": "docx"\}'):
         TASK_AFTER.confirm_text(ctx, params)
+
+
+def test_the_runtime_hears_of_turns_and_only_a_persons_message_counts_as_one(follow):
+    """The runtime holds jobs while a turn runs, and brings back the idle window only for
+    the person's messages; a follow-up the app runs is a turn, not a message."""
+    manager, project, db, ocr_id, _ = follow(
+        [text_reply("Done: Lease 1998.odt is saved."), text_reply("Hello.")]
+    )
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={"format": "odt"},
+                  label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+    runtime = manager.runtime
+    seen: list[tuple[int, float | None]] = []
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+        seen.append((runtime._turns, runtime._last_message_at))  # the follow-up's turn
+        await manager.send(project, LOCAL_USER, 1, "hi", [])
+        await manager.follow_ups_settled()
+        seen.append((runtime._turns, runtime._last_message_at))
+
+    asyncio.run(go())
+    (after_follow_up, after_message) = seen
+    assert after_follow_up == (0, None)  # ran and ended; not a message
+    assert after_message[0] == 0 and after_message[1] is not None
