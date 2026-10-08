@@ -288,6 +288,14 @@ def test_uninstall_without_a_user_session_removes_nothing(tmp_path):
     assert (tmp_path / "home/.config/systemd/user/lectern.service").exists()
 
 
+def test_compose_passes_on_every_setting_serve_reads():
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "packaging/docker/compose.yaml").read_text())
+    environment = compose["services"]["lectern"]["environment"]
+    assert {"LECTERN_PUBLIC_URL", "LECTERN_PORT", "LECTERN_HOST"} <= set(environment)
+
+
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
 def test_the_scripts_pass_shellcheck():
     scripts = [
