@@ -195,3 +195,20 @@ def test_a_scan_with_an_ocr_session_points_at_its_document(ctx):
         session.query(OcrSessionRow).update({"status": "done"})
     with pytest.raises(ToolError, match='export_run with name="statement/"'):
         _call(run, ctx, name="statement.jpg", format="docx")
+
+
+def test_another_owners_ocr_session_is_not_named(ctx):
+    from lectern.projects.tables import OcrSessionRow, SessionRow
+
+    _, run = _tools()
+    scan_id = add_file(ctx, "theirs.jpg", "x")
+    with ctx.sessions.begin() as session:
+        chat = SessionRow(owner_id=ctx.user.id + 1, kind="ocr", title="theirs.jpg")
+        session.add(chat)
+        session.flush()
+        session.add(OcrSessionRow(session_id=chat.id, source_artifact_id=scan_id,
+                                  folder="theirs", status="running"))  # fmt: skip
+
+    with pytest.raises(ToolError) as refused:
+        _call(run, ctx, name="theirs.jpg", format="docx")
+    assert '"theirs/"' not in str(refused.value) and "reads it" not in str(refused.value)

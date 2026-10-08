@@ -158,7 +158,7 @@ def _read_by_ocr(ctx: ToolContext, row: ArtifactRow) -> str | None:
         found = session.execute(
             select(SessionRow, OcrSessionRow)
             .join(OcrSessionRow, OcrSessionRow.session_id == SessionRow.id)
-            .where(OcrSessionRow.source_artifact_id == row.id)
+            .where(OcrSessionRow.source_artifact_id == row.id, SessionRow.owner_id == ctx.user.id)
             .order_by(SessionRow.id.desc())
         ).first()
     if found is None:
