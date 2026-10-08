@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
+from lectern.agent import model_download
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult, page
 from lectern.catalog import catalog
 from lectern.modules.sandbox.container import IMAGE, RunResult, Sandbox, SandboxError
@@ -498,8 +499,7 @@ async def ensure_coder(ctx: ToolContext) -> None:
     entry = catalog.load().defaults_for(ctx.runtime.tier).get("code")
     if entry is None:
         raise ToolError("No coding model is set for this computer. Say the result is not computed.")
-    downloads = ctx.downloads
-    if downloads is None or downloads.is_downloaded(entry):
+    if model_download.on_disk(ctx, entry):
         return
     question = (
         f"Download {entry.title} ({entry.size / 1e9:.1f} GB, {entry.licence}) to write scripts?"
@@ -509,22 +509,7 @@ async def ensure_coder(ctx: ToolContext) -> None:
             "The person didn't allow downloading the coding model, so no script can be written. "
             "Show the formula and say the result is not computed."
         )
-    async with downloads.events.listen() as queue:
-        state = downloads.start(entry)
-        # "paused" too: a download that stopped (the app shutting down) won't finish by itself.
-        while state.status not in ("done", "failed", "paused"):
-            event = await queue.get()
-            if event.get("type") != "download" or event.get("model_id") != entry.id:
-                continue
-            state = type(state)(**{k: v for k, v in event.items() if k != "type"})
-            ctx.emit(
-                {
-                    "type": "progress",
-                    "label": f"Downloading {entry.title}",
-                    "done": state.bytes_done,
-                    "total": state.bytes_total,
-                }
-            )
+    state = await model_download.download(ctx, entry)
     if state.status == "failed":
         raise ToolError(f"The coding model's download failed: {state.error}")
     if state.status == "paused":

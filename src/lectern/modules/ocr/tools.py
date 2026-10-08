@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
-from lectern.agent import followups
+from lectern.agent import followups, model_download
 from lectern.agent.core_tools import _artifact_by_name
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult
+from lectern.catalog import catalog
+from lectern.catalog.catalog import CatalogEntry
 from lectern.modules.ocr import store as ocr_store
 from lectern.modules.ocr.jobs import page_dict
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, NotAPageSource, page_count
@@ -55,6 +57,14 @@ def _source(ctx: ToolContext, name: str, *, keep_layout: bool = False) -> Artifa
     return row
 
 
+def _ocr_model(ctx: ToolContext) -> CatalogEntry | None:
+    """The model an OCR session reads pages with on this computer: the "ocr" role's default.
+    A page later marked handwritten uses "ocr.hand", which this doesn't fetch."""
+    if ctx.runtime is None:
+        return None
+    return catalog.load().defaults_for(ctx.runtime.tier).get("ocr")
+
+
 def _start_question(ctx: ToolContext, params: StartParams) -> str:
     row = _source(ctx, params.name, keep_layout=params.keep_layout)
     try:
@@ -71,7 +81,13 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
         f"Start an OCR session for {_name(row)}? {why}{pages} page{'s' if pages != 1 else ''} · "
         f"about {minutes} minute{'s' if minutes != 1 else ''} on this PC · opens in a new tab."
     )
-    if ctx.runtime is not None and ctx.runtime.needs_room("ocr"):
+    entry = _ocr_model(ctx)
+    if entry is not None and not model_download.on_disk(ctx, entry):
+        # The runtime can't size a model that isn't on disk; the card says what happens first.
+        question += (
+            f" It downloads {entry.title} first ({entry.size / 1e9:.1f} GB, {entry.licence})."
+        )
+    elif ctx.runtime is not None and ctx.runtime.needs_room("ocr"):
         question += " The chat model is unloaded while pages are read, so replies wait until then."
     if params.then_export:
         question += f" When it finishes: export to {params.then_export.upper()}."
@@ -82,6 +98,17 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     if ctx.ocr_jobs is None:
         raise ToolError("OCR sessions can't be started here.")
     row = await run_in_threadpool(lambda: _source(ctx, params.name, keep_layout=params.keep_layout))
+    entry = _ocr_model(ctx)
+    if entry is not None and not model_download.on_disk(ctx, entry):
+        # The person allowed it on the start card; a session started now would only fail.
+        state = await model_download.download(ctx, entry)
+        if state.status == "failed":
+            raise ToolError(f"{entry.title}'s download failed: {state.error}")
+        if state.status == "paused":
+            raise ToolError(
+                f"{entry.title}'s download was stopped before it finished; starting the OCR "
+                "session again resumes it."
+            )
     try:
         chat, ocr = await run_in_threadpool(
             lambda: ocr_store.create_session(

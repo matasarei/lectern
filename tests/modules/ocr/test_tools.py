@@ -8,12 +8,16 @@ from PIL import Image
 
 from lectern.agent import followups
 from lectern.agent.tools import ToolContext, ToolError
+from lectern.catalog import catalog
 from lectern.core.auth import LOCAL_USER
+from lectern.hardware.tiers import Tier
 from lectern.modules.ocr import store as ocr_store
 from lectern.modules.ocr.tools import NOTE, START
 from lectern.projects import files
+from lectern.runtime.supervisor import NotAvailable
 
 from ...projects.conftest import write_pdf, write_scan_pdf
+from ..test_code_write import FakeDownloads
 
 
 class FakeJobs:
@@ -35,10 +39,15 @@ class FakeJobs:
 
 
 class FakeRuntime:
-    def __init__(self, swap: bool) -> None:
+    tier = Tier.MINIMUM
+
+    def __init__(self, swap: bool, missing: bool = False) -> None:
         self.swap = swap
+        self.missing = missing
 
     def needs_room(self, role: str) -> bool:
+        if self.missing:  # as the real one: resolving a model that isn't on disk raises
+            raise NotAvailable("PaddleOCR-VL 1.6 isn't downloaded yet. Download it first.")
         return self.swap and role == "ocr"
 
 
@@ -144,3 +153,43 @@ def test_a_note_reaches_the_page_and_the_tab(ctx):
         _call(NOTE, ctx, session="lease-scan", page=9, note="x")
     with pytest.raises(ToolError, match="No OCR session"):
         _call(NOTE, ctx, session="nothing", page=1, note="x")
+
+
+def _missing_ocr_model(ctx, **downloads):  # noqa: ANN001, ANN202
+    """The chat model loaded and the OCR model not on disk, as on a fresh install."""
+    ctx.runtime = FakeRuntime(swap=True, missing=True)
+    ctx.downloads = FakeDownloads(downloaded=False, **downloads)
+    events: list[dict] = []
+    ctx.emit = events.append
+    return catalog.load().defaults_for(Tier.MINIMUM)["ocr"], events
+
+
+def test_without_the_ocr_model_the_card_says_it_downloads_it_first(ctx):
+    entry, _ = _missing_ocr_model(ctx)
+
+    question = _question(ctx, name="lease-scan.pdf")  # didn't raise and end the turn
+
+    assert (
+        f"It downloads {entry.title} first ({entry.size / 1e9:.1f} GB, {entry.licence})."
+        in question
+    )
+    assert "replies wait" not in question  # can't tell before it's on disk; it says the rest
+
+
+def test_starting_downloads_the_ocr_model_then_opens_the_session(ctx):
+    entry, events = _missing_ocr_model(ctx)
+
+    result = _call(START, ctx, name="lease-scan.pdf")
+
+    assert ctx.downloads.started == [entry.id]
+    bars = [e for e in events if e.get("label") == f"Downloading {entry.title}"]
+    assert [b["done"] for b in bars] == [entry.size // 2, entry.size]
+    assert len(ctx.ocr_jobs.started) == 1 and result.action["type"] == "open_tab"
+
+
+def test_a_failed_ocr_model_download_starts_no_session(ctx):
+    _missing_ocr_model(ctx, fail=True)
+
+    with pytest.raises(ToolError, match="download failed: disk full"):
+        _call(START, ctx, name="lease-scan.pdf")
+    assert ctx.ocr_jobs.started == []
