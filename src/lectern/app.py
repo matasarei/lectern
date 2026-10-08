@@ -83,12 +83,13 @@ def create_app(
     )
 
     modules = load_modules()
+    app.state.exporters = module_exporters(modules)  # export.run and the Export buttons
     app.state.ocr_jobs = OcrJobs(app.state.runtime, app.state.projects)
     app.state.turns = TurnManager(
         app.state.runtime,
         app.state.projects,
         # The export tools offer whatever export modules are installed.
-        tool_registry([*CORE_TOOLS, *export_tools(module_exporters(modules))], modules, EnvProbe()),
+        tool_registry([*CORE_TOOLS, *export_tools(app.state.exporters)], modules, EnvProbe()),
         downloads=app.state.downloads,
         sandbox=Sandbox(),
         ocr_jobs=app.state.ocr_jobs,
