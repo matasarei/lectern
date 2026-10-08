@@ -116,7 +116,7 @@ export function ProjectPage() {
           {t("project.settings")}
         </Link>
       </header>
-      <nav className="flex items-center gap-1 overflow-x-auto border-b border-line bg-paper px-2">
+      <nav className="flex gap-1 overflow-x-auto border-b border-line bg-paper px-2">
         {/* Only tabs in the tablist; the "+" sits beside it */}
         <div role="tablist" className="flex gap-1">
           <TabButton active={tabs.active === null} onClick={() => update(showOverview(tabs))}>
