@@ -286,10 +286,19 @@ class OcrJobs:
                 error = session.get(OcrSessionRow, session_id).error
             if summary["status"] != "done":
                 return summary["status"], f"OCR · {title} stopped: {error or 'it failed'}."
-            count = summary["open_doubts"]
-            questions = f"{count} open question{'s' if count != 1 else ''}"
             pages = f"{summary['pages']} page{'s' if summary['pages'] != 1 else ''}"
-            return "done", f"OCR · {title} finished · {pages} · {questions}."
+            if summary["clear"]:
+                return "done", f"OCR · {title} finished · {pages}."
+            # Not "finished" while the Document isn't final: questions open, a page not cleaned
+            open_parts = []
+            if count := summary["open_doubts"]:
+                open_parts.append(f"{count} open question{'s' if count != 1 else ''}")
+            if failed := summary["failed_pages"]:
+                word = "page" if len(failed) == 1 else "pages"
+                listed = ", ".join(str(n) for n in failed)
+                open_parts.append(f"{word} {listed} couldn't be cleaned")
+            still = "; ".join(open_parts)
+            return "done", f"OCR · {title} isn't finished yet: {pages} read · {still}."
 
         status, text = await asyncio.to_thread(notice)
         if status in ("done", "failed"):

@@ -195,6 +195,8 @@ class TurnManager:
             return
         sessions = await run_in_threadpool(self.projects.db, project)
         waiting = await run_in_threadpool(followups.waiting_on, sessions, ocr_session_id)
+        if status == "done":
+            waiting = await self._unless_held(project, sessions, ocr_session_id, waiting)
         for chat_id, follow in await self._without_redundant_notices(sessions, waiting):
             self._schedule(project, sessions, chat_id, follow, status, notice)
 
@@ -205,10 +207,93 @@ class TurnManager:
         its turns."""
         sessions = await run_in_threadpool(self.projects.db, project)
         stale = await run_in_threadpool(followups.stale, sessions, chat_id)
-        keep = await self._without_redundant_notices(sessions, [(chat_id, f) for f, _, _ in stale])
+        waiting = [(chat_id, f) for f, status, _ in stale if status != "done"]
+        for ocr_id in dict.fromkeys(f.ocr_session_id for f, status, _ in stale if status == "done"):
+            done = [(chat_id, f) for f, status, _ in stale
+                    if status == "done" and f.ocr_session_id == ocr_id]  # fmt: skip
+            waiting += await self._unless_held(project, sessions, ocr_id, done)
+        keep = await self._without_redundant_notices(sessions, waiting)
         for follow, status, notice in stale:
             if (chat_id, follow) in keep:
                 self._schedule(project, sessions, chat_id, follow, status, notice)
+
+    async def _unless_held(self, project: Project, sessions: object, ocr_session_id: int,
+                           waiting: list) -> list:  # fmt: skip
+        """`waiting` (a done session's follow-ups) if its Document is clear. If not (questions
+        open, a page not cleaned), a chat's tool follow-ups wait: the chat is told once, its
+        notice taken (the message says it), and only notice-only chats go on."""
+        summary = await self._ocr_summary(project, ocr_session_id)
+        if summary is None or summary["clear"]:
+            return waiting
+        go_on = []
+        for chat_id in dict.fromkeys(chat for chat, _ in waiting):
+            mine = [f for chat, f in waiting if chat == chat_id]
+            tools = [f for f in mine if not followups.is_notice(f)]
+            if not tools:
+                go_on += [(chat_id, f) for f in mine]
+                continue
+            for notice in (f for f in mine if followups.is_notice(f)):
+                await run_in_threadpool(followups.take, sessions, chat_id, notice.id)
+            if any(not f.held for f in tools):
+                self._schedule_hold(project, sessions, chat_id, ocr_session_id, summary, tools)
+        return go_on
+
+    async def _ocr_summary(self, project: Project, ocr_session_id: int) -> dict | None:
+        """The session's summary from the OCR jobs (whether it's clear); None without them."""
+        summary = getattr(self.ocr_jobs, "summary", None)
+        if summary is None:
+            return None
+        return await run_in_threadpool(summary, project, ocr_session_id)
+
+    def _schedule_hold(self, project: Project, sessions: object, chat_id: int,
+                       ocr_session_id: int, summary: dict, tools: list) -> None:  # fmt: skip
+        """One hold message per chat and session at a time, however many signals arrive."""
+        key = (project.id, chat_id, f"hold-{ocr_session_id}")
+        if key in self._follow_up_keys:
+            return
+        self._follow_up_keys.add(key)
+        task = asyncio.create_task(
+            self._hold(project, sessions, chat_id, ocr_session_id, summary, tools),
+            name=f"hold-{project.id}-{chat_id}-{ocr_session_id}",
+        )
+        self._follow_ups.add(task)
+        task.add_done_callback(self._follow_ups.discard)
+        task.add_done_callback(lambda _t: self._follow_up_keys.discard(key))
+
+    async def _hold(self, project: Project, sessions: object, chat_id: int,
+                    ocr_session_id: int, summary: dict, tools: list) -> None:  # fmt: skip
+        """Tell the chat its follow-ups wait for the Document to be clear: a plain message,
+        no model, posted once (the follow-ups are marked held)."""
+        key = (project.id, chat_id)
+        while self.state(key) != "idle":  # the chat is answering: after its turn
+            await self.wait(key)
+            await asyncio.sleep(0)
+        self._starting.add(key)
+        try:
+            ids = {f.id for f in tools}
+            pending = await run_in_threadpool(followups.pending, sessions, chat_id)
+            unheld = [f for f in pending if f.id in ids and not f.held]
+            if not unheld:  # run, or told, by an earlier signal
+                return
+            owner = await run_in_threadpool(_owner, sessions, chat_id)
+            run = self._new_run(key, project, sessions, owner, chat_id)
+            channel = self.channel(key)
+            channel.events.clear()
+            run.emit = channel.publish
+            channel.publish({"type": "turn", "status": "running", "followup": ""})
+            refs = await run_in_threadpool(followups.notice_refs, sessions, ocr_session_id)
+            title = refs[0]["name"] if refs else "the scan"
+            text = followups.hold_text(title, summary, [f.what or f.label for f in unheld])
+            message_id = await run_in_threadpool(
+                lambda: store_message(run, role="assistant", content=text,
+                                      refs=json.dumps(refs) if refs else None)
+            )  # fmt: skip
+            run.emit({"type": "assistant", "message_id": message_id, "tool_calls": []})
+            await run_in_threadpool(followups.mark_held, sessions, chat_id, list(ids))
+            channel.publish({"type": "turn", "status": "done"})
+            channel.settle()
+        finally:
+            self._starting.discard(key)
 
     @staticmethod
     async def _without_redundant_notices(sessions: object, waiting: list) -> list:  # noqa: ANN001

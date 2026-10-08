@@ -673,7 +673,10 @@ def test_a_finished_or_failed_session_tells_whoever_waits_on_it(store, tmp_path)
         await jobs.idle()
 
     asyncio.run(go())
-    assert heard == [(sid, "done", "OCR · lease-scan.pdf finished · 2 pages · 2 open questions.")]
+    # Not "finished" while questions are open: the Document isn't final yet
+    assert heard == [
+        (sid, "done", "OCR · lease-scan.pdf isn't finished yet: 2 pages read · 2 open questions.")
+    ]
 
     heard.clear()
     failing, _ = _runtime(FakeServer(), fail=True)
@@ -744,6 +747,25 @@ def test_open_questions_or_a_page_that_wasnt_cleaned_leave_it_not_clear(store, t
     project, sid, *_, jobs = _run_job(store, tmp_path / "b", FakeServer(clean=clean))
     summary = jobs.summary(project, sid)
     assert (summary["status"], summary["clear"], summary["failed_pages"]) == ("done", False, [2])
+
+
+def test_a_clear_session_is_told_as_finished(store, tmp_path):
+    heard: list[str] = []
+
+    async def on_status(project, session_id, status, notice):  # noqa: ANN001, ANN202
+        heard.append(notice)
+
+    runtime, _ = _runtime(FakeServer(clean=_plain))
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+    jobs.on_status = on_status
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert heard == ["OCR · lease-scan.pdf finished · 2 pages."]
 
 
 def test_a_session_still_at_work_isnt_clear(store, tmp_path):

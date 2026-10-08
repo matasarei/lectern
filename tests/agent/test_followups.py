@@ -311,6 +311,98 @@ def test_only_notices_beside_a_working_follow_up_for_the_same_session_are_redund
     assert followups.redundant_notices(waiting) == [(1, notice)]
 
 
+class _Summary:
+    """Stands in for OcrJobs.summary: whether the session's result is final."""
+
+    def __init__(self, open_doubts: int = 0, failed_pages: tuple = ()):
+        self.open_doubts, self.failed_pages = open_doubts, list(failed_pages)
+
+    def summary(self, project, session_id):  # noqa: ANN001, ANN201
+        return {"status": "done", "open_doubts": self.open_doubts,
+                "failed_pages": self.failed_pages,
+                "clear": not self.open_doubts and not self.failed_pages}  # fmt: skip
+
+
+HELD = (
+    "OCR · lease-scan.pdf isn't finished yet: 2 open questions. Export to ODT waits for it: "
+    "answer the questions in the Document, or export now as it is."
+)
+
+
+def _export(db, ocr_id: int, chat: int = 1):  # noqa: ANN001, ANN202
+    return followups.add(db, chat, ocr_session_id=ocr_id, tool="export.run",
+                         arguments={"format": "odt"}, what="export to ODT",
+                         label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+
+
+def test_an_export_waits_while_questions_are_open_and_the_chat_is_told_once(follow):
+    manager, project, db, ocr_id, handle = follow([text_reply("Done: Lease 1998.odt is saved.")])
+    manager.ocr_jobs = _Summary(open_doubts=2)
+    _export(db, ocr_id)
+    _notice(db, ocr_id)  # the hold says it instead
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+        await manager.after_session(project, ocr_id, "done", DONE)  # another signal
+        await manager.resume_follow_ups(project, 1)  # the chat opened again
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert RAN == [] and handle.requests == []  # no export, no model
+    assert _transcript(db) == [("assistant", HELD, None)]
+    assert [r["kind"] for r in _refs(db)[0]] == ["session"]
+    (waiting,) = followups.pending(db, 1)
+    assert waiting.tool == "export.run" and waiting.held
+
+
+def test_once_the_document_is_clear_the_held_export_runs_and_the_model_reports(follow):
+    manager, project, db, ocr_id, _ = follow([text_reply("Done: Lease 1998.odt is saved.")])
+    manager.ocr_jobs = _Summary(open_doubts=2)
+    _export(db, ocr_id)
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+        manager.ocr_jobs = _Summary()  # the last question answered
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert RAN == [{"chat": 1, "format": "odt"}]
+    assert [m[2] for m in _transcript(db)] == [None, "export_run", "export.run", None]
+    assert followups.pending(db, 1) == []
+
+
+def test_a_page_that_wasnt_cleaned_holds_the_export_and_is_named(follow):
+    manager, project, db, ocr_id, _ = follow([])
+    manager.ocr_jobs = _Summary(open_doubts=1, failed_pages=(2,))
+    _export(db, ocr_id)
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert _transcript(db) == [("assistant",
+        "OCR · lease-scan.pdf isn't finished yet: 1 open question; page 2 couldn't be cleaned. "
+        "Export to ODT waits for it: answer the questions in the Document and clean page 2 "
+        "again in the OCR tab, or export now as it is.", None)]  # fmt: skip
+
+
+def test_a_chat_with_only_a_notice_gets_it_with_the_questions_still_open(follow):
+    manager, project, db, ocr_id, handle = follow([])
+    manager.ocr_jobs = _Summary(open_doubts=2)
+    _notice(db, ocr_id)
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert _transcript(db) == [("assistant", DONE, None)] and handle.requests == []
+
+
 def test_a_paused_session_keeps_its_follow_up_waiting(follow):
     manager, project, db, ocr_id, _ = follow([])
     followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={}, label="x")
