@@ -87,6 +87,11 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
         question += (
             f" It downloads {entry.title} first ({entry.size / 1e9:.1f} GB, {entry.licence})."
         )
+        if ctx.runtime.resident_bytes() > 0:  # likely a swap, though it can't be sized yet
+            question += (
+                " The chat model may be unloaded while pages are read, so replies may wait "
+                "until then."
+            )
     elif ctx.runtime is not None and ctx.runtime.needs_room("ocr"):
         question += " The chat model is unloaded while pages are read, so replies wait until then."
     if params.then_export:

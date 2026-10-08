@@ -45,6 +45,9 @@ class FakeRuntime:
         self.swap = swap
         self.missing = missing
 
+    def resident_bytes(self) -> int:
+        return 3 * 10**9 if self.swap else 0  # the chat model, loaded
+
     def needs_room(self, role: str) -> bool:
         if self.missing:  # as the real one: resolving a model that isn't on disk raises
             raise NotAvailable("PaddleOCR-VL 1.6 isn't downloaded yet. Download it first.")
@@ -173,7 +176,10 @@ def test_without_the_ocr_model_the_card_says_it_downloads_it_first(ctx):
         f"It downloads {entry.title} first ({entry.size / 1e9:.1f} GB, {entry.licence})."
         in question
     )
-    assert "replies wait" not in question  # can't tell before it's on disk; it says the rest
+    # The runtime can't size a model before it's on disk, but the chat model is loaded.
+    assert question.endswith(
+        "The chat model may be unloaded while pages are read, so replies may wait until then."
+    )
 
 
 def test_starting_downloads_the_ocr_model_then_opens_the_session(ctx):
