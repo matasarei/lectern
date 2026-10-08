@@ -17,7 +17,7 @@ from lectern.projects import files
 from lectern.runtime.supervisor import NotAvailable
 
 from ...projects.conftest import write_pdf, write_scan_pdf
-from ..test_code_write import FakeDownloads
+from ..conftest import FakeDownloads
 
 
 class FakeJobs:

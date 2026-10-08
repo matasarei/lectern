@@ -11,7 +11,6 @@ from lectern.agent.tools import Registry, ToolError
 from lectern.agent.turns import TurnManager
 from lectern.catalog import catalog
 from lectern.core.auth import LOCAL_USER
-from lectern.downloads.manager import DownloadState, EventHub
 from lectern.hardware.tiers import Tier
 from lectern.modules.sandbox.container import RunResult
 from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code
@@ -21,7 +20,7 @@ from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable
 
 from ..agent.fake_model import GIB, FakeHandle, make_runtime, text_reply, tool_reply
-from .conftest import FakeSandbox, add
+from .conftest import FakeDownloads, FakeSandbox, add
 
 GOOD = "```python\nprint('penalty', round(250 * 0.005 * 50, 2))\n```"
 BRIEF = {
@@ -33,29 +32,6 @@ BRIEF = {
 
 def reply(text: str) -> bytes:
     return json.dumps({"choices": [{"message": {"content": text}}]}).encode()
-
-
-class FakeDownloads:
-    def __init__(self, downloaded: bool = True, fail: bool = False, end: str | None = None):
-        self.downloaded = downloaded
-        self.fail = fail
-        self.end = end or ("failed" if fail else "done")
-        self.events = EventHub()
-        self.started: list[str] = []
-
-    def is_downloaded(self, entry) -> bool:  # noqa: ANN001
-        return self.downloaded
-
-    def start(self, entry) -> DownloadState:  # noqa: ANN001
-        self.started.append(entry.id)
-        loop = asyncio.get_running_loop()
-        half = DownloadState(entry.id, "downloading", entry.size // 2, entry.size)
-        done = entry.size // 2 if self.end == "paused" else entry.size
-        error = "disk full" if self.fail else None
-        end = DownloadState(entry.id, self.end, done, entry.size, error=error)
-        loop.call_soon(self.events.publish, {"type": "download", **half.to_dict()})
-        loop.call_soon(self.events.publish, {"type": "download", **end.to_dict()})
-        return DownloadState(entry.id, "queued", 0, entry.size)
 
 
 def write(ctx, **arguments):
