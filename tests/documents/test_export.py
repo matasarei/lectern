@@ -85,7 +85,7 @@ def test_a_documents_folder_or_a_text_file_loads_and_anything_else_says_why(tmp_
 
 
 def test_a_pdf_with_text_loads_page_by_page_and_a_scan_or_a_broken_one_says_why(tmp_path):
-    from tests.projects.conftest import write_pdf, write_scan_pdf
+    from ..projects.conftest import write_pdf, write_scan_pdf
 
     write_pdf(tmp_path / "statement.pdf", ["Opening balance 100,00", "Closing balance 87,50"])
     doc = load_for_export(tmp_path, "statement.pdf")
@@ -103,7 +103,7 @@ def test_a_pdf_with_text_loads_page_by_page_and_a_scan_or_a_broken_one_says_why(
 
 
 def test_a_docx_loads_with_its_headings_and_tables(tmp_path):
-    from tests.projects.conftest import write_docx
+    from ..projects.conftest import write_docx
 
     write_docx(tmp_path / "lease.docx")
     doc = load_for_export(tmp_path, "lease.docx")

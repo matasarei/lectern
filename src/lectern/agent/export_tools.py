@@ -82,7 +82,8 @@ def export_tools(exporters: list[Exporter]) -> list[AgentTool]:
                 raise ToolError("The person said no; the file was not exported.")
         row = await run_in_threadpool(_write, ctx, exporter, doc, opts, source)
         return ToolResult(
-            f"Saved as {row.path}, {_size(row.size)}, with {exporter.title}. {_summary(doc, opts)}",
+            f"Saved as {row.path}, {_size(row.size)}, with {exporter.title}. {_summary(doc, opts)}"
+            + _from_text_layer(source, doc),
             refs=[_file_ref(row)],
             action={"type": "open_tab", "tab": {"kind": "artifact", "id": row.id}},
         )
@@ -98,14 +99,35 @@ def export_tools(exporters: list[Exporter]) -> list[AgentTool]:
         ),
         AgentTool(
             name="export.run",
-            description="Build a file (odt, docx, md…) from an OCR session's Document or a "
-            "Markdown/text file. Always writes a new file; keeps the person's answers and "
-            "marks open questions.",
+            description="Build a file (odt, docx, md…) from an OCR session's Document, a PDF "
+            "with a text layer, a DOCX, or a Markdown/text file. Always writes a new file; "
+            "keeps the person's answers and marks open questions.",
             params=RunParams,
             run=run,
             max_tokens=300,
         ),
     ]
+
+
+def _from_text_layer(source: ArtifactRow, doc: Document) -> str:
+    """For a PDF exported from its text layer: what that loses, and the way to keep it. Said
+    every time, so the model can offer it whatever the file looks like."""
+    if not source.path.lower().endswith(".pdf"):
+        return ""
+    text = (
+        " Made from the PDF's text layer: its tables and columns are plain lines of text. If "
+        "the layout matters (a statement, a form, tables), offer ocr_start with "
+        "keep_layout=true, which reads it again with OCR."
+    )
+    empty = [p.n for p in doc.pages if not p.blocks]
+    if empty:
+        listed = ", ".join(str(n) for n in empty)
+        text += (
+            f" Page {listed} has no text (a scan): only OCR reads it."
+            if len(empty) == 1
+            else f" Pages {listed} have no text (scans): only OCR reads them."
+        )
+    return text
 
 
 def _load(ctx: ToolContext, name: str) -> tuple[ArtifactRow, Document]:
