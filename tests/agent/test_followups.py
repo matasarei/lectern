@@ -338,3 +338,19 @@ def test_an_export_after_ocr_without_the_documents_name_gets_the_sessions_folder
 
     (queued,) = followups.pending(db, 1)
     assert queued.arguments == {"name": "lease-scan/", "format": "docx"}
+
+
+def test_an_export_after_ocr_without_a_format_says_how_to_give_one(follow):
+    """Seen in the real check: task_after(export_run, arguments={}) twice, each answered by
+    pydantic's bare "format: Field required", before the 4B tried {"format": "docx"}."""
+    from lectern.agent.export_tools import export_tools
+    from lectern.modules import load_modules, module_exporters
+
+    manager, project, db, ocr_id, _ = follow([])
+    real = Registry([*CORE_TOOLS, *export_tools(module_exporters(load_modules()))])
+    ctx = ToolContext(project=project, sessions=db, user=LOCAL_USER, session_id=1, registry=real)
+    params = TASK_AFTER.validate({"session": "lease-scan.pdf", "tool": "export_run",
+                                  "arguments": {}, "label": "export to DOCX"})  # fmt: skip
+
+    with pytest.raises(ToolError, match=r'arguments=\{"format": "docx"\}'):
+        TASK_AFTER.confirm_text(ctx, params)

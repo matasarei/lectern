@@ -153,6 +153,11 @@ def _arguments(params: AfterParams, chat: SessionRow, ocr: OcrSessionRow) -> dic
         named = str(arguments.get("name") or "").strip()
         if not named or named.casefold() in (chat.title.casefold(), ocr.folder.casefold()):
             arguments["name"] = f"{ocr.folder}/"
+        if not arguments.get("format"):  # a bare "Field required" left the 4B guessing
+            raise ToolError(
+                'Say which format to export to, e.g. arguments={"format": "docx"} '
+                "(export_formats lists them)."
+            )
     return arguments
 
 
