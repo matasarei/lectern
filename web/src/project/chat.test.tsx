@@ -610,14 +610,15 @@ describe("The OCR line under ocr.start", () => {
     const line = await screen.findByTestId("ocr-line");
     await waitFor(() => expect(line.textContent).toContain("waiting to start"));
     expect(line.getAttribute("role")).toBe("status"); // announced as it moves on
-    expect(line.textContent).toContain("then: export to DOCX");
+    expect(line.textContent).toContain("Export to DOCX"); // the last step: what waits for it
     expect(line.textContent).not.toContain("say it's done"); // a notice isn't a step
 
     await act(async () => {
       pushOcr({ seq: 1, type: "waiting", reason: "chat", resume_in: null });
       await new Promise((r) => setTimeout(r, 10));
     });
-    expect(line.textContent).toContain("Starts when the chat's reply is finished");
+    expect(line.textContent).toContain("Reading· starts after this reply");
+    expect(within(line).queryByRole("button", { name: "Start now" })).toBeNull(); // not in the chat
 
     ocrSession = { ...ocrSession, pages: [page(1, "done"), page(2, "pending")] }; // as the server has it
     await act(async () => {
@@ -641,8 +642,9 @@ describe("The OCR line under ocr.start", () => {
     items = { ...items, sessions: [ocrSummary("done")] };
     renderChat();
     const line = await screen.findByTestId("ocr-line");
-    await waitFor(() => expect(line.textContent).toContain("done · 2 pages · 1 open question"));
-    expect(line.textContent).not.toContain("then:");
+    // done, but a question is open: it stays at Your questions, the export after it
+    await waitFor(() => expect(line.textContent).toContain("Your questions· 1 open question→Export to DOCX"));
+    expect(line.textContent).not.toContain("Done");
     expect(line.getAttribute("role")).toBeNull(); // it won't change: no live region
     expect(ocrStreams).toBe(0);
   });
@@ -675,6 +677,34 @@ describe("The chat's message when an OCR session finishes", () => {
     fireEvent.click(within(finished).getByRole("button", { name: "Open the document" }));
     expect(opened).toEqual([{ kind: "document", id: 8 }]);
     expect(await within(finished).findByRole("button", { name: "DOCX" })).toBeTruthy();
+  });
+
+  it("while an export waits for the questions: open them, or export now, and no format buttons", async () => {
+    chat.messages = [
+      message(2, {
+        role: "assistant",
+        content: "OCR · scan.jpg isn't finished yet: 2 open questions. Export to DOCX waits for it: …",
+        refs: [
+          { kind: "session", id: 8, name: "scan.jpg", ref: null },
+          { kind: "artifact", id: 40, name: "scan/document.md", ref: null },
+        ],
+      }),
+    ];
+    chat.followups = [
+      { id: "f1", label: "after OCR · scan.jpg: export to DOCX", ocr_session_id: 8, tool: "export.run", what: "export to DOCX" },
+    ];
+    const opened: Tab[] = [];
+    renderChat((tab) => opened.push(tab));
+    const finished = await screen.findByTestId("finished");
+    fireEvent.click(within(finished).getByRole("button", { name: "Open the document" }));
+    fireEvent.click(within(finished).getByRole("button", { name: "Open the OCR session" }));
+    expect(opened).toEqual([{ kind: "document", id: 8 }, { kind: "session", id: 8 }]);
+    expect(within(finished).queryByRole("button", { name: "DOCX" })).toBeNull(); // no second file
+
+    fireEvent.click(within(finished).getByRole("button", { name: "Export to DOCX now, as it is" }));
+    await waitFor(() =>
+      expect(posts.map((p) => p.url)).toEqual(["/api/projects/1/sessions/1/followups/f1/run"]),
+    );
   });
 
   it("offers nothing to open when the session stopped", async () => {

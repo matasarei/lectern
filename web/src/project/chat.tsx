@@ -126,6 +126,7 @@ export function ChatTab({
         )}
         <Transcript
           projectId={projectId}
+          chatId={sessionId}
           messages={chat.data.messages}
           summarised={chat.data.summary.messages}
           live={live}
@@ -323,6 +324,7 @@ function Reply({ children }: { children: React.ReactNode }) {
 
 function Transcript({
   projectId,
+  chatId,
   messages,
   summarised,
   live,
@@ -331,6 +333,7 @@ function Transcript({
   onOpen,
 }: {
   projectId: number;
+  chatId: number;
   messages: ChatMessage[];
   summarised: number; // how many of the first messages the summary stands in for
   live: LiveTurn;
@@ -390,7 +393,13 @@ function Transcript({
                       ))}
                       {message.content && <Markdown text={message.content} />}
                       {message.refs.length > 0 && (
-                        <FinishedActions projectId={projectId} refs={message.refs} onOpen={onOpen} />
+                        <FinishedActions
+                          projectId={projectId}
+                          chatId={chatId}
+                          refs={message.refs}
+                          followups={followups}
+                          onOpen={onOpen}
+                        />
                       )}
                     </Fragment>
                   ))}
@@ -419,17 +428,66 @@ function Transcript({
  * Document, or export it, without asking the model. */
 function FinishedActions({
   projectId,
+  chatId,
   refs,
+  followups,
   onOpen,
 }: {
   projectId: number;
+  chatId: number;
   refs: ToolRef[];
+  followups: Chat["followups"];
   onOpen: (tab: Tab) => void;
 }) {
   const { t } = useTranslation();
+  const exportNow = useMutation({
+    mutationFn: (id: string) =>
+      apiPost(`/api/projects/${projectId}/sessions/${chatId}/followups/${id}/run`),
+  });
   const session = refs.find((r) => r.kind === "session");
   const document = refs.find((r) => r.kind === "artifact");
-  if (!session || !document) return null; // a session that stopped: nothing to open yet
+  if (!session) return null;
+  // An export queued for this session that waits for its Document to be clear: the way on
+  // is to finish it (the Document, the OCR tab) or to run that export now. The format
+  // buttons would make a second file beside it, so they stay out of the way.
+  const waiting = followups.filter((f) => f.ocr_session_id === session.id && f.tool !== "");
+  if (waiting.length > 0) {
+    return (
+      <div className="grid gap-2" data-testid="finished">
+        <div className="flex flex-wrap gap-3 text-sm">
+          {document && (
+            <button
+              className="text-accent hover:underline"
+              onClick={() => onOpen({ kind: "document", id: session.id })}
+            >
+              {t("chat.openDocument")}
+            </button>
+          )}
+          <button className="text-accent hover:underline" onClick={() => onOpen({ kind: "session", id: session.id })}>
+            {t("chat.openOcr")}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {waiting.map((f) => (
+            <button
+              key={f.id}
+              className="btn-secondary px-2 py-0.5 text-xs"
+              disabled={exportNow.isPending}
+              onClick={() => exportNow.mutate(f.id)}
+            >
+              {t("chat.exportNow", { what: capitalised(f.what || f.label) })}
+            </button>
+          ))}
+        </div>
+        {exportNow.error && (
+          <ErrorNote
+            message={exportNow.error instanceof ApiError ? exportNow.error.detail : t("common.loadFailed")}
+          />
+        )}
+      </div>
+    );
+  }
+  if (!document) return null; // a session that stopped: nothing to open yet
   return (
     <div className="grid gap-2" data-testid="finished">
       <button
@@ -441,6 +499,11 @@ function FinishedActions({
       <ExportButtons projectId={projectId} artifactId={document.id} onOpen={onOpen} />
     </div>
   );
+}
+
+/** "export to DOCX" → "Export to DOCX". */
+function capitalised(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function UserMessage({ message }: { message: ChatMessage }) {

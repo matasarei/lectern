@@ -1,14 +1,15 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { apiFetch, apiPost } from "../api/client";
+import { apiFetch } from "../api/client";
 import type { OcrSession, ProjectItems, SessionSummary, Tab } from "../api/types";
 import { useRuntime } from "../hooks/useRuntime";
-import { HoldNote, ocrStepText, type OcrStepInput } from "../status";
 import { ocrPath, ocrProgress, useOcrEvents } from "./ocr-api";
+import { OcrSteps, type OcrStepsInput } from "./ocr-steps";
 
-/** Under the chat's ocr.start line: where the OCR session it began has got, and what runs
- * after it. The whole line opens the session's tab. */
+/** Under the chat's ocr.start line: the OCR session it began, as steps (Reading, Cleaning,
+ * Your questions, then what waits for it). The name opens the session's tab. No Start now
+ * here: the wait for this chat's reply is a moment; the OCR tab has it for longer waits. */
 export function OcrLine({
   projectId,
   sessionId,
@@ -30,13 +31,13 @@ export function OcrLine({
   // mustn't open a stream each (a browser allows six connections per host).
   const finished = summary.ocr.status === "done" || summary.ocr.status === "failed";
   return finished ? (
-    <Line summary={summary} then={then} onOpen={onOpen} step={finishedStep(summary)} />
+    <Line summary={summary} onOpen={onOpen} input={finishedInput(summary, then)} />
   ) : (
     <LiveLine projectId={projectId} summary={summary} then={then} onOpen={onOpen} />
   );
 }
 
-function finishedStep(summary: SessionSummary): OcrStepInput {
+function finishedInput(summary: SessionSummary, then: string[]): OcrStepsInput {
   const ocr = summary.ocr!;
   return {
     status: ocr.status,
@@ -46,6 +47,9 @@ function finishedStep(summary: SessionSummary): OcrStepInput {
     cleaned: ocr.pages,
     openQuestions: ocr.open_doubts,
     reason: null,
+    failedPages: ocr.failed_pages,
+    waitingForChat: false,
+    exports: then,
   };
 }
 
@@ -60,17 +64,13 @@ function LiveLine({
   then: string[];
   onOpen: (tab: Tab) => void;
 }) {
-  const base = ocrPath(projectId, summary.id);
   const live = useOcrEvents(projectId, summary.id);
   const session = useQuery({
     queryKey: ["ocr", projectId, summary.id],
-    queryFn: () => apiFetch<OcrSession>(base),
+    queryFn: () => apiFetch<OcrSession>(ocrPath(projectId, summary.id)),
   });
-  const runtime = useRuntime();
-  const startNow = useMutation({ mutationFn: () => apiPost(`${base}/start-now`) });
-  const hold = runtime.data?.hold;
   const data = session.data;
-  const step: OcrStepInput = data
+  const input: OcrStepsInput = data
     ? {
         status: data.status,
         phase: live.phase,
@@ -78,61 +78,38 @@ function LiveLine({
         ...ocrProgress(data),
         openQuestions: data.document?.open_doubts ?? 0,
         reason: data.error ?? data.paused_reason,
+        failedPages: data.pages
+          .filter((p) => p.status === "failed" || p.clean_status === "failed")
+          .map((p) => p.number),
+        waitingForChat: live.waitingForChat,
+        exports: then,
       }
-    : { ...finishedStep(summary), read: 0, cleaned: 0 }; // until the session is read
-  return (
-    <Line
-      summary={summary}
-      then={then}
-      onOpen={onOpen}
-      step={step}
-      waitingForChat={live.waitingForChat}
-      hold={
-        <HoldNote
-          seconds={hold ? hold.resume_in : live.resumeIn}
-          since={hold ? runtime.dataUpdatedAt : live.waitingSince}
-          onStartNow={() => startNow.mutate()}
-          starting={startNow.isPending}
-        />
-      }
-    />
-  );
+    : { ...finishedInput(summary, then), read: 0, cleaned: 0 }; // until the session is read
+  return <Line summary={summary} onOpen={onOpen} input={input} live />;
 }
 
 function Line({
   summary,
-  step,
-  then,
+  input,
   onOpen,
-  waitingForChat = false,
-  hold,
+  live = false,
 }: {
   summary: SessionSummary;
-  step: OcrStepInput;
-  then: string[];
+  input: OcrStepsInput;
   onOpen: (tab: Tab) => void;
-  waitingForChat?: boolean;
-  hold?: React.ReactNode;
+  live?: boolean; // a running session's line changes, and is announced; a finished one won't
 }) {
   const { t } = useTranslation();
   const runtime = useRuntime();
-  const text = ocrStepText(step, waitingForChat, runtime.data, t);
   return (
-    <div
-      className="flex flex-wrap items-center gap-2 text-sm"
-      data-testid="ocr-line"
-      role={hold ? "status" : undefined} // a running session's line changes; a finished one won't
-    >
+    <div className="grid gap-1 text-sm" data-testid="ocr-line" role={live ? "status" : undefined}>
       <button
-        className="text-left text-accent hover:underline"
+        className="w-fit text-left text-accent hover:underline"
         onClick={() => onOpen({ kind: "session", id: summary.id })}
       >
         {t("chat.ocrLine", { title: summary.title })}
       </button>
-      {text === null ? hold : <span>{text}</span>}
-      {step.status !== "done" && step.status !== "failed" && then.length > 0 && (
-        <span className="text-muted">{t("chat.ocrThen", { what: then.join(", ") })}</span>
-      )}
+      <OcrSteps input={input} runtime={runtime.data} />
     </div>
   );
 }

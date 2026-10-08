@@ -282,7 +282,9 @@
     "pickerEmpty": "No file matches",
     "ocrLine": "OCR · {{title}}",
     "ocrThen": "then: {{what}}",
-    "openDocument": "Open the document"
+    "openDocument": "Open the document",
+    "openOcr": "Open the OCR session",
+    "exportNow": "{{what}} now, as it is"
   },
   "file": {
     "details": "Details",
