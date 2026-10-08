@@ -52,7 +52,7 @@ export function HoldNote({
   return (
     <span className="flex items-center gap-2 text-muted" role="status">
       {left === null ? t("status.afterReply") : t("status.startsIn", { time: formatCountdown(left) })}
-      <button className="btn-secondary px-2 py-0.5 text-xs" disabled={starting} onClick={onStartNow}>
+      <button className="btn-primary px-2 py-0.5 text-xs" disabled={starting} onClick={onStartNow}>
         {t("status.startNow")}
       </button>
     </span>
@@ -68,6 +68,21 @@ export interface OcrStepInput {
   cleaned: number;
   openQuestions: number;
   reason: string | null; // why it paused, or what stopped it
+}
+
+/** The model an OCR phase is loading, in words; null when none is. Reading loads the OCR
+ * model, cleaning the chat's: the swaps that are the silent gaps between them. */
+export function ocrLoadingText(
+  phase: OcrPhase | null,
+  runtime: RuntimeState | undefined,
+  t: TFunction,
+): string | null {
+  const loading = runtime?.activity?.kind === "loading" ? runtime.activity.role : null;
+  if (phase === "recognise" && (loading === "ocr" || loading === "ocr.hand")) {
+    return t("ocrStep.loadingOcr");
+  }
+  if (phase === "clean" && loading === "main") return t("ocrStep.loadingMain");
+  return null;
 }
 
 /** The step an OCR session is at, in words: the model loading (the gaps between reading and
@@ -90,19 +105,16 @@ export function ocrStepText(
     return s.reason ? t("ocrStep.pausedBecause", { reason: s.reason }) : t("ocrStep.paused");
   }
   if (waitingForChat) return null;
-  const loading = runtime?.activity?.kind === "loading" ? runtime.activity.role : null;
+  const loading = ocrLoadingText(s.phase, runtime, t);
+  if (loading) return loading;
   const page = (done: number) => Math.min(done + 1, Math.max(s.pagesTotal, 1));
   switch (s.phase) {
     case "rasterise":
       return t("ocrStep.rasterise");
     case "recognise":
-      return loading === "ocr" || loading === "ocr.hand"
-        ? t("ocrStep.loadingOcr")
-        : t("ocrStep.reading", { page: page(s.read), total: s.pagesTotal });
+      return t("ocrStep.reading", { page: page(s.read), total: s.pagesTotal });
     case "clean":
-      return loading === "main"
-        ? t("ocrStep.loadingMain")
-        : t("ocrStep.cleaning", { page: page(s.cleaned), total: s.pagesTotal });
+      return t("ocrStep.cleaning", { page: page(s.cleaned), total: s.pagesTotal });
     case "assemble":
       return t("ocrStep.assemble");
     default:

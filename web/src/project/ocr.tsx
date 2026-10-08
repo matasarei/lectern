@@ -6,7 +6,7 @@ import { apiFetch, apiPost, ApiError } from "../api/client";
 import type { OcrDocument, OcrModel, OcrPage, OcrSession, Tab } from "../api/types";
 import { ErrorNote } from "../components";
 import { useRuntime } from "../hooks/useRuntime";
-import { HoldNote } from "../status";
+import { HoldNote, ocrLoadingText } from "../status";
 import { ImagePreview } from "./file";
 import { cleanPageAgain, ocrPath, ocrProgress, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
 import { ReviewPage } from "./review";
@@ -93,6 +93,7 @@ function StatusStrip({
   // is what the job saw when it began to wait.
   const hold = runtime.data?.hold;
   const { read, cleaned } = ocrProgress(session);
+  const loading = ocrLoadingText(live.phase, runtime.data, t); // the gap between phases
   const document = session.document;
   const working = session.status === "running" || session.status === "queued";
   const error = pause.error ?? resume.error ?? startNow.error;
@@ -122,6 +123,11 @@ function StatusStrip({
         )}
         {document && document.open_doubts > 0 && (
           <span className="text-muted">{t("ocr.openQuestions", { count: document.open_doubts })}</span>
+        )}
+        {loading && (
+          <span className="text-muted" role="status">
+            {loading}
+          </span>
         )}
         {live.waitingForChat && (
           <HoldNote
