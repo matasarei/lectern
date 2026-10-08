@@ -591,3 +591,24 @@ def test_a_held_job_that_is_cancelled_leaves_no_hold_behind():
             pass
 
     assert asyncio.run(go()) is None
+
+
+def test_start_now_with_no_job_waiting_does_not_skip_a_later_hold():
+    """A click that lands just as the page started mustn't let some later job, after a new
+    message, skip its wait."""
+    import time
+
+    runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
+    runtime.chat_idle_resume = 3600.0
+
+    async def go():  # noqa: ANN202
+        since = time.monotonic()
+        await runtime.skip_hold()  # nothing is waiting
+        await asyncio.sleep(0.01)
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        await runtime.turn_ended()
+        return runtime.job_hold("ocr", since)
+
+    assert asyncio.run(go()) > 3000  # still held: the stray click was ignored

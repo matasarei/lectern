@@ -215,8 +215,9 @@ class ModelRuntime:
         """Start now: the next job that waits for the chat goes at once (between the chat's
         model calls if it must; never taking a model in use)."""
         async with self._cond:
-            self._skip_hold = True
-            self._cond.notify_all()
+            if self._held is not None:  # only for a job waiting now, never a later one
+                self._skip_hold = True
+                self._cond.notify_all()
 
     def engine_progress(self, variant: str, done: int, total: int) -> None:
         """The llama.cpp build downloading (the runner's installer reports it, throttled)."""
