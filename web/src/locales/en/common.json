@@ -279,7 +279,9 @@
     "mention": "Mention a file from the project",
     "pickerLabel": "Project files",
     "pickerSearch": "Find a file",
-    "pickerEmpty": "No file matches"
+    "pickerEmpty": "No file matches",
+    "ocrLine": "OCR · {{title}}",
+    "ocrThen": "then: {{what}}"
   },
   "file": {
     "details": "Details",

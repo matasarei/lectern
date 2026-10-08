@@ -15,6 +15,10 @@ const message = (id: number, over: Partial<ChatMessage>): ChatMessage => ({
 let chat: Chat;
 let posts: { url: string; body: unknown }[] = [];
 let push: (event: object) => void = () => {};
+let pushOcr: (event: object) => void = () => {}; // an OCR session's own stream
+let ocrStreams = 0;
+let items: Record<string, unknown> = {};
+let ocrSession: Record<string, unknown> = {};
 
 // The runtime the page reads for "what it's waiting for"; its own event stream is empty.
 let runtimeState: Record<string, unknown> = {};
@@ -22,6 +26,16 @@ let runtimeState: Record<string, unknown> = {};
 beforeEach(() => {
   runtimeState = { residents: [], activity: null, hold: null };
   posts = [];
+  ocrStreams = 0;
+  items = {
+    sessions: [],
+    artifacts: [
+      { id: 11, name: "scripts/penalty.py" },
+      { id: 21, name: "lease-1998.docx" },
+      { id: 22, name: "notes.md" },
+    ],
+  };
+  ocrSession = {};
   chat = {
     id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [], followups: [],
     summary: { upto: 0, version: 0, messages: 0 },
@@ -41,6 +55,18 @@ beforeEach(() => {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
+      if (url.includes("/ocr/") && url.endsWith("/events")) {
+        ocrStreams += 1;
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              pushOcr = (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            },
+          }),
+        );
+      }
+      if (url.includes("/ocr/")) return new Response(JSON.stringify(ocrSession));
       if (url.endsWith("/events")) {
         const encoder = new TextEncoder();
         return new Response(
@@ -51,16 +77,7 @@ beforeEach(() => {
           }),
         );
       }
-      if (url === "/api/projects/1/items") {
-        return new Response(JSON.stringify({
-          sessions: [],
-          artifacts: [
-            { id: 11, name: "scripts/penalty.py" },
-            { id: 21, name: "lease-1998.docx" },
-            { id: 22, name: "notes.md" },
-          ],
-        }));
-      }
+      if (url === "/api/projects/1/items") return new Response(JSON.stringify(items));
       if (url === "/api/projects/1/artifacts/11/content") {
         return new Response("print('penalty', 62.5)\n");
       }
@@ -545,5 +562,85 @@ describe("Adding files already in the project", () => {
         body: { text: "what's next?", attachments: [22] },
       }),
     );
+  });
+});
+
+describe("The OCR line under ocr.start", () => {
+  const ocrSummary = (status: string) => ({
+    id: 8, kind: "ocr", title: "scan.jpg", messages: 0, created_at: "", updated_at: "",
+    ocr: { pages: 2, status, folder: "scan", document_version: 0, open_doubts: 1, figures: 0 },
+  });
+  const started = () => {
+    chat.messages = [
+      message(1, { content: "Read the scan and prepare DOCX from it" }),
+      message(2, {
+        role: "assistant",
+        tool_calls: [{ id: "c1", type: "function", function: { name: "ocr_start", arguments: '{"name":"scan.jpg"}' } }],
+      }),
+      message(3, {
+        role: "tool", tool_call_id: "c1", tool_name: "ocr.start", content: "Started an OCR session for scan.jpg",
+        refs: [{ kind: "session", id: 8, name: "scan.jpg", ref: null }],
+      }),
+    ];
+    chat.followups = [{ id: "f1", label: "after OCR · scan.jpg: export to DOCX", ocr_session_id: 8 }];
+  };
+  const page = (number: number, status: string, clean_status = "pending") => ({
+    number, key: `p00${number}`, status, clean_status, model_id: null, lease_key: null,
+    handwritten: false, note: "", seconds: null, cut_off: false, looped: false, error: null,
+  });
+
+  it("follows the session's events, and says what runs after it", async () => {
+    started();
+    items = { ...items, sessions: [ocrSummary("running")] };
+    ocrSession = {
+      id: 8, kind: "ocr", title: "scan.jpg", folder: "scan", status: "running", paused_reason: null,
+      error: null, pages_total: 2, source_artifact_id: 3, document: null, updated_at: "",
+      pages: [page(1, "pending"), page(2, "pending")],
+    };
+    renderChat();
+    const line = await screen.findByTestId("ocr-line");
+    await waitFor(() => expect(line.textContent).toContain("waiting to start"));
+    expect(line.textContent).toContain("then: export to DOCX");
+
+    await act(async () => {
+      pushOcr({ seq: 1, type: "waiting", reason: "chat", resume_in: null });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(line.textContent).toContain("Starts when the chat's reply is finished");
+
+    ocrSession = { ...ocrSession, pages: [page(1, "done"), page(2, "pending")] }; // as the server has it
+    await act(async () => {
+      pushOcr({ seq: 2, type: "phase", phase: "recognise" });
+      pushOcr({ seq: 3, type: "page", ...page(1, "done") });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(line.textContent).toContain("reading page 2 of 2");
+
+    ocrSession = { ...ocrSession, pages: [page(1, "done"), page(2, "done")] };
+    await act(async () => {
+      pushOcr({ seq: 4, type: "page", ...page(2, "done") });
+      pushOcr({ seq: 5, type: "phase", phase: "clean" });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(line.textContent).toContain("cleaning page 1 of 2"); // model loading: status.test.ts
+  });
+
+  it("shows a finished session from the project's list, without opening its event stream", async () => {
+    started();
+    items = { ...items, sessions: [ocrSummary("done")] };
+    renderChat();
+    const line = await screen.findByTestId("ocr-line");
+    await waitFor(() => expect(line.textContent).toContain("done · 2 pages · 1 open question"));
+    expect(line.textContent).not.toContain("then:");
+    expect(ocrStreams).toBe(0);
+  });
+
+  it("opens the session's tab when clicked", async () => {
+    started();
+    items = { ...items, sessions: [ocrSummary("done")] };
+    const opened: Tab[] = [];
+    renderChat((tab) => opened.push(tab));
+    fireEvent.click(await screen.findByRole("button", { name: "OCR · scan.jpg" }));
+    expect(opened).toEqual([{ kind: "session", id: 8 }]);
   });
 });
