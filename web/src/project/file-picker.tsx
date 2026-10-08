@@ -68,7 +68,7 @@ export function listKey(
   onPick: (file: Artifact) => void,
   onClose: () => void,
 ): boolean {
-  if (key === "ArrowDown") setActive(Math.min(active + 1, files.length - 1));
+  if (key === "ArrowDown") setActive(Math.max(0, Math.min(active + 1, files.length - 1)));
   else if (key === "ArrowUp") setActive(Math.max(active - 1, 0));
   else if (key === "Enter") {
     if (!files[active]) {
