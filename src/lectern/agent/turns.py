@@ -287,6 +287,11 @@ class TurnManager:
             unheld = [f for f in pending if f.id in ids and not f.held]
             if not unheld:  # run, or told, by an earlier signal
                 return
+            # Waiting for the chat may have taken a while: answered meanwhile, it's clear, and
+            # the signal that said so runs the follow-up; there's nothing to hold any more.
+            summary = await self._ocr_summary(project, ocr_session_id) or summary
+            if summary["clear"]:
+                return
             owner = await run_in_threadpool(_owner, sessions, chat_id)
             run = self._new_run(key, project, sessions, owner, chat_id)
             channel = self.channel(key)

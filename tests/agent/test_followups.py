@@ -390,6 +390,31 @@ def test_a_page_that_wasnt_cleaned_holds_the_export_and_is_named(follow):
         "again in the OCR tab, or export now as it is.", None)]  # fmt: skip
 
 
+def test_no_stale_hold_message_when_the_questions_are_answered_while_the_chat_is_busy(follow):
+    import threading
+
+    gate = threading.Event()
+    manager, project, db, ocr_id, _ = follow(
+        [text_reply("first answer"), text_reply("Done: Lease 1998.odt is saved.")], hold=gate
+    )
+    manager.ocr_jobs = _Summary(open_doubts=2)
+    _export(db, ocr_id)
+
+    async def go():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "a question", [])
+        await manager.after_session(project, ocr_id, "done", DONE)  # the hold waits for idle
+        await asyncio.sleep(0.05)
+        manager.ocr_jobs = _Summary()  # the last question answered meanwhile
+        await manager.after_session(project, ocr_id, "done", DONE)
+        gate.set()
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    said = [r[1] for r in _transcript(db)]
+    assert not any("isn't finished" in m for m in said)  # it was, by the time it could say it
+    assert RAN == [{"chat": 1, "format": "odt"}]
+
+
 def test_a_chat_with_only_a_notice_gets_it_with_the_questions_still_open(follow):
     manager, project, db, ocr_id, handle = follow([])
     manager.ocr_jobs = _Summary(open_doubts=2)
