@@ -191,3 +191,24 @@ def test_unknown_variant_is_refused(tmp_path):
     installer, _ = _installer(tmp_path, {"main.tar.gz": b""})
     with pytest.raises(UnsupportedPlatform):
         asyncio.run(installer.install("nope"))
+
+
+def test_two_installs_at_once_download_the_build_once(tmp_path):
+    """First-run's engine download and a chat's first load can ask at the same time."""
+    files = {"main.tar.gz": _tar({f"b/{SERVER}": b"x"})}
+    installer, requests = _installer(tmp_path, files)
+
+    async def handler(request):  # noqa: ANN001, ANN202 — yields, so the two can overlap
+        requests.append(request)
+        await asyncio.sleep(0.01)
+        return httpx2.Response(200, content=files[request.url.path.rsplit("/", 1)[-1]])
+
+    installer.client_factory = lambda: httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+
+    async def both():  # noqa: ANN202
+        return await asyncio.gather(installer.install("test"), installer.install("test"))
+
+    first, second = asyncio.run(both())
+
+    assert first == second and first.read_bytes() == b"x"
+    assert len(requests) == 1
