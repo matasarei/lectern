@@ -121,7 +121,11 @@ function Line({
   const prefix = `after OCR · ${summary.title}: `;
   const next = then.map((label) => (label.startsWith(prefix) ? label.slice(prefix.length) : label));
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="ocr-line" role="status">
+    <div
+      className="flex flex-wrap items-center gap-2 text-sm"
+      data-testid="ocr-line"
+      role={hold ? "status" : undefined} // a running session's line changes; a finished one won't
+    >
       <button
         className="text-left text-accent hover:underline"
         onClick={() => onOpen({ kind: "session", id: summary.id })}

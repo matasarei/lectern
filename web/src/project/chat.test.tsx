@@ -600,6 +600,7 @@ describe("The OCR line under ocr.start", () => {
     renderChat();
     const line = await screen.findByTestId("ocr-line");
     await waitFor(() => expect(line.textContent).toContain("waiting to start"));
+    expect(line.getAttribute("role")).toBe("status"); // announced as it moves on
     expect(line.textContent).toContain("then: export to DOCX");
 
     await act(async () => {
@@ -632,6 +633,7 @@ describe("The OCR line under ocr.start", () => {
     const line = await screen.findByTestId("ocr-line");
     await waitFor(() => expect(line.textContent).toContain("done · 2 pages · 1 open question"));
     expect(line.textContent).not.toContain("then:");
+    expect(line.getAttribute("role")).toBeNull(); // it won't change: no live region
     expect(ocrStreams).toBe(0);
   });
 
