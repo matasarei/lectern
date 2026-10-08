@@ -166,11 +166,15 @@ def test_a_turn_waiting_for_a_card_doesnt_count_as_a_chat_writing(setup, store):
         await until(lambda: manager.state(key) == "waiting")
         await manager.stop(key)  # cancels the card
         await manager.wait(key)
-        return during, runtime._waiting_turns
+        # Nothing is left counted as waiting: the next turn is writing again
+        await runtime.turn_started(message=False)
+        next_turn = runtime.chat_idle_seconds()
+        await runtime.turn_ended()
+        return during, next_turn
 
-    during, left = asyncio.run(scenario())
+    during, next_turn = asyncio.run(scenario())
     assert during > 0  # not "writing" while the card waits
-    assert left == 0  # nothing left waiting after an answer, or a stop
+    assert next_turn == 0  # after an answer and a stop, a new turn counts as writing
 
 
 def test_dont_allow_tells_the_model_and_moves_nothing(setup, store):
