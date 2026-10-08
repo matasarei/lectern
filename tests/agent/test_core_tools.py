@@ -29,6 +29,11 @@ def run(tool, ctx, **arguments):
     return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
 
+
+def _note(name: str) -> str:
+    """What document.read says after a file's text: it's data, not the person's words."""
+    return f"\n\n({core_tools.FILE_TEXT_IS_DATA.format(name=name)})"
+
 def test_every_tool_has_a_wire_name_and_a_schema():
     registry = core_registry()
     names = [s["function"]["name"] for s in registry.schemas()]
@@ -87,7 +92,7 @@ def test_outline_and_read_by_block_heading_and_whole(ctx):
     assert block == (
         "[lease-1998.md #c3 — Пеня]\n"
         "0,5% від суми за кожен день прострочення, включно з днем оплати."
-    )
+    ) + _note("lease-1998.md")
     assert "Оплата" in run(core_tools.READ, ctx, name="lease-1998.md", heading="оплата").text
     assert run(core_tools.READ, ctx, name="lease-1998.md").text.count("[lease-1998.md #c") == 3
 
@@ -110,7 +115,8 @@ def test_a_long_read_comes_in_pages_with_a_cursor(ctx, monkeypatch):
     add_file(ctx, "long.txt", "\n".join(f"line {i:03d} of the long file" for i in range(40)))
 
     first = run(core_tools.READ, ctx, name="long.txt")
-    assert len(first.text) < 20 * 3 + 80
+    assert first.text.endswith(_note("long.txt"))  # on every page
+    assert len(first.text.removesuffix(_note("long.txt"))) < 20 * 3 + 80
     assert first.cursor is not None and "more characters: call again with cursor" in first.text
     seen = first.text.split("\n[")[0]
     cursor = first.cursor
@@ -278,7 +284,7 @@ def test_an_ocr_document_is_searched_and_read_by_its_block_ids(ctx):
     assert block == (
         "[Lease 1998/document.md #b3.2 — 3. Орендна плата]\n"
         "Оплата не пізніше ⟦1? | open | 10 · 15 · 18⟧ числа поточного місяця."
-    )
+    ) + _note("Lease 1998/document.md")
     with pytest.raises(ToolError, match=r"has blocks #c1–#b3.4; none of \['#b9.9'\]"):
         run(core_tools.READ, ctx, name="document.md", refs=["#b9.9"])
 
