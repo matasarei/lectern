@@ -12,30 +12,44 @@ Status: pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html). 
 
 The main way to run Lectern is straight on a machine's own OS, so the models get the GPU
 directly: a general-purpose or older Linux computer with 4 GB of VRAM and 16 GB of RAM is
-the target. Lectern runs as a service and listens on 127.0.0.1 only; nginx on the same
-machine is the way in from your network. There's no login yet, so keep it to your local
-network: anyone who has the access link can use it.
+the target. Lectern installs for you, in your home folder, and runs as your own service
+(`systemctl --user`), listening on 127.0.0.1 only; nginx on the same machine is the way in
+from your network. There's no login yet, so keep it to your local network: anyone who has
+the access link can use it.
 
 **Needs:** Linux on x86_64 with systemd, the NVIDIA driver for an NVIDIA GPU (no CUDA
-toolkit: Lectern downloads a llama.cpp build that brings its own), nginx, and internet for
-the first run. Python isn't needed: the installer brings its own.
+toolkit: Lectern downloads a llama.cpp build that brings its own), Node.js to build from the
+repository (`sudo dnf install nodejs`), nginx, and internet for the first run. Python isn't
+needed: the installer brings its own.
 
-1. **Copy Lectern to the server and run one script, as yourself** (it asks for sudo once):
+1. **Clone Lectern and run one script, as yourself** (no sudo):
    ```sh
-   ./install.sh
+   git clone https://github.com/matasarei/lectern.git ~/.lectern/src
+   cd ~/.lectern/src && ./install.sh
    ```
-   From a copy of this repository, it builds the app from that working copy first, which
-   needs Node.js (`sudo dnf install nodejs`). Without Node, make a package on any machine
-   that has it, `./packaging/make_package.sh` → `dist/lectern-<version>-linux.tar.gz`, copy
-   that over, unpack it, and run its `./install.sh`.
+   It builds the app from that copy, installs it and starts it on `http://127.0.0.1:8765`.
+   Without Node on the server, make a package on any machine that has it,
+   `./packaging/make_package.sh` → `dist/lectern-<version>-linux.tar.gz`, copy that over,
+   unpack it anywhere, and run its `./install.sh`.
 
-   It creates the `lectern` user and service, puts the app in `/opt/lectern`, and starts it
-   on `http://127.0.0.1:8765`. Models and projects go in `/var/lib/lectern`; settings in
-   `/etc/lectern/lectern.env`. The rest below is by hand.
+   Everything goes in `~/.lectern` (`LECTERN_DIR` moves it):
+
+   | | |
+   |---|---|
+   | `src` | this repository, where you update from |
+   | `app` | the installed app, with its own uv and Python |
+   | `data` | the database (`lectern.sqlite`), models, projects, the access token |
+   | `lectern.env` | settings: the port, the public address |
+   | `bin/lectern-url` | prints the access link |
+
+   The service is `~/.config/systemd/user/lectern.service`. So that it starts at boot without
+   you logging in, the installer turns on lingering, or prints the line if that needs admin
+   rights (`sudo loginctl enable-linger $USER`). If the GPU has a render node and you aren't
+   in the `render` group, it prints `sudo usermod -aG render,video $USER` too.
 2. **Set the address you'll use** (the server's name or IP on your network), then restart:
    ```sh
-   sudoedit /etc/lectern/lectern.env      # LECTERN_PUBLIC_URL=http://lectern.lan
-   sudo systemctl restart lectern
+   nano ~/.lectern/lectern.env      # LECTERN_PUBLIC_URL=http://lectern.lan
+   systemctl --user restart lectern
    ```
 3. **Add the nginx site:** copy `packaging/linux/nginx-lectern.conf` to
    `/etc/nginx/conf.d/lectern.conf`, set its `server_name` to the same address, then
@@ -44,20 +58,20 @@ the first run. Python isn't needed: the installer brings its own.
 4. **Open it:** this prints the link with the access token. Open it on any computer on your
    network; the first run checks the hardware and downloads the chat model.
    ```sh
-   sudo -u lectern /opt/lectern/bin/lectern-url
+   ~/.lectern/bin/lectern-url
    ```
 
-**Upgrade:** run `./install.sh` again from the newer copy or package. Your settings and data are kept, and
-if the install fails, the running version stays as it was. If the new version doesn't start, it says so,
-keeps the previous one and prints how to go back to it.
-**Uninstall:** `sudo ./uninstall.sh` keeps `/var/lib/lectern` and
-`/etc/lectern`; add `--purge` to remove them and the `lectern` user too.
-**Logs:** `journalctl -u lectern`. They show the access link at start, so keep the journal to
-people you'd give the link to.
-**Scripts (the sandbox):** the chat runs the scripts it writes in Podman or Docker. Without
-either, that feature switches itself off. To turn it on, install Podman and give the
-`lectern` user rootless Podman (`sudo usermod --add-subuids 100000-165535
---add-subgids 100000-165535 lectern`).
+**Update:** `cd ~/.lectern/src && git pull && ./install.sh` (or run a newer package's
+`./install.sh`). Your data and settings are kept, and if the install fails, the running
+version stays as it was. If the new version doesn't start, it says so, keeps the previous one
+and prints how to go back to it.
+**Uninstall:** `./uninstall.sh` keeps `~/.lectern/data` and `~/.lectern/lectern.env`; add
+`--purge` to remove them too. `~/.lectern/src` always stays.
+**Logs:** `journalctl --user -u lectern`. They show the access link at start.
+**It runs as you,** so it can read what you can. The scripts the chat writes are the part
+that's isolated: they run in Podman or Docker, with only their project folder mounted.
+Without either, that feature switches itself off; on Fedora, rootless Podman works for your
+user as it is (`sudo dnf install podman`).
 
 ### Or in Docker
 
