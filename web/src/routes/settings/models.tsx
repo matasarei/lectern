@@ -173,6 +173,7 @@ function RoleRow({
           )}
         </span>
         {state.status === "downloading" && <DownloadProgress state={state} />}
+        {canStart && state.error && <ErrorNote message={state.error} />}
         {canStart && (
           <button
             className="btn-secondary mt-1 block w-fit"

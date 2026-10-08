@@ -119,6 +119,22 @@ describe("Models & memory", () => {
     );
   });
 
+  it("says why a download stopped, next to the button that resumes it", async () => {
+    const response = RESPONSES["/api/models"] as { models: ReturnType<typeof model>[] };
+    overrides["/api/models"] = {
+      ...response,
+      models: response.models.map((m) =>
+        m.id === "qwen3-vl-8b"
+          ? { ...m, download: { ...m.download, status: "failed", bytes_done: 5, error: "disk full" } }
+          : m,
+      ),
+    };
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "disk full");
+    expect(screen.getByRole("button", { name: "Download Qwen3-VL 8B" }).textContent).toBe("Resume");
+  });
+
   it("names the licence on the button when the model's licence needs accepting", async () => {
     const response = RESPONSES["/api/models"] as { models: ReturnType<typeof model>[] };
     overrides["/api/models"] = {
