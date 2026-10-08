@@ -272,6 +272,24 @@ def test_the_model_sees_waiting_exports_but_not_notices(follow):
     assert "say it's done" not in prompt
 
 
+def test_a_notice_beside_an_export_is_dropped_when_the_chat_is_next_opened_too(follow):
+    manager, project, db, ocr_id, handle = follow([text_reply("Done: Lease 1998.odt is saved.")])
+    _notice(db, ocr_id)
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="export.run", arguments={"format": "odt"},
+                  label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
+    with db.begin() as session:
+        session.get(OcrSessionRow, ocr_id).status = "done"  # finished while nobody heard
+
+    async def go():  # noqa: ANN202
+        await manager.resume_follow_ups(project, 1)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert [m[2] for m in _transcript(db)] == ["export_run", "export.run", None]  # one report
+    assert RAN == [{"chat": 1, "format": "odt"}]
+    assert followups.pending(db, 1) == []
+
+
 def test_only_notices_beside_a_working_follow_up_for_the_same_session_are_redundant():
     notice = followups.FollowUp("n", 7, "", {}, "say it's done")
     export = followups.FollowUp("e", 7, "export.run", {}, "export")
