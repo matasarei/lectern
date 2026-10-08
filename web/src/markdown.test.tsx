@@ -71,6 +71,30 @@ describe("Markdown renders what models write", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
   });
 
+  it("copies without the clipboard API too (plain http on the LAN), and says when it can't", async () => {
+    vi.stubGlobal("navigator", {}); // browsers give navigator.clipboard only to https and localhost
+    const copied: string[] = [];
+    const execCommand = vi.fn(() => {
+      copied.push(document.querySelector("textarea")?.value ?? ""); // what's in the field being copied
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", { value: execCommand, configurable: true });
+    render(<Markdown text={"```\nls -la\n```"} />);
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy" })));
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(copied).toEqual(["ls -la"]);
+    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(document.querySelector("textarea")).toBeNull(); // the helper is gone again
+
+    execCommand.mockReturnValue(false);
+    cleanup();
+    render(<Markdown text={"```\nls -la\n```"} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy" })));
+    expect(screen.getByRole("button", { name: "Couldn't copy" })).toBeTruthy();
+    Reflect.deleteProperty(document, "execCommand");
+  });
+
   it("inline code stays inline, without a Copy button", () => {
     const { container } = render(<Markdown text="Run `uv sync` first." />);
     expect(container.querySelector("code")?.textContent).toBe("uv sync");

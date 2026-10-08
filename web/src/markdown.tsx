@@ -20,23 +20,50 @@ function textOf(node: HastNode | undefined): string {
   return (node.children ?? []).map(textOf).join("");
 }
 
+/** Copies `text`: through the clipboard API where the browser offers it (https, localhost),
+ * else by selecting it in a hidden field, which also works over plain http on the LAN. */
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard) return navigator.clipboard.writeText(text);
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.opacity = "0";
+  document.body.append(field);
+  field.select();
+  try {
+    // deprecated, but the only way to copy where the clipboard API isn't offered
+    if (!document.execCommand("copy")) throw new Error("copy refused");
+  } finally {
+    field.remove();
+  }
+}
+
 function CodeBlock({ code, language }: { code: string; language: string | null }) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"copied" | "failed" | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const copy = async () => {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
+    try {
+      await copyText(code);
+      setCopied("copied");
+    } catch {
+      setCopied("failed");
+    }
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+    timer.current = setTimeout(() => setCopied(null), COPIED_MS);
   };
   return (
     <div className="my-2 overflow-hidden rounded-md border border-line bg-paper">
       <div className="flex items-center gap-2 border-b border-line px-3 py-1 text-xs text-muted">
         {language && <span>{language}</span>}
         <button className="ml-auto hover:text-ink" onClick={() => void copy()}>
-          {copied ? t("markdown.copied") : t("markdown.copy")}
+          {copied === "copied"
+            ? t("markdown.copied")
+            : copied === "failed"
+              ? t("markdown.copyFailed")
+              : t("markdown.copy")}
         </button>
       </div>
       <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed">

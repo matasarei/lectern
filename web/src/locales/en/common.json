@@ -218,6 +218,7 @@
   "markdown": {
     "copy": "Copy",
     "copied": "Copied",
+    "copyFailed": "Couldn't copy",
     "image": "Image: {{alt}}"
   },
   "chat": {
