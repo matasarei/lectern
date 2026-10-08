@@ -82,10 +82,28 @@ def test_the_card_names_the_file_its_pages_the_time_and_what_follows(ctx):
 
 
 def test_a_file_with_text_or_not_a_page_source_is_refused_before_any_card(ctx):
-    with pytest.raises(ToolError, match="letter.pdf has text: read it with document_read"):
+    with pytest.raises(ToolError, match="letter.pdf has text: read it with document_read") as e:
         _question(ctx, name="letter.pdf")
+    # …and says how to read it with OCR anyway, so the model doesn't go round in circles.
+    assert "keep_layout=true" in str(e.value) and "export it directly" in str(e.value)
     with pytest.raises(ToolError, match="No file called exactly"):
         _question(ctx, name="nothing.pdf")
+
+
+def test_keep_layout_reads_a_pdf_with_text_and_the_card_says_why(ctx):
+    question = _question(ctx, name="letter.pdf", keep_layout=True, then_export="docx")
+    assert question.startswith(
+        "Start an OCR session for letter.pdf? This PDF has text; OCR reads it again to keep its "
+        "tables and layout. 1 page · about 1 minute on this PC"
+    )
+    assert question.endswith("When it finishes: export to DOCX.")
+
+    result = _call(START, ctx, name="letter.pdf", keep_layout=True, then_export="docx")
+
+    (sid,) = ctx.ocr_jobs.started
+    assert result.action == {"type": "open_tab", "tab": {"kind": "session", "id": sid}}
+    (follow,) = followups.pending(ctx.sessions, 1)
+    assert follow.arguments == {"name": "letter/", "format": "docx"}
 
 
 def test_starting_opens_the_session_and_queues_the_export(ctx):

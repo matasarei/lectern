@@ -14,14 +14,17 @@ exporter's output (blueprint, "Export modules"). It declares what it can represe
 from __future__ import annotations
 
 import re
+import zipfile
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
+from docx.opc.exceptions import OpcError
 from pydantic import BaseModel
 
 from lectern.documents.document import DOUBT_MARK, Block, Document, Doubt
-from lectern.documents.from_text import parse_markdown, parse_text
+from lectern.documents.from_text import parse_markdown, parse_pages, parse_text
 from lectern.projects import files
+from lectern.projects.text import PDF_PAGE_MIN_CHARS, docx_markdown, pdf_pages
 
 CAPABILITIES = ("tables", "comments", "figures")
 DOCUMENT_JSON = "document.json"
@@ -159,8 +162,9 @@ def reading_order(doc: Document) -> list[tuple[Block, str | None, int]]:
 
 def load_for_export(root: Path, path: str) -> Document:
     """The Document an export is made from: an OCR session's (its document.md, whose
-    document.json beside it is the source), or a Markdown or plain text file parsed into
-    one. Raises ValueError with a reason the agent can pass on."""
+    document.json beside it is the source), or a file parsed into one: Markdown or plain
+    text, a PDF's text layer (page by page), a DOCX. Raises ValueError with a reason the
+    agent can pass on."""
     target = files.inside(root, path)
     name = Path(path)
     if name.name == DOCUMENT_MD and (target.parent / DOCUMENT_JSON).is_file():
@@ -170,9 +174,24 @@ def load_for_export(root: Path, path: str) -> Document:
         text = target.read_text(encoding="utf-8", errors="replace")
         parse = parse_text if suffix == ".txt" else parse_markdown
         return parse(name.stem, text, source=name.name)
+    if suffix == ".pdf" and target.is_file():
+        pages = pdf_pages(target)  # ValueError when it can't be opened
+        if not any(len(page) >= PDF_PAGE_MIN_CHARS for page in pages):
+            raise ValueError(
+                f"{path} has no text layer (a scan): start an OCR session with ocr.start, then "
+                "export its document."
+            )
+        return parse_pages(name.stem, pages, source=name.name)
+    if suffix == ".docx" and target.is_file():
+        try:
+            markdown = docx_markdown(target)
+        except (OpcError, zipfile.BadZipFile, KeyError) as exc:  # not a Word file inside
+            raise ValueError(f"{path} isn't a readable DOCX ({exc}).") from None
+        return parse_markdown(name.stem, markdown, source=name.name)
     raise ValueError(
-        f"{path} isn't a Document or a text file: export an OCR session's document "
-        "(its folder) or a Markdown or text file."
+        f"{path} isn't a Document, a PDF with text, a DOCX or a text file: export an OCR "
+        "session's document (its folder), a PDF with a text layer, a DOCX, or a Markdown or "
+        "text file."
     )
 
 

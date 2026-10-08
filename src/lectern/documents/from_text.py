@@ -1,5 +1,6 @@
 """Text files as Documents, so "convert reply-letter.md to ODT" goes through the same exporter
-as an OCR Document. A text file is one page; its blocks are b1.1, b1.2…
+as an OCR Document. A text file is one page; its blocks are b1.1, b1.2… A PDF's text layer
+keeps its pages (parse_pages).
 
 Markdown: headings (#–###), paragraphs, lists (-, *, 1.) and pipe tables. Anything else
 stays as a paragraph's text, word for word. Plain text: paragraphs, split on blank lines.
@@ -59,17 +60,36 @@ def parse_markdown(title: str, text: str, *, source: str = "") -> Document:
 
 
 def parse_text(title: str, text: str, *, source: str = "") -> Document:
+    return _document(title, source, _paragraphs(text, page=1))
+
+
+def parse_pages(title: str, pages: list[str], *, source: str = "") -> Document:
+    """A PDF's text layer, page by page: page n's paragraphs are b<n>.1, b<n>.2… so citations
+    and page notes match the PDF. A page without text keeps its place, with no blocks."""
+    blocks_by_page = [_paragraphs(text, page=n) for n, text in enumerate(pages, start=1)]
+    return Document(
+        title=title,
+        source=Source(artifact=source or title, pages=len(pages)),
+        pages=[
+            PageInfo(n=n, image="", size=(0, 0), blocks=[b.id for b in blocks])
+            for n, blocks in enumerate(blocks_by_page, start=1)
+        ],
+        blocks=[b for blocks in blocks_by_page for b in blocks],
+    )
+
+
+def _paragraphs(text: str, *, page: int) -> list[Block]:
+    """Paragraphs split on blank lines; a paragraph keeps its line breaks (a statement's rows)."""
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    blocks = [
+    return [
         Block(
-            id=f"b1.{n}",
+            id=f"b{page}.{n}",
             type="paragraph",
-            page=1,
+            page=page,
             text="\n".join(x.strip() for x in p.splitlines()),
         )
         for n, p in enumerate(paragraphs, start=1)
     ]
-    return _document(title, source, blocks)
 
 
 def _starts_block(lines: list[str], i: int) -> bool:

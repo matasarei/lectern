@@ -28,6 +28,7 @@ from lectern.documents.export import (
 )
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow
+from lectern.projects.text import PDF_PAGE_MIN_CHARS
 
 
 class FormatsParams(BaseModel):
@@ -82,7 +83,8 @@ def export_tools(exporters: list[Exporter]) -> list[AgentTool]:
                 raise ToolError("The person said no; the file was not exported.")
         row = await run_in_threadpool(_write, ctx, exporter, doc, opts, source)
         return ToolResult(
-            f"Saved as {row.path}, {_size(row.size)}, with {exporter.title}. {_summary(doc, opts)}",
+            f"Saved as {row.path}, {_size(row.size)}, with {exporter.title}. {_summary(doc, opts)}"
+            + _from_text_layer(source, doc),
             refs=[_file_ref(row)],
             action={"type": "open_tab", "tab": {"kind": "artifact", "id": row.id}},
         )
@@ -98,14 +100,39 @@ def export_tools(exporters: list[Exporter]) -> list[AgentTool]:
         ),
         AgentTool(
             name="export.run",
-            description="Build a file (odt, docx, md…) from an OCR session's Document or a "
-            "Markdown/text file. Always writes a new file; keeps the person's answers and "
-            "marks open questions.",
+            description="Build a file (odt, docx, md…) from an OCR session's Document, a PDF "
+            "with a text layer, a DOCX, or a Markdown/text file. Always writes a new file; "
+            "keeps the person's answers and marks open questions.",
             params=RunParams,
             run=run,
             max_tokens=300,
         ),
     ]
+
+
+def _from_text_layer(source: ArtifactRow, doc: Document) -> str:
+    """For a PDF exported from its text layer: what that loses, and the way to keep it. Said
+    every time, so the model can offer it whatever the file looks like."""
+    if not source.path.lower().endswith(".pdf"):
+        return ""
+    text = (
+        " Made from the PDF's text layer: its tables and columns are plain lines of text. If "
+        "the layout matters (a statement, a form, tables), offer ocr_start with "
+        "keep_layout=true, which reads it again with OCR."
+    )
+    # The same rule as "has text" at import: a scan may still carry a page number or a header.
+    chars = {p.n: 0 for p in doc.pages}
+    for block in doc.blocks:
+        chars[block.page] = chars.get(block.page, 0) + len(block.text)
+    empty = [n for n, count in chars.items() if count < PDF_PAGE_MIN_CHARS]
+    if empty:
+        listed = ", ".join(str(n) for n in empty)
+        text += (
+            f" Page {listed} has little or no text (maybe a scan): only OCR reads that."
+            if len(empty) == 1
+            else f" Pages {listed} have little or no text (maybe scans): only OCR reads those."
+        )
+    return text
 
 
 def _load(ctx: ToolContext, name: str) -> tuple[ArtifactRow, Document]:

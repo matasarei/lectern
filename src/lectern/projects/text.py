@@ -193,15 +193,28 @@ def _pdf(path: Path) -> Extracted:
         return _pdf_text(path)
 
 
-def _pdf_text(path: Path) -> Extracted:
+def pdf_pages(path: Path) -> list[str]:
+    """Every page's text, "" for a page without any, read the same way as at import but all
+    of it: TEXT_LIMIT bounds what the chat reads, and an export cut short would lose pages
+    without saying so. Raises ValueError when the PDF can't be opened."""
+    with PDFIUM_LOCK:
+        read = _read_pages(path, limit=None)
+    if read is None:
+        raise ValueError(f"{path.name}: the PDF couldn't be opened")
+    return read[0]
+
+
+def _read_pages(path: Path, limit: int | None) -> tuple[list[str], int] | None:
+    """With PDFIUM_LOCK held. The pages' texts (stopping once past `limit` characters, if
+    given) and the page count, or None when the PDF can't be opened."""
     import pypdfium2 as pdfium
 
     try:
         pdf = pdfium.PdfDocument(path)
     except pdfium.PdfiumError:
-        return Extracted(note="the PDF couldn't be opened")
+        return None
     try:
-        pages: list[tuple[str, str]] = []
+        pages: list[str] = []
         total = 0
         for index in range(len(pdf)):
             page = pdf[index]
@@ -209,23 +222,38 @@ def _pdf_text(path: Path) -> Extracted:
             text = textpage.get_text_bounded().replace("\r\n", "\n").strip()
             textpage.close()
             page.close()
-            pages.append((f"Page {index + 1}", text))
+            pages.append(text)
             total += len(text)
-            if total > TEXT_LIMIT:
+            if limit is not None and total > limit:
                 break
-        if sum(len(t) >= PDF_PAGE_MIN_CHARS for _, t in pages) == 0:
-            return Extracted(note="no text layer (a scan: open it as an OCR session)")
-        chunks = _number(_split([(h, t) for h, t in pages if t]))
-        note = None
-        if len(pages) < len(pdf):
-            note = f"only the first {len(pages)} of {len(pdf)} pages are used"
-        return Extracted(chunks=chunks, note=note)
+        return pages, len(pdf)
     finally:
         pdf.close()
 
 
-def _docx(path: Path) -> str:
-    """Paragraphs and tables in document order, headings as Markdown headings."""
+def _pdf_text(path: Path) -> Extracted:
+    read = _read_pages(path, limit=TEXT_LIMIT)
+    if read is None:
+        return Extracted(note="the PDF couldn't be opened")
+    pages, count = read
+    if sum(len(t) >= PDF_PAGE_MIN_CHARS for t in pages) == 0:
+        return Extracted(note="no text layer (a scan: open it as an OCR session)")
+    numbered = [(f"Page {n}", t) for n, t in enumerate(pages, start=1) if t]
+    chunks = _number(_split(numbered))
+    note = None
+    if len(pages) < count:
+        note = f"only the first {len(pages)} of {count} pages are used"
+    return Extracted(chunks=chunks, note=note)
+
+
+def docx_markdown(path: Path) -> str:
+    """A DOCX as Markdown with real pipe tables, for building a Document from it (export)."""
+    return _docx(path, pipe_tables=True)
+
+
+def _docx(path: Path, *, pipe_tables: bool = False) -> str:
+    """Paragraphs and tables in document order, headings as Markdown headings. Table rows are
+    "a | b" for the search index; with pipe_tables, Markdown tables a parser recognises."""
     import docx
     from docx.table import Table
 
@@ -233,8 +261,15 @@ def _docx(path: Path) -> str:
     lines: list[str] = []
     for item in document.iter_inner_content():
         if isinstance(item, Table):
-            for row in item.rows:
-                lines.append(" | ".join(cell.text.strip() for cell in row.cells))
+            for n, row in enumerate(item.rows):
+                cells = [cell.text.strip() for cell in row.cells]
+                if not pipe_tables:
+                    lines.append(" | ".join(cells))
+                    continue
+                safe = (c.replace("|", "\\|").replace("\n", " ") for c in cells)
+                lines.append("| " + " | ".join(safe) + " |")
+                if n == 0:
+                    lines.append("| " + " | ".join("---" for _ in cells) + " |")
             lines.append("")
             continue
         text = item.text.strip()

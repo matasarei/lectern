@@ -73,11 +73,46 @@ def test_a_documents_folder_or_a_text_file_loads_and_anything_else_says_why(tmp_
     (folder / "document.md").write_text("…", encoding="utf-8")
     (tmp_path / "reply-letter.md").write_text("# Відповідь\n\nТекст.\n", encoding="utf-8")
     (tmp_path / "notes.txt").write_text("Один.\n\nДва.\n", encoding="utf-8")
-    (tmp_path / "scan.pdf").write_bytes(b"%PDF")
+    (tmp_path / "photo.png").write_bytes(b"\x89PNG")
 
     assert load_for_export(tmp_path, "Lease 1998/document.md").title == "Lease 1998"
     letter = load_for_export(tmp_path, "reply-letter.md")
     assert (letter.title, letter.blocks[0].type) == ("reply-letter", "heading")
     assert [b.text for b in load_for_export(tmp_path, "notes.txt").blocks] == ["Один.", "Два."]
-    with pytest.raises(ValueError, match="isn't a Document or a text file"):
+    # The message used to be asked of a PDF; a PDF with text exports now, so an image asks it.
+    with pytest.raises(ValueError, match="isn't a Document, a PDF with text, a DOCX or a text"):
+        load_for_export(tmp_path, "photo.png")
+
+
+def test_a_pdf_with_text_loads_page_by_page_and_a_scan_or_a_broken_one_says_why(tmp_path):
+    from ..projects.conftest import write_pdf, write_scan_pdf
+
+    write_pdf(tmp_path / "statement.pdf", ["Opening balance 100,00", "Closing balance 87,50"])
+    doc = load_for_export(tmp_path, "statement.pdf")
+    assert (doc.title, doc.source.artifact, doc.source.pages) == ("statement", "statement.pdf", 2)
+    assert [(b.id, b.text) for b in doc.blocks] == [
+        ("b1.1", "Opening balance 100,00"), ("b2.1", "Closing balance 87,50"),
+    ]  # fmt: skip
+
+    write_scan_pdf(tmp_path / "scan.pdf")
+    with pytest.raises(ValueError, match="no text layer.*ocr.start"):
         load_for_export(tmp_path, "scan.pdf")
+    (tmp_path / "broken.pdf").write_bytes(b"%PDF")
+    with pytest.raises(ValueError, match="couldn't be opened"):
+        load_for_export(tmp_path, "broken.pdf")
+
+
+def test_a_docx_loads_with_its_headings_and_tables(tmp_path):
+    from ..projects.conftest import write_docx
+
+    write_docx(tmp_path / "lease.docx")
+    doc = load_for_export(tmp_path, "lease.docx")
+    assert doc.title == "lease" and doc.source.artifact == "lease.docx"
+    assert [b.type for b in doc.blocks] == ["heading", "paragraph", "table", "heading", "paragraph"]
+    assert doc.blocks[2].rows == [["Сума", "250,00 грн"], ["Пеня", "0,5% на день"]]
+
+
+def test_a_file_called_docx_that_isnt_one_says_so(tmp_path):
+    (tmp_path / "fake.docx").write_bytes(b"not a zip")
+    with pytest.raises(ValueError, match="fake.docx isn't a readable DOCX"):
+        load_for_export(tmp_path, "fake.docx")

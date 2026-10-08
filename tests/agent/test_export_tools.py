@@ -82,7 +82,7 @@ def test_an_unknown_format_names_the_installed_ones_and_a_scan_says_what_to_do(c
     with pytest.raises(ToolError, match="No pdf exporter is installed. Installed: docx, md, odt."):
         _call(run, ctx, name="reply-letter.md", format="pdf")
     add_file(ctx, "scan.png", "x")
-    with pytest.raises(ToolError, match="isn't a Document or a text file"):
+    with pytest.raises(ToolError, match="isn't a Document, a PDF with text, a DOCX or a text"):
         _call(run, ctx, name="scan.png", format="odt")
 
 
@@ -110,3 +110,61 @@ def test_someone_elses_file_isnt_found(ctx, store):
     ctx.user = User(id=2, name="other")
     with pytest.raises(ToolError, match="No file called"):
         _call(run, ctx, name="reply-letter.md", format="md")
+
+
+def _add_bytes(ctx, name: str, data: bytes) -> None:  # noqa: ANN001
+    from lectern.projects import files
+
+    with ctx.sessions.begin() as session:
+        files.write_bytes(
+            ctx.project.root, session, owner_id=ctx.user.id, name=name, data=data,
+            origin=Origin("import"),
+        )  # fmt: skip
+
+
+def test_a_pdf_with_text_exports_and_says_how_to_keep_its_layout(ctx, tmp_path):
+    import docx
+
+    from ..projects.conftest import write_pdf
+
+    _, run = _tools()
+    pdf = write_pdf(tmp_path / "s.pdf", ["Opening balance 100,00", "", "Closing balance 87,50"])
+    _add_bytes(ctx, "statement.pdf", pdf.read_bytes())
+
+    result = _call(run, ctx, name="statement.pdf", format="docx")
+
+    assert result.refs[0]["name"] == "statement.docx"
+    paragraphs = [
+        p.text for p in docx.Document(str(ctx.project.root / "statement.docx")).paragraphs
+    ]
+    assert "Opening balance 100,00" in paragraphs and "Closing balance 87,50" in paragraphs
+    assert "text layer" in result.text and "keep_layout" in result.text
+    assert "Page 2 has little or no text (maybe a scan)" in result.text  # only OCR reads it
+
+
+def test_a_docx_exports_to_odt_with_its_table(ctx, tmp_path):
+    import zipfile
+
+    from ..projects.conftest import write_docx
+
+    _, run = _tools()
+    _add_bytes(ctx, "lease.docx", write_docx(tmp_path / "l.docx").read_bytes())
+
+    result = _call(run, ctx, name="lease.docx", format="odt")
+
+    content = zipfile.ZipFile(ctx.project.root / "lease.odt").read("content.xml").decode()
+    table = content[content.index("<table:table ") : content.index("</table:table>")]
+    assert "250,00 грн" in table and "0,5% на день" in table
+    assert "keep_layout" not in result.text  # only a PDF's text layer loses its layout
+
+
+def test_a_scanned_page_with_only_a_page_number_still_counts_as_a_scan(ctx, tmp_path):
+    from ..projects.conftest import write_pdf
+
+    _, run = _tools()
+    pages = ["Opening balance 100,00", "3", "", "Closing balance 87,50"]
+    _add_bytes(ctx, "statement.pdf", write_pdf(tmp_path / "s.pdf", pages).read_bytes())
+
+    result = _call(run, ctx, name="statement.pdf", format="md")
+
+    assert "Pages 2, 3 have little or no text (maybe scans)" in result.text
