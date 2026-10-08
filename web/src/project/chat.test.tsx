@@ -83,7 +83,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderChat(onOpen: (tab: Tab) => void = () => {}) {
+function renderChat(onOpen: (tab: Tab, focus?: boolean) => void = () => {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -308,6 +308,28 @@ describe("Chat", () => {
       await new Promise((r) => setTimeout(r, 10));
     });
     expect(opened).toEqual([{ kind: "artifact", id: 3 }]);
+  });
+
+  it("adds an OCR session's tab without showing it when the tool says focus: false", async () => {
+    const calls: [Tab, boolean | undefined][] = [];
+    renderChat((tab, focus) => calls.push([tab, focus]));
+    await screen.findByText("Yes: lease.md.");
+    await act(async () => {
+      push({ seq: 0, type: "replayed" });
+      push({
+        seq: 1, type: "tool_result", call_id: "c2", text: "Started", error: false, refs: [],
+        action: { type: "open_tab", tab: { kind: "session", id: 8 }, focus: false },
+      });
+      push({
+        seq: 2, type: "tool_result", call_id: "c3", text: "Exported", error: false, refs: [],
+        action: { type: "open_tab", tab: { kind: "artifact", id: 4 } },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(calls).toEqual([
+      [{ kind: "session", id: 8 }, false],
+      [{ kind: "artifact", id: 4 }, true],
+    ]);
   });
 });
 

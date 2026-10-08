@@ -126,8 +126,8 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     # The folder is the name to export later (export_run or task_after); the model can't
     # guess it from the scan's name.
     text = (
-        f"Started an OCR session for {_name(row)}; it opened in a new tab. Its document will "
-        f'be "{ocr.folder}/" when it finishes.'
+        f"Started an OCR session for {_name(row)}; it's in a new tab, and this chat shows its "
+        f'progress. Its document will be "{ocr.folder}/" when it finishes.'
     )
     if params.then_export:
         fmt = params.then_export.lower().lstrip(".")
@@ -147,7 +147,9 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     return ToolResult(
         text,
         refs=[{**tab, "name": chat.title, "ref": None}],
-        action={"type": "open_tab", "tab": tab},
+        # Added without taking focus: the person stays in the chat, where any next card (an
+        # export to queue) waits for them, and the reply card shows the session's progress.
+        action={"type": "open_tab", "tab": tab, "focus": False},
     )
 
 

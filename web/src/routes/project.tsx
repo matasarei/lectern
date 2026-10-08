@@ -13,7 +13,7 @@ import { DocumentTab } from "../project/document";
 import { FileTab } from "../project/file";
 import { OcrTab } from "../project/ocr";
 import { Overview } from "../project/overview";
-import { closeTab, openTab, sameTab, showOverview } from "../project/tabs";
+import { addTab, closeTab, openTab, sameTab, showOverview } from "../project/tabs";
 
 /** A project: its name, the tab bar (Overview first, then whatever is open), and the
  * active tab. The open tabs are saved to the project on every change. */
@@ -53,7 +53,13 @@ export function ProjectPage() {
     queryClient.setQueryData(["tabs", id], next);
     save.mutate(next);
   };
-  const open = (tab: Tab) => tabs && update(openTab(tabs, tab));
+  const open = (tab: Tab, focus = true) => {
+    if (!tabs) return;
+    if (focus) return update(openTab(tabs, tab));
+    update(addTab(tabs, tab));
+    // Its title comes from the items, which may not list it yet (a session just started)
+    void queryClient.invalidateQueries({ queryKey: ["items", id] });
+  };
   const newChat = useMutation({
     mutationFn: () => apiPost<SessionSummary>(`/api/projects/${id}/sessions`, {}),
     onSuccess: (chat) => {

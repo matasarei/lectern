@@ -25,7 +25,7 @@ export function ChatTab({
 }: {
   projectId: number;
   sessionId: number;
-  onOpen: (tab: Tab) => void;
+  onOpen: (tab: Tab, focus?: boolean) => void; // focus false: add the tab without showing it
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();

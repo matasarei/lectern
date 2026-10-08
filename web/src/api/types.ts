@@ -265,7 +265,7 @@ export type ChatEvent = { seq: number } & (
       text: string;
       error: boolean;
       refs: ToolRef[];
-      action: { type: "open_tab"; tab: Tab } | null;
+      action: { type: "open_tab"; tab: Tab; focus?: boolean } | null; // focus false: added, not shown
     }
   | { type: "done"; ttft: number | null; tps: number | null; tokens: number }
   | { type: "error"; detail: string }

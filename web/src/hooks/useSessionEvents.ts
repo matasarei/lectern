@@ -113,7 +113,7 @@ export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
 export function useSessionEvents(
   projectId: number,
   sessionId: number,
-  onOpen: (tab: Tab) => void,
+  onOpen: (tab: Tab, focus?: boolean) => void,
 ): LiveTurn {
   const queryClient = useQueryClient();
   const [live, dispatch] = useReducer(reduce, IDLE);
@@ -146,7 +146,7 @@ export function useSessionEvents(
           void queryClient.invalidateQueries({ queryKey: chatKey });
         }
         if (live && event.type === "tool_result" && event.action?.type === "open_tab") {
-          openRef.current(event.action.tab);
+          openRef.current(event.action.tab, event.action.focus !== false);
         }
         if (event.type === "turn") {
           void queryClient.invalidateQueries({ queryKey: chatKey });
