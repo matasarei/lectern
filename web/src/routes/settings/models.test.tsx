@@ -153,6 +153,17 @@ describe("Models & memory", () => {
     );
   });
 
+  it("says an OCR job waits for the chat, not for memory", async () => {
+    overrides["/api/runtime"] = {
+      ...(RESPONSES["/api/runtime"] as object), waiting: 1, activity: null,
+      hold: { role: "ocr", resume_in: 100 },
+    };
+    renderPage();
+
+    expect(await screen.findByText(/OCR waits for the chat to be quiet · starts in 1:(40|39)/)).toBeTruthy();
+    expect(screen.queryByText(/waiting for memory/)).toBeNull();
+  });
+
   it("offers only the implemented policies", async () => {
     renderPage();
 

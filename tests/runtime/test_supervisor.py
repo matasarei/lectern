@@ -550,3 +550,16 @@ def test_a_follow_up_turn_is_not_a_message():
             return True
 
     assert asyncio.run(asyncio.wait_for(go(), 5))
+
+
+def test_turns_are_reported_so_the_pages_can_update_the_hold():
+    runtime, _ = _runtime(8, {"main": 5})
+
+    async def go():  # noqa: ANN202
+        async with runtime.events.listen() as queue:
+            await runtime.turn_started(message=True)
+            await runtime.turn_ended()
+            return [(e["event"], e.get("status")) for e in
+                    (queue.get_nowait() for _ in range(queue.qsize()))]  # fmt: skip
+
+    assert asyncio.run(go()) == [("turn", "started"), ("turn", "ended")]

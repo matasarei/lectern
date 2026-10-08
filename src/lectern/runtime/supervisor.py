@@ -199,12 +199,14 @@ class ModelRuntime:
             self._turns += 1
             if message:
                 self._last_message_at = time.monotonic()
+            self._emit("turn", status="started")  # pages show the hold change at once
             self._cond.notify_all()
 
     async def turn_ended(self) -> None:
         async with self._cond:
             self._turns = max(0, self._turns - 1)
             self._chat_ended = time.monotonic()
+            self._emit("turn", status="ended")
             self._cond.notify_all()
 
     async def skip_hold(self) -> None:

@@ -15,7 +15,11 @@ const currentDoc: OcrDocument = documentOf([
 let posts: { url: string; body: unknown }[] = [];
 let push: (event: object) => void = () => {};
 
+// The runtime the page reads for "what it's waiting for"; its own event stream is empty.
+let runtimeState: Record<string, unknown> = {};
+
 beforeEach(() => {
+  runtimeState = { residents: [], activity: null, hold: null };
   posts = [];
   current = session({
     pages: [
@@ -28,6 +32,8 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
+      if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
       if (url.endsWith("/events")) {
         const encoder = new TextEncoder();
         return new Response(
@@ -98,13 +104,29 @@ describe("OCR tab", () => {
       push({ seq: 1, type: "phase", phase: "recognise" });
       push({ seq: 2, type: "waiting", reason: "chat" });
     });
-    expect(await screen.findByText("Waiting for the chat to be idle")).toBeTruthy();
+    // No countdown in the event: it waits for the chat's reply (the wording changed with it).
+    expect(await screen.findByText("Starts when the chat's reply is finished")).toBeTruthy();
     await act(async () => {
       push({ seq: 3, type: "page", ...page(2, { status: "done", model_id: "paddleocr-vl-1.6", looped: true }) });
     });
     await waitFor(() => expect(screen.getByText("read · repeats itself")).toBeTruthy());
-    expect(screen.queryByText("Waiting for the chat to be idle")).toBeNull();
+    expect(screen.queryByText("Starts when the chat's reply is finished")).toBeNull();
     expect(screen.getByText("Read 2/2")).toBeTruthy();
+  });
+
+  it("counts down the wait for the chat, and Start now asks for it", async () => {
+    renderTab();
+    await screen.findByRole("list", { name: "Pages" });
+    await act(async () => {
+      push({ seq: 1, type: "phase", phase: "recognise" });
+      push({ seq: 2, type: "waiting", reason: "chat", resume_in: 100 });
+    });
+
+    expect((await screen.findByRole("status")).textContent).toMatch(
+      /Starts in 1:(40|39), when the chat has been quiet for 2 minutes/,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start now" }));
+    await waitFor(() => expect(posts.map((p) => p.url)).toEqual(["/api/projects/1/ocr/2/start-now"]));
   });
 
   it("pauses a running job and resumes a paused one", async () => {

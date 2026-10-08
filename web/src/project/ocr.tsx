@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import { apiFetch, apiPost, ApiError } from "../api/client";
 import type { OcrDocument, OcrModel, OcrPage, OcrSession, Tab } from "../api/types";
 import { ErrorNote } from "../components";
+import { useRuntime } from "../hooks/useRuntime";
+import { HoldNote } from "../status";
 import { ImagePreview } from "./file";
 import { cleanPageAgain, ocrPath, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
 import { ReviewPage } from "./review";
@@ -85,11 +87,16 @@ function StatusStrip({
   const { t } = useTranslation();
   const pause = useMutation({ mutationFn: () => apiPost(`${base}/pause`) });
   const resume = useMutation({ mutationFn: () => apiPost(`${base}/resume`) });
+  const startNow = useMutation({ mutationFn: () => apiPost(`${base}/start-now`) });
+  const runtime = useRuntime();
+  // The runtime's hold is the live one (it changes when the chat's reply ends); the event's
+  // is what the job saw when it began to wait.
+  const hold = runtime.data?.hold;
   const read = session.pages.filter((p) => p.status === "done").length;
   const cleaned = session.pages.filter((p) => p.clean_status === "done").length;
   const document = session.document;
   const working = session.status === "running" || session.status === "queued";
-  const error = pause.error ?? resume.error;
+  const error = pause.error ?? resume.error ?? startNow.error;
   return (
     <div className="grid gap-1 border-b border-line bg-surface px-4 py-2">
       <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -117,7 +124,14 @@ function StatusStrip({
         {document && document.open_doubts > 0 && (
           <span className="text-muted">{t("ocr.openQuestions", { count: document.open_doubts })}</span>
         )}
-        {live.waitingForChat && <span className="text-muted">{t("ocr.waitingForChat")}</span>}
+        {live.waitingForChat && (
+          <HoldNote
+            seconds={hold ? hold.resume_in : live.resumeIn}
+            since={hold ? runtime.dataUpdatedAt : live.waitingSince}
+            onStartNow={() => startNow.mutate()}
+            starting={startNow.isPending}
+          />
+        )}
         {session.status === "paused" && session.paused_reason && (
           <span className="text-muted">({session.paused_reason})</span>
         )}

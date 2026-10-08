@@ -23,7 +23,13 @@ export function startOcr(projectId: number, artifactId: number): Promise<OcrSess
 export interface OcrLive {
   phase: OcrPhase | null;
   waitingForChat: boolean;
+  /** How long it waits: seconds of the chat's idle window, or null until the reply ends. */
+  resumeIn: number | null;
+  /** When the wait was reported (ms), for the countdown. */
+  waitingSince: number;
 }
+
+const NOT_WAITING = { waitingForChat: false, resumeIn: null, waitingSince: 0 };
 
 /** An event applied to the cached session. Pure, so it's tested on its own. */
 export function applyOcrEvent(session: OcrSession, event: OcrEvent): OcrSession {
@@ -68,13 +74,19 @@ function pageOf(event: OcrEvent & { type: "page" }): OcrPage {
 export function applyToLive(live: OcrLive, event: OcrEvent): OcrLive {
   switch (event.type) {
     case "phase":
-      return { phase: event.phase, waitingForChat: false };
+      return { ...live, phase: event.phase, ...NOT_WAITING };
     case "waiting":
-      return { ...live, waitingForChat: true };
+      return {
+        ...live,
+        waitingForChat: true,
+        resumeIn: event.resume_in ?? null,
+        waitingSince: Date.now(),
+      };
     case "page":
-      return event.status === "recognising" ? live : { ...live, waitingForChat: false };
+      // A page is marked reading or cleaning once the job has the model: the wait is over.
+      return { ...live, ...NOT_WAITING };
     case "session":
-      return event.status === "running" ? live : { phase: null, waitingForChat: false };
+      return event.status === "running" ? live : { phase: null, ...NOT_WAITING };
     default:
       return live;
   }
@@ -83,7 +95,7 @@ export function applyToLive(live: OcrLive, event: OcrEvent): OcrLive {
 /** Follows an OCR session's events, keeping the cached session and the live state current. */
 export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
   const queryClient = useQueryClient();
-  const [live, setLive] = useState<OcrLive>({ phase: null, waitingForChat: false });
+  const [live, setLive] = useState<OcrLive>({ phase: null, ...NOT_WAITING });
 
   useEffect(() => {
     const controller = new AbortController();
