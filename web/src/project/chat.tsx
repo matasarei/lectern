@@ -355,20 +355,22 @@ function Transcript({
           ) : (
             (shows(group) || (group === last && liveReply)) && (
               <Reply>
-                {group.messages.map((message) => (
-                  <Fragment key={message.id}>
-                    {message.tool_calls?.map((call) => (
-                      <ToolLine
-                        key={call.id}
-                        projectId={projectId}
-                        call={call}
-                        result={results.get(call.id)}
-                        progress={live.progress[call.id]}
-                      />
-                    ))}
-                    {message.content && <Markdown text={message.content} />}
-                  </Fragment>
-                ))}
+                {group.messages
+                  .filter((message) => message.role === "assistant") // results show under their call
+                  .map((message) => (
+                    <Fragment key={message.id}>
+                      {message.tool_calls?.map((call) => (
+                        <ToolLine
+                          key={call.id}
+                          projectId={projectId}
+                          call={call}
+                          result={results.get(call.id)}
+                          progress={live.progress[call.id]}
+                        />
+                      ))}
+                      {message.content && <Markdown text={message.content} />}
+                    </Fragment>
+                  ))}
                 {group === last && liveReply}
               </Reply>
             )

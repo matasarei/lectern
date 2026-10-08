@@ -133,6 +133,11 @@ describe("Chat", () => {
     expect(replies).toHaveLength(1); // the tool call and the answer are one reply
     expect(within(replies[0]).getByTestId("tool-line")).toBeTruthy();
     expect(within(replies[0]).getByText("Yes: lease.md.")).toBeTruthy();
+    // the tool's result shows only inside its folded line, not again as text in the card
+    const outsideFold = within(replies[0])
+      .queryAllByText(/^lease\.md · file · 24 B/)
+      .filter((el) => !el.closest("details"));
+    expect(outsideFold).toEqual([]);
   });
 
   it("streams a new reply into its own card, after the person's message", async () => {
