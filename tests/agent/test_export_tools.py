@@ -82,7 +82,7 @@ def test_an_unknown_format_names_the_installed_ones_and_a_scan_says_what_to_do(c
     with pytest.raises(ToolError, match="No pdf exporter is installed. Installed: docx, md, odt."):
         _call(run, ctx, name="reply-letter.md", format="pdf")
     add_file(ctx, "scan.png", "x")
-    with pytest.raises(ToolError, match="isn't a Document or a text file"):
+    with pytest.raises(ToolError, match="isn't a Document, a PDF with text, a DOCX or a text"):
         _call(run, ctx, name="scan.png", format="odt")
 
 
