@@ -43,3 +43,5 @@ def test_the_prompt_has_the_rules_for_open_questions_notes_exports_and_scans():
     assert "Page notes and pinned items take priority" in prompt
     assert "call export_formats before offering a format" in prompt
     assert "ocr_start" in prompt
+    assert "A PDF or DOCX with text exports directly" in prompt
+    assert "offer ocr_start with keep_layout" in prompt
