@@ -39,6 +39,17 @@ def test_the_chats_waiting_on_a_session_are_found_and_others_left(chats):
     assert followups.waiting_on(db, 9) == []
 
 
+def test_notices_dont_take_a_follow_ups_place(chats):
+    db, chat, _ = chats
+    for n in range(4):
+        followups.add(db, chat, ocr_session_id=n, tool="", arguments={}, label="say it's done")
+    for n in range(followups.MAX_FOLLOWUPS):  # five exports still fit beside four notices
+        followups.add(db, chat, ocr_session_id=n, tool="export.run", arguments={}, label="x")
+    followups.add(db, chat, ocr_session_id=9, tool="", arguments={}, label="say it's done")
+    with pytest.raises(followups.FollowUpError):
+        followups.add(db, chat, ocr_session_id=9, tool="export.run", arguments={}, label="y")
+
+
 def test_a_follow_up_is_taken_once(chats):
     db, chat, _ = chats
     added = followups.add(db, chat, ocr_session_id=7, tool="export.run", arguments={}, label="x")

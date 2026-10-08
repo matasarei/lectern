@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult
 from lectern.projects.tables import ChatStateRow, OcrSessionRow, SessionRow, now
 
-MAX_FOLLOWUPS = 5  # per chat: a follow-up is a step the person agreed to, not a queue
+MAX_FOLLOWUPS = 5  # per chat, notices aside: a follow-up is a step the person agreed to
 
 
 class FollowUpError(ValueError):
@@ -75,7 +75,9 @@ def add(
     with sessions.begin() as session:
         row = _row(session, chat_id)
         pending = _load(row)
-        if len(pending) >= MAX_FOLLOWUPS:
+        # A notice isn't a step the person agreed to, only a message: it doesn't count
+        steps = sum(1 for f in pending if not is_notice(f))
+        if tool and steps >= MAX_FOLLOWUPS:
             raise FollowUpError(f"{MAX_FOLLOWUPS} follow-ups are already waiting in this chat.")
         new = FollowUp(uuid.uuid4().hex[:8], ocr_session_id, tool, dict(arguments), label, what)
         row.followups = json.dumps([asdict(f) for f in [*pending, new]], ensure_ascii=False)
