@@ -192,7 +192,7 @@ def test_the_tools_set_has_about_30_prompts_and_ends_with_the_trash():
     from lectern.dev.agent_check import load
 
     cases = load("tools").cases
-    assert 28 <= len(cases) <= 32
+    assert 28 <= len(cases) <= 34  # ~30 (blueprint); grows by a case per real failure seen
     assert cases[-1].tools == ("artifact.trash",)
     assert not any("artifact.trash" in c.tools for c in cases[:-1])
 

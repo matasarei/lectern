@@ -45,3 +45,12 @@ def test_the_prompt_has_the_rules_for_open_questions_notes_exports_and_scans():
     assert "ocr_start" in prompt
     assert "A PDF or DOCX with text exports directly" in prompt
     assert "offer ocr_start with keep_layout" in prompt
+
+
+def test_the_prompt_lets_general_questions_be_answered_from_what_the_model_knows():
+    """Seen on the test server: asked what it knows about Old Church Slavonic, the 4B said
+    its knowledge was "limited to this project". General knowledge is fine, said as such;
+    the project's files and the person's own facts are still never made up."""
+    prompt = system_prompt("x", sandbox=True)
+    assert "General questions" in prompt and "from your own knowledge" in prompt
+    assert "Never make up what a file says" in prompt

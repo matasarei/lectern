@@ -131,6 +131,12 @@ prompts:
   - id: general-knowledge
     prompt: "In one sentence, what is a lease contract?"
     forbid: [artifact.write, artifact.trash, code.write]
+  # Seen on the test server: the 4B said its knowledge was "limited to this project". A
+  # refusal leaves out the year, so this fails on it, unlike the case above.
+  - id: general-history
+    prompt: "In two sentences: what was the Peace of Westphalia, and when was it signed?"
+    text: ["1648"]
+    forbid: [artifact.write, artifact.trash, code.write]
   # Worded like producing something, but nobody asked for a file.
   - id: unasked-fact
     prompt: "Give me one interesting fact about Kyiv, in one sentence."
