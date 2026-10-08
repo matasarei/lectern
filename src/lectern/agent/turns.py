@@ -372,7 +372,8 @@ async def _run_follow_up(run: TurnRun, follow: followups.FollowUp, notice: str) 
     tool = run.registry.get(call["function"]["name"])
     await run_in_threadpool(
         lambda: store_message(run, role="tool", content=result.text, tool_call_id=call["id"],
-                              tool_name=tool.name if tool else follow.tool)
+                              tool_name=tool.name if tool else follow.tool,
+                              refs=json.dumps(result.refs) if result.refs else None)
     )  # fmt: skip
     run.emit({"type": "tool_result", "call_id": call["id"], "text": result.text[:600],
               "error": result.text.startswith("Error:"), "refs": result.refs,

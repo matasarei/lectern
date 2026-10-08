@@ -77,6 +77,7 @@ class MessageRow(ProjectBase):
     tool_call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)  # tool only
     tool_name: Mapped[str | None] = mapped_column(String(64), nullable=True)  # tool only
     attachments: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON artifact ids
+    refs: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON, a tool result's refs
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

@@ -458,6 +458,7 @@ async def run_turn(run: TurnRun) -> str:
                         content=r.text,
                         tool_call_id=c["id"],
                         tool_name=(run.registry.get(c["function"]["name"]) or _Unknown).name,
+                        refs=json.dumps(r.refs) if r.refs else None,
                     )
                 )
                 run.emit(

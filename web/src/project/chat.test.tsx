@@ -9,7 +9,7 @@ import { ChatTab, groupReplies, shortArgs, writtenScript } from "./chat";
 
 const message = (id: number, over: Partial<ChatMessage>): ChatMessage => ({
   id, role: "user", content: "", tool_calls: null, tool_call_id: null, tool_name: null,
-  attachments: [], created_at: "", ...over,
+  attachments: [], refs: [], created_at: "", ...over,
 });
 
 let chat: Chat;
@@ -418,7 +418,7 @@ describe("Pinned items, the summary and the context", () => {
   });
 
   it("shows the follow-ups waiting for an OCR session, and says when one runs", async () => {
-    chat.followups = [{ id: "f1", label: "after OCR · lease-scan.pdf: export to ODT" }];
+    chat.followups = [{ id: "f1", label: "after OCR · lease-scan.pdf: export to ODT", ocr_session_id: 2 }];
     renderChat();
     const strip = await screen.findByTestId("followups");
     expect(strip.textContent).toBe("Waitingafter OCR · lease-scan.pdf: export to ODT");
