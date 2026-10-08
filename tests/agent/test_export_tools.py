@@ -188,7 +188,8 @@ def test_a_scan_with_an_ocr_session_points_at_its_document(ctx):
         _call(run, ctx, name="statement.jpg", format="docx")
 
     assert 'OCR session statement.jpg reads it; its document is "statement/"' in str(refused.value)
-    assert "task_after" in str(refused.value)  # still running: queue the export
+    # Still running: queue the export. A literal example, as a 4B copies it as it reads.
+    assert 'arguments={"format": "docx"}' in str(refused.value)
 
     with ctx.sessions.begin() as session:
         session.query(OcrSessionRow).update({"status": "done"})

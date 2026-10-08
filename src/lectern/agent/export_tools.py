@@ -169,7 +169,7 @@ def _read_by_ocr(ctx: ToolContext, row: ArtifactRow) -> str | None:
         return f'{row.path} is a scan. {where}: export_run with name="{ocr.folder}/".'
     return (
         f"{row.path} is a scan. {where} once the session finishes: queue the export with "
-        f'task_after(session="{chat.title}", tool="export_run", arguments={{"format": …}}).'
+        f'task_after(session="{chat.title}", tool="export_run", arguments={{"format": "docx"}}).'
     )
 
 
