@@ -217,6 +217,18 @@ class TurnManager:
             if (chat_id, follow) in keep:
                 self._schedule(project, sessions, chat_id, follow, status, notice)
 
+    async def run_follow_up_now(self, project: Project, chat_id: int, followup_id: str) -> bool:
+        """Export now: run a follow-up that waits for its Document to be clear as it is (open
+        questions are marked). False when it's no longer waiting."""
+        sessions = await run_in_threadpool(self.projects.db, project)
+        waiting = await run_in_threadpool(followups.pending, sessions, chat_id)
+        follow = next((f for f in waiting if f.id == followup_id), None)
+        if follow is None or followups.is_notice(follow):
+            return False
+        self._schedule(project, sessions, chat_id, follow, "done",
+                       "Exporting now, as it is: the open questions are marked.")  # fmt: skip
+        return True
+
     async def _unless_held(self, project: Project, sessions: object, ocr_session_id: int,
                            waiting: list) -> list:  # fmt: skip
         """`waiting` (a done session's follow-ups) if its Document is clear. If not (questions
