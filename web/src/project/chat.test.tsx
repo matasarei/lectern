@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Chat, ChatMessage, Tab } from "../api/types";
-import { ChatTab, shortArgs, writtenScript } from "./chat";
+import { ChatTab, groupReplies, shortArgs, writtenScript } from "./chat";
 
 const message = (id: number, over: Partial<ChatMessage>): ChatMessage => ({
   id, role: "user", content: "", tool_calls: null, tool_call_id: null, tool_name: null,
@@ -121,6 +121,31 @@ describe("Chat", () => {
     expect(container.querySelector("strong")?.textContent).toBe("files");
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["a.md", "b.md"]);
     expect(screen.getByText("show **me**")).toBeTruthy();
+  });
+
+  it("shows the person's messages as bubbles and each reply as one card", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const bubble = screen.getByTestId("user-message");
+    expect(within(bubble).getByText("Is there a lease file?")).toBeTruthy();
+    expect(within(bubble).getByText("Attached: notes.md")).toBeTruthy();
+    const replies = screen.getAllByTestId("reply");
+    expect(replies).toHaveLength(1); // the tool call and the answer are one reply
+    expect(within(replies[0]).getByTestId("tool-line")).toBeTruthy();
+    expect(within(replies[0]).getByText("Yes: lease.md.")).toBeTruthy();
+  });
+
+  it("streams a new reply into its own card, after the person's message", async () => {
+    chat.messages = [...chat.messages, message(5, { content: "And the term?" })];
+    renderChat();
+    await screen.findByText("And the term?");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "And the term?", attachments: [] },
+      { type: "delta", text: "Ten years." },
+    );
+    const replies = screen.getAllByTestId("reply");
+    expect(replies).toHaveLength(2);
+    expect(within(replies[1]).getByTestId("streaming").textContent).toBe("Ten years.");
   });
 
   it("says what the reply waits for: the engine downloading, then the model loading", async () => {
@@ -257,6 +282,22 @@ describe("Chat", () => {
 });
 
 describe("shortArgs", () => {
+  it("groups a run of assistant and tool messages, breaking where a marker goes", () => {
+    const run = [
+      message(1, {}),
+      message(2, { role: "assistant", content: "a" }),
+      message(3, { role: "tool", tool_call_id: "c" }),
+      message(4, { role: "assistant", content: "b" }),
+      message(5, {}),
+      message(6, { role: "assistant", content: "c" }),
+    ];
+    const kinds = (breaks: number[]) =>
+      groupReplies(run, breaks).map((g) => `${g.kind}:${g.messages.map((m) => m.id).join(",")}`);
+    expect(kinds([])).toEqual(["user:1", "reply:2,3,4", "user:5", "reply:6"]);
+    expect(kinds([3])).toEqual(["user:1", "reply:2,3", "reply:4", "user:5", "reply:6"]);
+    expect(groupReplies([], [])).toEqual([]);
+  });
+
   it("shows one argument as its value and several as name=value", () => {
     expect(shortArgs('{"query":"lease"}')).toBe('"lease"');
     expect(shortArgs('{"name":"a.md","refs":["#c1"]}')).toBe('name="a.md", refs=["#c1"]');

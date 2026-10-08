@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useRef, useState } from "react";
+import { Fragment, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
@@ -125,8 +125,12 @@ export function ChatTab({
           messages={chat.data.messages}
           summarised={chat.data.summary.messages}
           live={live}
+          liveReply={
+            hasLiveReply(live) && (
+              <LiveReply live={live} onDecide={(id, approve) => decide.mutate({ id, approve })} />
+            )
+          }
         />
-        <LiveReply live={live} onDecide={(id, approve) => decide.mutate({ id, approve })} />
         {live.error && <ErrorNote message={live.error} />}
         {live.stopped && <p className="text-sm text-muted">{t("chat.stopped")}</p>}
         <CompactionNote state={live.compaction} />
@@ -273,16 +277,54 @@ export function ChatTab({
   );
 }
 
+type Group = { kind: "user" | "reply"; start: number; messages: ChatMessage[] };
+
+/** The transcript as the person's messages and the model's replies: a reply is the run of
+ * assistant and tool messages up to the next message from the person. A run also breaks at
+ * each of `breaks` (message indexes where a marker goes), so the marker sits between cards. */
+export function groupReplies(messages: ChatMessage[], breaks: number[]): Group[] {
+  const groups: Group[] = [];
+  messages.forEach((message, index) => {
+    const kind = message.role === "user" ? "user" : "reply";
+    const open = groups.at(-1);
+    if (kind === "reply" && open?.kind === "reply" && !breaks.includes(index)) {
+      open.messages.push(message);
+    } else {
+      groups.push({ kind, start: index, messages: [message] });
+    }
+  });
+  return groups;
+}
+
+/** Whether a reply has anything of its own to show (tool results only show under their call). */
+function shows(group: Group): boolean {
+  return group.messages.some((m) => m.role === "assistant" && (m.content || m.tool_calls?.length));
+}
+
+/** One reply from the model: its tool lines, its text, and, while it runs, the live part. */
+function Reply({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="mr-auto grid w-fit max-w-full min-w-0 gap-2 rounded-xl rounded-bl-sm border border-line bg-surface px-3 py-2"
+      data-testid="reply"
+    >
+      {children}
+    </div>
+  );
+}
+
 function Transcript({
   projectId,
   messages,
   summarised,
   live,
+  liveReply,
 }: {
   projectId: number;
   messages: ChatMessage[];
   summarised: number; // how many of the first messages the summary stands in for
   live: LiveTurn;
+  liveReply: React.ReactNode; // the reply as it streams in; it joins the last reply's card
 }) {
   const { t } = useTranslation();
   const results = new Map(
@@ -292,37 +334,48 @@ function Transcript({
   // and after any it had to leave out of the last call (counted from the summary on).
   const leftOut = live.context?.left_out ?? 0;
   const viewStarts = summarised + leftOut;
+  const groups = groupReplies(messages, [summarised, viewStarts]);
+  const last = groups.at(-1);
   return (
     <>
-      {messages.map((message, index) => (
-        <div key={message.id} className="grid gap-2">
-          {summarised > 0 && index === summarised && (
+      {groups.map((group) => (
+        <div key={group.messages[0].id} className="grid gap-2">
+          {summarised > 0 && group.start === summarised && (
             <p className="border-y border-dashed border-line py-1 text-center text-xs text-muted" role="note">
               {t("chat.summarised", { count: summarised })}
             </p>
           )}
-          {leftOut > 0 && index === viewStarts && (
+          {leftOut > 0 && group.start === viewStarts && (
             <p className="border-y border-dashed border-line py-1 text-center text-xs text-muted" role="note">
               {t("chat.leftOut", { count: leftOut })}
             </p>
           )}
-          {message.role === "user" && <UserMessage message={message} />}
-          {message.role === "assistant" && (
-            <>
-              {message.tool_calls?.map((call) => (
-                <ToolLine
-                  key={call.id}
-                  projectId={projectId}
-                  call={call}
-                  result={results.get(call.id)}
-                  progress={live.progress[call.id]}
-                />
-              ))}
-              {message.content && <Markdown text={message.content} />}
-            </>
+          {group.kind === "user" ? (
+            <UserMessage message={group.messages[0]} />
+          ) : (
+            (shows(group) || (group === last && liveReply)) && (
+              <Reply>
+                {group.messages.map((message) => (
+                  <Fragment key={message.id}>
+                    {message.tool_calls?.map((call) => (
+                      <ToolLine
+                        key={call.id}
+                        projectId={projectId}
+                        call={call}
+                        result={results.get(call.id)}
+                        progress={live.progress[call.id]}
+                      />
+                    ))}
+                    {message.content && <Markdown text={message.content} />}
+                  </Fragment>
+                ))}
+                {group === last && liveReply}
+              </Reply>
+            )
           )}
         </div>
       ))}
+      {last?.kind !== "reply" && liveReply && <Reply>{liveReply}</Reply>}
       {live.context && live.context.released > 0 && (
         <p className="text-xs text-muted" role="note">
           {t("chat.released", { count: live.context.released })}
@@ -340,7 +393,10 @@ function Transcript({
 function UserMessage({ message }: { message: ChatMessage }) {
   const { t } = useTranslation();
   return (
-    <div className="ml-auto grid max-w-[85%] gap-1 rounded-xl rounded-br-sm bg-paper px-3 py-2 text-sm">
+    <div
+      className="ml-auto grid max-w-[85%] gap-1 rounded-xl rounded-br-sm bg-accent-soft px-3 py-2 text-sm"
+      data-testid="user-message"
+    >
       <p className="whitespace-pre-wrap">{message.content}</p>
       {message.attachments.length > 0 && (
         <p className="text-xs text-muted">
@@ -448,6 +504,11 @@ export function shortArgs(json: string): string {
       ? JSON.stringify(entries[0][1])
       : entries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
   return text.length > ARGS_SHOWN ? `${text.slice(0, ARGS_SHOWN)}…` : text;
+}
+
+/** Whether the live reply has anything to show: it runs, asks, streams, or reports its speed. */
+function hasLiveReply(live: LiveTurn): boolean {
+  return live.running || live.cards.length > 0 || live.text !== "" || Boolean(live.stats?.tps);
 }
 
 function LiveReply({
