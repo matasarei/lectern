@@ -276,7 +276,7 @@
     },
     "followups": "Waiting",
     "followupRunning": "Follow-up: {{label}}",
-    "fromProject": "Mention a file from the project",
+    "mention": "Mention a file from the project",
     "pickerLabel": "Project files",
     "pickerSearch": "Find a file",
     "pickerEmpty": "No file matches"

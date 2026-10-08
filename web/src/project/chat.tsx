@@ -237,8 +237,8 @@ export function ChatTab({
           <button
             type="button"
             className="btn-secondary"
-            aria-label={t("chat.fromProject")}
-            title={t("chat.fromProject")}
+            aria-label={t("chat.mention")}
+            title={t("chat.mention")}
             onClick={() => {
               setPick(pick?.start === null ? null : { query: "", start: null });
               setActive(0);
