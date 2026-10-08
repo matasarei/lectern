@@ -7,6 +7,7 @@ file, or none, is an error listing the candidates, so the model can pick again.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import PurePosixPath
 from typing import Literal
@@ -18,7 +19,15 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.agent import state
 from lectern.agent.followups import TASK_AFTER
-from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult, page
+from lectern.agent.tools import (
+    CHARS_PER_TOKEN,
+    AgentTool,
+    Registry,
+    ToolContext,
+    ToolError,
+    ToolResult,
+    page,
+)
 from lectern.projects import files, search
 from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow
 from lectern.projects.text import TEXT_EXTENSIONS, Chunk
@@ -283,10 +292,14 @@ def _read(ctx: ToolContext, params: ReadParams) -> ToolResult:
     body = "\n\n".join(
         f"[{row.path} {c.ref}{f' — {c.heading}' if c.heading else ''}]\n{c.body}" for c in chosen
     )
-    text, cursor = page(body, params.cursor, READ.max_tokens)
     # Said right after the file's words, where a small model is about to act: the system
     # prompt's rule alone didn't stop the 4B obeying a planted "delete notes.md" (2 in 5).
-    text += f"\n\n({FILE_TEXT_IS_DATA.format(name=row.path)})"
+    # It comes out of the page's budget, so a read stays within READ.max_tokens (the text
+    # keeps at least half of it, which only a tiny test page would touch).
+    note = f"\n\n({FILE_TEXT_IS_DATA.format(name=row.path)})"
+    room = max(READ.max_tokens - math.ceil(len(note) / CHARS_PER_TOKEN), READ.max_tokens // 2)
+    text, cursor = page(body, params.cursor, room)
+    text += note
     return ToolResult(text, refs=[_file_ref(row, c.ref) for c in chosen[:20]], cursor=cursor)
 
 

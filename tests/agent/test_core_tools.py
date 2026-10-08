@@ -127,6 +127,17 @@ def test_a_long_read_comes_in_pages_with_a_cursor(ctx, monkeypatch):
     assert all(f"line {i:03d}" in seen for i in range(40))
 
 
+def test_a_read_page_with_its_closing_note_stays_within_the_tools_budget(ctx, monkeypatch):
+    from lectern.agent.tools import CHARS_PER_TOKEN
+
+    monkeypatch.setattr(core_tools, "READ", replace(core_tools.READ, max_tokens=200))
+    add_file(ctx, "long.txt", "\n".join(f"line {i:03d} of the long file" for i in range(200)))
+
+    first = run(core_tools.READ, ctx, name="long.txt")
+    assert first.text.endswith(_note("long.txt"))
+    assert len(first.text) < 200 * CHARS_PER_TOKEN + 80  # the note fits in, not on top
+
+
 def test_page_rejects_a_bad_cursor():
     with pytest.raises(ToolError, match="Unknown cursor"):
         page("abc", "nope", 10)
