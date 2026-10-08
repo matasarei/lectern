@@ -13,8 +13,8 @@ Status: pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html). 
 The main way to run Lectern is straight on a machine's own OS, so the models get the GPU
 directly: a general-purpose or older Linux computer with 4 GB of VRAM and 16 GB of RAM is
 the target. Lectern installs for you, in your home folder, and runs as your own service
-(`systemctl --user`). It listens on `127.0.0.1:8765` only and knows nothing about what sits
-in front of it: reaching it from other computers is up to you (see
+(`systemctl --user`). It listens on `127.0.0.1:8765` and knows nothing about what sits in
+front of it: reaching it from other computers is up to you (see
 [Reaching it from other computers](#reaching-it-from-other-computers)).
 
 **Needs:** Linux on x86_64 with systemd, the NVIDIA driver for an NVIDIA GPU (no CUDA
@@ -70,8 +70,9 @@ user as it is (`sudo dnf install podman`).
 
 ### Reaching it from other computers
 
-Lectern only ever listens on `127.0.0.1`. To use it from elsewhere, put something in front
-of it that forwards to `http://127.0.0.1:8765`, and tell Lectern the address people will use,
+Lectern listens on `127.0.0.1` unless you say otherwise. To use it from elsewhere, put
+something in front of it that forwards to `http://127.0.0.1:8765`, or let it listen on your
+network itself (the last option below). Either way, tell Lectern the address people will use,
 because it refuses requests for any other host or origin:
 
 ```sh
@@ -82,7 +83,7 @@ systemctl --user restart lectern
 `LECTERN_PUBLIC_URL` takes one or more `http(s)://host[:port]`, comma-separated, exactly as
 they appear in the browser's address bar. Whatever you put in front has to pass the `Host`
 header through unchanged and allow WebSockets and streamed responses (the chat and progress
-updates). How you set that up is yours; two ways that work:
+updates). How you set that up is yours; three ways that work:
 
 - **A Cloudflare Tunnel, with Cloudflare Access** (from anywhere, nothing opened on the
   server). In the tunnel, point a public hostname at `http://127.0.0.1:8765` and leave
@@ -96,6 +97,22 @@ updates). How you set that up is yours; two ways that work:
   `sudo nginx -t && sudo systemctl reload nginx`. On Fedora/RHEL (SELinux), let nginx reach
   Lectern's port, and only that one: `sudo semanage port -a -t http_port_t -p tcp 8765`.
   Without a login, keep this to your local network.
+- **Directly on your network, no proxy.** Let Lectern listen on every address, and use the
+  machine's own address as the public one:
+  ```sh
+  # ~/.lectern/lectern.env
+  LECTERN_HOST=0.0.0.0
+  LECTERN_PUBLIC_URL=http://192.168.1.2:8765      # the IP or name people type, with the port
+  ```
+  then `systemctl --user restart lectern`. `LECTERN_HOST` takes `127.0.0.1` (the default) or
+  `0.0.0.0`, nothing else, and `0.0.0.0` needs `LECTERN_PUBLIC_URL`. If the firewall blocks
+  the port (Fedora Workstation allows 1025–65535; Server doesn't):
+  `sudo firewall-cmd --add-port=8765/tcp --permanent && sudo firewall-cmd --reload`.
+  **The risks:** there's no login yet, so anyone on the network who has the link can use
+  Lectern. It's plain http, so on Wi-Fi or any network you don't control, the token can be
+  read off the network by someone watching it. Use it only on a network you trust, never
+  forward the port on your router, and use the tunnel with Access for anything wider. The
+  model servers Lectern runs stay on `127.0.0.1` either way.
 
 ### Or in Docker
 

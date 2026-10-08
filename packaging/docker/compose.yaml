@@ -13,6 +13,7 @@ services:
     environment:
       LECTERN_PUBLIC_URL: ${LECTERN_PUBLIC_URL:-}
       LECTERN_PORT: ${LECTERN_PORT:-8765}
+      LECTERN_HOST: ${LECTERN_HOST:-}  # 0.0.0.0: reached on the network directly (README)
     volumes:
       - lectern-data:/data
     deploy:

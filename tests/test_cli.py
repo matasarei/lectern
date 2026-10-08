@@ -169,3 +169,66 @@ def test_serve_prints_the_public_link_too(paths, monkeypatch):
     result = _run("serve", "--no-browser", "--public-url", "http://lectern.lan")
     assert "Lectern is running at http://127.0.0.1:8765/#token=" in result.output
     assert "and at http://lectern.lan/#token=" in result.output
+
+
+def _serve_host(monkeypatch, *args: str) -> tuple[object, list[str]]:
+    """Run `serve` without listening: the result, and the host uvicorn was given."""
+    hosts: list[str] = []
+    monkeypatch.setattr(cli.LecternServer, "run", lambda self: hosts.append(self.config.host))
+    return _run("serve", "--no-browser", *args), hosts
+
+
+@pytest.mark.parametrize("unset", [True, False])
+def test_serve_listens_on_127_0_0_1_by_default(paths, monkeypatch, unset):
+    if unset:
+        monkeypatch.delenv("LECTERN_HOST", raising=False)
+    else:
+        monkeypatch.setenv("LECTERN_HOST", "")  # LECTERN_HOST= in lectern.env: the default
+    result, hosts = _serve_host(monkeypatch)
+    assert result.exit_code == 0, result.output
+    assert hosts == ["127.0.0.1"] and "every network address" not in result.output
+
+
+def test_lectern_host_0_0_0_0_listens_everywhere_and_warns(paths, monkeypatch):
+    monkeypatch.setenv("LECTERN_HOST", "0.0.0.0")  # noqa: S104
+    monkeypatch.setenv("LECTERN_PUBLIC_URL", "http://192.168.1.2:8765")
+    result, hosts = _serve_host(monkeypatch)
+    assert result.exit_code == 0, result.output
+    assert hosts == ["0.0.0.0"]  # noqa: S104
+    assert "every network address, with no login" in result.output
+    assert "and at http://192.168.1.2:8765/#token=" in result.output
+
+
+def test_serve_host_option_does_the_same(paths, monkeypatch):
+    monkeypatch.delenv("LECTERN_HOST", raising=False)
+    every = "0.0.0.0"  # noqa: S104
+    result, hosts = _serve_host(
+        monkeypatch, "--host", every, "--public-url", "http://192.168.1.2:8765"
+    )
+    assert result.exit_code == 0, result.output
+    assert hosts == [every]
+
+
+@pytest.mark.parametrize("public", [None, "", " , "])
+def test_every_address_without_a_public_url_is_refused_before_listening(paths, monkeypatch, public):
+    import lectern.app
+
+    monkeypatch.setenv("LECTERN_HOST", "0.0.0.0")  # noqa: S104
+    if public is None:
+        monkeypatch.delenv("LECTERN_PUBLIC_URL", raising=False)
+    else:
+        monkeypatch.setenv("LECTERN_PUBLIC_URL", public)
+    # Refused before anything starts: no database, no hardware probe, no token.
+    monkeypatch.setattr(lectern.app, "create_app", lambda **_: pytest.fail("app was created"))
+    result, hosts = _serve_host(monkeypatch)
+    assert result.exit_code == 2 and hosts == []
+    assert "LECTERN_PUBLIC_URL" in result.output and "http://192.168.1.2:8765" in result.output
+
+
+@pytest.mark.parametrize("host", ["192.168.1.2", "::", "localhost"])
+def test_any_other_host_is_refused_before_listening(paths, monkeypatch, host):
+    monkeypatch.setenv("LECTERN_HOST", host)
+    monkeypatch.setenv("LECTERN_PUBLIC_URL", "http://192.168.1.2:8765")
+    result, hosts = _serve_host(monkeypatch)
+    assert result.exit_code == 2 and hosts == []
+    assert "LECTERN_HOST must be 127.0.0.1" in result.output

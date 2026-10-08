@@ -112,6 +112,7 @@ def test_a_first_install_puts_everything_in_the_home_folder_and_starts_a_user_se
     assert venv.name.startswith("0.1.0-") and (venv / "bin/lectern").exists()
     env = (home / "lectern.env").read_text()
     assert f"LECTERN_HOME={home}/data" in env and "LECTERN_PUBLIC_URL=" in env
+    assert "\n# LECTERN_HOST=0.0.0.0\n" in env  # offered, never on by default
     assert (home / "data").is_dir()
     unit = (tmp_path / "home/.config/systemd/user/lectern.service").read_text()
     assert f"ExecStart={home}/app/venv/bin/lectern serve" in unit
@@ -285,6 +286,14 @@ def test_uninstall_without_a_user_session_removes_nothing(tmp_path):
     assert done.returncode == 1 and "systemctl --user" in done.stderr
     assert (_home(tmp_path) / "app/venv").exists()
     assert (tmp_path / "home/.config/systemd/user/lectern.service").exists()
+
+
+def test_compose_passes_on_every_setting_serve_reads():
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "packaging/docker/compose.yaml").read_text())
+    environment = compose["services"]["lectern"]["environment"]
+    assert {"LECTERN_PUBLIC_URL", "LECTERN_PORT", "LECTERN_HOST"} <= set(environment)
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
