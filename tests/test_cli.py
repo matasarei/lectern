@@ -209,9 +209,17 @@ def test_serve_host_option_does_the_same(paths, monkeypatch):
     assert hosts == [every]
 
 
-def test_every_address_without_a_public_url_is_refused_before_listening(paths, monkeypatch):
+@pytest.mark.parametrize("public", [None, "", " , "])
+def test_every_address_without_a_public_url_is_refused_before_listening(paths, monkeypatch, public):
+    import lectern.app
+
     monkeypatch.setenv("LECTERN_HOST", "0.0.0.0")  # noqa: S104
-    monkeypatch.delenv("LECTERN_PUBLIC_URL", raising=False)
+    if public is None:
+        monkeypatch.delenv("LECTERN_PUBLIC_URL", raising=False)
+    else:
+        monkeypatch.setenv("LECTERN_PUBLIC_URL", public)
+    # Refused before anything starts: no database, no hardware probe, no token.
+    monkeypatch.setattr(lectern.app, "create_app", lambda **_: pytest.fail("app was created"))
     result, hosts = _serve_host(monkeypatch)
     assert result.exit_code == 2 and hosts == []
     assert "LECTERN_PUBLIC_URL" in result.output and "http://192.168.1.2:8765" in result.output

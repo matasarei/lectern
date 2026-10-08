@@ -59,20 +59,22 @@ def serve(
             err=True,
         )
         raise typer.Exit(2)
+    public_given = public_url or os.environ.get("LECTERN_PUBLIC_URL", "").replace(",", "").strip()
+    if host == EVERY_ADDRESS and not public_given:
+        # Without it the guard answers 421 to everything that comes from the network. Refused
+        # before the app is made: no database, no hardware probe, no token for nothing.
+        typer.echo(
+            f"LECTERN_HOST={EVERY_ADDRESS} needs LECTERN_PUBLIC_URL (or --public-url): the "
+            f"address people will type, e.g. http://192.168.1.2:{port}.",
+            err=True,
+        )
+        raise typer.Exit(2)
     try:
         lectern_app = create_app(port=port, public_urls=public_url or None)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from None
     if host == EVERY_ADDRESS:
-        if not lectern_app.state.public_urls:
-            # Without it the guard answers 421 to everything that comes from the network.
-            typer.echo(
-                f"LECTERN_HOST={EVERY_ADDRESS} needs LECTERN_PUBLIC_URL (or --public-url): the "
-                f"address people will type, e.g. http://192.168.1.2:{port}.",
-                err=True,
-            )
-            raise typer.Exit(2)
         typer.echo(
             "Listening on every network address, with no login: anyone on this network who "
             "has the link can use Lectern, and on plain http the token can be read off the "
