@@ -2,7 +2,7 @@ import "../i18n";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "../router";
@@ -10,6 +10,7 @@ import { routeTree } from "../router";
 const GIB = 1024 ** 3;
 let savedTabs: unknown;
 let puts: unknown[] = [];
+let sessionsFail = false; // POST /sessions answers 500
 
 const RESPONSES: Record<string, unknown> = {
   "/api/projects/1": { id: 1, name: "Lease archive 1998", folder: "/p", created_at: null },
@@ -42,6 +43,7 @@ const RESPONSES: Record<string, unknown> = {
 
 beforeEach(() => {
   puts = [];
+  sessionsFail = false;
   savedTabs = { open: [{ kind: "session", id: 1 }], active: { kind: "session", id: 1 } };
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
@@ -54,6 +56,10 @@ beforeEach(() => {
           puts.push(savedTabs);
         }
         return new Response(JSON.stringify(savedTabs));
+      }
+      if (url === "/api/projects/1/sessions" && init?.method === "POST") {
+        if (sessionsFail) return new Response(JSON.stringify({ detail: "The disk is full." }), { status: 500 });
+        return new Response(JSON.stringify({ id: 9, kind: "chat", title: "New chat", messages: 0 }));
       }
       return new Response(JSON.stringify(RESPONSES[url] ?? {}));
     }),
@@ -102,6 +108,36 @@ describe("Project tabs", () => {
     renderAt("/projects/1");
     const tabs = await screen.findAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview"]);
+  });
+});
+
+describe("The + in the tab bar", () => {
+  it("creates a chat and opens it as the active tab", async () => {
+    renderAt("/projects/1");
+    fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
+
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "session", id: 9 }],
+      active: { kind: "session", id: 9 },
+    }));
+    const posted = vi.mocked(fetch).mock.calls.filter(
+      ([url, init]) => url === "/api/projects/1/sessions" && init?.method === "POST",
+    );
+    expect(posted).toHaveLength(1);
+  });
+
+  it("says why when the chat can't be created, and leaves the tabs as they were", async () => {
+    sessionsFail = true;
+    savedTabs = { open: [{ kind: "session", id: 1 }], active: null }; // on Overview: no chat to load
+    renderAt("/projects/1");
+    const bar = await screen.findByRole("tablist"); // Overview has a "New chat" of its own
+    fireEvent.click(within(bar).getByRole("button", { name: "New chat" }));
+
+    expect(await screen.findByText("The disk is full.")).toBeTruthy();
+    expect(puts).toEqual([]);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview", "Payment terms"]);
+    expect(within(bar).getByRole("button", { name: "New chat" }).hasAttribute("disabled")).toBe(false);
   });
 });
 

@@ -1,0 +1,138 @@
+import "./i18n";
+
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { Markdown } from "./markdown";
+
+// Counts how often the Markdown is parsed; it still renders through the real react-markdown.
+const parses = vi.hoisted(() => ({ count: 0 }));
+vi.mock("react-markdown", async (importOriginal) => {
+  const real = await importOriginal<typeof import("react-markdown")>();
+  return {
+    ...real,
+    default: (props: Parameters<typeof real.default>[0]) => {
+      parses.count += 1;
+      return real.default(props);
+    },
+  };
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe("Markdown from the model is kept harmless", () => {
+  it("shows raw HTML as text, never as elements", () => {
+    const { container } = render(
+      <Markdown text={'<script>alert(1)</script> and <img src=x onerror="alert(2)">'} />,
+    );
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("<script>alert(1)</script>");
+  });
+
+  it("gives a javascript: or data: link no address", () => {
+    const { container } = render(
+      <Markdown text="[click](javascript:alert(1)) and [data](data:text/html,<b>x</b>)" />,
+    );
+    for (const link of container.querySelectorAll("a")) {
+      const href = link.getAttribute("href") ?? "";
+      expect(href).not.toMatch(/^(javascript|data):/i);
+    }
+    expect(container.textContent).toContain("click");
+  });
+
+  it("opens http links in a new tab without handing the page over", () => {
+    render(<Markdown text="See [the docs](https://example.com/a)." />);
+    const link = screen.getByRole("link", { name: "the docs" });
+    expect(link.getAttribute("href")).toBe("https://example.com/a");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("doesn't load an image: it becomes a link with its alt text", () => {
+    const { container } = render(<Markdown text="![a chart](https://example.com/c.png)" />);
+    expect(container.querySelector("img")).toBeNull();
+    const link = screen.getByRole("link", { name: /a chart/ });
+    expect(link.getAttribute("href")).toBe("https://example.com/c.png");
+  });
+});
+
+describe("Markdown renders what models write", () => {
+  it("bold, a list and a table", () => {
+    const { container } = render(
+      <Markdown text={"**files** here\n\n- one\n- two\n\n| a | b |\n|---|---|\n| 1 | 2 |"} />,
+    );
+    expect(container.querySelector("strong")?.textContent).toBe("files");
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["one", "two"]);
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getAllByRole("cell").map((c) => c.textContent)).toEqual(["1", "2"]);
+  });
+
+  it("keeps a table's column alignment", () => {
+    render(<Markdown text={"| name | sum |\n|:--|--:|\n| rent | 120 |"} />);
+    const [name, sum] = screen.getAllByRole("cell");
+    expect(name.style.textAlign).toBe("left");
+    expect(sum.style.textAlign).toBe("right");
+  });
+
+  it("a fenced block shows its language and copies its code", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const { container } = render(<Markdown text={"```python\ndef add(a, b):\n    return a + b\n```"} />);
+
+    expect(container.querySelector("pre code")?.textContent).toBe("def add(a, b):\n    return a + b");
+    expect(screen.getByText("python")).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy" })));
+    expect(writeText).toHaveBeenCalledWith("def add(a, b):\n    return a + b");
+    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+
+  it("copies without the clipboard API too (plain http on the LAN), and says when it can't", async () => {
+    vi.stubGlobal("navigator", {}); // browsers give navigator.clipboard only to https and localhost
+    const copied: string[] = [];
+    const execCommand = vi.fn(() => {
+      copied.push(document.querySelector("textarea")?.value ?? ""); // what's in the field being copied
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", { value: execCommand, configurable: true });
+    render(<Markdown text={"```\nls -la\n```"} />);
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy" })));
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(copied).toEqual(["ls -la"]);
+    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(document.querySelector("textarea")).toBeNull(); // the helper is gone again
+
+    execCommand.mockReturnValue(false);
+    cleanup();
+    render(<Markdown text={"```\nls -la\n```"} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Copy" })));
+    expect(screen.getByRole("button", { name: "Couldn't copy" })).toBeTruthy();
+    Reflect.deleteProperty(document, "execCommand");
+  });
+
+  it("inline code stays inline, without a Copy button", () => {
+    const { container } = render(<Markdown text="Run `uv sync` first." />);
+    expect(container.querySelector("code")?.textContent).toBe("uv sync");
+    expect(container.querySelector("pre")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("isn't parsed again when its text hasn't changed (a streamed token re-renders the chat)", () => {
+    parses.count = 0;
+    const { rerender } = render(<Markdown text="**same**" />);
+    rerender(<Markdown text="**same**" />);
+    expect(parses.count).toBe(1);
+    rerender(<Markdown text="**changed**" />);
+    expect(parses.count).toBe(2);
+  });
+
+  it("an unclosed fence, mid-stream, renders as an open code block", () => {
+    const { container } = render(<Markdown text={"Here:\n\n```js\nconst a = 1;"} />);
+    expect(container.querySelector("pre code")?.textContent).toContain("const a = 1;");
+  });
+});

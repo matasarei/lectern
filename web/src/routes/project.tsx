@@ -3,8 +3,8 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { apiFetch, ApiError } from "../api/client";
-import type { Project, ProjectItems, Tab, Tabs } from "../api/types";
+import { apiFetch, ApiError, apiPost } from "../api/client";
+import type { Project, ProjectItems, SessionSummary, Tab, Tabs } from "../api/types";
 import { ErrorNote } from "../components";
 import { formatMemory } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
@@ -54,6 +54,13 @@ export function ProjectPage() {
     save.mutate(next);
   };
   const open = (tab: Tab) => tabs && update(openTab(tabs, tab));
+  const newChat = useMutation({
+    mutationFn: () => apiPost<SessionSummary>(`/api/projects/${id}/sessions`, {}),
+    onSuccess: (chat) => {
+      void queryClient.invalidateQueries({ queryKey: ["items", id] });
+      open({ kind: "session", id: chat.id });
+    },
+  });
 
   // A tab the chat just opened can name something the page hasn't loaded yet (a new OCR
   // session, an exported file): read the project's items again, once per tab, rather than
@@ -124,8 +131,24 @@ export function ProjectPage() {
             {titleOf(tab)}
           </TabButton>
         ))}
+        <button
+          aria-label={t("project.newChat")}
+          title={t("project.newChat")}
+          className="px-3 py-2 text-lg leading-none text-muted hover:text-ink disabled:opacity-50"
+          disabled={newChat.isPending}
+          onClick={() => newChat.mutate()}
+        >
+          +
+        </button>
       </nav>
       <section className="min-h-0 overflow-y-auto">
+        {newChat.error && (
+          <div className="p-4">
+            <ErrorNote
+              message={newChat.error instanceof ApiError ? newChat.error.detail : t("common.loadFailed")}
+            />
+          </div>
+        )}
         {tabs.active === null && <Overview projectId={id} items={items.data} onOpen={open} />}
         {loadingActive && <p className="p-4 text-muted">{t("common.loading")}</p>}
         {!loadingActive && tabs.active?.kind === "session" && activeSession?.kind === "ocr" && (
