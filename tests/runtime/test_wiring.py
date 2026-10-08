@@ -94,5 +94,7 @@ def test_a_key_that_names_nothing_usable_says_why(resolve, key, message):
 
 def test_a_chosen_model_must_be_downloaded(resolve, monkeypatch):
     monkeypatch.setattr(DownloadManager, "is_downloaded", lambda self, entry: False)
-    with pytest.raises(NotAvailable, match="Chandra OCR 2 isn't downloaded yet"):
+    with pytest.raises(
+        NotAvailable, match="Chandra OCR 2 isn't downloaded yet. Download it in Models"
+    ):
         resolve("ocr.hand@chandra-ocr-2")

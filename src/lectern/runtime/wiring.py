@@ -78,7 +78,9 @@ def build_runtime(
     def resolve(key: str) -> ModelChoice:
         role, entry = pick(key, tier)
         if not downloads.is_downloaded(entry):
-            raise NotAvailable(f"{entry.title} isn't downloaded yet. Download it first.")
+            raise NotAvailable(
+                f"{entry.title} isn't downloaded yet. Download it in Models & memory."
+            )
         model_file = downloads.file_path(entry, entry.files.model[0])
         mmproj = entry.files.mmproj
         if entry.format == "mlx":
