@@ -1,6 +1,6 @@
 # Lectern in Docker with the GPU (needs the NVIDIA Container Toolkit on the host). Linux only:
-# it uses the host's network, so Lectern's 127.0.0.1 is the host's and only nginx on the host
-# reaches it, as with the host install.
+# it uses the host's network, so Lectern's 127.0.0.1 is the host's and only what runs on the host
+# (a reverse proxy, a tunnel) reaches it, as with the host install.
 #   LECTERN_PUBLIC_URL=http://lectern.lan docker compose -f packaging/docker/compose.yaml up -d
 #   docker compose -f packaging/docker/compose.yaml exec lectern lectern url
 services:

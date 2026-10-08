@@ -3,7 +3,7 @@ still send requests there. This middleware makes sure only Lectern's own page ca
 
 - Host check (HTTP and WebSocket): the Host header must be 127.0.0.1:<port> or
   localhost:<port>. This defeats DNS rebinding. Behind a reverse proxy on the same machine
-  (nginx), the public URL it's reached by is set explicitly (LECTERN_PUBLIC_URL), and its
+  (nginx, a tunnel), the public URL it's reached by is set explicitly (LECTERN_PUBLIC_URL), and its
   host and origin are accepted too: exactly those, nothing near them.
 - Origin check: HTTP requests that change something, and every WebSocket upgrade, must come
   from Lectern's own origin. Browsers don't apply same-origin rules to WebSockets, so there

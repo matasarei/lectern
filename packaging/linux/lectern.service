@@ -1,6 +1,6 @@
 # Lectern as your own service (systemctl --user). Installed by packaging/linux/install.sh,
 # which puts the install folder (~/.lectern) in place of @LECTERN_DIR@. Settings in
-# @LECTERN_DIR@/lectern.env. It listens on 127.0.0.1 only: nginx on this machine is the way in.
+# @LECTERN_DIR@/lectern.env. It listens on 127.0.0.1 only; what forwards to it is up to you.
 #
 # No ProtectSystem/ProtectHome/PrivateTmp/NoNewPrivileges here: in a user service they need
 # user namespaces, and NoNewPrivileges breaks rootless Podman (its setuid newuidmap), which
