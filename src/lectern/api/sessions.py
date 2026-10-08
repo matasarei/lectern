@@ -130,13 +130,17 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
                 "attachments": [
                     {"id": i, "name": names.get(i)} for i in json.loads(m.attachments or "[]")
                 ],
+                "refs": json.loads(m.refs) if m.refs else [],  # what a tool result pointed at
                 "created_at": iso(m.created_at),
             }
             for m in messages
         ],
         "pinned": [{"id": p.id, "kind": p.kind, "text": p.text} for p in chat_state.pinned],
         # What runs when an OCR session finishes (task.after, ocr.start's then_export).
-        "followups": [{"id": f.id, "label": f.label} for f in chat_state.followups],
+        "followups": [
+            {"id": f.id, "label": f.label, "ocr_session_id": f.ocr_session_id}
+            for f in chat_state.followups
+        ],
         # Where the summary ends: messages up to this id reach the model only as the summary.
         "summary": {
             "upto": chat_state.summary_upto,

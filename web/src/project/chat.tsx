@@ -10,6 +10,7 @@ import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
 import { formatTokens } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
 import { Markdown } from "../markdown";
+import { OcrLine } from "./ocr-line";
 import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
 
@@ -25,7 +26,7 @@ export function ChatTab({
 }: {
   projectId: number;
   sessionId: number;
-  onOpen: (tab: Tab) => void;
+  onOpen: (tab: Tab, focus?: boolean) => void; // focus false: add the tab without showing it
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -125,6 +126,8 @@ export function ChatTab({
           messages={chat.data.messages}
           summarised={chat.data.summary.messages}
           live={live}
+          followups={chat.data.followups}
+          onOpen={onOpen}
           liveReply={
             hasLiveReply(live) && (
               <LiveReply live={live} onDecide={(id, approve) => decide.mutate({ id, approve })} />
@@ -321,12 +324,16 @@ function Transcript({
   summarised,
   live,
   liveReply,
+  followups,
+  onOpen,
 }: {
   projectId: number;
   messages: ChatMessage[];
   summarised: number; // how many of the first messages the summary stands in for
   live: LiveTurn;
   liveReply: React.ReactNode; // the reply as it streams in; it joins the last reply's card
+  followups: Chat["followups"];
+  onOpen: (tab: Tab) => void;
 }) {
   const { t } = useTranslation();
   const results = new Map(
@@ -374,6 +381,8 @@ function Transcript({
                           call={call}
                           result={results.get(call.id)}
                           progress={live.progress[call.id]}
+                          followups={followups}
+                          onOpen={onOpen}
                         />
                       ))}
                       {message.content && <Markdown text={message.content} />}
@@ -424,17 +433,23 @@ function ToolLine({
   call,
   result,
   progress,
+  followups,
+  onOpen,
 }: {
   projectId: number;
   call: ToolCall;
   result: ChatMessage | undefined;
   progress: LiveTurn["progress"][string] | undefined;
+  followups: Chat["followups"];
+  onOpen: (tab: Tab) => void;
 }) {
   const { t } = useTranslation();
   const name = result?.tool_name ?? call.function.name;
   const args = shortArgs(call.function.arguments);
   const first = result?.content.split("\n")[0] ?? t("chat.noResult");
   const script = result && name === "code.write" ? writtenScript(result.content) : null;
+  // The session ocr.start began: its progress shows under the line
+  const ocr = name === "ocr.start" ? result?.refs.find((r) => r.kind === "session") : undefined;
   return (
     <div className="grid gap-1">
       <details className="text-xs text-muted" data-testid="tool-line">
@@ -445,6 +460,14 @@ function ToolLine({
       </details>
       {!result && progress && <Progress progress={progress} />}
       {script && <ScriptCode projectId={projectId} path={script} />}
+      {ocr && (
+        <OcrLine
+          projectId={projectId}
+          sessionId={ocr.id}
+          then={followups.filter((f) => f.ocr_session_id === ocr.id).map((f) => f.label)}
+          onOpen={onOpen}
+        />
+      )}
     </div>
   );
 }

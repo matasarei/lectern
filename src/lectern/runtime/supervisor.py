@@ -116,6 +116,7 @@ class ModelRuntime:
         # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
         # waits out the idle window only for a message sent after the job started.
         self._turns = 0
+        self._waiting_turns = 0  # of those, how many wait for the person (a card): model idle
         self._last_message_at: float | None = None
         self._skip_hold = False  # "Start now": the next job admission ignores the window
         self._held: dict | None = None  # the job waiting for the chat, for state()
@@ -187,9 +188,12 @@ class ModelRuntime:
 
     def _chat_active(self) -> bool:
         """A reply is being written: a chat lease, a chat waiting for one, or a turn running
-        between its model calls (tools, cards)."""
+        between its model calls (tools). A turn waiting for the person's answer to a card
+        isn't: nothing is being written, and the person may take minutes."""
         return bool(
-            self._chat_leases or self._turns or any(p == Priority.CHAT for p, _ in self._queue)
+            self._chat_leases
+            or self._turns > self._waiting_turns
+            or any(p == Priority.CHAT for p, _ in self._queue)
         )
 
     # --- the chat's turns (from the TurnManager) ---------------------------------------------
@@ -210,6 +214,23 @@ class ModelRuntime:
             self._chat_ended = time.monotonic()
             self._emit("turn", status="ended")
             self._cond.notify_all()
+
+    @contextlib.asynccontextmanager
+    async def waiting_for_person(self) -> AsyncIterator[None]:
+        """A turn waits for the person to answer a card: a held job may use the GPU meanwhile.
+        Once answered, the turn's next model call queues as a chat and waits only for the
+        job's page in progress."""
+        async with self._cond:
+            self._waiting_turns += 1
+            self._emit("turn", status="waiting")
+            self._cond.notify_all()
+        try:
+            yield
+        finally:
+            async with self._cond:
+                self._waiting_turns = max(0, self._waiting_turns - 1)
+                self._emit("turn", status="resumed")
+                self._cond.notify_all()
 
     async def skip_hold(self) -> None:
         """Start now: the next job that waits for the chat goes at once (between the chat's

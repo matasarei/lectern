@@ -245,4 +245,24 @@ def test_the_chat_shows_its_pending_follow_ups(api):
     added = followups.add(db, 1, ocr_session_id=5, tool="export.run", arguments={},
                           label="after OCR · lease-scan.pdf: export to ODT")  # fmt: skip
     chat = client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()
-    assert chat["followups"] == [{"id": added.id, "label": added.label}]
+    assert chat["followups"] == [{"id": added.id, "label": added.label, "ocr_session_id": 5}]
+
+
+def test_a_tool_results_refs_are_kept_with_it(api):
+    client, headers, _, pid, _ = api(
+        [tool_reply("project_find", {"query": "lease"}), text_reply("Found it.")]
+    )
+    with client:
+        client.put(
+            f"/api/projects/{pid}/files", params={"name": "lease.md"}, content=b"x", headers=headers
+        )
+        client.post(
+            f"/api/projects/{pid}/sessions/1/messages", json={"text": "find the lease"},
+            headers=headers,
+        )  # fmt: skip
+        chat = _wait_idle(client, headers, pid)
+
+    tool, answer = chat["messages"][2], chat["messages"][3]
+    assert tool["role"] == "tool"
+    assert ("artifact", "lease.md") in [(r["kind"], r["name"]) for r in tool["refs"]]
+    assert answer["refs"] == []  # only tool results carry refs

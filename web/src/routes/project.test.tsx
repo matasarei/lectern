@@ -2,7 +2,7 @@ import "../i18n";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "../router";
@@ -11,6 +11,7 @@ const GIB = 1024 ** 3;
 let savedTabs: unknown;
 let puts: unknown[] = [];
 let sessionsFail = false; // POST /sessions answers 500
+let pushChat: (event: object) => void = () => {}; // the open chat's event stream
 
 const RESPONSES: Record<string, unknown> = {
   "/api/projects/1": { id: 1, name: "Lease archive 1998", folder: "/p", created_at: null },
@@ -35,6 +36,10 @@ const RESPONSES: Record<string, unknown> = {
     id: 2, kind: "ocr", title: "lease-scan.pdf", folder: "lease-scan", status: "done", paused_reason: null,
     error: null, pages_total: 0, source_artifact_id: 7, updated_at: "", pages: [],
   },
+  "/api/projects/1/sessions/1": {
+    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [], followups: [],
+    summary: { upto: 0, version: 0, messages: 0 }, messages: [],
+  },
   "/api/runtime": {
     tier: "recommended", budget: 7.4 * GIB, unified: false, used: 0, swaps: 0, waiting: 0,
     residents: [],
@@ -49,6 +54,16 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/projects/1/sessions/1/events") {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              pushChat = (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            },
+          }),
+        );
+      }
       if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/projects/1/tabs") {
         if (init?.method === "PUT") {
@@ -178,6 +193,31 @@ describe("The + in the tab bar", () => {
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview", "Payment terms"]);
     expect(within(bar).getByRole("button", { name: "New chat" }).hasAttribute("disabled")).toBe(false);
+  });
+});
+
+describe("A tab the chat opens", () => {
+  it("is added in the background when the tool says focus: false, and the items are read again", async () => {
+    renderAt("/projects/1");
+    expect(await screen.findByText("What are we working on?")).toBeTruthy(); // the chat is showing
+    const itemReads = () =>
+      vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/projects/1/items").length;
+    const before = itemReads();
+    await act(async () => {
+      pushChat({ seq: 0, type: "replayed" });
+      pushChat({
+        seq: 1, type: "tool_result", call_id: "c1", text: "Started", error: false, refs: [],
+        action: { type: "open_tab", tab: { kind: "session", id: 2 }, focus: false },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "session", id: 2 }],
+      active: { kind: "session", id: 1 },
+    }));
+    expect(screen.getByRole("tab", { name: "Payment terms" }).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(itemReads()).toBeGreaterThan(before));
   });
 });
 

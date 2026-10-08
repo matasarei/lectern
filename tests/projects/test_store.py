@@ -218,6 +218,26 @@ def test_a_project_with_an_ocr_session_migrates_to_p0005_with_its_pages_to_clean
     assert (ocr_row.document_version, ocr_row.document_artifact_id) == (0, None)
 
 
+def test_a_project_at_p0007_keeps_its_messages_and_gains_their_refs(store, paths):
+    from lectern.projects.tables import MessageRow
+
+    project = store.create(LOCAL_USER, "Before message refs")
+    with store.db(project).begin() as session:
+        chat = SessionRow(owner_id=LOCAL_USER.id, kind="chat", title="Chat")
+        session.add(chat)
+        session.flush()
+        session.add(MessageRow(session_id=chat.id, role="tool", content="lease.md · file"))
+    store.dispose()
+    _migrate_to(project, "p0007")  # as a project made before the OCR line in the chat
+    _migrate_to(project, "head")
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    with fresh.db(project)() as session:
+        row = session.scalars(select(MessageRow)).one()
+    fresh.dispose()
+    assert (row.content, row.refs) == ("lease.md · file", None)
+
+
 def test_a_project_at_p0005_gets_the_table_of_decisions_on_doubts(store, paths):
     from sqlalchemy.exc import IntegrityError
 

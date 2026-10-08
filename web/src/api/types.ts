@@ -223,6 +223,7 @@ export interface ChatMessage {
   tool_call_id: string | null;
   tool_name: string | null;
   attachments: { id: number; name: string | null }[];
+  refs: ToolRef[]; // what a tool result pointed at (an OCR session ocr.start began)
   created_at: string;
 }
 
@@ -234,7 +235,7 @@ export interface Chat {
   messages: ChatMessage[];
   pending: { confirmation_id: number; call_id: string; name: string }[];
   pinned: { id: string; kind: "instruction" | "fact"; text: string }[];
-  followups: { id: string; label: string }[]; // waiting for an OCR session to finish
+  followups: { id: string; label: string; ocr_session_id: number }[]; // waiting for an OCR session to finish
   // Messages up to `upto` reach the model only as the summary.
   summary: { upto: number; version: number; messages: number };
 }
@@ -265,7 +266,7 @@ export type ChatEvent = { seq: number } & (
       text: string;
       error: boolean;
       refs: ToolRef[];
-      action: { type: "open_tab"; tab: Tab } | null;
+      action: { type: "open_tab"; tab: Tab; focus?: boolean } | null; // focus false: added, not shown
     }
   | { type: "done"; ttft: number | null; tps: number | null; tokens: number }
   | { type: "error"; detail: string }

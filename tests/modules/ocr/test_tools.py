@@ -113,7 +113,9 @@ def test_keep_layout_reads_a_pdf_with_text_and_the_card_says_why(ctx):
     result = _call(START, ctx, name="letter.pdf", keep_layout=True, then_export="docx")
 
     (sid,) = ctx.ocr_jobs.started
-    assert result.action == {"type": "open_tab", "tab": {"kind": "session", "id": sid}}
+    assert result.action == {
+        "type": "open_tab", "tab": {"kind": "session", "id": sid}, "focus": False
+    }
     (follow,) = followups.pending(ctx.sessions, 1)
     assert follow.arguments == {"name": "letter/", "format": "docx"}
 
@@ -122,7 +124,9 @@ def test_starting_opens_the_session_and_queues_the_export(ctx):
     result = _call(START, ctx, name="lease-scan.pdf", then_export="odt")
 
     (sid,) = ctx.ocr_jobs.started
-    assert result.action == {"type": "open_tab", "tab": {"kind": "session", "id": sid}}
+    assert result.action == {
+        "type": "open_tab", "tab": {"kind": "session", "id": sid}, "focus": False
+    }
     (follow,) = followups.pending(ctx.sessions, 1)
     assert (follow.ocr_session_id, follow.tool) == (sid, "export.run")
     assert follow.arguments == {"name": "lease-scan/", "format": "odt"}

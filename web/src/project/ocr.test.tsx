@@ -129,6 +129,23 @@ describe("OCR tab", () => {
     await waitFor(() => expect(posts.map((p) => p.url)).toEqual(["/api/projects/1/ocr/2/start-now"]));
   });
 
+  it("says when a model is loading between the phases, and Start now stands out", async () => {
+    runtimeState = { ...runtimeState, activity: { kind: "loading", role: "main", model_id: "qwen3.5-4b" } };
+    renderTab();
+    await screen.findByRole("list", { name: "Pages" });
+    await act(async () => {
+      push({ seq: 1, type: "phase", phase: "clean" });
+    });
+    expect(await screen.findByText("loading the chat model to clean the text…")).toBeTruthy();
+
+    await act(async () => {
+      push({ seq: 2, type: "phase", phase: "recognise" });
+      push({ seq: 3, type: "waiting", reason: "chat", resume_in: 100 });
+    });
+    expect(screen.queryByText("loading the chat model to clean the text…")).toBeNull(); // not while reading
+    expect(screen.getByRole("button", { name: "Start now" }).className).toContain("btn-primary");
+  });
+
   it("pauses a running job and resumes a paused one", async () => {
     renderTab();
     fireEvent.click(await screen.findByRole("button", { name: "Pause" }));

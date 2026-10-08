@@ -391,7 +391,9 @@ async def _confirm(run: TurnRun, call: dict, name: str, text: str, arguments: st
         }
     )
     try:
-        approved = await future
+        # The model is idle while the person reads the card: a job held for the chat may go
+        async with run.runtime.waiting_for_person():
+            approved = await future
     except asyncio.CancelledError:
         await run_in_threadpool(_record_decision, run, confirmation_id, False)
         raise
@@ -456,6 +458,7 @@ async def run_turn(run: TurnRun) -> str:
                         content=r.text,
                         tool_call_id=c["id"],
                         tool_name=(run.registry.get(c["function"]["name"]) or _Unknown).name,
+                        refs=json.dumps(r.refs) if r.refs else None,
                     )
                 )
                 run.emit(

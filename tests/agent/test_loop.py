@@ -144,6 +144,39 @@ def test_trash_waits_for_allow_without_holding_the_model(setup, store):
         assert session.scalars(select(ConfirmationRow.status)).all() == ["approved"]
 
 
+def test_a_turn_waiting_for_a_card_doesnt_count_as_a_chat_writing(setup, store):
+    """Jobs held for the chat go while the person reads a card (the model is idle), and the
+    turn counts again once answered, or stopped."""
+    manager, project, _, runtime = setup(
+        [tool_reply("artifact_trash", {"name": "old.md"}), text_reply("Done."),
+         tool_reply("artifact_trash", {"name": "older.md"})]  # fmt: skip
+    )
+    add_file(store, project, "old.md", "old")
+    add_file(store, project, "older.md", "older")
+
+    async def scenario():  # noqa: ANN202
+        key = (project.id, 1)
+        await manager.send(project, LOCAL_USER, 1, "Delete old.md", [])
+        await until(lambda: manager.state(key) == "waiting")
+        during = runtime.chat_idle_seconds()
+        card = next(e for e in events(manager, project) if e["type"] == "confirm")
+        manager.decide(key, card["confirmation_id"], True)
+        await manager.wait(key)
+        await manager.send(project, LOCAL_USER, 1, "And again", [])
+        await until(lambda: manager.state(key) == "waiting")
+        await manager.stop(key)  # cancels the card
+        await manager.wait(key)
+        # Nothing is left counted as waiting: the next turn is writing again
+        await runtime.turn_started(message=False)
+        next_turn = runtime.chat_idle_seconds()
+        await runtime.turn_ended()
+        return during, next_turn
+
+    during, next_turn = asyncio.run(scenario())
+    assert during > 0  # not "writing" while the card waits
+    assert next_turn == 0  # after an answer and a stop, a new turn counts as writing
+
+
 def test_dont_allow_tells_the_model_and_moves_nothing(setup, store):
     manager, project, handle, _ = setup(
         [tool_reply("artifact_trash", {"name": "old.md"}), text_reply("Kept it.")]

@@ -12,6 +12,11 @@ export function openTab(tabs: Tabs, tab: Tab): Tabs {
   return { open, active: tab };
 }
 
+/** Adds a tab without showing it: something the chat started, while the person stays put. */
+export function addTab(tabs: Tabs, tab: Tab): Tabs {
+  return tabs.open.some((t) => sameTab(t, tab)) ? tabs : { ...tabs, open: [...tabs.open, tab] };
+}
+
 /** Closing the active tab shows its right-hand neighbour, else the left, else Overview. */
 export function closeTab(tabs: Tabs, tab: Tab): Tabs {
   const index = tabs.open.findIndex((t) => sameTab(t, tab));
