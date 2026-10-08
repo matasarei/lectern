@@ -157,7 +157,8 @@
     "fileTab": "File",
     "chatTab": "Chat",
     "ocrTab": "OCR · {{title}}",
-    "documentTab": "Document · {{title}}"
+    "documentTab": "Document · {{title}}",
+    "newChat": "New chat"
   },
   "overview": {
     "filters": {

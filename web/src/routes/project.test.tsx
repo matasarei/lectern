@@ -55,6 +55,9 @@ beforeEach(() => {
         }
         return new Response(JSON.stringify(savedTabs));
       }
+      if (url === "/api/projects/1/sessions" && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: 9, kind: "chat", title: "New chat", messages: 0 }));
+      }
       return new Response(JSON.stringify(RESPONSES[url] ?? {}));
     }),
   );
@@ -102,6 +105,22 @@ describe("Project tabs", () => {
     renderAt("/projects/1");
     const tabs = await screen.findAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview"]);
+  });
+});
+
+describe("The + in the tab bar", () => {
+  it("creates a chat and opens it as the active tab", async () => {
+    renderAt("/projects/1");
+    fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
+
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "session", id: 9 }],
+      active: { kind: "session", id: 9 },
+    }));
+    const posted = vi.mocked(fetch).mock.calls.filter(
+      ([url, init]) => url === "/api/projects/1/sessions" && init?.method === "POST",
+    );
+    expect(posted).toHaveLength(1);
   });
 });
 
