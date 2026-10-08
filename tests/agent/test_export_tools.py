@@ -168,3 +168,29 @@ def test_a_scanned_page_with_only_a_page_number_still_counts_as_a_scan(ctx, tmp_
     result = _call(run, ctx, name="statement.pdf", format="md")
 
     assert "Pages 2, 3 have little or no text (maybe scans)" in result.text
+
+
+def test_a_scan_with_an_ocr_session_points_at_its_document(ctx):
+    """Seen on the test server: export.run on the scanned image itself, refused twice with
+    the generic message, before the turn gave up."""
+    from lectern.projects.tables import OcrSessionRow, SessionRow
+
+    _, run = _tools()
+    scan_id = add_file(ctx, "statement.jpg", "x")
+    with ctx.sessions.begin() as session:
+        chat = SessionRow(owner_id=ctx.user.id, kind="ocr", title="statement.jpg")
+        session.add(chat)
+        session.flush()
+        session.add(OcrSessionRow(session_id=chat.id, source_artifact_id=scan_id,
+                                  folder="statement", status="running"))  # fmt: skip
+
+    with pytest.raises(ToolError) as refused:
+        _call(run, ctx, name="statement.jpg", format="docx")
+
+    assert 'OCR session statement.jpg reads it; its document is "statement/"' in str(refused.value)
+    assert "task_after" in str(refused.value)  # still running: queue the export
+
+    with ctx.sessions.begin() as session:
+        session.query(OcrSessionRow).update({"status": "done"})
+    with pytest.raises(ToolError, match='export_run with name="statement/"'):
+        _call(run, ctx, name="statement.jpg", format="docx")

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
 from lectern.agent.core_tools import _artifact_by_name, _file_ref, _size
@@ -27,7 +28,7 @@ from lectern.documents.export import (
     resolved_options,
 )
 from lectern.projects import files
-from lectern.projects.tables import ArtifactRow
+from lectern.projects.tables import ArtifactRow, OcrSessionRow, SessionRow
 from lectern.projects.text import PDF_PAGE_MIN_CHARS
 
 
@@ -147,7 +148,29 @@ def _load(ctx: ToolContext, name: str) -> tuple[ArtifactRow, Document]:
     try:
         return row, load_for_export(ctx.project.root, row.path)
     except (ValueError, files.BadName) as exc:
-        raise ToolError(str(exc)) from None
+        raise ToolError(_read_by_ocr(ctx, row) or str(exc)) from None
+
+
+def _read_by_ocr(ctx: ToolContext, row: ArtifactRow) -> str | None:
+    """For a scan an OCR session reads: where its document is, so the model exports that
+    instead of the scan again (seen: twice, before the turn gave up)."""
+    with ctx.sessions() as session:
+        found = session.execute(
+            select(SessionRow, OcrSessionRow)
+            .join(OcrSessionRow, OcrSessionRow.session_id == SessionRow.id)
+            .where(OcrSessionRow.source_artifact_id == row.id)
+            .order_by(SessionRow.id.desc())
+        ).first()
+    if found is None:
+        return None
+    chat, ocr = found
+    where = f'OCR session {chat.title} reads it; its document is "{ocr.folder}/"'
+    if ocr.status == "done":
+        return f'{row.path} is a scan. {where}: export_run with name="{ocr.folder}/".'
+    return (
+        f"{row.path} is a scan. {where} once the session finishes: queue the export with "
+        f'task_after(session="{chat.title}", tool="export_run", arguments={{"format": …}}).'
+    )
 
 
 def _write(
