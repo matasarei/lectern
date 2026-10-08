@@ -204,7 +204,8 @@ if compgen -G "${LECTERN_DRI:-/dev/dri}/renderD*" >/dev/null \
     && ! id -nG | tr ' ' '\n' | grep -qx render; then
     echo
     echo "To let Lectern use the GPU's render node when you're not at the screen, run once,"
-    echo "then log out and back in:"
+    echo "then reboot (logging out isn't enough: with lingering, your services keep running"
+    echo "with the groups they started with):"
     echo "  sudo usermod -aG render,video $USER"
 fi
 

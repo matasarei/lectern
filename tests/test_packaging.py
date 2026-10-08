@@ -178,6 +178,7 @@ def test_a_gpu_render_node_without_the_render_group_prints_the_usermod_line(tmp_
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"), LECTERN_DRI=str(dri))
     assert done.returncode == 0, done.stderr
     assert "sudo usermod -aG render,video someone" in done.stdout
+    assert "then reboot" in done.stdout and "log out and back in" not in done.stdout
 
 
 def test_an_upgrade_keeps_the_settings_and_restarts_and_keeps_one_version_back(tmp_path):
