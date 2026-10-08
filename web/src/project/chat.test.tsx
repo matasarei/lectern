@@ -387,6 +387,18 @@ describe("Adding files already in the project", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
+  it("sending with the button closes a list left open", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+
+    fireEvent.change(box(), { target: { value: "see @lea", selectionStart: 8 } });
+    await screen.findAllByRole("option");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(posts.map((p) => p.url)).toContain("/api/projects/1/sessions/1/messages"));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+  });
+
   it("arrows move through the list and Escape closes it", async () => {
     renderChat();
     await screen.findByText("Yes: lease.md.");

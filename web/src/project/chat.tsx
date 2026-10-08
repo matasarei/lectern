@@ -57,6 +57,7 @@ export function ChatTab({
     onSuccess: () => {
       setText("");
       setAttached([]);
+      setPick(null); // a list left open belongs to the text that just went
       void queryClient.invalidateQueries({ queryKey: ["chat", projectId, sessionId] });
     },
   });
