@@ -6,6 +6,7 @@ import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
 import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall } from "../api/types";
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
+import { FileList, listKey, matchingFiles } from "./file-picker";
 import { formatTokens } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
 import { modelWaitText } from "../status";
@@ -37,6 +38,15 @@ export function ChatTab({
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Artifact[]>([]);
   const picker = useRef<HTMLInputElement>(null);
+  // Choosing a file already in the project: from the button, or "@name" in the box (`start`:
+  // where the "@" is, so the "@name" text goes when a file is chosen).
+  const [pick, setPick] = useState<{ query: string; start: number | null } | null>(null);
+  const [active, setActive] = useState(0);
+  const items = useQuery({
+    queryKey: ["items", projectId],
+    queryFn: () => apiFetch<ProjectItems>(`/api/projects/${projectId}/items`),
+    enabled: pick !== null,
+  });
 
   const send = useMutation({
     mutationFn: () =>
@@ -73,6 +83,19 @@ export function ChatTab({
     );
   }
   if (!chat.data) return <p className="p-4 text-muted">{t("common.loading")}</p>;
+
+  const choices = pick
+    ? matchingFiles(items.data?.artifacts ?? [], pick.query, attached.map((a) => a.id))
+    : [];
+  const choose = (file: Artifact) => {
+    setAttached((prev) => [...prev, file]);
+    if (pick?.start != null) {
+      setText(text.slice(0, pick.start) + text.slice(pick.start + 1 + pick.query.length));
+    }
+    setPick(null);
+  };
+  const onListKey = (key: string) =>
+    pick !== null && listKey(key, choices, active, setActive, choose, () => setPick(null));
 
   const busy = live.running || chat.data.state !== "idle";
   const canSend = !busy && text.trim().length > 0 && !send.isPending && !attach.isPending;
@@ -139,17 +162,62 @@ export function ChatTab({
           rows={2}
           className="w-full resize-none bg-transparent text-sm outline-none"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            // "@" at the start or after a space opens the list; what follows filters it.
+            const caret = e.target.selectionStart ?? e.target.value.length;
+            const at = /(^|\s)@([^\s@]*)$/.exec(e.target.value.slice(0, caret));
+            if (at) {
+              setPick({ query: at[2], start: caret - at[2].length - 1 });
+              setActive(0);
+            } else if (pick?.start != null) setPick(null);
+          }}
           onKeyDown={(e) => {
+            if (pick?.start != null && onListKey(e.key)) {
+              e.preventDefault();
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               if (canSend) send.mutate();
             }
           }}
         />
+        {pick && (
+          <div className="grid gap-1">
+            {pick.start === null && (
+              <input
+                type="search"
+                autoFocus
+                aria-label={t("chat.pickerSearch")}
+                placeholder={t("chat.pickerSearch")}
+                className="rounded-md border border-line bg-paper px-2 py-1 text-sm"
+                value={pick.query}
+                onChange={(e) => {
+                  setPick({ query: e.target.value, start: null });
+                  setActive(0);
+                }}
+                onKeyDown={(e) => {
+                  if (onListKey(e.key)) e.preventDefault();
+                }}
+              />
+            )}
+            <FileList files={choices} active={active} onPick={choose} loading={items.isPending} />
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-secondary" onClick={() => picker.current?.click()}>
             {attach.isPending ? t("chat.attaching") : t("chat.attach")}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setPick(pick?.start === null ? null : { query: "", start: null });
+              setActive(0);
+            }}
+          >
+            {t("chat.fromProject")}
           </button>
           <input
             ref={picker}
