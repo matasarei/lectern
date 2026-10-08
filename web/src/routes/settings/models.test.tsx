@@ -54,16 +54,22 @@ const RESPONSES: Record<string, unknown> = {
 };
 
 let puts: unknown[] = [];
+let posts: { url: string; body: unknown }[] = [];
 let overrides: Record<string, unknown> = {};
 
 beforeEach(() => {
   puts = [];
+  posts = [];
   overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
+      if (init?.method === "POST") {
+        posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
+        return new Response(JSON.stringify(download(url.split("/")[3], "queued")), { status: 202 });
+      }
       if (init?.method === "PUT") {
         const body = JSON.parse(String(init.body));
         puts.push(body);
@@ -97,6 +103,54 @@ describe("Models & memory", () => {
     expect(screen.getByTestId("status-main").textContent).toBe("Loaded, in use");
     expect(screen.getByTestId("status-ocr").textContent).toBe("Downloaded, not loaded");
     expect(screen.getByTestId("status-ocr.hand").textContent).toBe("Not downloaded");
+  });
+
+  it("downloads a role's model that isn't on disk, and only those", async () => {
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: "Download Qwen3-VL 8B" });
+    expect(screen.queryByRole("button", { name: "Download PaddleOCR-VL 1.6" })).toBeNull();
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(posts).toEqual([
+        { url: "/api/models/qwen3-vl-8b/download", body: { accept_licence: false } },
+      ]),
+    );
+  });
+
+  it("says why a download stopped, next to the button that resumes it", async () => {
+    const response = RESPONSES["/api/models"] as { models: ReturnType<typeof model>[] };
+    overrides["/api/models"] = {
+      ...response,
+      models: response.models.map((m) =>
+        m.id === "qwen3-vl-8b"
+          ? { ...m, download: { ...m.download, status: "failed", bytes_done: 5, error: "disk full" } }
+          : m,
+      ),
+    };
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "disk full");
+    expect(screen.getByRole("button", { name: "Download Qwen3-VL 8B" }).textContent).toBe("Resume");
+  });
+
+  it("names the licence on the button when the model's licence needs accepting", async () => {
+    const response = RESPONSES["/api/models"] as { models: ReturnType<typeof model>[] };
+    overrides["/api/models"] = {
+      ...response,
+      models: response.models.map((m) =>
+        m.id === "coder-7b" ? { ...m, licence: "Qwen Research", licence_notice: true } : m,
+      ),
+    };
+    renderPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Accept the Qwen Research licence and download Coder 7B" }),
+    );
+    await waitFor(() =>
+      expect(posts).toEqual([{ url: "/api/models/coder-7b/download", body: { accept_licence: true } }]),
+    );
   });
 
   it("offers only the implemented policies", async () => {

@@ -86,7 +86,12 @@
     "title": "Models & memory",
     "machine": "This computer",
     "roles": "Models by role",
-    "onFirstUse": "Only the chat model is downloaded during setup. The others download the first time they're needed."
+    "onFirstUse": "Only the chat model is downloaded during setup. The others download the first time they're needed, or now with Download.",
+    "download": "Download",
+    "resume": "Resume",
+    "acceptAndDownload": "Accept licence and download",
+    "downloadModel": "Download {{title}}",
+    "acceptAndDownloadModel": "Accept the {{licence}} licence and download {{title}}"
   },
   "sandbox": {
     "podman": "Podman",

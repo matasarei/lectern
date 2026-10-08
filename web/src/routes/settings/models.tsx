@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { apiFetch, ApiError } from "../../api/client";
+import { apiFetch, ApiError, apiPost } from "../../api/client";
 import type {
   CatalogModel,
   ModelsResponse,
@@ -138,7 +138,15 @@ function RoleRow({
   live?: CatalogModel["download"];
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const state = live ?? model.download;
+  // Shown for what isn't on disk and isn't on its way: "none", a stopped or paused download.
+  const canStart = !resident && ["none", "failed", "paused"].includes(state.status);
+  const start = useMutation({
+    mutationFn: () =>
+      apiPost(`/api/models/${model.id}/download`, { accept_licence: model.licence_notice }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["models"] }),
+  });
   return (
     <tr className="border-t border-line align-top" data-role={role}>
       <td className="py-2 pr-4 font-mono text-xs">{role}</td>
@@ -148,21 +156,50 @@ function RoleRow({
       </td>
       <td className="py-2 pr-4 tabular-nums">{formatBytes(model.size)}</td>
       <td className="py-2 pr-4">{model.licence}</td>
-      <td className="py-2" data-testid={`status-${role}`}>
-        {resident ? (
-          <span className={resident.status === "crashed" ? "text-red-700" : "text-accent"}>
-            {resident.status === "crashed"
-              ? t("roleState.crashed")
-              : resident.leases > 0
-                ? t("roleState.inUse")
-                : t("roleState.loaded")}
-          </span>
-        ) : state.status === "done" ? (
-          t("roleState.onDisk")
-        ) : (
-          <StatusText state={state} />
-        )}
+      <td className="py-2">
+        <span data-testid={`status-${role}`}>
+          {resident ? (
+            <span className={resident.status === "crashed" ? "text-red-700" : "text-accent"}>
+              {resident.status === "crashed"
+                ? t("roleState.crashed")
+                : resident.leases > 0
+                  ? t("roleState.inUse")
+                  : t("roleState.loaded")}
+            </span>
+          ) : state.status === "done" ? (
+            t("roleState.onDisk")
+          ) : (
+            <StatusText state={state} />
+          )}
+        </span>
         {state.status === "downloading" && <DownloadProgress state={state} />}
+        {canStart && state.error && <ErrorNote message={state.error} />}
+        {canStart && (
+          <button
+            className="btn-secondary mt-1 block w-fit"
+            disabled={start.isPending}
+            aria-label={
+              model.licence_notice
+                ? t("modelsPage.acceptAndDownloadModel", {
+                    licence: model.licence,
+                    title: model.title,
+                  })
+                : t("modelsPage.downloadModel", { title: model.title })
+            }
+            onClick={() => start.mutate()}
+          >
+            {model.licence_notice
+              ? t("modelsPage.acceptAndDownload")
+              : state.bytes_done > 0
+                ? t("modelsPage.resume")
+                : t("modelsPage.download")}
+          </button>
+        )}
+        {start.error && (
+          <ErrorNote
+            message={start.error instanceof ApiError ? start.error.detail : t("common.loadFailed")}
+          />
+        )}
       </td>
     </tr>
   );
