@@ -5,6 +5,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Markdown } from "./markdown";
 
+// Counts how often the Markdown is parsed; it still renders through the real react-markdown.
+const parses = vi.hoisted(() => ({ count: 0 }));
+vi.mock("react-markdown", async (importOriginal) => {
+  const real = await importOriginal<typeof import("react-markdown")>();
+  return {
+    ...real,
+    default: (props: Parameters<typeof real.default>[0]) => {
+      parses.count += 1;
+      return real.default(props);
+    },
+  };
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -100,6 +113,15 @@ describe("Markdown renders what models write", () => {
     expect(container.querySelector("code")?.textContent).toBe("uv sync");
     expect(container.querySelector("pre")).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("isn't parsed again when its text hasn't changed (a streamed token re-renders the chat)", () => {
+    parses.count = 0;
+    const { rerender } = render(<Markdown text="**same**" />);
+    rerender(<Markdown text="**same**" />);
+    expect(parses.count).toBe(1);
+    rerender(<Markdown text="**changed**" />);
+    expect(parses.count).toBe(2);
   });
 
   it("an unclosed fence, mid-stream, renders as an open code block", () => {

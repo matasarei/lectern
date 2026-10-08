@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -131,8 +131,9 @@ function ImageLink({ src, alt }: { src?: string | Blob; alt?: string }) {
 
 /** Text the model wrote, as Markdown (GitHub's flavour: tables, task lists, strikethrough).
  * Raw HTML in it stays text, links keep only http(s) and mailto addresses, and images aren't
- * fetched. */
-export function Markdown({ text }: { text: string }) {
+ * fetched. Memoised: every streamed token re-renders the chat, and parsing each stored reply
+ * again for it would make a long chat stutter. */
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return (
     <div className="text-sm leading-relaxed break-words">
       <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={safeUrl} components={components}>
@@ -140,4 +141,4 @@ export function Markdown({ text }: { text: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});
