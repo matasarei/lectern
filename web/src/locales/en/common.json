@@ -215,6 +215,11 @@
   "time": {
     "justNow": "just now"
   },
+  "markdown": {
+    "copy": "Copy",
+    "copied": "Copied",
+    "image": "Image: {{alt}}"
+  },
   "chat": {
     "empty": "What are we working on?",
     "placeholder": "Ask anything, or attach files…",
