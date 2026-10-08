@@ -123,7 +123,12 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     except ocr_store.CannotOpen as exc:
         raise ToolError(str(exc)) from None
     await ctx.ocr_jobs.start(ctx.project, chat.id)
-    text = f"Started an OCR session for {_name(row)}; it opened in a new tab."
+    # The folder is the name to export later (export_run or task_after); the model can't
+    # guess it from the scan's name.
+    text = (
+        f"Started an OCR session for {_name(row)}; it opened in a new tab. Its document will "
+        f'be "{ocr.folder}/" when it finishes.'
+    )
     if params.then_export:
         fmt = params.then_export.lower().lstrip(".")
         await run_in_threadpool(

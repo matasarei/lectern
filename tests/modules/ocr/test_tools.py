@@ -127,6 +127,7 @@ def test_starting_opens_the_session_and_queues_the_export(ctx):
     assert (follow.ocr_session_id, follow.tool) == (sid, "export.run")
     assert follow.arguments == {"name": "lease-scan/", "format": "odt"}
     assert follow.label == "after OCR · lease-scan.pdf: export to ODT"
+    assert 'Its document will be "lease-scan/" when it finishes.' in result.text
     assert (
         "The export to ODT is queued: it runs by itself when the session finishes, so there's "
         "nothing more to do now." in result.text
