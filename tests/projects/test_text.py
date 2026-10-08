@@ -162,3 +162,30 @@ def test_a_document_block_with_no_heading_before_it_is_in_its_pages_section(tmp_
     )
     headings = [c.heading for c in extract(path).chunks]
     assert headings == ["About this document", "Page 1", "Page 2", "4. Права", "4. Права"]
+
+
+def test_pdf_pages_gives_every_pages_text_empty_ones_included(tmp_path):
+    from lectern.projects.text import pdf_pages
+
+    pdf = write_pdf(tmp_path / "terms.pdf", ["Payment is due by the tenth", "Penalty clause"])
+    assert pdf_pages(pdf) == ["Payment is due by the tenth", "Penalty clause"]
+    assert pdf_pages(write_scan_pdf(tmp_path / "scan.pdf", pages=3)) == ["", "", ""]
+
+
+def test_pdf_pages_says_when_the_pdf_cant_be_opened(tmp_path):
+    import pytest
+
+    from lectern.projects.text import pdf_pages
+
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(b"%PDF-1.4 not really")
+    with pytest.raises(ValueError, match="couldn't be opened"):
+        pdf_pages(broken)
+
+
+def test_docx_markdown_writes_real_markdown_tables(tmp_path):
+    from lectern.projects.text import docx_markdown
+
+    got = docx_markdown(write_docx(tmp_path / "lease.docx"))
+    assert "# Договір оренди" in got and "## Підписи" in got
+    assert "| Сума | 250,00 грн |\n| --- | --- |\n| Пеня | 0,5% на день |" in got
