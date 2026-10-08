@@ -132,6 +132,23 @@ describe("The tab bar for assistive tech", () => {
     await waitFor(() => expect(puts.at(-1)).toEqual({ open: [], active: null }));
     expect(puts).toHaveLength(1); // Delete on Overview did nothing
   });
+
+  it("moves focus to the next tab after Delete, or the previous one when it was the last", async () => {
+    savedTabs = {
+      open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
+      active: null,
+    };
+    renderAt("/projects/1");
+    const chat = await screen.findByRole("tab", { name: "Payment terms" });
+    chat.focus();
+    fireEvent.keyDown(chat, { key: "Delete" });
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "Payment terms" })).toBeNull());
+    expect(document.activeElement?.textContent).toBe("lease.md");
+
+    fireEvent.keyDown(document.activeElement!, { key: "Delete" });
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "lease.md" })).toBeNull());
+    expect(document.activeElement?.textContent).toBe("Overview");
+  });
 });
 
 describe("The + in the tab bar", () => {

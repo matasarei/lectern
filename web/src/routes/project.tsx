@@ -213,7 +213,13 @@ function TabButton({
         className="truncate"
         onClick={onClick}
         onKeyDown={(e) => {
-          if (e.key === "Delete" && onClose) onClose();
+          if (e.key !== "Delete" || !onClose) return;
+          // Keep the keyboard in the tab bar: on the next tab, or the previous one if this was last
+          const list = e.currentTarget.closest('[role="tablist"]');
+          const tabs = [...(list?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])];
+          const here = tabs.indexOf(e.currentTarget);
+          onClose();
+          (tabs[here + 1] ?? tabs[here - 1])?.focus();
         }}
       >
         {children}
