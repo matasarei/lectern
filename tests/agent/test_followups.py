@@ -214,6 +214,8 @@ def test_a_notice_posts_a_plain_message_with_the_document_and_runs_no_model(foll
 
     asyncio.run(go())
     assert _transcript(db) == [("assistant", DONE, None)]
+    turn = next(e for e in manager.channel((project.id, 1)).events if e["type"] == "turn")
+    assert turn["followup"] == ""  # no "Follow-up: … say it's done" on the page
     assert _refs(db) == [[
         {"kind": "session", "id": ocr_id, "name": "lease-scan.pdf", "ref": None},
         {"kind": "artifact", "id": doc_id, "name": "lease-scan/document.md", "ref": None},

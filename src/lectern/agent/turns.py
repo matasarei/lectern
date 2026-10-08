@@ -259,7 +259,9 @@ class TurnManager:
             channel = self.channel(key)
             channel.events.clear()
             run.emit = channel.publish
-            channel.publish({"type": "turn", "status": "running", "followup": taken.label})
+            # A notice is only a message: no "Follow-up: …" line for it on the page
+            label = "" if followups.is_notice(taken) else taken.label
+            channel.publish({"type": "turn", "status": "running", "followup": label})
 
             async def turn() -> str:
                 # A turn, but not the person's message: no idle window for running jobs.
