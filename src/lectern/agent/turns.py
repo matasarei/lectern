@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 
@@ -27,6 +28,8 @@ TITLE_WORDS = 6
 TITLE_CHARS = 60
 
 Key = tuple[int, int]  # (project id, session id)
+
+log = logging.getLogger(__name__)
 
 
 class Busy(Exception):
@@ -52,7 +55,10 @@ class Channel:
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(event)
         if self.forward is not None:
-            self.forward(event)
+            try:
+                self.forward(event)
+            except Exception:  # passing it on mustn't break the chat's own stream
+                log.exception("Couldn't pass a chat event on to its project")
 
     def settle(self) -> None:
         """After a turn: drop its streamed text pieces, which the transcript now holds in

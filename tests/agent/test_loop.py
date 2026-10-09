@@ -480,3 +480,23 @@ def test_only_open_tab_actions_reach_the_project_page_and_focus_is_kept(setup):
 
     assert heard == [{"type": "open_tab", "session_id": 2, "tab": tab, "focus": False, "seq": 1}]
     assert len(chat.events) == 4  # the chat's own stream keeps everything, as before
+
+
+def test_a_failure_passing_an_event_on_does_not_break_the_chats_own_stream(caplog):
+    from lectern.agent.turns import Channel
+
+    def broken(_event):  # noqa: ANN001, ANN202
+        raise KeyError("tab")
+
+    chat = Channel(forward=broken)
+
+    async def publish():
+        async with chat.listen() as (_, queue):
+            chat.publish({"type": "tool_result", "call_id": "a"})
+            return queue.get_nowait()
+
+    heard = asyncio.run(publish())
+
+    assert heard == {"type": "tool_result", "call_id": "a", "seq": 1}
+    assert chat.events == [heard]
+    assert "Couldn't pass a chat event on to its project" in caplog.text
