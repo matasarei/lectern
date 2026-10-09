@@ -44,11 +44,15 @@ class FakeEngine:
     """Records every command. `run` answers with a process made by `make_run`, inside the
     event loop (asyncio streams need one)."""
 
-    def __init__(self, make_run=None, image_code: int = 0):  # noqa: ANN001
+    def __init__(  # noqa: ANN001
+        self, make_run=None, image_code: int = 0, tags: bytes = b"", rmi_code: int = 0
+    ):
         self.calls: list[tuple[str, ...]] = []
         self.make_run = make_run
         self.run_process: FakeProcess | None = None
         self.image_code = image_code
+        self.tags = tags  # what `images --format {{.Tag}}` prints, one per line
+        self.rmi_code = rmi_code
 
     async def __call__(self, *argv, **_kwargs):
         self.calls.append(argv)
@@ -62,6 +66,10 @@ class FakeEngine:
             return FakeProcess(code=self.image_code)
         if argv[1] == "build":
             return FakeProcess(stdout=b"Step 1/3 : FROM python:3.12-slim\nSuccessfully built\n")
+        if argv[1] == "images":
+            return FakeProcess(stdout=self.tags)
+        if argv[1] == "rmi":
+            return FakeProcess(code=self.rmi_code)
         raise AssertionError(argv)
 
 
@@ -164,6 +172,51 @@ def test_image_check_and_build(tmp_path):
     assert Path(missing.calls[1][4]) == container.IMAGE_DIR
     assert (container.IMAGE_DIR / "Dockerfile").is_file()
     assert lines == ["Step 1/3 : FROM python:3.12-slim", "Successfully built"]
+
+
+def _removed(engine: FakeEngine) -> list[str]:
+    return [call[2] for call in engine.calls if call[1] == "rmi"]
+
+
+def test_a_build_removes_the_older_sandbox_images(tmp_path):
+    engine = FakeEngine(tags=b"1\n2\n<none>\n0\n")
+    asyncio.run(sandbox_with(engine).build())
+    listing = next(call for call in engine.calls if call[1] == "images")
+    assert listing[1:] == ("images", "--format", "{{.Tag}}", "lectern-sandbox")
+    assert _removed(engine) == ["lectern-sandbox:1", "lectern-sandbox:0"]  # never :2 itself
+
+
+def test_with_no_older_image_nothing_is_removed(tmp_path):
+    engine = FakeEngine(tags=b"2\n")
+    asyncio.run(sandbox_with(engine).build())
+    assert _removed(engine) == []
+
+
+def test_an_old_image_the_engine_wont_remove_doesnt_fail_the_build(tmp_path):
+    engine = FakeEngine(tags=b"1\n", rmi_code=1)  # e.g. a container still uses it
+    asyncio.run(sandbox_with(engine).build())
+    assert _removed(engine) == ["lectern-sandbox:1"]
+
+
+def test_a_failed_build_removes_nothing(tmp_path):
+    class Failing(FakeEngine):
+        async def __call__(self, *argv, **kwargs):
+            if argv[1] == "build":
+                self.calls.append(argv)
+                return FakeProcess(stdout=b"boom\n", code=1)
+            return await super().__call__(*argv, **kwargs)
+
+    engine = Failing(tags=b"1\n")
+    with pytest.raises(SandboxError, match="Building the sandbox failed"):
+        asyncio.run(sandbox_with(engine).build())
+    assert not any(call[1] in ("images", "rmi") for call in engine.calls)
+
+
+def test_a_sandbox_on_another_image_never_removes_that_ones_tags(tmp_path):
+    engine = FakeEngine(tags=b"3.11-slim\n")
+    box = Sandbox(image="python:3-slim", detect=lambda: RUNNING, which=lambda n: n, exec_=engine)
+    asyncio.run(box.build())
+    assert not any(call[1] in ("images", "rmi") for call in engine.calls)
 
 
 # --- a real engine --------------------------------------------------------------------------
