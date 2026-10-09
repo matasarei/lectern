@@ -226,7 +226,7 @@ describe("A tab the chat opens", () => {
 });
 
 describe("A tab a chat opens while it isn't showing", () => {
-  const exported = { seq: 1, type: "open_tab", session_id: 1, tab: { kind: "artifact", id: 7 }, focus: true };
+  const exported = { seq: 1, type: "open_tab", session_id: 1, tab: { kind: "artifact", id: 7 } };
 
   it("is added from the project's stream, and the tab you're on stays active", async () => {
     savedTabs = { open: [{ kind: "session", id: 1 }, { kind: "session", id: 2 }], active: { kind: "session", id: 2 } };

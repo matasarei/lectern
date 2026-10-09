@@ -332,7 +332,5 @@ def test_the_project_page_hears_a_tab_its_chat_opens(paths, free_port, live_serv
                 heard.append(event)
                 break
 
-    assert heard == [
-        {"type": "open_tab", "session_id": 1, "tab": {"kind": "session", "id": 1},
-         "focus": True, "seq": 1}
-    ]  # fmt: skip
+    tab = {"kind": "session", "id": 1}
+    assert heard == [{"type": "open_tab", "session_id": 1, "tab": tab, "seq": 1}]

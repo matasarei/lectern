@@ -128,10 +128,10 @@ class TurnManager:
     def _tell_project(self, key: Key, event: dict) -> None:
         action = event.get("action") if event["type"] == "tool_result" else None
         if action and action.get("type") == "open_tab":
+            # No focus: the page adds a hidden chat's tab without leaving the tab you're on.
             self.project_channel(key[0]).publish(
-                {"type": "open_tab", "session_id": key[1], "tab": action["tab"],
-                 "focus": action.get("focus") is not False}
-            )  # fmt: skip
+                {"type": "open_tab", "session_id": key[1], "tab": action["tab"]}
+            )
 
     def state(self, key: Key) -> str:
         if key in self._starting:

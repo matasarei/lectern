@@ -254,7 +254,7 @@ export interface ToolRef {
 /** /api/projects/{id}/events: a tab one of the project's chats opened. Live only. */
 export type ProjectEvent =
   | { type: "replayed"; seq: number }
-  | { type: "open_tab"; seq: number; session_id: number; tab: Tab; focus: boolean };
+  | { type: "open_tab"; seq: number; session_id: number; tab: Tab };
 
 export type ChatEvent = { seq: number } & (
   | { type: "turn"; status: "running"; message_id: number; text: string; attachments: number[] }

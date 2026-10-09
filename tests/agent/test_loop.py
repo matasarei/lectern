@@ -460,11 +460,11 @@ def test_a_tab_a_chat_opens_reaches_the_project_page_too(setup, store):
     heard = asyncio.run(opened_tabs(manager, project, lambda: turn(manager, project, "Open it")))
 
     tab = {"kind": "artifact", "id": file_id}
-    assert heard == [{"type": "open_tab", "session_id": 1, "tab": tab, "focus": True, "seq": 1}]
+    assert heard == [{"type": "open_tab", "session_id": 1, "tab": tab, "seq": 1}]
     assert manager.project_channel(project.id).events == []  # live only: nothing to replay
 
 
-def test_only_open_tab_actions_reach_the_project_page_and_focus_is_kept(setup):
+def test_only_open_tab_actions_reach_the_project_page(setup):
     manager, project, _, _ = setup([])
     chat = manager.channel((project.id, 2))
     tab = {"kind": "artifact", "id": 5}
@@ -478,7 +478,7 @@ def test_only_open_tab_actions_reach_the_project_page_and_focus_is_kept(setup):
 
     heard = asyncio.run(opened_tabs(manager, project, publish))
 
-    assert heard == [{"type": "open_tab", "session_id": 2, "tab": tab, "focus": False, "seq": 1}]
+    assert heard == [{"type": "open_tab", "session_id": 2, "tab": tab, "seq": 1}]
     assert len(chat.events) == 4  # the chat's own stream keeps everything, as before
 
 
