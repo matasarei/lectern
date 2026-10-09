@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiFetch, followEvents, initToken, openSocket, readEvents, RECONNECT_DELAYS_MS } from "./client";
+import {
+  ApiError,
+  apiFetch,
+  EventError,
+  followEvents,
+  initToken,
+  openSocket,
+  readEvents,
+  RECONNECT_DELAYS_MS,
+} from "./client";
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -151,6 +160,21 @@ describe("followEvents", () => {
 
     await refused;
     expect(fetched).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["its handler throws", () => open({ seq: 1 }), () => { throw new TypeError("a bug in the handler"); }],
+    ["its JSON doesn't parse", () => new Response("data: {not json\n\n"), () => {}],
+  ])("stops, rather than reconnecting into the same event, when %s", async (_why, answer, onEvent) => {
+    const fetched = vi.fn(async () => answer());
+    vi.stubGlobal("fetch", fetched);
+    const controller = new AbortController();
+
+    const stopped = expect(followEvents("/api/x/events", onEvent, controller.signal)).rejects.toBeInstanceOf(EventError);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
+
+    await stopped;
+    expect(fetched).toHaveBeenCalledTimes(1);
   });
 
   it("stops when aborted while waiting to reconnect", async () => {

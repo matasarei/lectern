@@ -76,6 +76,14 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
+/** An event the page couldn't take: its JSON didn't parse, or its handler threw. Following
+ * the stream again would replay it, so a stream that hits one stops, as it always did. */
+export class EventError extends Error {
+  constructor(readonly reason: unknown) {
+    super(`An event couldn't be handled: ${String(reason)}`);
+  }
+}
+
 /** Read a server-sent event stream; calls `onEvent` with each parsed `data:` payload, and
  * `onOpen` once the server has answered, before the first event. Returns when the stream ends. */
 export async function readEvents<T>(
@@ -102,7 +110,12 @@ export async function readEvents<T>(
         .filter((line) => line.startsWith("data:"))
         .map((line) => line.slice(5).trimStart())
         .join("\n");
-      if (data) onEvent(JSON.parse(data) as T);
+      if (!data) continue;
+      try {
+        onEvent(JSON.parse(data) as T);
+      } catch (error) {
+        throw new EventError(error);
+      }
     }
   }
 }
@@ -115,8 +128,9 @@ export const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
  * server can't be reached (a restart, an update), wait and open it again. `onConnect` runs
  * each time the stream opens, before its first event: after a restart the server's numbering
  * starts again, so whatever a reader counted from the last stream no longer applies. An error
- * answer (a wrong token, a session that's gone) ends it: a retry wouldn't change that. A 5xx
- * is retried, since a server shutting down can answer one. */
+ * answer (a wrong token, a session that's gone) ends it, and so does an event the page can't
+ * take (EventError): a retry wouldn't change either. A 5xx is retried, since a server shutting
+ * down can answer one. */
 export async function followEvents<T>(
   path: string,
   onEvent: (event: T) => void,
@@ -132,6 +146,7 @@ export async function followEvents<T>(
       });
     } catch (error) {
       if (signal.aborted) return;
+      if (error instanceof EventError) throw error;
       if (error instanceof ApiError && error.status < 500) throw error;
     }
     if (signal.aborted) return;
