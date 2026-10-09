@@ -12,6 +12,18 @@ let savedTabs: unknown;
 let puts: unknown[] = [];
 let sessionsFail = false; // POST /sessions answers 500
 let pushChat: (event: object) => void = () => {}; // the open chat's event stream
+let pushProject: (event: object) => void = () => {}; // the project's event stream
+
+function stream(onStart: (push: (event: object) => void) => void): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        onStart((event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+      },
+    }),
+  );
+}
 
 const RESPONSES: Record<string, unknown> = {
   "/api/projects/1": { id: 1, name: "Lease archive 1998", folder: "/p", created_at: null },
@@ -54,16 +66,8 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/projects/1/sessions/1/events") {
-        const encoder = new TextEncoder();
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              pushChat = (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            },
-          }),
-        );
-      }
+      if (url === "/api/projects/1/sessions/1/events") return stream((push) => (pushChat = push));
+      if (url === "/api/projects/1/events") return stream((push) => (pushProject = push));
       if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/projects/1/tabs") {
         if (init?.method === "PUT") {
@@ -218,6 +222,39 @@ describe("A tab the chat opens", () => {
     }));
     expect(screen.getByRole("tab", { name: "Payment terms" }).getAttribute("aria-selected")).toBe("true");
     await waitFor(() => expect(itemReads()).toBeGreaterThan(before));
+  });
+});
+
+describe("A tab a chat opens while it isn't showing", () => {
+  const exported = { seq: 1, type: "open_tab", session_id: 1, tab: { kind: "artifact", id: 7 }, focus: true };
+
+  it("is added from the project's stream, and the tab you're on stays active", async () => {
+    savedTabs = { open: [{ kind: "session", id: 1 }, { kind: "session", id: 2 }], active: { kind: "session", id: 2 } };
+    renderAt("/projects/1");
+    expect(await screen.findByRole("tab", { name: "OCR · lease-scan.pdf" })).toBeTruthy();
+    await act(async () => {
+      pushProject({ seq: 0, type: "replayed" });
+      pushProject(exported);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "session", id: 2 }, { kind: "artifact", id: 7 }],
+      active: { kind: "session", id: 2 },
+    }));
+    expect(screen.getByRole("tab", { name: "OCR · lease-scan.pdf" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("is left to the chat's own stream when that chat is the one showing", async () => {
+    renderAt("/projects/1");
+    expect(await screen.findByText("What are we working on?")).toBeTruthy(); // chat 1 is showing
+    await act(async () => {
+      pushProject({ seq: 0, type: "replayed" });
+      pushProject(exported);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(puts).toEqual([]); // nothing opened twice; the chat's stream handles its own tabs
   });
 });
 

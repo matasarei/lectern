@@ -251,6 +251,11 @@ export interface ToolRef {
 }
 
 /** What the chat's event stream sends. Every event also has `seq`. */
+/** /api/projects/{id}/events: a tab one of the project's chats opened. Live only. */
+export type ProjectEvent =
+  | { type: "replayed"; seq: number }
+  | { type: "open_tab"; seq: number; session_id: number; tab: Tab; focus: boolean };
+
 export type ChatEvent = { seq: number } & (
   | { type: "turn"; status: "running"; message_id: number; text: string; attachments: number[] }
   | { type: "turn"; status: "running"; followup: string } // a follow-up's turn: no message

@@ -40,14 +40,19 @@ class Channel:
     events: list[dict] = field(default_factory=list)
     listeners: set[asyncio.Queue[dict]] = field(default_factory=set)
     seq: int = 0
+    keep: bool = True  # False: live only, nothing kept for a listener that comes later
+    forward: Callable[[dict], None] | None = None  # also told every event, after listeners
 
     def publish(self, event: dict) -> None:
         self.seq += 1
         event = {**event, "seq": self.seq}
-        self.events.append(event)
+        if self.keep:
+            self.events.append(event)
         for queue in list(self.listeners):
             with contextlib.suppress(asyncio.QueueFull):
                 queue.put_nowait(event)
+        if self.forward is not None:
+            self.forward(event)
 
     def settle(self) -> None:
         """After a turn: drop its streamed text pieces, which the transcript now holds in
@@ -93,6 +98,7 @@ class TurnManager:
         # on what's available right now, such as a running container engine).
         self._registry = registry if callable(registry) else (lambda: registry)
         self._channels: dict[Key, Channel] = {}
+        self._project_channels: dict[int, Channel] = {}
         self._turns: dict[Key, Turn] = {}
         # Chats whose message is being stored and whose turn hasn't started yet: a second
         # send in that gap must see the chat as busy.
@@ -101,7 +107,25 @@ class TurnManager:
         self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
 
     def channel(self, key: Key) -> Channel:
-        return self._channels.setdefault(key, Channel())
+        if key not in self._channels:
+            self._channels[key] = Channel(forward=lambda event: self._tell_project(key, event))
+        return self._channels[key]
+
+    def project_channel(self, project_id: int) -> Channel:
+        """The tabs a project's chats ask to open. A page shows one chat at a time, so a chat
+        that isn't showing (its answer came while the person was on the OCR tab) reaches the
+        page through here. Live only: a page that opens later doesn't reopen old tabs."""
+        if project_id not in self._project_channels:
+            self._project_channels[project_id] = Channel(keep=False)
+        return self._project_channels[project_id]
+
+    def _tell_project(self, key: Key, event: dict) -> None:
+        action = event.get("action") if event["type"] == "tool_result" else None
+        if action and action.get("type") == "open_tab":
+            self.project_channel(key[0]).publish(
+                {"type": "open_tab", "session_id": key[1], "tab": action["tab"],
+                 "focus": action.get("focus") is not False}
+            )  # fmt: skip
 
     def state(self, key: Key) -> str:
         if key in self._starting:
