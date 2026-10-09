@@ -203,6 +203,22 @@ async def events(project_id: int, session_id: int, request: Request, user: Curre
     return event_response(stream())
 
 
+@router.get("/projects/{project_id}/events")
+async def project_events(project_id: int, request: Request, user: CurrentUser):  # noqa: ANN201
+    """The tabs this project's chats open, for the project page: it shows one chat at a time,
+    and a chat that isn't showing can still add a tab (a DOCX exported after the last
+    answer in the OCR tab)."""
+    project = await run_in_threadpool(open_project, request, project_id, user)
+    channel = turns(request).project_channel(project.id)
+
+    async def stream() -> AsyncIterator[bytes]:
+        async with channel.listen() as (_so_far, queue):
+            async for chunk in pump(request, queue, [{"type": "replayed", "seq": 0}]):
+                yield chunk
+
+    return event_response(stream())
+
+
 @router.post("/projects/{project_id}/sessions/{session_id}/confirmations/{confirmation_id}")
 def decide(
     project_id: int,

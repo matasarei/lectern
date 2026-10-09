@@ -197,6 +197,7 @@ def test_someone_elses_sessions_are_not_found(api):
         f"/api/projects/{theirs.id}/sessions/1",
         f"/api/projects/{pid}/sessions/99",
         f"/api/projects/{pid}/sessions/99/events",
+        f"/api/projects/{theirs.id}/events",
     ):
         assert client.get(url, headers=headers).status_code == 404
     response = client.post(
@@ -302,3 +303,34 @@ def test_a_tool_results_refs_are_kept_with_it(api):
     assert tool["role"] == "tool"
     assert ("artifact", "lease.md") in [(r["kind"], r["name"]) for r in tool["refs"]]
     assert answer["refs"] == []  # only tool results carry refs
+
+
+def test_the_project_page_hears_a_tab_its_chat_opens(paths, free_port, live_server):
+    """The page shows one chat at a time; a chat that isn't showing still adds its tab."""
+    port = free_port
+    handle = FakeHandle([tool_reply("tab_open", {"name": "Opening"}), text_reply("Opened.")])
+    app = create_app(paths, port=port, runtime=make_runtime(handle))
+
+    with live_server(app, port) as base, httpx2.Client(base_url=base, timeout=10) as client:
+        headers = {"X-Lectern-Token": app.state.token, "Origin": base}
+        pid = client.post("/api/projects", json={}, headers=headers).json()["id"]
+        heard = []
+        with client.stream("GET", f"/api/projects/{pid}/events", headers=headers) as stream:
+            assert stream.headers["content-type"].startswith("text/event-stream")
+            for line in stream.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                event = json.loads(line.removeprefix("data: "))
+                if event["type"] == "replayed":  # listening: now the chat may open its tab
+                    with httpx2.Client(base_url=base, timeout=10) as sender:
+                        sender.post(
+                            f"/api/projects/{pid}/sessions/1/messages",
+                            json={"text": "Opening"},
+                            headers=headers,
+                        )
+                    continue
+                heard.append(event)
+                break
+
+    tab = {"kind": "session", "id": 1}
+    assert heard == [{"type": "open_tab", "session_id": 1, "tab": tab, "seq": 1}]

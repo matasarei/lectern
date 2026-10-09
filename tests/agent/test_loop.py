@@ -442,3 +442,61 @@ def test_a_slow_tool_list_doesnt_delay_sending(store):
 
     sent_in, status = asyncio.run(scenario())
     assert sent_in < 1 and status == "done"
+
+
+async def opened_tabs(manager, project, run):
+    """What the project page hears while `run()` happens."""
+    async with manager.project_channel(project.id).listen() as (_, queue):
+        await run()
+        return [queue.get_nowait() for _ in range(queue.qsize())]
+
+
+def test_a_tab_a_chat_opens_reaches_the_project_page_too(setup, store):
+    manager, project, _, _ = setup(
+        [tool_reply("tab_open", {"name": "notes.md"}), text_reply("Opened.")]
+    )
+    file_id = add_file(store, project, "notes.md", "n")
+
+    heard = asyncio.run(opened_tabs(manager, project, lambda: turn(manager, project, "Open it")))
+
+    tab = {"kind": "artifact", "id": file_id}
+    assert heard == [{"type": "open_tab", "session_id": 1, "tab": tab, "seq": 1}]
+    assert manager.project_channel(project.id).events == []  # live only: nothing to replay
+
+
+def test_only_open_tab_actions_reach_the_project_page(setup):
+    manager, project, _, _ = setup([])
+    chat = manager.channel((project.id, 2))
+    tab = {"kind": "artifact", "id": 5}
+
+    async def publish():
+        chat.publish({"type": "delta", "text": "x"})
+        chat.publish({"type": "tool_result", "call_id": "a", "action": None})
+        chat.publish({"type": "tool_result", "call_id": "b", "action": {"type": "other"}})
+        chat.publish({"type": "tool_result", "call_id": "c",
+                      "action": {"type": "open_tab", "tab": tab, "focus": False}})  # fmt: skip
+
+    heard = asyncio.run(opened_tabs(manager, project, publish))
+
+    assert heard == [{"type": "open_tab", "session_id": 2, "tab": tab, "seq": 1}]
+    assert len(chat.events) == 4  # the chat's own stream keeps everything, as before
+
+
+def test_a_failure_passing_an_event_on_does_not_break_the_chats_own_stream(caplog):
+    from lectern.agent.turns import Channel
+
+    def broken(_event):  # noqa: ANN001, ANN202
+        raise KeyError("tab")
+
+    chat = Channel(forward=broken)
+
+    async def publish():
+        async with chat.listen() as (_, queue):
+            chat.publish({"type": "tool_result", "call_id": "a"})
+            return queue.get_nowait()
+
+    heard = asyncio.run(publish())
+
+    assert heard == {"type": "tool_result", "call_id": "a", "seq": 1}
+    assert chat.events == [heard]
+    assert "Couldn't pass a chat event on to its project" in caplog.text

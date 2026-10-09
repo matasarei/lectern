@@ -7,6 +7,7 @@ import { apiFetch, ApiError, apiPost } from "../api/client";
 import type { Project, ProjectItems, SessionSummary, Tab, Tabs } from "../api/types";
 import { ErrorNote } from "../components";
 import { formatMemory } from "../format";
+import { useProjectEvents } from "../hooks/useProjectEvents";
 import { useRuntime } from "../hooks/useRuntime";
 import { ChatTab } from "../project/chat";
 import { DocumentTab } from "../project/document";
@@ -60,6 +61,8 @@ export function ProjectPage() {
     // Its title comes from the items, which may not list it yet (a session just started)
     void queryClient.invalidateQueries({ queryKey: ["items", id] });
   };
+  // A chat that isn't showing still adds the tabs it opens; the showing one opens its own.
+  useProjectEvents(id, open);
   const newChat = useMutation({
     mutationFn: () => apiPost<SessionSummary>(`/api/projects/${id}/sessions`, {}),
     onSuccess: (chat) => {
