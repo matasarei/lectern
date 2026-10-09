@@ -93,7 +93,7 @@ class EnvProbe:
             self._check_in_background()
 
     def settle(self, timeout: float | None = None) -> None:
-        """Wait for a check in progress to end (for tests, and a clean shutdown)."""
+        """Wait for a check in progress to end (for tests)."""
         checking = self._checking
         if checking is not None:
             checking.join(timeout)
