@@ -44,10 +44,15 @@ def create_app(
     runtime: ModelRuntime | None = None,
     web_dist: Path = WEB_DIST,
     public_urls: list[str] | None = None,
+    dev: bool | None = None,
 ) -> FastAPI:
     """`public_urls`: the addresses a reverse proxy serves Lectern at; LECTERN_PUBLIC_URL when
-    not given. A malformed one raises ValueError here, before anything starts."""
+    not given. A malformed one raises ValueError here, before anything starts.
+
+    `dev`: serve the developer tools (/api/dev); LECTERN_DEV=1 when not given."""
     paths = paths or get_paths()
+    if dev is None:
+        dev = os.environ.get("LECTERN_DEV") == "1"
     public = parse_public_urls(
         ",".join(public_urls) if public_urls is not None
         else os.environ.get("LECTERN_PUBLIC_URL", "")
@@ -101,7 +106,7 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
-    app.include_router(api_router(module_routers(modules)))
+    app.include_router(api_router(module_routers(modules), dev=dev))
     mount_web(app, web_dist)  # last: it answers every path the API didn't
     app.add_middleware(LocalGuard, port=port, token=app.state.token, public=public)
     app.state.public_urls = [u.origin for u in public]

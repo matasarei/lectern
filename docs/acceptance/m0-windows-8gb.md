@@ -77,6 +77,7 @@ output: the rest depends on it.
 ## 3. Start the app and finish first run
 
 ```powershell
+$env:LECTERN_DEV = "1"   # turns on the dev tools that swap-test in step 4 uses
 uv run lectern serve
 ```
 

@@ -132,7 +132,7 @@ def test_tiny_png_is_a_png():
 
 def test_swap_test_runs_through_the_api(paths):
     runtime, runner = _runtime(40)
-    app = create_app(paths, runtime=runtime)
+    app = create_app(paths, runtime=runtime, dev=True)
     headers = {"X-Lectern-Token": app.state.token, "Origin": "http://127.0.0.1:8765"}
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         started = client.post(
@@ -146,3 +146,36 @@ def test_swap_test_runs_through_the_api(paths):
             time.sleep(0.01)
     assert (result["done"], result["swaps"], result["error"]) == (6, 1, None)
     assert runtime.budget == 40 * GIB  # the test budget is put back
+
+
+def _dev_routes(app) -> tuple[int, dict]:  # noqa: ANN001
+    """Starting a swap test and reading it back, with a valid token: (start status, read body)."""
+    headers = {"X-Lectern-Token": app.state.token, "Origin": "http://127.0.0.1:8765"}
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        read = client.get("/api/dev/swap-test", headers=headers).json()
+        started = client.post("/api/dev/swap-test", json={"pages": 1}, headers=headers)
+    return started.status_code, read
+
+
+@pytest.mark.parametrize("value", [None, "0", "", "true"])
+def test_dev_routes_are_off_unless_lectern_dev_is_1(paths, monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("LECTERN_DEV", raising=False)
+    else:
+        monkeypatch.setenv("LECTERN_DEV", value)
+    runtime, _ = _runtime(40)
+    started, read = _dev_routes(create_app(paths, runtime=runtime))
+    # Only the web catch-all is left at that path: it refuses POST and answers GET with 404.
+    assert started == 405
+    assert read == {"detail": "Not found"}
+    assert runtime.budget == 40 * GIB  # nothing ran
+
+
+def test_lectern_dev_1_turns_the_dev_routes_on(paths, monkeypatch):
+    monkeypatch.setenv("LECTERN_DEV", "1")
+    runtime, _ = _runtime(40)
+    app = create_app(paths, runtime=runtime)
+    headers = {"X-Lectern-Token": app.state.token, "Origin": "http://127.0.0.1:8765"}
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        read = client.get("/api/dev/swap-test", headers=headers)
+    assert (read.status_code, read.json()) == (404, {"detail": "No swap test has run."})

@@ -336,6 +336,13 @@ def swap_test(
     body = {"pages": pages, "budget_mb": budget_mb, "fake_model": fake_model}
     with _server(port) as client:
         started = client.post("/api/dev/swap-test", json=body)
+        if started.status_code in (404, 405):  # the server wasn't started with the dev tools
+            typer.echo(
+                "The running server has no developer tools. Restart it with LECTERN_DEV=1 "
+                "(e.g. LECTERN_DEV=1 uv run lectern serve) and run this again.",
+                err=True,
+            )
+            raise typer.Exit(1)
         if started.status_code != 202:
             typer.echo(started.json().get("detail", started.text), err=True)
             raise typer.Exit(1)
