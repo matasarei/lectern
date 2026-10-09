@@ -14,6 +14,7 @@ running models on the user's own GPU via llama.cpp or MLX. Single local user; th
 | Format | `uv run ruff format <file>` (format only files you touch) |
 | Build | `npm --prefix web run build` → `src/lectern/web_dist/` |
 | Run | `uv run lectern serve` → `http://127.0.0.1:8765` |
+| CI | `.github/workflows/ci.yml`, on pull requests and pushes to `main`: the lints, the web build, both test suites (Linux; `gpu`/`sandbox` tests skip) |
 
 These run on the host, not in a container, on purpose: the app needs the GPU (Metal/MLX here,
 CUDA on the Linux test machines), which a container can't reach on macOS. Host `python3` is
@@ -129,8 +130,13 @@ stated recovery path before it runs.
 - **Escaping:** the UI is React, and Markdown goes through `react-markdown` without
   `rehype-raw`, so raw HTML is not rendered. Keep it that way; no `dangerouslySetInnerHTML`.
 - **UI strings** go through i18next (`web/src/locales/`); eslint fails on literal strings.
-- **Database:** SQLite in `LECTERN_HOME`, SQLAlchemy + Alembic (`src/lectern/migrations/`),
-  migrated in-process on start. Schema changes need a new migration version.
+- **Database:** SQLite, SQLAlchemy + Alembic, migrated in-process on start, in two trees. The
+  app database in `LECTERN_HOME` (`core/tables.py`) → `src/lectern/migrations/`; each project's
+  `<project>/.lectern/project.sqlite` (`projects/tables.py`) → `src/lectern/project_migrations/`.
+  A schema change needs a new version in the tree that owns the table.
+- **Imports are typed by extension** (`projects/text.py` `mime_for`), not by content. What keeps
+  them safe is the serving (`api/projects.py`): a download unless the type is in `INLINE` (text,
+  raster images), with `nosniff` and the CSP. A new inline type needs a content check first.
 - **Generated, never hand-edit:** `src/lectern/web_dist/` (UI build, shipped in the wheel —
   without it `serve` answers 503), `dist/`, `uv.lock`/`web/package-lock.json` (via the tools).
 - **Credentials:** the access token lives in the data dir (`~/.lectern/data` when installed),
