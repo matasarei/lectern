@@ -153,11 +153,16 @@ export async function followEvents<T>(
     const delay = RECONNECT_DELAYS_MS[Math.min(failures, RECONNECT_DELAYS_MS.length - 1)];
     failures += 1;
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, delay);
-      signal.addEventListener("abort", () => {
+      const stop = () => {
         clearTimeout(timer);
         resolve();
-      }, { once: true });
+      };
+      // Removed when the wait ends: a long outage would otherwise leave one per attempt.
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", stop);
+        resolve();
+      }, delay);
+      signal.addEventListener("abort", stop, { once: true });
     });
   }
 }

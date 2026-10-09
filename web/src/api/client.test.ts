@@ -177,6 +177,26 @@ describe("followEvents", () => {
     expect(fetched).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves no abort listener behind from the waits it finished", async () => {
+    const fetched = vi.fn(async () => {
+      if (fetched.mock.calls.length < 4) throw new TypeError("Failed to fetch");
+      return open({ seq: 1 });
+    });
+    vi.stubGlobal("fetch", fetched);
+    const controller = new AbortController();
+    const added = vi.spyOn(controller.signal, "addEventListener");
+    const removed = vi.spyOn(controller.signal, "removeEventListener");
+
+    void followEvents("/api/x/events", () => {}, controller.signal);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0] + RECONNECT_DELAYS_MS[1] + RECONNECT_DELAYS_MS[2]);
+    await vi.waitFor(() => expect(fetched).toHaveBeenCalledTimes(4));
+
+    const waits = added.mock.calls.filter(([type]) => type === "abort").length;
+    expect(waits).toBe(3);
+    expect(removed.mock.calls.filter(([type]) => type === "abort")).toHaveLength(waits);
+    controller.abort();
+  });
+
   it("stops when aborted while waiting to reconnect", async () => {
     const fetched = vi.fn(async () => ending());
     vi.stubGlobal("fetch", fetched);
