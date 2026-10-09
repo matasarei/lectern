@@ -245,16 +245,33 @@ describe("A tab a chat opens while it isn't showing", () => {
     expect(screen.getByRole("tab", { name: "OCR · lease-scan.pdf" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("is left to the chat's own stream when that chat is the one showing", async () => {
+  it("is left to the chat's own stream once that stream is live", async () => {
     renderAt("/projects/1");
     expect(await screen.findByText("What are we working on?")).toBeTruthy(); // chat 1 is showing
     await act(async () => {
+      pushChat({ seq: 0, type: "replayed" }); // the chat's stream is past its replay: live
       pushProject({ seq: 0, type: "replayed" });
       pushProject(exported);
       await new Promise((r) => setTimeout(r, 10));
     });
 
     expect(puts).toEqual([]); // nothing opened twice; the chat's stream handles its own tabs
+  });
+
+  it("is added when the chat is the active tab but its stream isn't live yet", async () => {
+    renderAt("/projects/1");
+    expect(await screen.findByText("What are we working on?")).toBeTruthy(); // showing, not live
+    await act(async () => {
+      pushProject({ seq: 0, type: "replayed" });
+      pushProject(exported);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Its own stream would replay this event as already seen, and never open it.
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
+      active: { kind: "session", id: 1 },
+    }));
   });
 });
 

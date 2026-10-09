@@ -108,6 +108,15 @@ export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
   }
 }
 
+/** Chats whose stream is past its replay and acting on events, as "project:session", with a
+ * count in case one mounts twice. The project's stream leaves their tabs to them, and opens
+ * the tabs of every other chat (useProjectEvents). */
+const liveChats = new Map<string, number>();
+
+export function isChatLive(projectId: number, sessionId: number): boolean {
+  return liveChats.has(`${projectId}:${sessionId}`);
+}
+
 /** Follows a chat's event stream. Refreshes the transcript whenever something is stored,
  * and the project's lists when a turn ends (titles, new files). */
 export function useSessionEvents(
@@ -127,6 +136,7 @@ export function useSessionEvents(
   useEffect(() => {
     const controller = new AbortController();
     const chatKey = ["chat", projectId, sessionId];
+    const liveKey = `${projectId}:${sessionId}`;
     let seen = 0;
     // Events before the server's "replayed" marker happened earlier (a reload, or switching
     // back to this tab): show them, but don't repeat their actions.
@@ -136,6 +146,7 @@ export function useSessionEvents(
       (event) => {
         if (event.type === "replayed") {
           live = true;
+          liveChats.set(liveKey, (liveChats.get(liveKey) ?? 0) + 1);
           return;
         }
         const fresh = event.seq > seen;
@@ -160,7 +171,13 @@ export function useSessionEvents(
     ).catch(() => {
       // aborted on unmount, or the server went away; the transcript still shows what's stored
     });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (!live) return;
+      const left = (liveChats.get(liveKey) ?? 1) - 1;
+      if (left > 0) liveChats.set(liveKey, left);
+      else liveChats.delete(liveKey);
+    };
   }, [projectId, sessionId, queryClient]);
 
   return live;

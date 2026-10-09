@@ -62,7 +62,7 @@ export function ProjectPage() {
     void queryClient.invalidateQueries({ queryKey: ["items", id] });
   };
   // A chat that isn't showing still adds the tabs it opens; the showing one opens its own.
-  useProjectEvents(id, tabs?.active?.kind === "session" ? tabs.active.id : null, open);
+  useProjectEvents(id, open);
   const newChat = useMutation({
     mutationFn: () => apiPost<SessionSummary>(`/api/projects/${id}/sessions`, {}),
     onSuccess: (chat) => {

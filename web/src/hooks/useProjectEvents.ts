@@ -2,22 +2,19 @@ import { useEffect, useRef } from "react";
 
 import { readEvents } from "../api/client";
 import type { ProjectEvent, Tab } from "../api/types";
+import { isChatLive } from "./useSessionEvents";
 
-/** The tabs this project's chats open. The page shows one chat at a time, and that chat's own
- * stream opens its tabs (useSessionEvents); this adds the tab of a chat that isn't showing (a
- * DOCX exported after the last answer in the OCR tab), without taking the person away from
- * the tab they're on. One stream per page, whatever the number of chats. */
-export function useProjectEvents(
-  projectId: number,
-  showingChat: number | null,
-  onOpen: (tab: Tab, focus?: boolean) => void,
-): void {
-  // The latest of both: the page makes a new onOpen on every render, and the stream mustn't
+/** The tabs this project's chats open. A chat whose own stream is live opens its tabs itself
+ * (useSessionEvents); this adds the tab of any other chat (a DOCX exported after the last
+ * answer in the OCR tab), without taking the person away from the tab they're on. One stream
+ * per page, whatever the number of chats. */
+export function useProjectEvents(projectId: number, onOpen: (tab: Tab, focus?: boolean) => void): void {
+  // The latest onOpen: the page makes a new one on every render, and the stream mustn't
   // restart for that.
-  const latest = useRef({ showingChat, onOpen });
+  const openRef = useRef(onOpen);
   useEffect(() => {
-    latest.current = { showingChat, onOpen };
-  }, [showingChat, onOpen]);
+    openRef.current = onOpen;
+  }, [onOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -25,8 +22,10 @@ export function useProjectEvents(
       `/api/projects/${projectId}/events`,
       (event) => {
         if (event.type !== "open_tab") return;
-        if (event.session_id === latest.current.showingChat) return; // its own stream opens it
-        latest.current.onOpen(event.tab, false);
+        // Decided by the chat's stream, not by which tab is active: a chat tab still loading,
+        // or one just switched to, isn't acting on events yet.
+        if (isChatLive(projectId, event.session_id)) return;
+        openRef.current(event.tab, false);
       },
       controller.signal,
     ).catch(() => {
