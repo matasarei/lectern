@@ -12,6 +12,7 @@ import io
 from dataclasses import dataclass, field
 
 import pytest
+from markdown_it import MarkdownIt
 
 from lectern.documents.document import Doubt
 from lectern.documents.export import Exporter, ExportOptions, resolved_options
@@ -178,3 +179,37 @@ def test_a_question_marked_where_the_format_doesnt_print_still_comes_out(fmt):
         assert "7?0,00" in read.body and any("750,00" in c for c in read.comments)
     else:
         assert "⟦7?0,00 → 750,00⟧" in read.body
+
+
+def _md_html(doc) -> str:  # noqa: ANN001
+    """The Markdown export, rendered as a CommonMark viewer would show it."""
+    (exporter,) = [e for e in _exporters() if e.format == "md"]
+    data = exporter.export(doc, resolved_options(ExportOptions(), exporter))
+    return MarkdownIt().render(data.decode())
+
+
+def test_a_paragraphs_own_line_breaks_stay_line_breaks_in_markdown():
+    """A statement's rows or an address are one paragraph with line breaks; a plain newline in
+    Markdown is a space when shown, so the rows would run together."""
+    doc = lease()
+    doc.blocks[-1].text = "Orendar: Ivan Petrenko\nvul. Khreshchatyk 1\nKyiv 01001"
+    html = _md_html(doc)
+    assert "Orendar: Ivan Petrenko<br />\nvul. Khreshchatyk 1<br />\nKyiv 01001" in html
+
+
+def test_a_blank_line_inside_a_paragraph_still_starts_a_new_one_in_markdown():
+    doc = lease()
+    doc.blocks[-1].text = "First part\n\nSecond part"
+    html = _md_html(doc)
+    assert "<p>First part</p>\n<p>Second part</p>" in html
+
+
+def test_a_markdown_export_read_back_keeps_a_paragraphs_lines():
+    """Lectern reads its own .md (an export imported into a project): the hard breaks it wrote
+    must come back as the paragraph's line breaks, with no backslashes left in the text."""
+    doc = lease()
+    doc.blocks[-1].text = "Orendar: Ivan Petrenko\nvul. Khreshchatyk 1\nKyiv 01001"
+    (exporter,) = [e for e in _exporters() if e.format == "md"]
+    data = exporter.export(doc, resolved_options(ExportOptions(), exporter))
+    back = [b.text for b in parse_markdown("x", data.decode()).blocks if "Orendar" in b.text]
+    assert back == ["Orendar: Ivan Petrenko\nvul. Khreshchatyk 1\nKyiv 01001"]
