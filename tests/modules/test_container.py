@@ -102,7 +102,7 @@ def test_a_run_is_locked_down_and_mounts_only_what_it_was_given(tmp_path):
         f'type=bind,"source={inputs["rent.csv"]}",target=/in/rent.csv,readonly',
         f"type=bind,source={job_dir / 'out'},target=/out",
     ]
-    assert argv[-3:] == ("lectern-sandbox:2", "python", "/job/main.py")
+    assert argv[-3:] == (container.IMAGE, "python", "/job/main.py")
     assert (result.ok, result.stdout, result.exit_code) == (True, "42\n", 0)
     assert oct((job_dir / "out").stat().st_mode & 0o777) == "0o777"
     assert oct(job_dir.stat().st_mode & 0o777) == "0o700"  # other accounts can't get to it
@@ -168,7 +168,7 @@ def test_image_check_and_build(tmp_path):
     assert asyncio.run(box.image_present()) is False
     asyncio.run(box.build(lines.append))
 
-    assert missing.calls[1][1:4] == ("build", "-t", "lectern-sandbox:2")
+    assert missing.calls[1][1:4] == ("build", "-t", container.IMAGE)
     assert Path(missing.calls[1][4]) == container.IMAGE_DIR
     assert (container.IMAGE_DIR / "Dockerfile").is_file()
     assert lines == ["Step 1/3 : FROM python:3.12-slim", "Successfully built"]

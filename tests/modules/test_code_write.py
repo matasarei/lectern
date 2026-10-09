@@ -12,7 +12,7 @@ from lectern.agent.turns import TurnManager
 from lectern.catalog import catalog
 from lectern.core.auth import LOCAL_USER
 from lectern.hardware.tiers import Tier
-from lectern.modules.sandbox.container import RunResult
+from lectern.modules.sandbox.container import IMAGE, RunResult
 from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code
 from lectern.projects import files
 from lectern.projects.tables import ScriptRunRow
@@ -64,7 +64,7 @@ def test_writes_tests_and_saves_the_script_with_its_manifest(make_ctx):
     assert script == "print('penalty', round(250 * 0.005 * 50, 2))\n"
     manifest = json.loads((ctx.project.root / "scripts" / "penalty.json").read_text())
     assert manifest["entry"] == "scripts/penalty.py" and manifest["model"] == "qwen3.5-4b"
-    assert manifest["image"] == "lectern-sandbox:2" and manifest["brief"] == BRIEF["brief"]
+    assert manifest["image"] == IMAGE and manifest["brief"] == BRIEF["brief"]
     assert (
         manifest["inputs"][0]["path"] == "rent.csv" and len(manifest["inputs"][0]["sha256"]) == 64
     )
