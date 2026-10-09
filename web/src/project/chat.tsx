@@ -279,10 +279,11 @@ export function ChatTab({
         {/* Their own line: in the buttons' row they wrapped it, and Send went alone below. */}
         {(live.model || live.usage) && (
           <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-            <span className="text-xs text-muted" data-testid="model-line">
-              {live.model &&
-                t("chat.model", { model: live.model.model_id, ctx: live.model.ctx.toLocaleString("en") })}
-            </span>
+            {live.model && (
+              <span className="text-xs text-muted" data-testid="model-line">
+                {t("chat.model", { model: live.model.model_id, ctx: live.model.ctx.toLocaleString("en") })}
+              </span>
+            )}
             {live.usage && <UsageLine usage={live.usage} />}
           </div>
         )}
