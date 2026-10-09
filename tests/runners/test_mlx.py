@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -23,17 +24,61 @@ SPEC = RunnerSpec(
 
 
 def test_text_models_use_mlx_lm_on_localhost_without_a_key():
-    args = mlx.build_args(SPEC, vision=False, port=4321, key=None)
+    args = mlx.build_args(SPEC, vision=False, port=4321)
     assert args[:3] == [sys.executable, "-m", "mlx_lm.server"]
     assert args[args.index("--host") + 1] == "127.0.0.1"
     assert "--api-key" not in args
 
 
-def test_vision_models_use_mlx_vlm_on_localhost_with_a_key():
-    args = mlx.build_args(SPEC, vision=True, port=4321, key="k3y")
+def test_vision_models_use_mlx_vlm_on_localhost():
+    args = mlx.build_args(SPEC, vision=True, port=4321)
     assert args[2] == "mlx_vlm.server"
     assert args[args.index("--host") + 1] == "127.0.0.1"  # its default would be 0.0.0.0
-    assert args[args.index("--api-key") + 1] == "k3y"
+    assert "--api-key" not in args  # on the command line, `ps` would show it to every user
+
+
+def test_the_key_goes_in_the_servers_environment(monkeypatch):
+    monkeypatch.setenv("LECTERN_HOME", "/somewhere")
+    env = mlx.build_env("k3y")
+    assert env is not None
+    assert env[mlx.KEY_ENV] == "k3y"
+    assert env["LECTERN_HOME"] == "/somewhere"  # the rest of ours is passed on
+
+
+def test_a_key_already_in_our_environment_is_replaced(monkeypatch):
+    monkeypatch.setenv(mlx.KEY_ENV, "someone-elses")
+    env = mlx.build_env("k3y")
+    assert env is not None and env[mlx.KEY_ENV] == "k3y"
+
+
+@pytest.mark.parametrize("key", [None, ""])
+def test_without_a_key_the_server_inherits_our_environment(key):
+    assert mlx.build_env(key) is None
+
+
+class _Started(Exception):
+    """Raised by the fake process start, once it has seen what the server would get."""
+
+
+@pytest.mark.parametrize("vision", [True, False])
+def test_start_gives_the_key_to_the_server_only_through_its_environment(
+    tmp_path, monkeypatch, vision
+):
+    seen = {}
+
+    async def fake_exec(*argv, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        seen.update(argv=list(argv), env=kwargs.get("env"))
+        raise _Started
+
+    monkeypatch.setattr(mlx.asyncio, "create_subprocess_exec", fake_exec)
+    with pytest.raises(_Started):
+        asyncio.run(mlx.MlxRunner(tmp_path, vision=vision).start(SPEC))
+    assert "--api-key" not in seen["argv"]
+    if vision:
+        assert seen["env"][mlx.KEY_ENV]  # a fresh key, in the environment only
+        assert seen["env"][mlx.KEY_ENV] not in " ".join(seen["argv"])
+    else:
+        assert seen["env"] is None  # mlx_lm.server has no key: it inherits ours
 
 
 def test_read_shape_from_config(tmp_path):

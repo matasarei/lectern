@@ -6,13 +6,15 @@ from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, WebSocket
 
-from lectern.api import chat, dev, export, firstrun, models, projects, runtime, sessions, system
+from lectern.api import chat, export, firstrun, models, projects, runtime, sessions, system
+from lectern.api import dev as dev_tools
 from lectern.core.auth import current_user
 from lectern.core.security import WS_SUBPROTOCOL
 
 
-def api_router(module_routers: Sequence[APIRouter] = ()) -> APIRouter:
-    """Every /api route, the modules' included, behind the user check."""
+def api_router(module_routers: Sequence[APIRouter] = (), *, dev: bool = False) -> APIRouter:
+    """Every /api route, the modules' included, behind the user check. `dev`: also the
+    developer tools under /api/dev, which unload models and change the memory budget."""
     router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
     @router.websocket("/ws/ping")
@@ -29,7 +31,8 @@ def api_router(module_routers: Sequence[APIRouter] = ()) -> APIRouter:
     router.include_router(projects.router)
     router.include_router(sessions.router)
     router.include_router(export.router)
-    router.include_router(dev.router)
+    if dev:
+        router.include_router(dev_tools.router)
     for extra in module_routers:
         router.include_router(extra)
     return router

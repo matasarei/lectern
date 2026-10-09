@@ -1,9 +1,10 @@
 """MLX runners on Apple Silicon: `mlx_lm.server` for text, `mlx_vlm.server` for vision.
 
 Off by default (setting `runtime.mlx_enabled`). `mlx_lm.server` has no API key, so any website
-could call it through DNS rebinding; `mlx_vlm.server` accepts a key, but only on the command
-line (visible in `ps`) and binds to 0.0.0.0 unless told otherwise. On a Mac, llama.cpp with
-Metal is the default until those are solved.
+could call it through DNS rebinding. `mlx_vlm.server` takes a key: it goes in the server's
+environment (MLX_VLM_SERVER_API_KEY), not on the command line, where `ps` shows it to every
+user. Both servers listen on 127.0.0.1 because they are told to; mlx_vlm's default is 0.0.0.0.
+On a Mac, llama.cpp with Metal is the default until mlx_lm has a key too.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import asyncio
 import contextlib
 import importlib.util
 import json
+import os
 import platform
 import secrets
 import sys
@@ -24,6 +26,7 @@ from lectern.runners.llamacpp import READY_TIMEOUT, LlamaCppHandle, free_port
 from lectern.runtime.planner import ModelShape
 
 VISION_ROLES = frozenset({"ocr", "ocr.hand"})
+KEY_ENV = "MLX_VLM_SERVER_API_KEY"  # noqa: S105 (the variable's name, not a secret)
 
 
 def mlx_supported() -> bool:
@@ -35,7 +38,7 @@ def mlx_available() -> bool:
     return mlx_supported() and importlib.util.find_spec("mlx_lm") is not None
 
 
-def build_args(spec: RunnerSpec, *, vision: bool, port: int, key: str | None) -> list[str]:
+def build_args(spec: RunnerSpec, *, vision: bool, port: int) -> list[str]:
     module = "mlx_vlm.server" if vision else "mlx_lm.server"
     args = [
         sys.executable, "-m", module,
@@ -43,9 +46,14 @@ def build_args(spec: RunnerSpec, *, vision: bool, port: int, key: str | None) ->
         "--host", "127.0.0.1",  # mlx_vlm.server would otherwise listen on 0.0.0.0
         "--port", str(port),
     ]  # fmt: skip
-    if vision and key:
-        args += ["--api-key", key]
     return args
+
+
+def build_env(key: str | None) -> dict[str, str] | None:
+    """The server's environment: ours plus the key, or None (inherit ours) without one."""
+    if not key:
+        return None
+    return {**os.environ, KEY_ENV: key}
 
 
 def read_shape(model_dir: Path) -> ModelShape:
@@ -80,7 +88,8 @@ class MlxRunner:
         key = secrets.token_urlsafe(32) if self.vision else None
         with log_file.open("wb") as log:
             process = await asyncio.create_subprocess_exec(
-                *build_args(spec, vision=self.vision, port=port, key=key),
+                *build_args(spec, vision=self.vision, port=port),
+                env=build_env(key),
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=log,
                 stderr=asyncio.subprocess.STDOUT,
