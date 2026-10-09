@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.hardware import sandbox as engines
 
-IMAGE = "lectern-sandbox:1"
+IMAGE = "lectern-sandbox:2"  # bump when image/Dockerfile changes, so installs rebuild
 IMAGE_DIR = Path(__file__).parent / "image"
 RUN_TIMEOUT = 60.0
 BUILD_TIMEOUT = 15 * 60.0
@@ -118,6 +118,31 @@ class Sandbox:
             raise SandboxError("Building the sandbox took too long and was stopped.") from None
         if process.returncode != 0:
             raise SandboxError("Building the sandbox failed:\n" + "\n".join(last[-5:]))
+        await self._remove_older_images(engine)
+
+    async def _remove_older_images(self, engine: str) -> None:
+        """Once the current image is built, an earlier version's (lectern-sandbox:1 after
+        :2) only takes disk space. Best effort: one the engine won't remove stays. Only
+        Lectern's own image: a sandbox given another one never touches that one's tags."""
+        repository, _, current = self.image.partition(":")
+        if repository != IMAGE.partition(":")[0]:
+            return
+        with contextlib.suppress(OSError):
+            listing = await self._exec(
+                engine, "images", "--format", "{{.Tag}}", repository,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            )  # fmt: skip
+            assert listing.stdout is not None  # noqa: S101 — PIPE was asked for
+            tags = (await listing.stdout.read()).decode(errors="replace").split()
+            await listing.wait()
+            for tag in tags:
+                if tag in (current, "<none>"):
+                    continue
+                removal = await self._exec(
+                    engine, "rmi", f"{repository}:{tag}",
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )  # fmt: skip
+                await removal.wait()
 
     def run_argv(
         self, engine: str, name: str, script: Path, inputs: dict[str, Path], out_dir: Path

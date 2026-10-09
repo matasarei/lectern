@@ -2,7 +2,8 @@
 # Build from the repository root, after packaging/build_wheel.sh:
 #   docker build -f packaging/docker/Dockerfile -t lectern .
 # Run it with packaging/docker/compose.yaml (the GPU, the data volume, the host network).
-FROM python:3.12-slim
+# Pinned by digest (packaging/pins.sh).
+FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
 
 # uv, pinned (packaging/pins.sh) by tag and by digest (the index of its images), to install
 # the wheel.
