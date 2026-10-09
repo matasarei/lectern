@@ -245,6 +245,23 @@ describe("A tab a chat opens while it isn't showing", () => {
     expect(screen.getByRole("tab", { name: "OCR · lease-scan.pdf" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("is added while Overview is showing, and Overview stays", async () => {
+    savedTabs = { open: [{ kind: "session", id: 1 }], active: null };
+    renderAt("/projects/1");
+    expect(await screen.findByRole("tab", { name: "Overview" })).toBeTruthy();
+    await act(async () => {
+      pushProject({ seq: 0, type: "replayed" });
+      pushProject(exported);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
+      active: null,
+    }));
+    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   it("is left to the chat's own stream once that stream is live", async () => {
     renderAt("/projects/1");
     expect(await screen.findByText("What are we working on?")).toBeTruthy(); // chat 1 is showing
