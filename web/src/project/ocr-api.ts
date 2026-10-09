@@ -131,9 +131,9 @@ export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
         }
       },
       controller.signal,
-      () => {
-        // (Re)opened: pages may have been read, or the job paused by a restart, meanwhile
-        void queryClient.invalidateQueries({ queryKey: key });
+      (again) => {
+        // Reopened: pages may have been read, or the job paused by a restart, meanwhile
+        if (again) void queryClient.invalidateQueries({ queryKey: key });
       },
     ).catch(() => {
       // aborted on unmount, or refused (the session is gone); the stored session still shows

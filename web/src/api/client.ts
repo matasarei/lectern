@@ -126,7 +126,8 @@ export const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
 
 /** Follow a server-sent event stream until `signal` aborts. When the stream ends or the
  * server can't be reached (a restart, an update), wait and open it again. `onConnect` runs
- * each time the stream opens, before its first event: after a restart the server's numbering
+ * each time the stream opens, before its first event, with `again` true when it's a reopen
+ * (the time to catch up on what happened while it was closed): after a restart the server's numbering
  * starts again, so whatever a reader counted from the last stream no longer applies. An error
  * answer (a wrong token, a session that's gone) ends it, and so does an event the page can't
  * take (EventError): a retry wouldn't change either. A 5xx is retried, since a server shutting
@@ -135,14 +136,16 @@ export async function followEvents<T>(
   path: string,
   onEvent: (event: T) => void,
   signal: AbortSignal,
-  onConnect: () => void = () => {},
+  onConnect: (again: boolean) => void = () => {},
 ): Promise<void> {
   let failures = 0;
+  let opened = false;
   while (!signal.aborted) {
     try {
       await readEvents(path, onEvent, signal, () => {
         failures = 0;
-        onConnect();
+        onConnect(opened);
+        opened = true;
       });
     } catch (error) {
       if (signal.aborted) return;

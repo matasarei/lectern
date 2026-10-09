@@ -35,8 +35,9 @@ function subscribe(queryClient: QueryClient): () => void {
         }, REFRESH_DEBOUNCE_MS);
       },
       controller.signal,
-      () => {
-        // (Re)opened: whatever changed while it was closed (a restart unloads everything)
+      (again) => {
+        // Reopened: whatever changed while it was closed (a restart unloads everything)
+        if (!again) return;
         for (const client of shared.readers.keys()) {
           void client.invalidateQueries({ queryKey: ["runtime"] });
         }

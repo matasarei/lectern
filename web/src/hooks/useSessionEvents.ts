@@ -179,13 +179,13 @@ export function useSessionEvents(
         }
       },
       controller.signal,
-      () => {
+      (again) => {
         // (Re)opened, after a restart perhaps: its numbering starts again, and until its
         // replay ends the project's stream opens this chat's tabs.
         unregister();
         seen = 0;
         dispatch(CONNECTED);
-        void queryClient.invalidateQueries({ queryKey: chatKey }); // stored while away
+        if (again) void queryClient.invalidateQueries({ queryKey: chatKey }); // stored while away
       },
     ).catch(() => {
       // aborted on unmount, or refused (the chat is gone); the transcript shows what's stored

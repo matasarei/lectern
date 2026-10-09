@@ -114,16 +114,16 @@ describe("followEvents", () => {
     const fetched = vi.fn(async () => answers.shift()!);
     vi.stubGlobal("fetch", fetched);
     const events: unknown[] = [];
-    let connects = 0;
+    const opens: boolean[] = [];
     const controller = new AbortController();
 
-    void followEvents("/api/x/events", (e) => events.push(e), controller.signal, () => connects++);
+    void followEvents("/api/x/events", (e) => events.push(e), controller.signal, (again) => opens.push(again));
     await vi.waitFor(() => expect(events).toHaveLength(1));
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
     await vi.waitFor(() => expect(events).toHaveLength(2));
 
     expect(events).toEqual([{ seq: 1 }, { seq: 1 }]); // the restarted server numbers from 1 again
-    expect(connects).toBe(2);
+    expect(opens).toEqual([false, true]); // only the reopen is told to catch up
     expect(fetched).toHaveBeenCalledTimes(2);
     controller.abort();
   });

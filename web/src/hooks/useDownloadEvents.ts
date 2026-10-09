@@ -23,8 +23,9 @@ export function useDownloadEvents(): Record<string, DownloadState> {
         }
       },
       controller.signal,
-      () => {
-        // (Re)opened: a download may have ended, or been interrupted, while it was closed
+      (again) => {
+        // Reopened: a download may have ended, or been interrupted, while it was closed
+        if (!again) return;
         void queryClient.invalidateQueries({ queryKey: ["models"] });
         void queryClient.invalidateQueries({ queryKey: ["first-run"] });
       },
