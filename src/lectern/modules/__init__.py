@@ -107,7 +107,9 @@ class EnvProbe:
             return cached[1]
         self._first.wait()
         with self._lock:
-            return self._cached[1]  # type: ignore[index]  # set before _first
+            cached = self._cached
+        assert cached is not None  # noqa: S101 — the check sets it before setting _first
+        return cached[1]
 
     def _check_in_background(self) -> None:
         """Start a check unless one is running. Call with the lock held."""
