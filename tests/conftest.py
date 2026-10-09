@@ -11,7 +11,23 @@ import uvicorn
 
 from lectern.config import Paths
 from lectern.core.db import make_engine, make_sessionmaker, migrate
+from lectern.hardware.sandbox import SandboxRuntime
+from lectern.modules import EnvProbe
 from lectern.projects.store import ProjectStore
+
+NO_ENGINE = SandboxRuntime(runtime=None, version=None, engine_running=False, found=())
+
+
+@pytest.fixture(autouse=True)
+def no_host_container_engine(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An app made in a test doesn't ask the host's Podman or Docker whether a sandbox can run.
+    Its first turn builds the tool registry, which would: on a CI runner the first `podman info`
+    takes seconds, and a test waiting a few seconds for that turn fails. Tests marked `sandbox`
+    keep the real engine; tests of the probe itself pass their own `detect`."""
+    if request.node.get_closest_marker("sandbox") is None:
+        monkeypatch.setattr("lectern.app.EnvProbe", lambda: EnvProbe(detect=lambda: NO_ENGINE))
 
 
 @pytest.fixture

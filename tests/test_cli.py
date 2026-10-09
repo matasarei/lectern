@@ -63,7 +63,9 @@ def test_a_running_server_is_found_on_any_port(monkeypatch):
 def _ocr_check(*args: str):  # noqa: ANN202
     from typer.testing import CliRunner
 
-    return CliRunner().invoke(cli.app, ["dev", "ocr-check", *args])
+    # Wide, so Rich's error box doesn't wrap a long tmp path's message across lines (it does at
+    # the 80 columns a CI runner has).
+    return CliRunner().invoke(cli.app, ["dev", "ocr-check", *args], env={"COLUMNS": "200"})
 
 
 def test_ocr_check_needs_a_folder(tmp_path):
