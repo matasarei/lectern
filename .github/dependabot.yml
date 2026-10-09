@@ -1,0 +1,16 @@
+# Proposes a newer Python base image for both Dockerfiles, which pin it by digest.
+# A Dependabot pull request changes the FROM lines only: PYTHON_IMAGE in packaging/pins.sh
+# has to be updated in the same pull request, or tests/test_packaging.py fails it. Bumping
+# the digest also needs a new IMAGE tag in src/lectern/modules/sandbox/container.py, so
+# installs rebuild the sandbox image.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directories:
+      - /packaging/docker
+      - /src/lectern/modules/sandbox/image
+    schedule:
+      interval: monthly
+    groups:
+      python-base-image:
+        patterns: ["*"]
