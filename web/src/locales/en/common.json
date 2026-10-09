@@ -149,7 +149,7 @@
     "rename": "Rename the project",
     "renameLabel": "Project name",
     "close": "Close {{title}}",
-    "settings": "Settings",
+    "settings": "Models & memory",
     "vram": "{{used}} of {{budget}}",
     "vramIdle": "{{budget}} · nothing loaded",
     "back": "Projects",

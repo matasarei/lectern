@@ -149,6 +149,12 @@ describe("The header", () => {
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
   });
+
+  it("names Models & memory as the projects list does", async () => {
+    renderAt("/projects/1");
+    const settings = await screen.findByRole("link", { name: "Models & memory" });
+    expect(settings.getAttribute("href")).toBe("/settings/models");
+  });
 });
 
 describe("The tab bar for assistive tech", () => {
