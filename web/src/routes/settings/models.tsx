@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, ApiError, apiPost } from "../../api/client";
@@ -67,9 +68,9 @@ export function ModelsPage() {
     <Page>
       <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{t("modelsPage.title")}</h1>
-        <a href="/projects" className="text-sm text-muted hover:text-ink">
+        <Link to="/projects" className="link-back">
           {t("project.back")}
-        </a>
+        </Link>
       </header>
       <Card title={t("modelsPage.machine")}>
         <TierBadge tier={system.data.tier} />

@@ -115,13 +115,13 @@ export function ProjectPage() {
   return (
     <div className="grid h-screen grid-rows-[auto_auto_1fr]">
       <header className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-2">
-        <Link to="/projects" className="text-sm text-muted hover:text-ink">
+        <Link to="/projects" className="link-back">
           {t("project.back")}
         </Link>
         <ProjectName project={project.data} />
         <span className="ml-auto" />
         <VramChip />
-        <Link to="/settings/models" className="text-sm text-muted hover:text-ink">
+        <Link to="/settings/models" className="btn-secondary py-1">
           {t("project.settings")}
         </Link>
       </header>
