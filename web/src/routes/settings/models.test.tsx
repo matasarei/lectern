@@ -1,10 +1,11 @@
 import "../../i18n";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ModelsPage } from "./models";
+import { routeTree } from "../../router";
 
 const GIB = 1024 ** 3;
 
@@ -18,6 +19,7 @@ const model = (id: string, title: string, roles: string[], status: string) => ({
 });
 
 const RESPONSES: Record<string, unknown> = {
+  "/api/projects": [],
   "/api/system": {
     hardware: {
       os: "linux", arch: "x86_64", cpu: "Ryzen", cpu_cores: 8, ram_total: 16 * GIB,
@@ -85,16 +87,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Through the app's router, as the page is reached: its links are router links.
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/settings/models"] }) });
   return render(
     <QueryClientProvider client={client}>
-      <ModelsPage />
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
 }
 
 describe("Models & memory", () => {
+  it("goes back to Projects inside the app, without reloading it", async () => {
+    renderPage();
+    const back = await screen.findByRole("link", { name: "Projects" });
+    expect(back.getAttribute("href")).toBe("/projects");
+    fireEvent.click(back);
+
+    // A plain <a href> would leave the page as it is here (jsdom doesn't navigate) and, in a
+    // browser, reload the whole app; the router's link shows the projects page in place.
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
+  });
+
   it("shows memory in use and the state of each role", async () => {
     renderPage();
 

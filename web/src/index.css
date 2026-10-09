@@ -31,4 +31,15 @@
     @apply hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
+
+  /* A link back up the app ("← Projects"): accent-coloured with an arrow, so it reads as
+     navigation rather than as the page's grey secondary text. */
+  .link-back {
+    @apply inline-flex items-center gap-1 rounded text-sm font-semibold text-accent;
+    @apply underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+  }
+
+  .link-back::before {
+    content: "\2190" / ""; /* ←, which screen readers skip: the link's name is its text */
+  }
 }
