@@ -27,7 +27,7 @@ from lectern.agent.tools import AgentTool, Registry
 from lectern.hardware import sandbox
 
 ENTRY_POINT_GROUP = "lectern.modules"
-ENV_TTL_SECONDS = 30.0  # asking podman/docker can take seconds; a turn shouldn't wait each time
+ENV_TTL_SECONDS = 30.0  # an answer this old is checked again, in the background
 
 log = logging.getLogger(__name__)
 
