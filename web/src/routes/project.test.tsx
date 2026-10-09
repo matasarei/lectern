@@ -30,6 +30,7 @@ function stream(onStart: (push: (event: object) => void, end: () => void) => voi
 }
 
 const RESPONSES: Record<string, unknown> = {
+  "/api/projects": [],
   "/api/projects/1": { id: 1, name: "Lease archive 1998", folder: "/p", created_at: null },
   "/api/projects/1/items": {
     sessions: [
@@ -136,6 +137,17 @@ describe("Project tabs", () => {
     renderAt("/projects/1");
     const tabs = await screen.findAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Overview"]);
+  });
+});
+
+describe("The header", () => {
+  it("goes back to Projects inside the app, without reloading it", async () => {
+    renderAt("/projects/1");
+    const back = await screen.findByRole("link", { name: "Projects" });
+    expect(back.getAttribute("href")).toBe("/projects");
+    fireEvent.click(back);
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
   });
 });
 
