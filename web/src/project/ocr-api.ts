@@ -7,7 +7,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { apiFetch, apiPost, readEvents } from "../api/client";
+import { apiFetch, apiPost, followEvents } from "../api/client";
 import type { DocBlock, DocDoubt, OcrDocument, OcrEvent, OcrPage, OcrPhase, OcrSession } from "../api/types";
 
 export function ocrPath(projectId: number, sessionId?: number): string {
@@ -108,7 +108,7 @@ export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
   useEffect(() => {
     const controller = new AbortController();
     const key = ["ocr", projectId, sessionId];
-    readEvents<OcrEvent>(
+    followEvents<OcrEvent>(
       `${ocrPath(projectId, sessionId)}/events`,
       (event) => {
         if (event.type === "replayed") return;
@@ -131,8 +131,12 @@ export function useOcrEvents(projectId: number, sessionId: number): OcrLive {
         }
       },
       controller.signal,
+      (again) => {
+        // Reopened: pages may have been read, or the job paused by a restart, meanwhile
+        if (again) void queryClient.invalidateQueries({ queryKey: key });
+      },
     ).catch(() => {
-      // aborted on unmount, or the server went away; the stored session still shows
+      // aborted on unmount, or refused (the session is gone); the stored session still shows
     });
     return () => controller.abort();
   }, [projectId, sessionId, queryClient]);

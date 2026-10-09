@@ -76,14 +76,25 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
-/** Read a server-sent event stream; calls `onEvent` with each parsed `data:` payload. */
+/** An event the page couldn't take: its JSON didn't parse, or its handler threw. Following
+ * the stream again would replay it, so a stream that hits one stops, as it always did. */
+export class EventError extends Error {
+  constructor(readonly reason: unknown) {
+    super(`An event couldn't be handled: ${String(reason)}`);
+  }
+}
+
+/** Read a server-sent event stream; calls `onEvent` with each parsed `data:` payload, and
+ * `onOpen` once the server has answered, before the first event. Returns when the stream ends. */
 export async function readEvents<T>(
   path: string,
   onEvent: (event: T) => void,
   signal: AbortSignal,
+  onOpen: () => void = () => {},
 ): Promise<void> {
   const response = await fetch(path, withToken({ signal }));
   if (!response.ok || !response.body) throw new ApiError(response.status, response.statusText);
+  onOpen();
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
   for (;;) {
@@ -99,8 +110,63 @@ export async function readEvents<T>(
         .filter((line) => line.startsWith("data:"))
         .map((line) => line.slice(5).trimStart())
         .join("\n");
-      if (data) onEvent(JSON.parse(data) as T);
+      if (!data) continue;
+      try {
+        onEvent(JSON.parse(data) as T);
+      } catch (error) {
+        throw new EventError(error);
+      }
     }
+  }
+}
+
+/** How long to wait before each reconnect: a restart takes a few seconds, a longer outage
+ * isn't worth asking about every second. */
+export const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
+
+/** Follow a server-sent event stream until `signal` aborts. When the stream ends or the
+ * server can't be reached (a restart, an update), wait and open it again. `onConnect` runs
+ * each time the stream opens, before its first event, with `again` true when it's a reopen
+ * (the time to catch up on what happened while it was closed): after a restart the server's numbering
+ * starts again, so whatever a reader counted from the last stream no longer applies. An error
+ * answer (a wrong token, a session that's gone) ends it, and so does an event the page can't
+ * take (EventError): a retry wouldn't change either. A 5xx is retried, since a server shutting
+ * down can answer one. */
+export async function followEvents<T>(
+  path: string,
+  onEvent: (event: T) => void,
+  signal: AbortSignal,
+  onConnect: (again: boolean) => void = () => {},
+): Promise<void> {
+  let failures = 0;
+  let opened = false;
+  while (!signal.aborted) {
+    try {
+      await readEvents(path, onEvent, signal, () => {
+        failures = 0;
+        onConnect(opened);
+        opened = true;
+      });
+    } catch (error) {
+      if (signal.aborted) return;
+      if (error instanceof EventError) throw error;
+      if (error instanceof ApiError && error.status < 500) throw error;
+    }
+    if (signal.aborted) return;
+    const delay = RECONNECT_DELAYS_MS[Math.min(failures, RECONNECT_DELAYS_MS.length - 1)];
+    failures += 1;
+    await new Promise<void>((resolve) => {
+      const stop = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      // Removed when the wait ends: a long outage would otherwise leave one per attempt.
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", stop);
+        resolve();
+      }, delay);
+      signal.addEventListener("abort", stop, { once: true });
+    });
   }
 }
 

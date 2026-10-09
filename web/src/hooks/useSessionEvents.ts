@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useReducer, useRef } from "react";
 
-import { readEvents } from "../api/client";
+import { followEvents } from "../api/client";
 import type { ChatEvent, Tab } from "../api/types";
 
 /** What the chat shows about the turn in progress, on top of the stored transcript. */
@@ -40,7 +40,11 @@ export const IDLE: LiveTurn = {
   lastSeq: 0,
 };
 
-export function reduce(state: LiveTurn, event: ChatEvent): LiveTurn {
+/** The stream (re)opened: the server replays the turn so far, numbered from its own start. */
+export const CONNECTED = { type: "connected" } as const;
+
+export function reduce(state: LiveTurn, event: ChatEvent | typeof CONNECTED): LiveTurn {
+  if (event.type === "connected") return IDLE; // rebuilt from the replay that follows
   if (event.type === "replayed" || event.seq <= state.lastSeq) return state; // already seen (a replay after reconnecting)
   const next = { ...state, lastSeq: event.seq };
   switch (event.type) {
@@ -141,7 +145,14 @@ export function useSessionEvents(
     // Events before the server's "replayed" marker happened earlier (a reload, or switching
     // back to this tab): show them, but don't repeat their actions.
     let live = false;
-    readEvents<ChatEvent>(
+    const unregister = () => {
+      if (!live) return;
+      live = false;
+      const left = (liveChats.get(liveKey) ?? 1) - 1;
+      if (left > 0) liveChats.set(liveKey, left);
+      else liveChats.delete(liveKey);
+    };
+    followEvents<ChatEvent>(
       `/api/projects/${projectId}/sessions/${sessionId}/events`,
       (event) => {
         if (event.type === "replayed") {
@@ -168,15 +179,20 @@ export function useSessionEvents(
         }
       },
       controller.signal,
+      (again) => {
+        // (Re)opened, after a restart perhaps: its numbering starts again, and until its
+        // replay ends the project's stream opens this chat's tabs.
+        unregister();
+        seen = 0;
+        dispatch(CONNECTED);
+        if (again) void queryClient.invalidateQueries({ queryKey: chatKey }); // stored while away
+      },
     ).catch(() => {
-      // aborted on unmount, or the server went away; the transcript still shows what's stored
+      // aborted on unmount, or refused (the chat is gone); the transcript shows what's stored
     });
     return () => {
       controller.abort();
-      if (!live) return;
-      const left = (liveChats.get(liveKey) ?? 1) - 1;
-      if (left > 0) liveChats.set(liveKey, left);
-      else liveChats.delete(liveKey);
+      unregister();
     };
   }, [projectId, sessionId, queryClient]);
 

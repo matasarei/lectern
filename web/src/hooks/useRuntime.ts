@@ -1,7 +1,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import { apiFetch, readEvents } from "../api/client";
+import { apiFetch, followEvents } from "../api/client";
 import type { RuntimeState } from "../api/types";
 
 /** Events arriving within this window cause one refetch: a long job sends a lease and a
@@ -23,7 +23,7 @@ function subscribe(queryClient: QueryClient): () => void {
   if (shared.controller === null) {
     const controller = new AbortController();
     shared.controller = controller;
-    readEvents<{ type: string }>(
+    followEvents<{ type: string }>(
       "/api/runtime/events",
       (event) => {
         if (event.type !== "runtime" || shared.pending !== undefined) return;
@@ -35,8 +35,15 @@ function subscribe(queryClient: QueryClient): () => void {
         }, REFRESH_DEBOUNCE_MS);
       },
       controller.signal,
+      (again) => {
+        // Reopened: whatever changed while it was closed (a restart unloads everything)
+        if (!again) return;
+        for (const client of shared.readers.keys()) {
+          void client.invalidateQueries({ queryKey: ["runtime"] });
+        }
+      },
     ).catch(() => {
-      // aborted with the last reader, or the server went away
+      // aborted with the last reader, or refused
     });
   }
   return () => {
