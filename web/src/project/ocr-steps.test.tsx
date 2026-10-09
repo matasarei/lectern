@@ -75,6 +75,30 @@ describe("ocrSteps", () => {
 });
 
 describe("OcrSteps", () => {
+  const spinner = () => screen.queryByTestId("ocr-working");
+
+  it("spins on the current step while the job is at work, a model loading included", () => {
+    const { unmount } = render(
+      <OcrSteps input={{ ...base, phase: "clean", read: 3, cleaned: 0 }} runtime={undefined} />,
+    );
+    expect(spinner()?.closest("li")?.getAttribute("aria-current")).toBe("step");
+    expect(screen.getByTestId("ocr-steps").textContent).toContain("cleaning page 1 of 3"); // no text of its own
+    unmount();
+    render(<OcrSteps input={{ ...base, phase: "recognise" }} runtime={loading("ocr")} />);
+    expect(spinner()).not.toBeNull();
+  });
+
+  it.each([
+    ["queued", { status: "queued" as const }],
+    ["paused", { status: "paused" as const, reason: "stopped by you" }],
+    ["waiting for the chat's reply", { waitingForChat: true }],
+    ["done, questions open", { status: "done" as const, openQuestions: 1 }],
+    ["failed", { status: "failed" as const, reason: "no model" }],
+  ])("doesn't spin when %s: nothing is at work", (_why, over) => {
+    render(<OcrSteps input={{ ...base, ...over }} runtime={undefined} />);
+    expect(spinner()).toBeNull();
+  });
+
   it("names the export step and marks the current one", () => {
     render(<OcrSteps input={{ ...base, status: "done", openQuestions: 2 }} runtime={undefined} />);
     const bar = screen.getByTestId("ocr-steps");

@@ -121,6 +121,25 @@ describe("OCR tab", () => {
     expect(screen.getByText("Read 2/2")).toBeTruthy();
   });
 
+  it("spins while it reads, not while it waits for the chat's reply", async () => {
+    renderTab();
+    await screen.findByRole("list", { name: "Pages" });
+    const spinner = () => screen.queryByTestId("ocr-working");
+    await act(async () => {
+      push({ seq: 1, type: "phase", phase: "recognise" });
+    });
+    await waitFor(() => expect(spinner()).not.toBeNull());
+    await act(async () => {
+      push({ seq: 2, type: "waiting", reason: "chat", resume_in: 100 });
+    });
+    await screen.findByRole("status"); // the countdown says it waits…
+    expect(spinner()).toBeNull(); // …and nothing spins beside the step
+    await act(async () => {
+      push({ seq: 3, type: "page", ...page(2, { status: "recognising" }) });
+    });
+    await waitFor(() => expect(spinner()).not.toBeNull()); // the wait is over: at work again
+  });
+
   it("counts down the wait for the chat, and Start now asks for it", async () => {
     renderTab();
     await screen.findByRole("list", { name: "Pages" });
