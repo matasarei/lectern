@@ -459,6 +459,22 @@ describe("Pinned items, the summary and the context", () => {
     expect(notes[0].textContent).toBe("2 earlier messages are summarised for the model. They're all still here.");
   });
 
+  it("keeps the model and context lines out of the buttons' row, so Send stays beside Attach", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "x", attachments: [] },
+      { type: "model", model_id: "qwen3.5-4b", ctx: 8192 },
+      { type: "usage", budget: 6656, parts: { system: 400, tools: 1300, pinned: 20, files: 0, summary: 0, turns: 2780 } },
+      { type: "turn", status: "done" },
+    );
+    const row = screen.getByRole("button", { name: "Attach" }).parentElement!;
+    expect(row.contains(screen.getByRole("button", { name: "Send" }))).toBe(true);
+    // Long lines in this row wrap it, and Send lands alone on the next line.
+    expect(row.contains(screen.getByTestId("model-line"))).toBe(false);
+    expect(row.contains(screen.getByTestId("usage"))).toBe(false);
+  });
+
   it("shows how the context is used, and when it was compacted", async () => {
     renderChat();
     await screen.findByText("Yes: lease.md.");
