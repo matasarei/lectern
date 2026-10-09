@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from pydantic import BaseModel
 
 from lectern.agent.core_tools import CORE_TOOLS
@@ -63,6 +65,7 @@ def test_the_environment_is_checked_at_most_every_30_seconds(monkeypatch):
     assert len(calls) == 1
     clock[0] += 31
     probe()
+    probe.settle(5)  # the check runs in the background now
     assert len(calls) == 2
 
 
@@ -125,3 +128,57 @@ def test_only_modules_that_offer_exporters_add_them():
 
     demo = _Export()
     assert module_exporters([DemoModule(), demo]) == [demo.exporter]
+
+
+def test_a_stale_answer_is_given_at_once_while_it_is_checked_again(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr("lectern.modules.time.monotonic", lambda: clock[0])
+    release = threading.Event()
+    answers = iter([True, False])
+
+    def detect():
+        running = next(answers)
+        if not running:
+            release.wait(10)  # the second check is slow, as `podman info` can be
+        return SandboxRuntime(
+            runtime="podman", version="5", engine_running=running, found=("podman",)
+        )
+
+    probe = EnvProbe(detect)
+    assert probe() == ToolEnv(sandbox=True)  # the first answer: nothing to give before it
+    clock[0] += 31
+
+    turn = threading.Thread(target=lambda: seen.append(probe()))
+    seen: list[ToolEnv] = []
+    turn.start()
+    turn.join(1.0)
+    assert seen == [ToolEnv(sandbox=True)], "the turn waited for podman"
+    release.set()
+    probe.settle(5)
+    assert probe() == ToolEnv(sandbox=False)  # the turns after it get the new answer
+
+
+def test_the_first_turn_waits_only_for_the_check_already_started(monkeypatch):
+    calls = []
+
+    def detect():
+        calls.append(1)
+        return SandboxRuntime(runtime=None, version=None, engine_running=False, found=())
+
+    probe = EnvProbe(detect)
+    probe.start()  # as the app does when it starts
+    assert probe() == ToolEnv(sandbox=False)
+    probe.settle(5)
+    assert len(calls) == 1  # the turn reused the startup check rather than starting another
+
+
+def test_a_check_that_fails_answers_no_engine_instead_of_leaving_turns_waiting():
+    def detect():
+        raise RuntimeError("podman crashed")
+
+    probe = EnvProbe(detect)
+    waiting = threading.Thread(target=lambda: seen.append(probe()))
+    seen: list[ToolEnv] = []
+    waiting.start()
+    waiting.join(5)
+    assert seen == [ToolEnv(sandbox=False)]

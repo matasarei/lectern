@@ -74,19 +74,57 @@ def load_modules() -> list[Module]:
 
 
 class EnvProbe:
-    """ToolEnv, re-checked at most every ENV_TTL_SECONDS. Called in a worker thread."""
+    """ToolEnv for each turn, without the turn waiting on Podman or Docker (an answer can take
+    seconds, and the model isn't asked until the tools are known). The first check starts with
+    the app (`start`); after it, a turn gets the last answer at once, and an answer older than
+    ENV_TTL_SECONDS is checked again in the background for the turns after it. Only a turn
+    that comes before the first answer waits for it. Called in a worker thread."""
 
     def __init__(self, detect: Callable[[], sandbox.SandboxRuntime] = sandbox.detect) -> None:
         self._detect = detect
         self._lock = threading.Lock()
         self._cached: tuple[float, ToolEnv] | None = None
+        self._checking: threading.Thread | None = None
+        self._first = threading.Event()
+
+    def start(self) -> None:
+        """Check now, in the background, so the first turn rarely has to wait."""
+        with self._lock:
+            self._check_in_background()
+
+    def settle(self, timeout: float | None = None) -> None:
+        """Wait for a check in progress to end (for tests, and a clean shutdown)."""
+        checking = self._checking
+        if checking is not None:
+            checking.join(timeout)
 
     def __call__(self) -> ToolEnv:
         with self._lock:
-            now = time.monotonic()
-            if self._cached is None or now - self._cached[0] >= ENV_TTL_SECONDS:
-                self._cached = (now, ToolEnv(sandbox=self._detect().engine_running))
-            return self._cached[1]
+            cached = self._cached
+            if cached is None or time.monotonic() - cached[0] >= ENV_TTL_SECONDS:
+                self._check_in_background()
+        if cached is not None:
+            return cached[1]
+        self._first.wait()
+        with self._lock:
+            return self._cached[1]  # type: ignore[index]  # set before _first
+
+    def _check_in_background(self) -> None:
+        """Start a check unless one is running. Call with the lock held."""
+        if self._checking is not None and self._checking.is_alive():
+            return
+        self._checking = threading.Thread(target=self._check, name="env-probe", daemon=True)
+        self._checking.start()
+
+    def _check(self) -> None:
+        try:
+            env = ToolEnv(sandbox=self._detect().engine_running)
+        except Exception:  # noqa: BLE001 — a turn waiting on the first answer mustn't hang
+            log.exception("Couldn't tell whether a container engine is running")
+            env = ToolEnv(sandbox=False)
+        with self._lock:
+            self._cached = (time.monotonic(), env)
+        self._first.set()
 
 
 def tool_registry(

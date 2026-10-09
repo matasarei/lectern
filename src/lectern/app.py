@@ -62,6 +62,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         entries = {m.id: m for m in catalog.load().models}
         app.state.downloads.resume_interrupted(entries)
+        app.state.tool_env.start()  # is a container engine running? (in the background)
         yield
         await app.state.turns.stop_all()  # a reply in progress keeps what it wrote
         await app.state.ocr_jobs.stop_all()  # an OCR batch shows as paused when read again
@@ -88,13 +89,16 @@ def create_app(
     )
 
     modules = load_modules()
+    app.state.tool_env = EnvProbe()
     app.state.exporters = module_exporters(modules)  # export.run and the Export buttons
     app.state.ocr_jobs = OcrJobs(app.state.runtime, app.state.projects)
     app.state.turns = TurnManager(
         app.state.runtime,
         app.state.projects,
         # The export tools offer whatever export modules are installed.
-        tool_registry([*CORE_TOOLS, *export_tools(app.state.exporters)], modules, EnvProbe()),
+        tool_registry(
+            [*CORE_TOOLS, *export_tools(app.state.exporters)], modules, app.state.tool_env
+        ),
         downloads=app.state.downloads,
         sandbox=Sandbox(),
         ocr_jobs=app.state.ocr_jobs,
