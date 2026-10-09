@@ -34,3 +34,9 @@ src/lectern/web_dist/
 
 # gku skills: local notes and reports
 .gku/
+
+# Local env files (.env, lectern.env, …): settings and secrets stay out of git
+*.env
+
+# gku skills: the per-machine repo profile (shell commands the skills run; never shared)
+.claude/repo-profile.json
