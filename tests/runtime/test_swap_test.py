@@ -148,9 +148,13 @@ def test_swap_test_runs_through_the_api(paths):
     assert runtime.budget == 40 * GIB  # the test budget is put back
 
 
+def _headers(app) -> dict[str, str]:  # noqa: ANN001
+    return {"X-Lectern-Token": app.state.token, "Origin": "http://127.0.0.1:8765"}
+
+
 def _dev_routes(app) -> tuple[int, dict]:  # noqa: ANN001
     """Starting a swap test and reading it back, with a valid token: (start status, read body)."""
-    headers = {"X-Lectern-Token": app.state.token, "Origin": "http://127.0.0.1:8765"}
+    headers = _headers(app)
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         read = client.get("/api/dev/swap-test", headers=headers).json()
         started = client.post("/api/dev/swap-test", json={"pages": 1}, headers=headers)
@@ -175,7 +179,6 @@ def test_lectern_dev_1_turns_the_dev_routes_on(paths, monkeypatch):
     monkeypatch.setenv("LECTERN_DEV", "1")
     runtime, _ = _runtime(40)
     app = create_app(paths, runtime=runtime)
-    headers = {"X-Lectern-Token": app.state.token, "Origin": "http://127.0.0.1:8765"}
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        read = client.get("/api/dev/swap-test", headers=headers)
+        read = client.get("/api/dev/swap-test", headers=_headers(app))
     assert (read.status_code, read.json()) == (404, {"detail": "No swap test has run."})
