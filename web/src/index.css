@@ -39,6 +39,13 @@
     @apply underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
   }
 
+  /* A small spinner beside a step that's at work, so a long one doesn't look stuck. With
+     reduced motion it stays as a still ring. */
+  .spinner {
+    @apply inline-block size-3 shrink-0 rounded-full border-2 border-accent border-t-transparent;
+    @apply motion-safe:animate-spin;
+  }
+
   .link-back::before {
     content: "\2190" / ""; /* ←, which screen readers skip: the link's name is its text */
   }
