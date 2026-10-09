@@ -81,15 +81,17 @@ function capitalised(text: string): string {
 export function OcrSteps({
   input,
   runtime,
+  held = false,
 }: {
   input: OcrStepsInput;
   runtime: RuntimeState | undefined;
+  held?: boolean; // waiting for the chat, said elsewhere (the OCR tab's countdown), not in the text
 }) {
   const { t } = useTranslation();
   const { steps, detail } = ocrSteps(input, runtime, t);
   // At work: running, and not waiting for the chat's reply. A model loading counts, since
   // something is happening; queued, paused, done and failed don't.
-  const working = input.status === "running" && !input.waitingForChat;
+  const working = input.status === "running" && !input.waitingForChat && !held;
   return (
     <ol className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-sm" data-testid="ocr-steps">
       {steps.map((step, i) => (
