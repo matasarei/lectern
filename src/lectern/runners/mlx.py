@@ -1,10 +1,10 @@
 """MLX runners on Apple Silicon: `mlx_lm.server` for text, `mlx_vlm.server` for vision.
 
 Off by default (setting `runtime.mlx_enabled`). `mlx_lm.server` has no API key, so any website
-could call it through DNS rebinding. `mlx_vlm.server` takes a key, which goes in its
-environment (MLX_VLM_SERVER_API_KEY), not on the command line where `ps` shows it to every user,
-and binds to 0.0.0.0 unless told otherwise. On a Mac, llama.cpp with Metal is the default until
-mlx_lm has a key too.
+could call it through DNS rebinding. `mlx_vlm.server` takes a key: it goes in the server's
+environment (MLX_VLM_SERVER_API_KEY), not on the command line, where `ps` shows it to every
+user. Both servers listen on 127.0.0.1 because they are told to; mlx_vlm's default is 0.0.0.0.
+On a Mac, llama.cpp with Metal is the default until mlx_lm has a key too.
 """
 
 from __future__ import annotations
