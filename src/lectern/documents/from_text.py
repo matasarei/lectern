@@ -55,7 +55,10 @@ def parse_markdown(title: str, text: str, *, source: str = "") -> Document:
             while i < len(lines) and lines[i].strip() and not _starts_block(lines, i):
                 paragraph.append(lines[i].strip())
                 i += 1
-            add("paragraph", "\n".join(paragraph))
+            # A hard break (a backslash ending the line) is the paragraph's own line break,
+            # which "\n" already is; on the last line a backslash is text (CommonMark).
+            body = [_without_hard_break(x) for x in paragraph[:-1]] + paragraph[-1:]
+            add("paragraph", "\n".join(body))
     return _document(title, source, blocks)
 
 
@@ -90,6 +93,13 @@ def _paragraphs(text: str, *, page: int) -> list[Block]:
         )
         for n, p in enumerate(paragraphs, start=1)
     ]
+
+
+def _without_hard_break(line: str) -> str:
+    """The line without a Markdown hard-break backslash. An even run of backslashes is
+    escaped ones, real text, and stays."""
+    trailing = len(line) - len(line.rstrip("\\"))
+    return line[:-1] if trailing % 2 else line
 
 
 def _starts_block(lines: list[str], i: int) -> bool:

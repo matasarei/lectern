@@ -3,6 +3,8 @@ Markdown, so open questions are inline marks and page notes (when asked for) are
 
 from __future__ import annotations
 
+import re
+
 from lectern.agent.tools import AgentTool
 from lectern.documents.document import Block, Document
 from lectern.documents.export import (
@@ -53,7 +55,17 @@ def _block(block: Block, figure: int) -> str:
         )
     if block.type == "figure":
         return figure_placeholder(block, figure)
-    return _text(block.text, block)
+    return _paragraph(_text(block.text, block))
+
+
+def _paragraph(text: str) -> str:
+    """A paragraph's own line breaks (a statement's rows, an address) as Markdown hard breaks,
+    a backslash at the line's end: a plain newline shows as a space. A blank line still starts
+    a new paragraph."""
+    parts = (part.strip("\n") for part in re.split(r"\n[ \t]*\n", text))
+    return "\n\n".join(
+        "\\\n".join(line.rstrip() for line in part.split("\n")) for part in parts if part.strip()
+    )
 
 
 class MarkdownModule:

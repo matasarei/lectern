@@ -74,3 +74,15 @@ def test_pages_become_a_document_with_the_pdfs_page_numbers():
         ("b1.1", 1, "paragraph"), ("b1.2", 1, "paragraph"), ("b3.1", 3, "paragraph"),
     ]  # fmt: skip
     assert doc.blocks[2].text == statement  # a statement's rows stay one per line
+
+
+def test_a_markdown_hard_break_is_a_line_break_in_the_paragraph():
+    doc = parse_markdown("x", "Ivan Petrenko\\\nvul. Khreshchatyk 1  \nKyiv 01001\n")
+    assert [b.text for b in doc.blocks] == ["Ivan Petrenko\nvul. Khreshchatyk 1\nKyiv 01001"]
+
+
+def test_a_backslash_that_is_text_stays():
+    # An escaped backslash ends the line with a real one; on a paragraph's last line a
+    # backslash is never a break (CommonMark), so it is text too.
+    doc = parse_markdown("x", "C:\\\\\nnext\n\npath ends in \\\n")
+    assert [b.text for b in doc.blocks] == ["C:\\\\\nnext", "path ends in \\"]
