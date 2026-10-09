@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiFetch, initToken, openSocket, readEvents } from "./client";
+import { ApiError, apiFetch, followEvents, initToken, openSocket, readEvents, RECONNECT_DELAYS_MS } from "./client";
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -76,6 +76,95 @@ describe("readEvents", () => {
     await readEvents("/api/models/events", (e) => events.push(e), new AbortController().signal);
 
     expect(events).toEqual([{ a: 1 }, { a: 2 }]);
+  });
+});
+
+describe("followEvents", () => {
+  const encoder = new TextEncoder();
+  // A stream that sends `events` and then ends, as the server's does when it stops.
+  const ending = (...events: object[]) =>
+    new Response(new ReadableStream({
+      start(c) {
+        for (const e of events) c.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+        c.close();
+      },
+    }));
+  // One that stays open, as a running server's does.
+  const open = (...events: object[]) =>
+    new Response(new ReadableStream({
+      start(c) {
+        for (const e of events) c.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+      },
+    }));
+
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  afterEach(() => vi.useRealTimers());
+
+  it("opens the stream again after it ends, and says so each time it opens", async () => {
+    const answers = [ending({ seq: 1 }), open({ seq: 1 })];
+    const fetched = vi.fn(async () => answers.shift()!);
+    vi.stubGlobal("fetch", fetched);
+    const events: unknown[] = [];
+    let connects = 0;
+    const controller = new AbortController();
+
+    void followEvents("/api/x/events", (e) => events.push(e), controller.signal, () => connects++);
+    await vi.waitFor(() => expect(events).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
+    await vi.waitFor(() => expect(events).toHaveLength(2));
+
+    expect(events).toEqual([{ seq: 1 }, { seq: 1 }]); // the restarted server numbers from 1 again
+    expect(connects).toBe(2);
+    expect(fetched).toHaveBeenCalledTimes(2);
+    controller.abort();
+  });
+
+  it("keeps trying while the server can't be reached, waiting longer each time", async () => {
+    const fetched = vi.fn(async () => {
+      if (fetched.mock.calls.length < 3) throw new TypeError("Failed to fetch"); // restarting
+      return open({ seq: 1 });
+    });
+    vi.stubGlobal("fetch", fetched);
+    const events: unknown[] = [];
+    const controller = new AbortController();
+
+    void followEvents("/api/x/events", (e) => events.push(e), controller.signal);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
+    expect(fetched).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[1] - 1);
+    expect(fetched).toHaveBeenCalledTimes(2); // the second wait is longer
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(events).toEqual([{ seq: 1 }]));
+    controller.abort();
+  });
+
+  it("retries a 5xx, but stops on a 4xx, which a retry wouldn't change", async () => {
+    const answers = [new Response("", { status: 503 }), new Response("", { status: 401 })];
+    const fetched = vi.fn(async () => answers.shift()!);
+    vi.stubGlobal("fetch", fetched);
+    const controller = new AbortController();
+
+    const refused = expect(followEvents("/api/x/events", () => {}, controller.signal)).rejects.toMatchObject({
+      status: 401,
+    });
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
+
+    await refused;
+    expect(fetched).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops when aborted while waiting to reconnect", async () => {
+    const fetched = vi.fn(async () => ending());
+    vi.stubGlobal("fetch", fetched);
+    const controller = new AbortController();
+
+    const following = followEvents("/api/x/events", () => {}, controller.signal);
+    await vi.waitFor(() => expect(fetched).toHaveBeenCalledTimes(1));
+    controller.abort();
+
+    await expect(following).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
+    expect(fetched).toHaveBeenCalledTimes(1);
   });
 });
 

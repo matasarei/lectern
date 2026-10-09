@@ -13,13 +13,17 @@ let puts: unknown[] = [];
 let sessionsFail = false; // POST /sessions answers 500
 let pushChat: (event: object) => void = () => {}; // the open chat's event stream
 let pushProject: (event: object) => void = () => {}; // the project's event stream
+let endChat: () => void = () => {}; // the server stops (a restart): the chat's stream ends
 
-function stream(onStart: (push: (event: object) => void) => void): Response {
+function stream(onStart: (push: (event: object) => void, end: () => void) => void): Response {
   const encoder = new TextEncoder();
   return new Response(
     new ReadableStream({
       start(controller) {
-        onStart((event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+        onStart(
+          (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)),
+          () => controller.close(),
+        );
       },
     }),
   );
@@ -66,7 +70,12 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/projects/1/sessions/1/events") return stream((push) => (pushChat = push));
+      if (url === "/api/projects/1/sessions/1/events") {
+        return stream((push, end) => {
+          pushChat = push;
+          endChat = end;
+        });
+      }
       if (url === "/api/projects/1/events") return stream((push) => (pushProject = push));
       if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/projects/1/tabs") {
@@ -289,6 +298,37 @@ describe("A tab a chat opens while it isn't showing", () => {
       open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
       active: { kind: "session", id: 1 },
     }));
+  });
+});
+
+describe("After the server restarts", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("the chat's stream reconnects, and acts on events numbered from 1 again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderAt("/projects/1");
+    expect(await screen.findByText("What are we working on?")).toBeTruthy(); // chat 1 is showing
+    await act(async () => {
+      pushChat({ seq: 0, type: "replayed" });
+      pushChat({ seq: 7, type: "turn", status: "done" }); // the old server had counted to 7
+      endChat(); // …and stops
+      await vi.advanceTimersByTimeAsync(1000); // the page waits, then opens the stream again
+    });
+    await act(async () => {
+      pushChat({ seq: 0, type: "replayed" });
+      pushChat({
+        seq: 1, type: "tool_result", call_id: "c1", text: "Opened", error: false, refs: [],
+        action: { type: "open_tab", tab: { kind: "artifact", id: 7 }, focus: false },
+      });
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
+      active: { kind: "session", id: 1 },
+    }));
+    const opened = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/projects/1/sessions/1/events");
+    expect(opened).toHaveLength(2);
   });
 });
 

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { readEvents } from "../api/client";
+import { followEvents } from "../api/client";
 import type { DownloadState } from "../api/types";
 
 /** Live download progress from /api/models/events, by model id. Also refreshes the
@@ -12,7 +12,7 @@ export function useDownloadEvents(): Record<string, DownloadState> {
 
   useEffect(() => {
     const controller = new AbortController();
-    readEvents<DownloadState & { type: string }>(
+    followEvents<DownloadState & { type: string }>(
       "/api/models/events",
       (event) => {
         if (event.type !== "download") return;
@@ -23,8 +23,13 @@ export function useDownloadEvents(): Record<string, DownloadState> {
         }
       },
       controller.signal,
+      () => {
+        // (Re)opened: a download may have ended, or been interrupted, while it was closed
+        void queryClient.invalidateQueries({ queryKey: ["models"] });
+        void queryClient.invalidateQueries({ queryKey: ["first-run"] });
+      },
     ).catch(() => {
-      // aborted on unmount, or the server went away; the queries still show the last state
+      // aborted on unmount, or refused; the queries still show the last state
     });
     return () => controller.abort();
   }, [queryClient]);

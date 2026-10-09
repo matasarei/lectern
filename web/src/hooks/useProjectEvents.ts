@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { readEvents } from "../api/client";
+import { followEvents } from "../api/client";
 import type { ProjectEvent, Tab } from "../api/types";
 import { isChatLive } from "./useSessionEvents";
 
@@ -18,7 +18,7 @@ export function useProjectEvents(projectId: number, onOpen: (tab: Tab, focus?: b
 
   useEffect(() => {
     const controller = new AbortController();
-    readEvents<ProjectEvent>(
+    followEvents<ProjectEvent>(
       `/api/projects/${projectId}/events`,
       (event) => {
         if (event.type !== "open_tab") return;
@@ -29,7 +29,7 @@ export function useProjectEvents(projectId: number, onOpen: (tab: Tab, focus?: b
       },
       controller.signal,
     ).catch(() => {
-      // aborted on unmount, or the server went away: a showing chat still opens its tabs
+      // aborted on unmount, or refused: a showing chat still opens its tabs
     });
     return () => controller.abort();
   }, [projectId]);

@@ -76,14 +76,17 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   });
 }
 
-/** Read a server-sent event stream; calls `onEvent` with each parsed `data:` payload. */
+/** Read a server-sent event stream; calls `onEvent` with each parsed `data:` payload, and
+ * `onOpen` once the server has answered, before the first event. Returns when the stream ends. */
 export async function readEvents<T>(
   path: string,
   onEvent: (event: T) => void,
   signal: AbortSignal,
+  onOpen: () => void = () => {},
 ): Promise<void> {
   const response = await fetch(path, withToken({ signal }));
   if (!response.ok || !response.body) throw new ApiError(response.status, response.statusText);
+  onOpen();
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
   for (;;) {
@@ -101,6 +104,46 @@ export async function readEvents<T>(
         .join("\n");
       if (data) onEvent(JSON.parse(data) as T);
     }
+  }
+}
+
+/** How long to wait before each reconnect: a restart takes a few seconds, a longer outage
+ * isn't worth asking about every second. */
+export const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
+
+/** Follow a server-sent event stream until `signal` aborts. When the stream ends or the
+ * server can't be reached (a restart, an update), wait and open it again. `onConnect` runs
+ * each time the stream opens, before its first event: after a restart the server's numbering
+ * starts again, so whatever a reader counted from the last stream no longer applies. An error
+ * answer (a wrong token, a session that's gone) ends it: a retry wouldn't change that. A 5xx
+ * is retried, since a server shutting down can answer one. */
+export async function followEvents<T>(
+  path: string,
+  onEvent: (event: T) => void,
+  signal: AbortSignal,
+  onConnect: () => void = () => {},
+): Promise<void> {
+  let failures = 0;
+  while (!signal.aborted) {
+    try {
+      await readEvents(path, onEvent, signal, () => {
+        failures = 0;
+        onConnect();
+      });
+    } catch (error) {
+      if (signal.aborted) return;
+      if (error instanceof ApiError && error.status < 500) throw error;
+    }
+    if (signal.aborted) return;
+    const delay = RECONNECT_DELAYS_MS[Math.min(failures, RECONNECT_DELAYS_MS.length - 1)];
+    failures += 1;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, delay);
+      signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
   }
 }
 
