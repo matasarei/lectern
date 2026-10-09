@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import re
 import shutil
 import subprocess
 import zipfile
@@ -294,6 +295,29 @@ def test_compose_passes_on_every_setting_serve_reads():
     compose = yaml.safe_load((ROOT / "packaging/docker/compose.yaml").read_text())
     environment = compose["services"]["lectern"]["environment"]
     assert {"LECTERN_PUBLIC_URL", "LECTERN_PORT", "LECTERN_HOST"} <= set(environment)
+
+
+DOCKERFILES = (
+    ROOT / "packaging/docker/Dockerfile",
+    ROOT / "src/lectern/modules/sandbox/image/Dockerfile",
+)
+
+
+def _pin(name: str) -> str:
+    """A value from packaging/pins.sh, read as text (it's sourced by shell, not run here)."""
+    found = re.search(rf'^{name}="([^"]+)"$', (ROOT / "packaging/pins.sh").read_text(), re.M)
+    assert found, f"{name} is missing from packaging/pins.sh"
+    return found.group(1)
+
+
+def test_the_python_image_pin_is_a_digest():
+    assert re.fullmatch(r"python:3\.12-slim@sha256:[0-9a-f]{64}", _pin("PYTHON_IMAGE"))
+
+
+@pytest.mark.parametrize("dockerfile", DOCKERFILES, ids=lambda p: p.parent.name)
+def test_every_dockerfile_builds_from_the_pinned_python_image(dockerfile):
+    froms = re.findall(r"^FROM (\S+)", dockerfile.read_text(), re.M)
+    assert froms == [_pin("PYTHON_IMAGE")]
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")

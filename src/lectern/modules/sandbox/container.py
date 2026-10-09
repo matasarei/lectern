@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.hardware import sandbox as engines
 
-IMAGE = "lectern-sandbox:1"
+IMAGE = "lectern-sandbox:2"  # bump when image/Dockerfile changes, so installs rebuild
 IMAGE_DIR = Path(__file__).parent / "image"
 RUN_TIMEOUT = 60.0
 BUILD_TIMEOUT = 15 * 60.0

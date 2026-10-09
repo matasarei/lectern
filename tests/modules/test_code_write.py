@@ -64,7 +64,7 @@ def test_writes_tests_and_saves_the_script_with_its_manifest(make_ctx):
     assert script == "print('penalty', round(250 * 0.005 * 50, 2))\n"
     manifest = json.loads((ctx.project.root / "scripts" / "penalty.json").read_text())
     assert manifest["entry"] == "scripts/penalty.py" and manifest["model"] == "qwen3.5-4b"
-    assert manifest["image"] == "lectern-sandbox:1" and manifest["brief"] == BRIEF["brief"]
+    assert manifest["image"] == "lectern-sandbox:2" and manifest["brief"] == BRIEF["brief"]
     assert (
         manifest["inputs"][0]["path"] == "rent.csv" and len(manifest["inputs"][0]["sha256"]) == 64
     )
