@@ -7,9 +7,11 @@ import os
 import plistlib
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import time
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -64,6 +66,45 @@ def test_building_again_replaces_the_bundle(tmp_path):
     info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
     assert info["CFBundleShortVersionString"] == "1.1.0"
     assert not (bundle / "Contents/left-over").exists()
+
+
+def _png(path: Path) -> tuple[int, int, bytes]:
+    """A PNG's width and height, and its pixel data still filtered: enough to tell a drawing
+    from a blank."""
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height = struct.unpack(">II", data[16:24])
+    packed, at = b"", 8
+    while at < len(data):
+        (length,), kind = struct.unpack(">I", data[at : at + 4]), data[at + 4 : at + 8]
+        if kind == b"IDAT":
+            packed += data[at + 8 : at + 8 + length]
+        at += 12 + length
+    return width, height, zlib.decompress(packed)
+
+
+@needs_swiftc
+def test_the_app_draws_every_size_of_its_icon(tmp_path):
+    bundle = tmp_path / "Lectern.app"
+    assert _build(str(bundle), "/Users/someone/.lectern", "1.0.0").returncode == 0
+    iconset = tmp_path / "Lectern.iconset"
+    drawn = subprocess.run(  # noqa: S603
+        [str(bundle / "Contents/MacOS/Lectern"), "--draw-icon", str(iconset)],
+        capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert drawn.returncode == 0, drawn.stderr
+
+    # What iconutil asks of an .iconset: these names, each at its size in pixels.
+    expected = {
+        f"icon_{points}x{points}{'@2x' if scale == 2 else ''}.png": points * scale
+        for points in (16, 32, 128, 256, 512)
+        for scale in (1, 2)
+    }
+    assert {p.name for p in iconset.iterdir()} == set(expected)
+    for name, pixels in expected.items():
+        width, height, picture = _png(iconset / name)
+        assert (width, height) == (pixels, pixels), name
+        assert len(set(picture)) > 32, f"{name} looks blank"  # a plate, a book, a letter
 
 
 def test_the_info_plist_template_is_a_plist_with_both_placeholders():
