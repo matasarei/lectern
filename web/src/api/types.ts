@@ -95,8 +95,12 @@ export interface EngineState {
   error: string | null;
 }
 
+/** What a model is loaded as: a role, or a role and a model by name ("main@qwen3.5-9b",
+ * OCR cleanup's copy of the chat model while the chat runs on its MLX build). */
+export type LeaseKey = Role | `${Role}@${string}`;
+
 export interface Resident {
-  role: Role;
+  role: LeaseKey;
   model_id: string;
   bytes: number;
   ctx: number;
