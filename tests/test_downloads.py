@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from lectern.app import create_app
 from lectern.catalog.catalog import CatalogEntry
 from lectern.core.db import make_engine, make_sessionmaker, migrate
+from lectern.core.tables import DownloadRow
 from lectern.downloads.manager import DISK_HEADROOM, DownloadManager
 
 MODEL = b"GGUF" + bytes(range(256)) * 400  # ~100 KB
@@ -125,6 +126,50 @@ def test_downloads_all_files_and_verifies_them(paths, sessions):
     state = manager.state(entry)
     assert (state.status, state.bytes_done, state.bytes_total) == ("done", entry.size, entry.size)
     assert "/acme/tiny-GGUF/resolve/" + "a" * 40 + "/tiny.gguf" in str(hub.requests[0].url)
+
+
+def _row(sessions, model_id: str) -> DownloadRow:  # noqa: ANN001
+    with sessions() as session:
+        return session.get(DownloadRow, model_id)
+
+
+def test_a_finished_download_records_the_revision_it_fetched(paths, sessions):
+    entry = _entry()
+    hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
+    manager = _manager(paths, sessions, hub)
+
+    asyncio.run(_finish(manager, entry))
+
+    assert _row(sessions, "tiny").revision == entry.revision
+
+
+def test_a_failed_download_records_no_revision(paths, sessions):
+    entry = _entry(sha_override="0" * 64)
+    hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
+    manager = _manager(paths, sessions, hub)
+
+    asyncio.run(_finish(manager, entry))
+
+    row = _row(sessions, "tiny")
+    assert (row.status, row.revision) == ("failed", None)
+
+
+def test_files_put_there_by_hand_have_no_recorded_revision(paths, sessions):
+    entry = _entry()
+    hub = FakeHub({})
+    manager = _manager(paths, sessions, hub)
+    for file in entry.files.all():
+        path = manager.file_path(entry, file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"copied in")
+
+    async def go():
+        return manager.start(entry)
+
+    # Nothing was fetched or checked, so which revision this is isn't known.
+    assert asyncio.run(go()).status == "done"
+    assert _row(sessions, "tiny").revision is None
+    assert hub.requests == []
 
 
 def test_resumes_after_a_dropped_connection(paths, sessions):

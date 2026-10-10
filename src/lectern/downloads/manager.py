@@ -210,7 +210,9 @@ class DownloadManager:
             )
             self._publish(self.state(entry))
             return
-        self._save(entry.id, status="done", bytes_done=entry.size, error=None)
+        self._save(
+            entry.id, status="done", bytes_done=entry.size, error=None, revision=entry.revision
+        )
         self._publish(self.state(entry))
 
     async def _fetch(

@@ -62,6 +62,9 @@ class DownloadRow(Base):
     bytes_done: Mapped[int] = mapped_column(BigInteger, default=0)
     bytes_total: Mapped[int] = mapped_column(BigInteger)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The catalog revision a finished download fetched: the model's version on disk. None
+    # until it finishes, and for files that were put there by hand.
+    revision: Mapped[str | None] = mapped_column(String(40), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
