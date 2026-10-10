@@ -13,7 +13,12 @@ from lectern.app import create_app
 from lectern.catalog.catalog import CatalogEntry
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.tables import DownloadRow
-from lectern.downloads.manager import DISK_HEADROOM, DownloadManager
+from lectern.downloads.manager import (
+    DISK_HEADROOM,
+    DownloadManager,
+    NoSuchFolder,
+    NotRemovable,
+)
 
 MODEL = b"GGUF" + bytes(range(256)) * 400  # ~100 KB
 MMPROJ = b"MMPROJ" + bytes(range(200)) * 50
@@ -285,6 +290,142 @@ def test_restart_resumes_an_interrupted_download(paths, sessions):
 
 
 # --- over HTTP ---------------------------------------------------------------------------
+
+
+# --- what's installed, and removing it ---------------------------------------------------------
+
+
+def _installed_tiny(paths, sessions):  # noqa: ANN001, ANN202
+    entry = _entry()
+    manager = _manager(paths, sessions, FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ}))
+    asyncio.run(_finish(manager, entry))
+    return manager, entry
+
+
+def test_an_installed_model_says_its_revision_its_size_and_when(paths, sessions):
+    manager, entry = _installed_tiny(paths, sessions)
+
+    installed = manager.installed(entry)
+
+    assert installed.revision == entry.revision
+    assert installed.bytes == len(MODEL) + len(MMPROJ)
+    assert installed.at == _row(sessions, "tiny").updated_at
+
+
+def test_a_model_with_nothing_on_disk_is_not_installed(paths, sessions):
+    manager = _manager(paths, sessions, FakeHub({}))
+    assert manager.installed(_entry()) is None
+    (paths.models / "tiny").mkdir(parents=True)  # a folder and no file in it
+    assert manager.installed(_entry()) is None
+
+
+def test_a_download_that_stopped_halfway_is_on_disk_without_a_version(paths, sessions):
+    entry = _entry()
+    hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
+    hub.cut_after["tiny.gguf"] = 20_000
+    manager = _manager(paths, sessions, hub)
+    asyncio.run(_finish(manager, entry))
+
+    installed = manager.installed(entry)
+
+    # It takes room and can be removed, but it isn't a version of the model yet.
+    assert (installed.revision, installed.at, installed.bytes) == (None, None, 20_000)
+
+
+def test_folders_no_catalog_model_owns_are_listed_apart(paths, sessions):
+    manager, _ = _installed_tiny(paths, sessions)
+    left = paths.models / "model-of-an-older-lectern"
+    left.mkdir()
+    (left / "weights.gguf").write_bytes(b"x" * 300)
+    (left / "sub").mkdir()
+    (left / "sub" / "more.bin").write_bytes(b"y" * 50)
+    (paths.models / "a-file.txt").write_bytes(b"not a folder")
+    (paths.models / "a-link").symlink_to(left, target_is_directory=True)
+
+    assert manager.unlisted({"tiny"}) == [("model-of-an-older-lectern", 350)]
+
+
+def test_removing_a_model_deletes_its_folder_and_its_record_and_says_so(paths, sessions):
+    manager, entry = _installed_tiny(paths, sessions)
+
+    async def go():
+        async with manager.events.listen() as queue:
+            await manager.remove("tiny")
+            return [queue.get_nowait() for _ in range(queue.qsize())]
+
+    events = asyncio.run(go())
+
+    assert not (paths.models / "tiny").exists()
+    assert _row(sessions, "tiny") is None
+    assert manager.installed(entry) is None and manager.state(entry).status == "none"
+    assert [(e["model_id"], e["status"]) for e in events] == [("tiny", "none")]  # pages update
+
+
+def test_removing_a_model_stops_its_download_first(paths, sessions):
+    entry = _entry()
+    hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
+    hub.gate = threading.Event()  # the transfer hangs mid-file
+    manager = _manager(paths, sessions, hub)
+
+    async def go():
+        manager.start(entry)
+        await _until(lambda: list((paths.models / "tiny").glob("*.part")))
+        await manager.remove("tiny")
+        return manager.is_running("tiny")
+
+    assert asyncio.run(go()) is False
+    assert not (paths.models / "tiny").exists()  # nothing written back after the delete
+    assert _row(sessions, "tiny") is None
+
+
+def test_a_folder_no_catalog_model_owns_can_be_removed(paths, sessions):
+    manager = _manager(paths, sessions, FakeHub({}))
+    left = paths.models / "model-of-an-older-lectern"
+    left.mkdir(parents=True)
+    (left / "weights.gguf").write_bytes(b"x")
+
+    asyncio.run(manager.remove("model-of-an-older-lectern"))
+
+    assert not left.exists()
+
+
+@pytest.mark.parametrize("name", ["..", ".", "", "tiny/..", "../models", "nope", "tiny/tiny.gguf"])
+def test_remove_takes_only_the_name_of_a_folder_in_the_models_directory(paths, sessions, name):
+    manager, _ = _installed_tiny(paths, sessions)
+    beside = paths.models.parent / "beside.txt"
+    beside.write_text("not Lectern's to delete")
+
+    with pytest.raises(NoSuchFolder):
+        asyncio.run(manager.remove(name))
+
+    assert (paths.models / "tiny" / "tiny.gguf").exists() and beside.exists()
+    assert _row(sessions, "tiny") is not None
+
+
+def test_remove_never_deletes_through_a_link_or_takes_a_file_for_a_model(paths, sessions):
+    manager, _ = _installed_tiny(paths, sessions)
+    elsewhere = paths.models.parent / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "keep.gguf").write_bytes(b"someone else's")
+    (paths.models / "linked").symlink_to(elsewhere, target_is_directory=True)
+    (paths.models / "a-file.txt").write_bytes(b"x")
+
+    with pytest.raises(NotRemovable, match="link"):
+        asyncio.run(manager.remove("linked"))
+    with pytest.raises(NotRemovable, match="isn't a folder"):
+        asyncio.run(manager.remove("a-file.txt"))
+
+    assert (elsewhere / "keep.gguf").exists() and (paths.models / "linked").is_symlink()
+    assert (paths.models / "a-file.txt").exists()
+
+
+async def _until(condition, *, steps: int = 2000) -> None:  # noqa: ANN001
+    """Let other tasks run until `condition()` holds. Counts loop turns, not seconds."""
+    for _ in range(steps):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition never became true")
 
 
 @pytest.fixture

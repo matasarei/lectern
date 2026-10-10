@@ -12,8 +12,9 @@ import asyncio
 import contextlib
 import shutil
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Collection
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 
 import httpx2
@@ -41,6 +42,23 @@ class DownloadState:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class Installed:
+    """What of a model is on disk."""
+
+    revision: str | None  # the catalog revision it was downloaded at; None: not recorded
+    at: datetime | None  # when its download finished
+    bytes: int  # the room its folder takes, a half-fetched file included
+
+
+class NoSuchFolder(Exception):
+    """Remove was given a name that isn't in the models directory."""
+
+
+class NotRemovable(Exception):
+    """The name is in the models directory, and isn't Lectern's to delete."""
 
 
 class EventHub:
@@ -107,6 +125,29 @@ class DownloadManager:
 
     def is_downloaded(self, entry: CatalogEntry) -> bool:
         return all(self.file_path(entry, f).exists() for f in entry.files.all())
+
+    def installed(self, entry: CatalogEntry) -> Installed | None:
+        """What of the model is on disk, or None when nothing is. A download that stopped
+        halfway, and files nobody downloaded through Lectern, take room and have no version."""
+        size = _folder_bytes(self.model_dir(entry))
+        if not size:
+            return None
+        with self.sessions() as session:
+            row = session.get(DownloadRow, entry.id)
+        if row is None or row.status != "done" or not self.is_downloaded(entry):
+            return Installed(revision=None, at=None, bytes=size)
+        return Installed(revision=row.revision, at=row.updated_at, bytes=size)
+
+    def unlisted(self, catalog_ids: Collection[str]) -> list[tuple[str, int]]:
+        """Folders in the models directory that no catalog model owns, with their size: a
+        model a later Lectern no longer offers still takes its room."""
+        if not self.models_dir.is_dir():
+            return []
+        return sorted(
+            (path.name, _folder_bytes(path))
+            for path in self.models_dir.iterdir()
+            if path.is_dir() and not path.is_symlink() and path.name not in catalog_ids
+        )
 
     def state(self, entry: CatalogEntry) -> DownloadState:
         with self.sessions() as session:
@@ -182,6 +223,48 @@ class DownloadManager:
                 resumed.append(model_id)
         return resumed
 
+    async def stop(self, model_id: str) -> None:
+        """Stop a model's download, if one is running, and wait until it has."""
+        task = self._tasks.get(model_id)
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def removable(self, name: str) -> Path:
+        """The folder Remove would delete: a real folder directly in the models directory,
+        with exactly this name. It is looked up in the directory's own listing, so the name
+        is only ever compared, never joined to a path: "..", a path or anything else that
+        isn't there finds nothing. A link is refused: what's behind it isn't ours."""
+        listing = self.models_dir.iterdir() if self.models_dir.is_dir() else ()
+        for path in listing:
+            if path.name != name:
+                continue
+            if path.is_symlink():
+                raise NotRemovable(
+                    f"{name} is a link to a folder somewhere else. Lectern doesn't delete "
+                    "through a link: remove the link yourself."
+                )
+            if not path.is_dir():
+                raise NotRemovable(f"{name} isn't a folder.")
+            return path
+        raise NoSuchFolder(f"There's no model folder {name!r}.")
+
+    async def remove(self, name: str) -> None:
+        """Delete a model's folder and its record, stopping its download first. The caller
+        makes sure no runner has the model loaded (ModelRuntime.without_model)."""
+        folder = self.removable(name)
+        await self.stop(name)
+        await asyncio.to_thread(self._delete, folder, name)
+        self._publish(DownloadState(name, "none", 0, 0))  # open pages show it gone
+
+    def _delete(self, folder: Path, name: str) -> None:
+        shutil.rmtree(folder)
+        with self.sessions.begin() as session:
+            row = session.get(DownloadRow, name)
+            if row is not None:
+                session.delete(row)
+
     async def stop_all(self) -> None:
         tasks = [t for t in self._tasks.values() if not t.done()]
         for task in tasks:
@@ -251,6 +334,15 @@ class DownloadManager:
         if now - progress.last_save >= SAVE_EVERY:
             progress.last_save = now
             self._save(progress.entry.id, bytes_done=progress.done)
+
+
+def _folder_bytes(folder: Path) -> int:
+    """The size of the files in a folder, at any depth; 0 for one that isn't there."""
+    return sum(
+        path.stat().st_size
+        for path in folder.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    )
 
 
 class _Progress:

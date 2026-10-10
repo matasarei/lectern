@@ -1,4 +1,5 @@
-"""The model catalog over HTTP: list models, start a download, follow progress."""
+"""The model catalog over HTTP: list models and what's installed, choose a role's model, start
+a download, remove a model, follow progress."""
 
 from __future__ import annotations
 
@@ -10,10 +11,11 @@ from starlette.concurrency import run_in_threadpool
 from lectern.api.sse import hub_stream
 from lectern.catalog import catalog
 from lectern.core import settings
-from lectern.downloads.manager import DownloadManager
+from lectern.downloads.manager import DownloadManager, NoSuchFolder, NotRemovable
 from lectern.hardware.probe import probe
 from lectern.hardware.tiers import effective_tier
 from lectern.runners import mlx
+from lectern.runtime.supervisor import ModelInUse
 from lectern.runtime.wiring import pick
 
 router = APIRouter()
@@ -30,12 +32,24 @@ def list_models(request: Request) -> dict:
     downloads = _manager(request)
     recommended = cat.defaults_for(tier)
     chosen = request.app.state.runtime.chosen_models()
+    uses = {role: pick(role, tier, chosen)[1].id for role in recommended}
+    runtime_settings = settings.get(
+        request.app.state.sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
+    )
+    mlx_on = bool(runtime_settings["mlx_enabled"]) and mlx.mlx_available()
+
+    def used_by(m: catalog.CatalogEntry) -> list[str]:
+        """The roles that use the model now. An MLX build is used by the roles of the model
+        it stands in for, while MLX is on."""
+        stands_for = m.replaces if mlx_on else None
+        return [role for role, model_id in uses.items() if model_id in (m.id, stands_for)]
+
     return {
         "tier": tier.value,
         # The model recommended for each role on this computer, and the one the role uses:
         # the same unless another was chosen (PUT /models/roles/{role}).
         "defaults": {role: entry.id for role, entry in recommended.items()},
-        "chosen": {role: pick(role, tier, chosen)[1].id for role in recommended},
+        "chosen": uses,
         "models": [
             {
                 "id": m.id,
@@ -51,9 +65,28 @@ def list_models(request: Request) -> dict:
                 "replaces": m.replaces,  # an MLX build: the model it stands in for
                 "suits_tier": tier in m.ctx,  # listed for this computer's tier
                 "download": downloads.state(m).to_dict(),
+                "installed": _installed(downloads, m),  # None: nothing of it on disk
+                "used_by": used_by(m),
             }
             for m in cat.models
         ],
+        # Folders in the models directory that no catalog model owns (a model a later
+        # Lectern dropped): they take room, and can be removed like a model.
+        "unlisted": [
+            {"name": name, "bytes": size}
+            for name, size in downloads.unlisted({m.id for m in cat.models})
+        ],
+    }
+
+
+def _installed(downloads: DownloadManager, entry: catalog.CatalogEntry) -> dict | None:
+    installed = downloads.installed(entry)
+    if installed is None:
+        return None
+    return {
+        "revision": installed.revision,  # the model's version on disk; None: not recorded
+        "at": installed.at.isoformat() if installed.at else None,
+        "bytes": installed.bytes,
     }
 
 
@@ -122,6 +155,30 @@ async def start_download(
             "with accept_licence set to true.",
         )
     return _manager(request).start(entry).to_dict()
+
+
+@router.delete("/models/{name}")
+async def remove_model(name: str, request: Request) -> dict:
+    """Delete a model's folder from the models directory: a catalog model's, or one no
+    catalog model owns. A role that used it keeps asking for it and shows Download."""
+    downloads = _manager(request)
+    entry = catalog.load().get(name)
+    title = entry.title if entry is not None else name
+    try:
+        downloads.removable(name)  # before the runtime is asked to unload anything
+        # No runner may have the files open, and none may load them half-deleted.
+        await request.app.state.runtime.without_model(name, lambda: downloads.remove(name))
+    except NoSuchFolder as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except NotRemovable as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ModelInUse as exc:
+        raise HTTPException(
+            409, f"{title} is in use. Remove it when the reply or the job using it is done."
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(500, f"{title} couldn't be removed: {exc.strerror or exc}.") from exc
+    return await run_in_threadpool(list_models, request)
 
 
 @router.get("/models/events")

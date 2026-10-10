@@ -11,7 +11,13 @@ import pytest
 from lectern.hardware.tiers import Tier
 from lectern.runners.base import MeasuredMemory, RunnerSpec
 from lectern.runtime.planner import ModelShape
-from lectern.runtime.supervisor import ModelChoice, ModelRuntime, NotAvailable, Priority
+from lectern.runtime.supervisor import (
+    ModelChoice,
+    ModelInUse,
+    ModelRuntime,
+    NotAvailable,
+    Priority,
+)
 
 GIB = 1024**3
 SHAPE = ModelShape(layers=8, kv_layers=8, kv_heads=1, key_length=64, value_length=64)
@@ -340,6 +346,85 @@ def test_a_change_to_one_role_unloads_that_roles_models_only():
 
     # The role's own model, and a copy of one loaded for it by name.
     assert asyncio.run(go()) == (["main", "main@other"], ["ocr", "code"])
+
+
+def test_a_models_files_can_go_once_every_idle_copy_of_it_is_unloaded():
+    sizes = {"ocr": 1, "main": 2, "main@main-model": 2}
+    runtime, runner = _runtime(16, sizes)
+    # As wiring does: a key that names a model loads that model.
+    runtime.resolve = lambda key: ModelChoice(
+        key.partition("@")[0],
+        key.partition("@")[2] or f"{key}-model",
+        Path("/m/x.gguf"),
+        GIB,
+        SHAPE,
+        4096,
+    )
+    seen: list[list[str]] = []
+
+    async def remove_files() -> None:
+        await asyncio.sleep(0)
+        seen.append([r["model_id"] for r in runtime.state()["residents"]])
+
+    async def go():
+        for key in sizes:
+            async with runtime.lease(key):
+                pass
+        await runtime.without_model("main-model", remove_files)
+
+    asyncio.run(go())
+    # Both copies were gone before the files were touched; the other model wasn't disturbed.
+    assert seen == [["ocr-model"]]
+
+
+def test_a_model_in_use_keeps_its_files():
+    runtime, _ = _runtime(16, {"main": 2})
+    ran: list[str] = []
+
+    async def remove_files() -> None:
+        ran.append("removed")
+
+    async def go():
+        async with runtime.lease("main"):
+            with pytest.raises(ModelInUse):
+                await runtime.without_model("main-model", remove_files)
+        # Between two model calls of one reply nothing is leased, and it's still in use.
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        with pytest.raises(ModelInUse):
+            await runtime.without_model("main-model", remove_files)
+        await runtime.turn_ended()
+        return [r["model_id"] for r in runtime.state()["residents"]]
+
+    assert asyncio.run(go()) == ["main-model"]  # still loaded
+    assert ran == []
+
+
+def test_nothing_loads_the_model_while_its_files_are_going():
+    runtime, runner = _runtime(16, {"main": 2})
+    order: list[str] = []
+
+    async def remove_files() -> None:
+        order.append("removing")
+        for _ in range(20):  # a slow delete: other tasks get every chance to run
+            await asyncio.sleep(0)
+        order.append("removed")
+
+    async def chat() -> None:
+        async with runtime.lease("main"):
+            order.append("leased")
+
+    async def go():
+        async with runtime.lease("main"):
+            pass
+        removal = asyncio.create_task(runtime.without_model("main-model", remove_files))
+        await _until(lambda: "removing" in order)
+        await asyncio.gather(removal, chat())
+
+    asyncio.run(go())
+    assert order == ["removing", "removed", "leased"]
+    assert runner.started == ["main-model", "main-model"]  # loaded afresh, after the delete
 
 
 def test_a_loaded_model_stays_when_what_its_role_asks_for_cannot_be_had():
