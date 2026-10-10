@@ -100,6 +100,7 @@ async def put_settings(body: RuntimeSettings, request: Request) -> dict:
     if body.mlx_enabled != before["mlx_enabled"]:
         # The switch changes which model a role runs on, and whether OCR cleanup needs its
         # own copy of the chat model. What's loaded and idle goes now and loads again by the
-        # new rule when it's next used; a model in use changes over when it's next idle.
-        await _runtime(request).unload_idle()
+        # new rule when it's next used; the model of a reply being written changes over with
+        # the next turn.
+        await _runtime(request).unload_between_replies()
     return await run_in_threadpool(get_settings, request)

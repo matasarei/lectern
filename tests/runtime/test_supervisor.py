@@ -283,6 +283,50 @@ def test_a_model_in_use_stays_until_it_is_idle_even_if_its_role_asks_for_another
     assert runner.started == ["main-model", "main-mlx"]
 
 
+def test_a_reply_being_written_keeps_its_model_between_its_model_calls():
+    """A turn leases the model once per model call, so between a tool call and the next one
+    nothing is leased. The model still mustn't change under the reply: it changes for the
+    next turn."""
+    runtime, runner = _runtime(8, {"main": 5})
+
+    async def served(priority: Priority = Priority.CHAT) -> str:
+        async with runtime.lease("main", priority) as lease:
+            return (await lease.client.get("/v1/models")).json()["model"]
+
+    async def go():
+        await runtime.turn_started(message=True)
+        first = await served()
+        _resolving_to(runtime, "main-mlx")  # its MLX build finished downloading, say
+        second = await served()  # the same reply, after a tool call
+        by_a_job = await served(Priority.JOB)  # OCR cleanup, on the same model meanwhile
+        await runtime.turn_ended()
+        await runtime.turn_started(message=True)
+        next_turn = await served()
+        await runtime.turn_ended()
+        return first, second, by_a_job, next_turn
+
+    assert asyncio.run(go()) == ("main-model", "main-model", "main-model", "main-mlx")
+    assert runner.started == ["main-model", "main-mlx"]
+
+
+def test_a_change_of_settings_unloads_what_no_reply_is_being_written_with():
+    runtime, runner = _runtime(8, {"ocr": 1, "main": 5})
+
+    async def go():
+        async with runtime.lease("ocr"):
+            pass
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        mid_reply = await runtime.unload_between_replies()
+        left = [r["role"] for r in runtime.state()["residents"]]
+        await runtime.turn_ended()
+        return mid_reply, left, await runtime.unload_between_replies()
+
+    assert asyncio.run(go()) == (["ocr"], ["main"], ["main"])
+    assert runner.started == ["ocr-model", "main-model"]
+
+
 def test_a_loaded_model_stays_when_what_its_role_asks_for_cannot_be_had():
     runtime, runner = _runtime(8, {"main": 5})
 
