@@ -83,8 +83,21 @@ def keep_installed_models(sessions, downloads: DownloadManager, tier: Tier) -> N
     """At start. A role nobody gave a model follows the recommendation, and a new video card
     moves the recommendation to a model that isn't downloaded. So that the role goes on
     working, the model it has becomes its choice: the largest one on disk that the catalog
-    lists for this tier. Models & memory still marks the recommended one. A fresh install
-    has nothing on disk and stays on the recommendation."""
+    lists for this tier. Models & memory still marks the recommended one.
+
+    Only when the tier differs from the last start's. On the same computer a role without its
+    recommended model on disk was put there by a person ("Use it", before downloading), or
+    never used: neither is a reason to move it. And never a restricted-licence model: like a
+    default, a model a role takes unasked must be permissively licensed."""
+    seen = settings.get(sessions, settings.HARDWARE_KEY, settings.HARDWARE_DEFAULTS)["tier"]
+    if seen == tier.value:
+        return
+    if seen is not None:
+        _keep_what_is_installed(sessions, downloads, tier)
+    settings.put(sessions, settings.HARDWARE_KEY, {"tier": tier.value})
+
+
+def _keep_what_is_installed(sessions, downloads: DownloadManager, tier: Tier) -> None:  # noqa: ANN001
     models = catalog.load()
     recommended = models.defaults_for(tier)
     chosen = settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
@@ -94,7 +107,9 @@ def keep_installed_models(sessions, downloads: DownloadManager, tier: Tier) -> N
         if choice is not None or default is None or downloads.is_downloaded(default):
             continue
         installed = [
-            m for m in models.choices_for(role) if tier in m.ctx and downloads.is_downloaded(m)
+            m
+            for m in models.choices_for(role)
+            if m.permissive and tier in m.ctx and downloads.is_downloaded(m)
         ]
         if installed:
             kept[role] = max(installed, key=lambda m: m.size).id

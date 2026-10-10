@@ -19,6 +19,10 @@ MODELS_KEY = "models"
 # The model chosen for each role, as a catalog id. None: the one recommended for this computer,
 # which follows the hardware (runtime/wiring.py `pick`).
 MODEL_DEFAULTS: dict[str, Any] = {"main": None, "ocr": None, "ocr.hand": None, "code": None}
+HARDWARE_KEY = "hardware"
+# The tier this computer had at the last start, to notice that its hardware changed. Never
+# used to decide anything else: the tier itself is worked out from the hardware at each start.
+HARDWARE_DEFAULTS: dict[str, Any] = {"tier": None}
 
 
 def get(sessions: sessionmaker[Session], key: str, default: dict[str, Any]) -> dict[str, Any]:

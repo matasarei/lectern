@@ -372,12 +372,45 @@ def test_a_fresh_install_stores_nothing_and_asks_for_the_recommended_model(start
 
 
 def test_of_several_installed_models_the_largest_is_kept(started):
-    _, chosen = started("comfortable", {"qwen3.5-4b", "qwen3.5-9b", "qwen3.5-9b-mlx"})
+    on_disk = {"qwen3.5-4b", "qwen3.5-9b", "qwen3.5-9b-mlx"}
+    started("recommended", on_disk)
+    _, chosen = started("comfortable", on_disk)
     assert chosen["main"] == "qwen3.5-9b"  # and never an MLX build
+
+
+def test_on_the_same_computer_a_role_set_back_to_the_recommended_model_stays_there(started):
+    """The 9B was chosen and downloaded, then "Use it" put the role back on the recommended
+    35B, which stores no choice. Starting again before the 35B is downloaded mustn't undo
+    that: nothing about the computer changed."""
+    for _ in range(2):
+        runtime, chosen = started("comfortable", {"qwen3.5-9b"})
+        assert chosen["main"] is None
+        with pytest.raises(NotAvailable, match="Qwen3.5 35B-A3B isn't downloaded yet"):
+            runtime.resolve("main")
+
+
+def test_the_first_start_only_notes_the_computer_it_runs_on(started):
+    # Nothing to compare with yet, so nothing is taken to have changed.
+    _, chosen = started("comfortable", {"qwen3.5-9b"})
+    assert set(chosen.values()) == {None}
+    seen = settings.get(started.sessions, settings.HARDWARE_KEY, settings.HARDWARE_DEFAULTS)
+    assert seen == {"tier": "comfortable"}
+
+
+def test_a_restricted_licence_model_never_becomes_a_roles_model_by_itself(started):
+    """Chandra is on disk because a page was once re-read with it by name. A default must be
+    permissively licensed, and so must a model a role takes without being asked."""
+    started("minimum", {"chandra-ocr-2"})
+    _, chosen = started("recommended", {"chandra-ocr-2"})
+    assert chosen["ocr.hand"] is None
+
+    _, chosen = started("comfortable", {"chandra-ocr-2", "qwen3-vl-4b"})
+    assert chosen["ocr.hand"] == "qwen3-vl-4b"  # the permissive one that's there
 
 
 def test_a_model_this_computer_is_not_meant_for_is_not_kept(started):
     # The data moved to a smaller computer: the 35B is on disk and not listed for this tier.
+    started("comfortable", {"qwen3.5-35b-a3b"})
     runtime, chosen = started("minimum", {"qwen3.5-35b-a3b"})
     assert chosen["main"] is None
     with pytest.raises(NotAvailable, match="Qwen3.5 4B isn't downloaded yet"):
@@ -387,5 +420,6 @@ def test_a_model_this_computer_is_not_meant_for_is_not_kept(started):
 def test_a_role_that_was_given_a_model_is_left_alone(started):
     stored = {**settings.MODEL_DEFAULTS, "main": "qwen3.5-35b-a3b"}
     settings.put(started.sessions, settings.MODELS_KEY, stored)
+    started("minimum", {"qwen3.5-4b"})
     _, chosen = started("recommended", {"qwen3.5-4b"})
     assert chosen["main"] == "qwen3.5-35b-a3b"  # the person's choice, downloaded or not
