@@ -25,6 +25,11 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private var state = State.stopped { didSet { refresh() } }
     private var detail = ""  // said after the status, when there's more to say
     private var child: Process?
+    // A Lectern this app didn't start: its own child from before it crashed or was force-quit,
+    // found again by the pid file. It can be signalled and watched, but isn't a Process here.
+    private var adopted: pid_t?
+    private var aliveTimer: Timer?
+    private var pid: pid_t? { child?.processIdentifier ?? adopted }
     private var afterStop: (() -> Void)?
     private var healthTimer: Timer?
     private var stopTimers: [Timer] = []
@@ -79,14 +84,14 @@ final class LecternApp: NSObject, NSApplicationDelegate {
             == OSType(keyAELaunchedAsLogInItem)
         openWhenReady = !CommandLine.arguments.contains("--background") && !atLogin
         refresh()
-        start()
+        if let left = lecternLeftRunning() { adopt(left) } else { start() }
     }
 
     // Opening the app again while it runs (Finder, Spotlight) opens Lectern in the browser.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         if state == .running {
             openLectern()
-        } else {
+        } else if pid == nil {
             openWhenReady = true
             start()
         }
@@ -109,8 +114,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
 
     // MARK: Lectern, the child process
 
+    private var pidFile: String { dir + "/app/lectern.pid" }
+
     private func start() {
-        guard child == nil else { return }
+        guard pid == nil else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: dir + "/bin/lectern-serve")
         process.standardInput = FileHandle.nullDevice
@@ -137,6 +144,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
             return
         }
         child = process
+        try? "\(process.processIdentifier)\n".write(toFile: pidFile, atomically: true, encoding: .utf8)
         writeLog(Data("---- Lectern \(version) started \(ISO8601DateFormatter().string(from: Date())) ----\n".utf8))
         detail = ""
         state = .starting
@@ -144,7 +152,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     }
 
     private func stop(then next: (() -> Void)? = nil) {
-        guard let child, child.isRunning else {
+        guard let pid else {
             next?()
             return
         }
@@ -152,11 +160,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         healthTimer?.invalidate()
         detail = ""
         state = .stopping
-        child.interrupt()
-        let pid = child.processIdentifier
+        kill(pid, SIGINT)
         stopTimers = [
             timer(every: Self.interruptPatience, repeats: false) { [weak self] in
-                self?.child?.terminate()
+                if self?.pid == pid { kill(pid, SIGTERM) }
             },
             timer(every: Self.interruptPatience + Self.terminatePatience, repeats: false) { [weak self] in
                 self?.detail = "still stopping (process \(pid))"
@@ -168,9 +175,15 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private func childEnded(_ ended: Process) {
         guard ended === child else { return }
         child = nil
+        lecternEnded(exit: ended.terminationStatus)
+    }
+
+    private func lecternEnded(exit status: Int32?) {
         healthTimer?.invalidate()
+        aliveTimer?.invalidate()
         stopTimers.forEach { $0.invalidate() }
         stopTimers = []
+        try? FileManager.default.removeItem(atPath: pidFile)
         if state == .stopping {
             detail = ""
             state = .stopped
@@ -178,8 +191,39 @@ final class LecternApp: NSObject, NSApplicationDelegate {
             afterStop = nil
             next?()
         } else {
-            detail = "see the log (exit \(ended.terminationStatus))"
+            detail = status.map { "see the log (exit \($0))" } ?? "see the log"
             state = .failed
+        }
+    }
+
+    // MARK: A Lectern left running
+
+    // The process the pid file names, when it's still there and is Lectern's: its program
+    // lives under <install folder>/app/ (the venv's Python). A number the system has since
+    // given to something else is never signalled. A stale file is removed.
+    private func lecternLeftRunning() -> pid_t? {
+        guard let written = try? String(contentsOfFile: pidFile, encoding: .utf8),
+            let left = pid_t(written.trimmingCharacters(in: .whitespacesAndNewlines)), left > 1
+        else { return nil }
+        var path = [CChar](repeating: 0, count: 4096)
+        let known = proc_pidpath(left, &path, UInt32(path.count)) > 0
+        if known, kill(left, 0) == 0, let real = realpath(dir + "/app", nil) {
+            defer { free(real) }
+            if String(cString: path).hasPrefix(String(cString: real) + "/") { return left }
+        }
+        try? FileManager.default.removeItem(atPath: pidFile)
+        return nil
+    }
+
+    private func adopt(_ left: pid_t) {
+        adopted = left
+        detail = ""
+        state = .starting  // "running" once /health answers, as for a child
+        healthTimer = timer(every: 1, repeats: true) { [weak self] in self?.askHealth() }
+        aliveTimer = timer(every: 1, repeats: true) { [weak self] in
+            guard let self, self.adopted == left, kill(left, 0) != 0 else { return }
+            self.adopted = nil
+            self.lecternEnded(exit: nil)
         }
     }
 
@@ -302,7 +346,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func startOrStop() {
-        if child == nil { start() } else { stop() }
+        if pid == nil { start() } else { stop() }
     }
 
     @objc private func restart() {
@@ -311,7 +355,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
 
     // Quit, logging out and shutting down stop Lectern first.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let child, child.isRunning else { return .terminateNow }
+        guard pid != nil else { return .terminateNow }
         let quit = { sender.reply(toApplicationShouldTerminate: true) }
         if state == .stopping { afterStop = quit } else { stop(then: quit) }
         return .terminateLater
@@ -330,7 +374,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         statusLine.title = title
         openItem.isEnabled = state == .running
         logItem.isEnabled = FileManager.default.fileExists(atPath: logURL.path)
-        startStopItem.title = child == nil ? "Start" : "Stop"
+        startStopItem.title = pid == nil ? "Start" : "Stop"
         startStopItem.isEnabled = state != .stopping
         restartItem.isEnabled = state == .starting || state == .running
 
