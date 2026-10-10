@@ -583,6 +583,65 @@ def test_there_is_nothing_to_update_for_a_model_at_the_pinned_revision(paths, se
         asyncio.run(go())
 
 
+def _without_projector(entry: CatalogEntry) -> CatalogEntry:
+    return entry.model_copy(update={"files": entry.files.model_copy(update={"mmproj": None})})
+
+
+def _older_install(paths, sessions, **hub_files):  # noqa: ANN001, ANN202
+    """Tiny installed at a first revision that had no projector file. The pin has moved to
+    one whose model file changed and which has a projector: of that one, a file is missing."""
+    first = _without_projector(_entry())
+    manager = _manager(paths, sessions, FakeHub({"tiny.gguf": MODEL}))
+    asyncio.run(_finish(manager, first))
+    hub = FakeHub({"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ, **hub_files})
+    return _manager(paths, sessions, hub), hub
+
+
+def test_a_new_pin_with_a_file_the_old_one_lacked_is_an_update_not_a_download(paths, sessions):
+    manager, hub = _older_install(paths, sessions)
+    entry = _newer()
+    # By the new pin's file list the model isn't all there, and can't be used...
+    assert manager.is_downloaded(entry) is False and manager.state(entry).status == "none"
+    # ...but what's on disk is a known older revision: it's an update that is offered.
+    assert manager.update_available(entry) is True
+    assert manager.installed(entry).revision == "a" * 40
+
+    async def download():
+        # Download, as the page's button or a tool asks for it, is that update.
+        state = manager.start(entry)
+        await manager._update_tasks["tiny"]
+        return state
+
+    asyncio.run(download())
+
+    # Every file is the new pin's: the changed one was fetched again, not kept for existing.
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+    assert (paths.models / "tiny" / "mmproj.gguf").read_bytes() == MMPROJ
+    assert _row(sessions, "tiny").revision == "b" * 40
+    assert manager.state(entry).status == "done" and manager.update_available(entry) is False
+    assert sorted(r.url.path.rsplit("/", 1)[-1] for r in hub.requests) == [
+        "mmproj.gguf",
+        "tiny.gguf",
+    ]
+
+
+def test_whoever_waits_for_such_a_download_hears_how_it_ended(paths, sessions):
+    manager, hub = _older_install(paths, sessions)
+    entry = _newer()
+
+    async def waited() -> list[str]:
+        async with manager.events.listen() as queue:
+            manager.start(entry)
+            await manager._update_tasks["tiny"]
+            return [e["status"] for e in (queue.get_nowait() for _ in range(queue.qsize()))]
+
+    hub.cut_after["tiny.gguf"] = 30_000
+    # A tool waiting for the model reads download events until one says done, failed or
+    # paused. The model isn't usable, so "it failed" has to be said in those words.
+    assert asyncio.run(waited())[-1] == "failed"
+    assert asyncio.run(waited())[-1] == "done"  # tried again: it goes on, and ends well
+
+
 def _put(folder, **files: bytes) -> None:  # noqa: ANN001
     folder.mkdir(parents=True)
     for name, data in files.items():

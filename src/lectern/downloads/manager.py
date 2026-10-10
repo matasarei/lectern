@@ -170,8 +170,10 @@ class DownloadManager:
             return None
         with self.sessions() as session:
             row = session.get(DownloadRow, entry.id)
-        if row is None or row.status != "done" or not self.is_downloaded(entry):
+        if row is None or row.status != "done":
             return Installed(revision=None, at=None, bytes=size)
+        # The revision that was downloaded, also when the catalog now pins one with a file
+        # this one lacks: it's that older revision that is on disk.
         return Installed(revision=row.revision, at=row.updated_at, bytes=size)
 
     def unlisted(self, catalog_ids: Collection[str]) -> list[tuple[str, int]]:
@@ -222,6 +224,11 @@ class DownloadManager:
             self._save(
                 entry.id, status="done", bytes_done=entry.size, bytes_total=entry.size, error=None
             )
+            return self.state(entry)
+        if self.update_available(entry):
+            # An older revision is on disk and the pin has a file it lacks. Fetching just
+            # that file would leave the older ones in place as the pinned revision's.
+            self.start_update(entry)
             return self.state(entry)
 
         done = self._bytes_on_disk(entry)
@@ -321,16 +328,22 @@ class DownloadManager:
     def update_available(self, entry: CatalogEntry) -> bool:
         """The catalog pins another revision than the one on disk. Only for a finished
         download whose revision is recorded: files of an unknown revision may already be
-        the pinned one. Not for a folder that is a link: it isn't ours to replace."""
+        the pinned one. Not for a folder that is a link: it isn't ours to replace.
+
+        Whether every file of the pinned revision is there doesn't come into it. A pin that
+        adds a file leaves the model "not downloaded" by the new list, and it is still an
+        update that brings it up to date: a plain download would fetch the missing file,
+        keep the older ones for the pinned revision's, and record what it never checked."""
         with self.sessions() as session:
             row = session.get(DownloadRow, entry.id)
+        folder = self.model_dir(entry)
         return (
             row is not None
             and row.status == "done"
             and row.revision is not None
             and row.revision != entry.revision
-            and self.is_downloaded(entry)
-            and not self.model_dir(entry).is_symlink()
+            and folder.is_dir()
+            and not folder.is_symlink()
         )
 
     def update_state(self, model_id: str) -> UpdateState | None:
@@ -384,7 +397,15 @@ class DownloadManager:
             )
         else:
             self._updates.pop(entry.id, None)
-        self._publish(self.state(entry))  # open pages read the list again
+        state = self.state(entry)  # for open pages, which read the list again
+        failed = self._updates.get(entry.id)
+        if failed is not None and state.status != "done":
+            # The model couldn't be used as it was (the pin has a file it lacked), so someone
+            # may be waiting for its download: they're told it failed, in a download's words.
+            state = DownloadState(
+                entry.id, "failed", failed.bytes_done, failed.bytes_total, error=failed.error
+            )
+        self._publish(state)
 
     async def _carry_over(self, entry: CatalogEntry, file: ModelFile, progress: _Progress) -> bool:
         """True when the file is in the update's folder without fetching it: it's there from
