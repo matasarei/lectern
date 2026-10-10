@@ -449,11 +449,14 @@ class ModelRuntime:
                 roles = [r for r in roles if r == role]
             return await self._unload_all(roles)
 
-    async def unload_between_replies(self) -> list[str]:
-        """Unload idle models, except one a reply is being written with: for a setting that
-        changes which models are wanted. That model changes over with the next turn."""
+    async def unload_between_replies(self, role: str | None = None) -> list[str]:
+        """Unload idle models (all, or one role's, a copy loaded for it by name included),
+        except one a reply is being written with: for a setting that changes which models
+        are wanted. That model changes over with the next turn."""
         async with self._cond:
             idle = [r for r, res in self._residents.items() if res.leases == 0]
+            if role is not None:
+                idle = [r for r in idle if r.partition("@")[0] == role]
             return await self._unload_all([r for r in idle if r not in self._turn_models])
 
     async def _unload_all(self, roles: list[str]) -> list[str]:

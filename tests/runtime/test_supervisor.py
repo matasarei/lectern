@@ -327,6 +327,21 @@ def test_a_change_of_settings_unloads_what_no_reply_is_being_written_with():
     assert runner.started == ["ocr-model", "main-model"]
 
 
+def test_a_change_to_one_role_unloads_that_roles_models_only():
+    sizes = {"ocr": 1, "main": 2, "main@other": 2, "code": 1}
+    runtime, _ = _runtime(16, sizes)
+
+    async def go():
+        for key in sizes:
+            async with runtime.lease(key):
+                pass
+        unloaded = await runtime.unload_between_replies("main")
+        return unloaded, [r["role"] for r in runtime.state()["residents"]]
+
+    # The role's own model, and a copy of one loaded for it by name.
+    assert asyncio.run(go()) == (["main", "main@other"], ["ocr", "code"])
+
+
 def test_a_loaded_model_stays_when_what_its_role_asks_for_cannot_be_had():
     runtime, runner = _runtime(8, {"main": 5})
 
