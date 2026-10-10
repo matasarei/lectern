@@ -45,14 +45,15 @@ mkdir -p "$bundle/Contents/MacOS"
     || { rm -rf "$bundle"; die "compiling the app failed (see above)."; }
 # The icon is drawn by the app itself (tray/Icon.swift), here, with this Mac's own fonts: no
 # artwork is kept in the repository. Without it the app works and shows the system's icon.
-iconset="$(mktemp -d)/Lectern.iconset"
+scratch="$(mktemp -d)"
+iconset="$scratch/Lectern.iconset"
 mkdir -p "$bundle/Contents/Resources"
 if ! { "$bundle/Contents/MacOS/Lectern" --draw-icon "$iconset" \
        && iconutil -c icns -o "$bundle/Contents/Resources/Lectern.icns" "$iconset"; } 2>/dev/null; then
     echo "build_app.sh: couldn't draw the app's icon; it will show the system's." >&2
     rm -rf "$bundle/Contents/Resources"
 fi
-rm -rf "$(dirname "$iconset")"
+rm -rf "${scratch:?}"
 sed -e "s|@VERSION@|$version|g" -e "s|@LECTERN_DIR@|$dir|g" "$here/tray/Info.plist" \
     > "$bundle/Contents/Info.plist"
 # Ad hoc: no developer identity. Apple Silicon runs nothing unsigned, and a bundle whose
