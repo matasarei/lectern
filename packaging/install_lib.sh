@@ -2,7 +2,8 @@
 # The parts of a host install that don't depend on the system it's on: the pinned uv, the
 # wheel, a new version folder that's switched in only once its install has succeeded, the
 # settings, and waiting for Lectern to answer. Sourced, after pins.sh, by
-# packaging/<system>/install.sh, which sets:
+# packaging/<system>/install.sh, which runs under `set -euo pipefail` (a step that fails
+# here stops the install only because of it) and sets:
 #   here      its own folder (packaging/<system>)
 #   dir       the install folder (~/.lectern), with app="$dir/app", data="$dir/data" and
 #             settings="$dir/lectern.env"
