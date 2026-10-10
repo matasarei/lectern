@@ -439,7 +439,9 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
             className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-t border-line py-2 first:border-t-0"
             data-installed={row.name}
           >
-            <span>
+            {/* Takes the room that's left and wraps inside it: a long line of facts doesn't
+                push the size and the buttons onto a row of their own. */}
+            <span className="min-w-0 flex-1">
               {row.title}
               {row.quant && <span className="text-muted"> · {row.quant}</span>}
               <span className="block text-muted">{row.facts.join(" · ")}</span>
