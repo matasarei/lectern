@@ -99,6 +99,9 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
     """The session and its whole transcript, with any card still waiting for an answer."""
     project = open_project(request, project_id, user)
     row = open_session(request, project, session_id, user)
+    # Before the transcript: a turn that ends between the two reads then shows as still
+    # running, never as idle without its last reply.
+    state = turns(request).state((project.id, session_id))
     with store(request).db(project)() as session:
         messages = session.scalars(
             select(MessageRow).where(MessageRow.session_id == session_id).order_by(MessageRow.id)
@@ -115,7 +118,6 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
                 ConfirmationRow.session_id == session_id, ConfirmationRow.status == "pending"
             )
         ).all()
-    state = turns(request).state((project.id, session_id))
     chat_state = chat_state_of(store(request).db(project), session_id)
     return {
         **session_dict(row, state),
