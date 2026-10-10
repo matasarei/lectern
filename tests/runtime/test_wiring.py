@@ -318,3 +318,74 @@ def test_with_mlx_on_the_chosen_models_build_runs_and_cleanup_names_the_chosen_g
     choose("main", "qwen3.5-4b")
     assert runtime.resolve("main").model_id == "qwen3.5-4b-mlx"
     assert runtime.schema_key("main") == "main@qwen3.5-4b"
+
+
+# --- after a change of hardware, a role nobody set keeps the model it has ---------------------
+
+
+@pytest.fixture
+def started(paths, monkeypatch):
+    """started(tier, on_disk) builds the runtime as a start on a computer of that tier would,
+    over one database, with only the models in `on_disk` downloaded. Returns
+    (runtime, the stored choices)."""
+    monkeypatch.delenv("LECTERN_BUDGET_MB", raising=False)
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    monkeypatch.setattr(wiring, "_shape", lambda path: planner.ModelShape(8, 8, 1, 64, 64))
+
+    def start(tier: str, on_disk: set[str]):
+        monkeypatch.setenv("LECTERN_TIER", tier)
+        monkeypatch.setattr(
+            DownloadManager, "is_downloaded", lambda self, entry: entry.id in on_disk
+        )
+        runtime = build_runtime(
+            paths, DownloadManager(paths.models, sessions), _hw(int(7.4 * GIB)), sessions
+        )
+        return runtime, settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
+
+    start.sessions = sessions
+    return start
+
+
+def test_a_role_keeps_its_installed_model_when_the_computer_moves_up_a_tier(started):
+    runtime, chosen = started("minimum", {"qwen3.5-4b"})
+    assert chosen["main"] is None  # the recommended model is the one on disk: nothing to keep
+    assert runtime.resolve("main").model_id == "qwen3.5-4b"
+
+    # A new video card: the 9B is recommended now, and it isn't downloaded.
+    runtime, chosen = started("recommended", {"qwen3.5-4b"})
+    assert chosen["main"] == "qwen3.5-4b"
+    assert runtime.resolve("main").model_id == "qwen3.5-4b"  # the chat goes on working
+    assert chosen["code"] is None  # a role with nothing on disk follows the recommendation
+
+    # It's a choice from here on: later starts, and the 9B arriving, change nothing.
+    _, chosen = started("recommended", {"qwen3.5-4b", "qwen3.5-9b"})
+    assert chosen["main"] == "qwen3.5-4b"
+
+
+def test_a_fresh_install_stores_nothing_and_asks_for_the_recommended_model(started):
+    runtime, chosen = started("recommended", set())
+    assert set(chosen.values()) == {None}
+    with pytest.raises(NotAvailable, match="Qwen3.5 9B isn't downloaded yet"):
+        runtime.resolve("main")
+
+
+def test_of_several_installed_models_the_largest_is_kept(started):
+    _, chosen = started("comfortable", {"qwen3.5-4b", "qwen3.5-9b", "qwen3.5-9b-mlx"})
+    assert chosen["main"] == "qwen3.5-9b"  # and never an MLX build
+
+
+def test_a_model_this_computer_is_not_meant_for_is_not_kept(started):
+    # The data moved to a smaller computer: the 35B is on disk and not listed for this tier.
+    runtime, chosen = started("minimum", {"qwen3.5-35b-a3b"})
+    assert chosen["main"] is None
+    with pytest.raises(NotAvailable, match="Qwen3.5 4B isn't downloaded yet"):
+        runtime.resolve("main")
+
+
+def test_a_role_that_was_given_a_model_is_left_alone(started):
+    stored = {**settings.MODEL_DEFAULTS, "main": "qwen3.5-35b-a3b"}
+    settings.put(started.sessions, settings.MODELS_KEY, stored)
+    _, chosen = started("recommended", {"qwen3.5-4b"})
+    assert chosen["main"] == "qwen3.5-35b-a3b"  # the person's choice, downloaded or not

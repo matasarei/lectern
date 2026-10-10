@@ -79,6 +79,29 @@ def role_model(runtime: ModelRuntime, role: str) -> catalog.CatalogEntry | None:
         return None
 
 
+def keep_installed_models(sessions, downloads: DownloadManager, tier: Tier) -> None:  # noqa: ANN001
+    """At start. A role nobody gave a model follows the recommendation, and a new video card
+    moves the recommendation to a model that isn't downloaded. So that the role goes on
+    working, the model it has becomes its choice: the largest one on disk that the catalog
+    lists for this tier. Models & memory still marks the recommended one. A fresh install
+    has nothing on disk and stays on the recommendation."""
+    models = catalog.load()
+    recommended = models.defaults_for(tier)
+    chosen = settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
+    kept: dict[str, str] = {}
+    for role, choice in chosen.items():
+        default = recommended.get(role)
+        if choice is not None or default is None or downloads.is_downloaded(default):
+            continue
+        installed = [
+            m for m in models.choices_for(role) if tier in m.ctx and downloads.is_downloaded(m)
+        ]
+        if installed:
+            kept[role] = max(installed, key=lambda m: m.size).id
+    if kept:
+        settings.put(sessions, settings.MODELS_KEY, {**chosen, **kept})
+
+
 @cache
 def _shape(path: Path) -> planner.ModelShape:
     return planner.read_shape(path)
@@ -91,6 +114,7 @@ def build_runtime(
     budget, _source = budget_for(hw)
     unified = not hw.gpus or any(g.unified for g in hw.gpus)
     installer = LlamaCppInstaller(paths.runners)
+    keep_installed_models(sessions, downloads, tier)
 
     def chosen() -> dict[str, str | None]:
         return settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
