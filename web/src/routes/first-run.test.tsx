@@ -45,6 +45,16 @@ const responses = (): Record<string, unknown> => ({
     disk_free: 100 * 10 ** 9,
     sandbox: stopped,
   },
+  "/api/runtime/settings": {
+    values: {
+      mlx_enabled: false,
+      when_models_dont_fit: "swap_between_phases",
+      chat_during_job: "pause_job_after_current_item",
+    },
+    implemented: { when_models_dont_fit: ["swap_between_phases"], chat_during_job: ["pause_job_after_current_item"] },
+    mlx_supported: true,
+    mlx_available: true,
+  },
   "/api/first-run": {
     step: "hardware",
     chat_model: nine,
@@ -250,5 +260,127 @@ describe("First run: choosing the chat model", () => {
 
     expect((await screen.findByRole("alert")).textContent).toBe("No model called qwen3.5-4b.");
     expect(screen.getByLabelText<HTMLSelectElement>("Chat model").value).toBe("qwen3.5-9b");
+  });
+});
+
+describe("First run: the engine choice on a Mac", () => {
+  const onMac = (enabled: boolean, more: object = {}): Record<string, unknown> => ({
+    ...atDownload(engine("none")),
+    mlx: { supported: true, available: true, enabled },
+    ...more,
+  });
+  const radio = (name: string) => screen.getByRole<HTMLInputElement>("radio", { name: new RegExp(`^${name}`) });
+
+  it("isn't offered where MLX can't run", async () => {
+    firstRun = atDownload(engine("none"));
+    renderPage();
+
+    await screen.findByLabelText("Chat model");
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByText(/MLX/)).toBeNull();
+  });
+
+  it("offers llama.cpp, selected, and MLX beside it", async () => {
+    firstRun = onMac(false);
+    renderPage();
+
+    await screen.findByRole("radio", { name: /^MLX/ });
+    expect([radio("llama.cpp").checked, radio("MLX").checked]).toEqual([true, false]);
+    expect(radio("MLX").closest("label")?.textContent).toMatch(/more mistakes.*first time you scan/);
+    expect(screen.getByText("6 GB")).toBeTruthy(); // the usual model's size
+    expect(screen.getByTestId("engine-status").textContent).toMatch(/llama\.cpp/);
+  });
+
+  it("switches MLX on when it's picked, and shows the MLX build to download", async () => {
+    firstRun = onMac(false);
+    onPut = () => {
+      firstRun = onMac(true);
+    };
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("radio", { name: /^MLX/ }));
+
+    expect(await screen.findByText("Qwen3.5 9B (MLX)")).toBeTruthy();
+    expect(puts).toEqual([
+      {
+        url: "/api/runtime/settings",
+        body: {
+          mlx_enabled: true,
+          when_models_dont_fit: "swap_between_phases",
+          chat_during_job: "pause_job_after_current_item",
+        },
+      },
+    ]);
+    expect(radio("MLX").checked).toBe(true);
+    expect(screen.getByText("6.4 GB")).toBeTruthy(); // the build's size
+    expect(screen.queryByTestId("engine-status")).toBeNull(); // llama.cpp comes with the first scan
+  });
+
+  it("downloads the MLX build alone when MLX is picked", async () => {
+    firstRun = onMac(true);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Download" }));
+
+    await vi.waitFor(() => expect(posts).toEqual(["/api/models/qwen3.5-9b-mlx/download"]));
+  });
+
+  it("finishes on the MLX build, without llama.cpp or the usual model", async () => {
+    const built = { ...nine, mlx_build: { ...nine.mlx_build, download: { ...idle("qwen3.5-9b-mlx"), status: "done" } } };
+    firstRun = onMac(true, { chat_model: built, can_finish: true });
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: "Finish setup" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
+  });
+
+  it("switches MLX off again when llama.cpp is picked", async () => {
+    firstRun = onMac(true);
+    onPut = () => {
+      firstRun = onMac(false);
+    };
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("radio", { name: /^llama\.cpp/ }));
+
+    await vi.waitFor(() => expect(screen.getByTestId("engine-status")).toBeTruthy());
+    expect((puts[0].body as { mlx_enabled: boolean }).mlx_enabled).toBe(false);
+  });
+
+  it("keeps the engine while its download runs", async () => {
+    const downloading = { ...nine, mlx_build: { ...nine.mlx_build, download: { ...idle("qwen3.5-9b-mlx"), status: "downloading" } } };
+    firstRun = onMac(true, { chat_model: downloading });
+    renderPage();
+
+    await screen.findByRole("radio", { name: /^MLX/ });
+    expect([radio("llama.cpp").disabled, radio("MLX").disabled]).toEqual([true, true]);
+    expect(screen.getByLabelText<HTMLSelectElement>("Chat model").disabled).toBe(true);
+  });
+
+  it("says so when MLX isn't installed with this Lectern", async () => {
+    firstRun = { ...atDownload(engine("none")), mlx: { supported: true, available: false, enabled: false } };
+    renderPage();
+
+    expect(await screen.findByText(/MLX isn't installed with this Lectern/)).toBeTruthy();
+    expect(screen.queryByRole("radio")).toBeNull();
+  });
+
+  it("says why the engine couldn't be changed", async () => {
+    firstRun = onMac(false);
+    putRefused = "MLX isn't installed with this Lectern.";
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("radio", { name: /^MLX/ }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe("MLX isn't installed with this Lectern.");
+  });
+});
+
+describe("First run: finishing", () => {
+  it("offers Finish when the server says setup can finish", async () => {
+    firstRun = { ...atDownload(engine("done"), "done"), can_finish: true };
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: "Finish setup" })).toBeTruthy();
   });
 });

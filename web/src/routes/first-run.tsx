@@ -8,6 +8,7 @@ import type {
   EngineState,
   FirstRun,
   FirstRunModel,
+  RuntimeSettings,
   SandboxStatus,
   SystemReport,
 } from "../api/types";
@@ -74,6 +75,22 @@ export function FirstRunPage() {
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["first-run"] }),
   });
+  // The "Use MLX" switch of Models & memory. The settings are saved whole, so the others
+  // are read first and sent back as they are.
+  const pickEngine = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const current = await apiFetch<RuntimeSettings>("/api/runtime/settings");
+      return apiFetch<RuntimeSettings>("/api/runtime/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...current.values, mlx_enabled: enabled }),
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["runtime-settings"], data);
+      return queryClient.invalidateQueries({ queryKey: ["first-run"] });
+    },
+  });
 
   if (system.isPending || firstRun.isPending) {
     return <Page>{t("common.loading")}</Page>;
@@ -89,12 +106,19 @@ export function FirstRunPage() {
 
   const run = firstRun.data;
   const model = run.chat_model;
-  const state = live[model.id] ?? model.download;
-  const enoughDisk = system.data.disk_free >= model.size - state.bytes_done + DISK_HEADROOM;
-  const engine = run.engine;
+  // With MLX picked the chat runs on the model's MLX build, and that is all setup fetches:
+  // llama.cpp and the usual model come with whatever first needs them (a scanned page).
+  const build = run.mlx.enabled ? model.mlx_build : null;
+  const target = build ?? model;
+  const state = live[target.id] ?? target.download;
+  const enoughDisk = system.data.disk_free >= target.size - state.bytes_done + DISK_HEADROOM;
+  const engine = build ? null : run.engine;
   const chatToFetch = state.status !== "done" && !ACTIVE.includes(state.status);
   const engineToFetch = engine?.status === "none";
-  const bothThere = state.status === "done" && (!engine || engine.status === "done");
+  // A pick is kept while it downloads: changing it would leave that download running.
+  const downloading = ACTIVE.includes(state.status) || engine?.status === "downloading";
+  const settled = !downloading && !choose.isPending && !pickEngine.isPending;
+  const refused = choose.error ?? pickEngine.error;
 
   return (
     <Page>
@@ -121,21 +145,29 @@ export function FirstRunPage() {
               <ModelChoice
                 model={model}
                 options={run.chat_models}
-                // A pick is kept while it downloads: changing it would leave that running.
-                disabled={choose.isPending || ACTIVE.includes(state.status)}
+                disabled={!settled}
                 onChoose={(id) => choose.mutate(id)}
               />
             }
           />
           {!model.suits_tier && <p className="text-sm text-muted">{t("modelsPage.tooBigWhy")}</p>}
-          {choose.error && (
-            <ErrorNote
-              message={
-                choose.error instanceof ApiError ? choose.error.detail : t("common.loadFailed")
-              }
+          {run.mlx.available && (
+            <EngineChoice
+              mlx={run.mlx.enabled}
+              disabled={!settled}
+              onChoose={(enabled) => pickEngine.mutate(enabled)}
             />
           )}
-          <Row label={t("models.size")} value={formatBytes(model.size)} />
+          {run.mlx.supported && !run.mlx.available && (
+            <p className="text-sm text-muted">{t("policy.mlxMissing")}</p>
+          )}
+          {refused && (
+            <ErrorNote
+              message={refused instanceof ApiError ? refused.detail : t("common.loadFailed")}
+            />
+          )}
+          {build && <Row label={t("modelsPage.mlxBuild")} value={build.title} />}
+          <Row label={t("models.size")} value={formatBytes(target.size)} />
           <Row label={t("models.licence")} value={model.licence} />
           <Row label={t("firstRun.diskFree")} value={formatBytes(system.data.disk_free)} />
           <Row label={t("models.status")} value={<StatusText state={state} />} />
@@ -151,14 +183,14 @@ export function FirstRunPage() {
               disabled={download.isPending || fetchEngine.isPending || !enoughDisk}
               onClick={() => {
                 // One click fetches both, so the first chat only has to load the model.
-                if (chatToFetch) download.mutate(model.id);
+                if (chatToFetch) download.mutate(target.id);
                 if (engineToFetch) fetchEngine.mutate();
               }}
             >
               {state.bytes_done > 0 ? t("firstRun.resume") : t("firstRun.download")}
             </button>
           )}
-          {bothThere && run.step === "download" && (
+          {run.can_finish && run.step === "download" && (
             <button className="btn-primary mt-2 w-fit" onClick={() => advance.mutate("done")}>
               {t("firstRun.finish")}
             </button>
@@ -260,6 +292,41 @@ function ModelChoice({
       </select>
       <span className="text-muted"> · {model.quant}</span>
     </>
+  );
+}
+
+/** On a Mac with MLX installed: which engine the chat runs on. */
+function EngineChoice({
+  mlx,
+  disabled,
+  onChoose,
+}: {
+  mlx: boolean;
+  disabled: boolean;
+  onChoose: (mlx: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const option = (picksMlx: boolean, name: string, why: string) => (
+    <label className="flex gap-2 text-sm">
+      <input
+        type="radio"
+        name="engine"
+        checked={mlx === picksMlx}
+        disabled={disabled}
+        onChange={() => onChoose(picksMlx)}
+      />
+      <span>
+        {name}
+        <span className="block text-muted">{why}</span>
+      </span>
+    </label>
+  );
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="text-sm text-muted">{t("firstRun.engineChoice")}</legend>
+      {option(false, t("firstRun.engineLlama"), t("firstRun.engineLlamaWhy"))}
+      {option(true, t("firstRun.engineMlx"), t("firstRun.engineMlxWhy"))}
+    </fieldset>
   );
 }
 
