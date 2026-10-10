@@ -118,7 +118,11 @@
     "removeModel": "Remove {{title}}",
     "removeAsk": "Remove {{size}}?",
     "removeAskUsed": "Remove {{size}}? {{roles}} will have no model until it's downloaded again.",
-    "keep": "Keep"
+    "keep": "Keep",
+    "updateAvailable": "a newer version is available",
+    "update": "Update",
+    "updateModel": "Update {{title}}",
+    "updating": "Updating. The model stays in use until the new version is ready."
   },
   "sandbox": {
     "podman": "Podman",
