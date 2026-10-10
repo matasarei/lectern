@@ -49,6 +49,9 @@ class FakeRuntime:
     def chosen_models(self) -> dict[str, str | None]:
         return self.chosen
 
+    def schema_key(self, role: str) -> str:
+        return role  # the chat runs on its usual model, which cleanup uses too
+
     def resident_bytes(self) -> int:
         return 3 * 10**9 if self.swap else 0  # the chat model, loaded
 
@@ -245,3 +248,75 @@ def test_an_ocr_model_download_stopped_midway_starts_no_session(ctx):
     with pytest.raises(ToolError, match=f"{entry.title}'s download was stopped.*resumes it"):
         _call(START, ctx, name="lease-scan.pdf")
     assert ctx.ocr_jobs.started == []
+
+
+class OnDisk(FakeDownloads):
+    """Only the named models are on disk."""
+
+    def __init__(self, *ids: str, **kwargs) -> None:  # noqa: ANN003
+        super().__init__(downloaded=False, **kwargs)
+        self.ids = set(ids)
+
+    def is_downloaded(self, entry) -> bool:  # noqa: ANN001
+        return entry.id in self.ids
+
+
+def _chat_on_mlx(ctx, *on_disk: str, **downloads):  # noqa: ANN001, ANN002, ANN003, ANN202
+    """The chat runs on its MLX build, as on a Mac set up with MLX: cleanup asks for the
+    usual chat model by name."""
+    ctx.runtime = FakeRuntime(swap=True, missing="paddleocr-vl-1.6" not in on_disk)
+    ctx.runtime.schema_key = lambda role: f"{role}@qwen3.5-4b"
+    ctx.downloads = OnDisk(*on_disk, **downloads)
+    events: list[dict] = []
+    ctx.emit = events.append
+    return catalog.load().get("qwen3.5-4b"), events
+
+
+def test_on_mlx_the_card_says_it_downloads_the_usual_chat_model_as_well(ctx):
+    chat, _ = _chat_on_mlx(ctx)
+
+    question = _question(ctx, name="lease-scan.pdf")
+
+    assert "It downloads PaddleOCR-VL 1.6 first" in question
+    assert (
+        f"It also downloads {chat.title} ({chat.size / 1e9:.1f} GB, {chat.licence}) to clean "
+        "up the pages: the chat's MLX model can't."
+    ) in question
+
+
+def test_on_mlx_with_the_ocr_model_there_the_card_names_only_the_chat_model(ctx):
+    chat, _ = _chat_on_mlx(ctx, "paddleocr-vl-1.6")
+
+    question = _question(ctx, name="lease-scan.pdf", then_export="odt")
+
+    assert "PaddleOCR" not in question and "also" not in question
+    size = f"{chat.size / 1e9:.1f} GB"
+    assert f"It downloads {chat.title} ({size}, {chat.licence}) to clean" in question
+    assert question.endswith("When it finishes: export to ODT.")
+
+
+def test_on_mlx_with_both_models_there_the_card_mentions_no_download(ctx):
+    _chat_on_mlx(ctx, "paddleocr-vl-1.6", "qwen3.5-4b")
+
+    assert "downloads" not in _question(ctx, name="lease-scan.pdf")
+
+
+def test_on_mlx_starting_downloads_both_models_then_opens_the_session(ctx):
+    chat, events = _chat_on_mlx(ctx)
+
+    result = _call(START, ctx, name="lease-scan.pdf")
+
+    assert ctx.downloads.started == ["paddleocr-vl-1.6", chat.id]
+    assert [e["done"] for e in events if e.get("label") == f"Downloading {chat.title}"] == [
+        chat.size // 2,
+        chat.size,
+    ]
+    assert len(ctx.ocr_jobs.started) == 1 and result.action["type"] == "open_tab"
+
+
+def test_on_mlx_a_failed_chat_model_download_starts_no_session(ctx):
+    chat, _ = _chat_on_mlx(ctx, "paddleocr-vl-1.6", fail=True)
+
+    with pytest.raises(ToolError, match=f"{chat.title}'s download failed: disk full"):
+        _call(START, ctx, name="lease-scan.pdf")
+    assert ctx.downloads.started == [chat.id] and ctx.ocr_jobs.started == []

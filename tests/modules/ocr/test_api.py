@@ -6,11 +6,13 @@ import time
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from lectern.app import create_app
 from lectern.core.auth import LOCAL_USER, User
 from lectern.core.tables import UserRow
 from lectern.projects import files
+from lectern.projects.tables import OcrSessionRow
 
 from ...projects.conftest import write_scan_pdf
 from .test_jobs import FakeServer, _runtime
@@ -129,6 +131,20 @@ def test_start_now_lets_the_job_skip_the_wait_for_the_chat(api, monkeypatch):
 
     assert started.status_code == 200 and calls == [True]
     assert elsewhere.status_code == 404
+
+
+def test_a_chat_on_mlx_without_its_usual_model_starts_no_session(api):
+    client, headers, app, project, ids, _ = api
+    app.state.runtime.schema_key = lambda role: f"{role}@qwen3.5-4b"  # cleanup asks by name
+    url = f"/api/projects/{project.id}/ocr"
+
+    refused = client.post(url, json={"artifact_id": ids["lease-scan.pdf"]}, headers=headers)
+
+    assert refused.status_code == 409
+    assert "needs Qwen3.5 4B (2.7 GB)" in refused.json()["detail"]
+    assert "Models & memory" in refused.json()["detail"]
+    with app.state.projects.db(project)() as session:
+        assert session.scalars(select(OcrSessionRow)).all() == []  # nothing was opened
 
 
 def test_only_a_pdf_or_image_starts_a_session(api):

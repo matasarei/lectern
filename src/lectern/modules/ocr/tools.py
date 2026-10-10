@@ -20,7 +20,7 @@ from lectern.modules.ocr.jobs import page_dict
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, NotAPageSource, page_count
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow, OcrSessionRow, SessionRow
-from lectern.runtime.wiring import role_model
+from lectern.runtime.wiring import cleanup_model, role_model
 
 # Reading plus cleanup, per page, on the minimum tier (docs/acceptance/m3a.md: ~1.5 s + ~12 s)
 SECONDS_PER_PAGE = 15
@@ -66,6 +66,14 @@ def _ocr_model(ctx: ToolContext) -> CatalogEntry | None:
     return role_model(ctx.runtime, "ocr")
 
 
+def _cleanup_model(ctx: ToolContext) -> CatalogEntry | None:
+    """The usual chat model, where the chat runs on its MLX build and cleanup can't: on a
+    Mac set up with MLX it isn't on disk until the first scan."""
+    if ctx.runtime is None:
+        return None
+    return cleanup_model(ctx.runtime)
+
+
 def _start_question(ctx: ToolContext, params: StartParams) -> str:
     row = _source(ctx, params.name, keep_layout=params.keep_layout)
     try:
@@ -95,6 +103,13 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
             )
     elif ctx.runtime is not None and ctx.runtime.needs_room("ocr"):
         question += " The chat model is unloaded while pages are read, so replies wait until then."
+    cleanup = _cleanup_model(ctx)
+    if cleanup is not None and not model_download.on_disk(ctx, cleanup):
+        also = "also " if entry is not None and not model_download.on_disk(ctx, entry) else ""
+        question += (
+            f" It {also}downloads {cleanup.title} ({cleanup.size / 1e9:.1f} GB, "
+            f"{cleanup.licence}) to clean up the pages: the chat's MLX model can't."
+        )
     if params.then_export:
         question += f" When it finishes: export to {params.then_export.upper()}."
     return question
@@ -104,8 +119,9 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     if ctx.ocr_jobs is None:
         raise ToolError("OCR sessions can't be started here.")
     row = await run_in_threadpool(lambda: _source(ctx, params.name, keep_layout=params.keep_layout))
-    entry = _ocr_model(ctx)
-    if entry is not None and not model_download.on_disk(ctx, entry):
+    for entry in (_ocr_model(ctx), _cleanup_model(ctx)):
+        if entry is None or model_download.on_disk(ctx, entry):
+            continue
         # The person allowed it on the start card; a session started now would only fail.
         state = await model_download.download(ctx, entry)
         if state.status == "failed":

@@ -79,6 +79,14 @@ def role_model(runtime: ModelRuntime, role: str) -> catalog.CatalogEntry | None:
         return None
 
 
+def cleanup_model(runtime: ModelRuntime) -> catalog.CatalogEntry | None:
+    """The model OCR cleanup asks for by name: the usual chat model, where the chat itself
+    runs on its MLX build (which can't be held to cleanup's JSON schema). None where
+    cleanup uses the model the chat already runs on."""
+    key = runtime.schema_key("main")
+    return None if key == "main" else pick(key, runtime.tier, runtime.chosen_models())[1]
+
+
 def keep_installed_models(sessions, downloads: DownloadManager, tier: Tier) -> None:  # noqa: ANN001
     """At start. A role nobody gave a model follows the recommendation, and a new video card
     moves the recommendation to a model that isn't downloaded. So that the role goes on
