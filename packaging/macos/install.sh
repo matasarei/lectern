@@ -57,6 +57,7 @@ app="$dir/app"
 data="$dir/data"
 settings="$dir/lectern.env"
 bundle="$HOME/Applications/Lectern.app"
+binary="$bundle/Contents/MacOS/Lectern"
 
 # The CFBundleIdentifier of an Info.plist written as XML ("" for anything else).
 identifier_of() {
@@ -95,6 +96,24 @@ offer_models=""
 if [ -d "$models_before" ] && [ ! -e "$data/models" ]; then offer_models=1; fi
 
 # --- the switch ---------------------------------------------------------------------------
+# An open app is quit first: it handles SIGTERM as its own Quit, which stops Lectern cleanly.
+# It's opened again below. An app that isn't open isn't started by an update.
+start=""
+[ -e "$bundle" ] || start=1  # a first install
+if pgrep -f "$binary" >/dev/null; then
+    start=1
+    echo "Quitting Lectern…"
+    pgrep -f "$binary" | while read -r pid; do kill -TERM "$pid" 2>/dev/null || true; done
+    for _ in $(seq "${LECTERN_QUIT_WAIT:-60}"); do
+        pgrep -f "$binary" >/dev/null || break
+        sleep 1
+    done
+    if pgrep -f "$binary" >/dev/null; then
+        rm -rf "$bundle.new" "$target"
+        die "Lectern.app didn't quit. Quit it from its menu and run this again; the version \
+in use is unchanged."
+    fi
+fi
 switch_venv
 rm -rf "$bundle.old"
 [ ! -e "$bundle" ] || mv "$bundle" "$bundle.old"
@@ -116,6 +135,13 @@ chmod 0755 "$dir/bin/lectern-serve"
 write_settings "Restart, in Lectern's menu (its icon in the menu bar)"
 
 # --- start it -----------------------------------------------------------------------------
+if [ -z "$start" ]; then
+    cat <<CLOSED
+Upgraded to Lectern $version. Lectern wasn't open, so it isn't now: open it from
+~/Applications. Update: git pull && ./install.sh   Log: ~/Library/Logs/Lectern/lectern.log
+CLOSED
+    exit 0
+fi
 # --background: the app starts Lectern but opens no browser window.
 open -g "$bundle" --args --background
 
@@ -129,7 +155,11 @@ if ! wait_for_health; then
     fi
     exit 1
 fi
-echo "Lectern $version is installed and running."
+if [ -n "$previous" ]; then
+    echo "Upgraded to Lectern $version and opened it again."
+else
+    echo "Lectern $version is installed and running."
+fi
 prune_versions  # the new version works: it and the one before it stay
 
 cat <<NEXT

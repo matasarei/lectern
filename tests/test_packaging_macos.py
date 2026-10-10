@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import plistlib
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -114,9 +116,10 @@ FAKES = {
     'while [ $# -gt 0 ]; do if [ "$1" = -o ]; then : > "$2"; fi; shift; done',
     "codesign": 'echo "codesign $*" >> "$LOG"',
     "open": 'echo "open $*" >> "$LOG"',
-    # The running app is the process whose id is in STATE/app-pid, for as long as it lives.
-    "pgrep": 'p="$(cat "$STATE/app-pid" 2>/dev/null)"; '
-    '[ -n "$p" ] && kill -0 "$p" 2>/dev/null && echo "$p"',
+    # The running app is the process whose id is in STATE/app-pid, for as long as it lives
+    # (a killed child of the test is a zombie until the test collects it: not running).
+    "pgrep": 'p="$(cat "$STATE/app-pid" 2>/dev/null)"; [ -n "$p" ] || exit 1; '
+    's="$(ps -o stat= -p "$p" 2>/dev/null)"; [ -n "$s" ] && [ "${s#Z}" = "$s" ] && echo "$p"',
 }
 
 
@@ -300,3 +303,116 @@ def test_the_top_install_script_picks_the_installer_by_system(tmp_path):
     )  # fmt: skip
     assert done.returncode == 0, done.stderr
     assert _bundle(tmp_path).exists()  # uname says Darwin: the Mac installer ran
+
+
+# --- updating in place ----------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _open_app(tmp_path: Path, command: str = "exec sleep 600") -> Iterator[subprocess.Popen]:
+    """A process standing in for the open Lectern.app: the fake pgrep finds it by its pid."""
+    app = subprocess.Popen(["/bin/sh", "-c", command])  # noqa: S603
+    (tmp_path / "state").mkdir(exist_ok=True)
+    (tmp_path / "state/app-pid").write_text(f"{app.pid}\n")
+    try:
+        yield app
+    finally:
+        app.kill()
+        app.wait()
+
+
+def _version(bundle: Path) -> str:
+    info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
+    return info["CFBundleShortVersionString"]
+
+
+def _opens(tmp_path: Path) -> int:
+    return sum(line.startswith("open ") for line in _log(tmp_path))
+
+
+def test_an_update_quits_the_open_app_replaces_both_and_opens_it_again(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home, bundle = _home(tmp_path), _bundle(tmp_path)
+    (home / "lectern.env").write_text((home / "lectern.env").read_text() + "LECTERN_PORT=9000\n")
+    (home / "data/models").mkdir()
+    first = (home / "app/venv").resolve()
+    with _open_app(tmp_path) as app:
+        done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
+        assert done.returncode == 0, done.stderr
+        # Asked to quit with SIGTERM, which the app treats as its own Quit.
+        assert app.wait(timeout=10) == -15
+
+    assert _version(bundle) == "0.2.0" and (home / "app/venv").resolve().name.startswith("0.2.0-")
+    assert "LECTERN_PORT=9000" in (home / "lectern.env").read_text()  # your settings stay
+    assert (home / "data/models").is_dir()
+    assert _opens(tmp_path) == 2  # the first install, and again after this update
+    assert "curl -fsS http://127.0.0.1:9000/health" in _log(tmp_path)
+    assert "Upgraded to Lectern 0.2.0 and opened it again." in done.stdout
+    kept = sorted(p.name for p in (home / "app/versions").iterdir())
+    assert len(kept) == 2 and first.name in kept  # the one before, to go back to
+    assert not bundle.with_name("Lectern.app.new").exists()
+    assert not bundle.with_name("Lectern.app.old").exists()
+
+
+def test_an_update_doesnt_start_an_app_that_wasnt_open(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    health_checks = sum("/health" in line for line in _log(tmp_path))
+    done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
+    assert done.returncode == 0, done.stderr
+    assert _version(_bundle(tmp_path)) == "0.2.0"
+    assert _opens(tmp_path) == 1  # only the first install's
+    assert sum("/health" in line for line in _log(tmp_path)) == health_checks  # nothing to wait for
+    assert "wasn't open" in done.stdout
+
+
+@pytest.mark.parametrize("failing", ["FAIL_PIP", "FAIL_SWIFTC"])
+def test_a_failed_update_leaves_the_app_and_the_version_as_they_were(tmp_path, failing):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home, bundle = _home(tmp_path), _bundle(tmp_path)
+    before = (home / "app/venv").resolve()
+    with _open_app(tmp_path) as app:
+        done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), **{failing: "1"})
+        assert done.returncode == 1 and "the version in use is unchanged" in done.stderr
+        assert app.poll() is None  # the open app wasn't asked to quit
+    assert (home / "app/venv").resolve() == before and _version(bundle) == "0.1.0"
+    assert [p.name for p in (home / "app/versions").iterdir()] == [before.name]
+    assert not bundle.with_name("Lectern.app.new").exists()
+    assert _opens(tmp_path) == 1
+
+
+def test_an_update_that_doesnt_start_says_so_and_keeps_the_previous_version(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home = _home(tmp_path)
+    before = (home / "app/venv").resolve()
+    (tmp_path / "state/down").touch()
+    with _open_app(tmp_path):
+        done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
+    assert done.returncode == 1 and "Lectern 0.2.0 didn't start" in done.stderr
+    assert "Library/Logs/Lectern/lectern.log" in done.stderr
+    assert f"ln -sfn {before} {home}/app/venv" in done.stderr  # the way back
+    assert before.is_dir()
+
+
+def test_an_open_app_that_wont_quit_stops_the_update_before_anything_is_switched(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home, bundle = _home(tmp_path), _bundle(tmp_path)
+    before = (home / "app/venv").resolve()
+    with _open_app(tmp_path, "trap '' TERM; while :; do sleep 1; done") as app:
+        done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), LECTERN_QUIT_WAIT="2")
+        assert app.poll() is None
+    assert done.returncode == 1 and "didn't quit" in done.stderr
+    assert (home / "app/venv").resolve() == before and _version(bundle) == "0.1.0"
+    assert [p.name for p in (home / "app/versions").iterdir()] == [before.name]
+    assert not bundle.with_name("Lectern.app.new").exists()
+
+
+def test_another_app_called_lectern_is_never_replaced(tmp_path):
+    _env(tmp_path)
+    other = _bundle(tmp_path) / "Contents"
+    other.mkdir(parents=True)
+    theirs = {"CFBundleIdentifier": "com.example.reader"}
+    (other / "Info.plist").write_bytes(plistlib.dumps(theirs))
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 1 and "another app" in done.stderr
+    assert plistlib.loads((other / "Info.plist").read_bytes()) == theirs
+    assert not _home(tmp_path).exists()  # stopped before anything was built
