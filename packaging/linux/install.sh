@@ -34,7 +34,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/../pins.sh" 2>/dev/null || . "$here/pins.sh"
 # What isn't particular to Linux: uv, the wheel, the version switch, the /health wait.
 # shellcheck source=packaging/install_lib.sh
-. "$here/../install_lib.sh" 2>/dev/null || . "$here/install_lib.sh"
+. "$here/../install_lib.sh"
 
 user="${USER:-$(id -un)}"  # not every shell sets USER (su, cron)
 
