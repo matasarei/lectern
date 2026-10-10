@@ -416,3 +416,80 @@ def test_another_app_called_lectern_is_never_replaced(tmp_path):
     assert done.returncode == 1 and "another app" in done.stderr
     assert plistlib.loads((other / "Info.plist").read_bytes()) == theirs
     assert not _home(tmp_path).exists()  # stopped before anything was built
+
+
+# --- uninstall.sh ---------------------------------------------------------------------------
+
+
+def _uninstall(tmp_path: Path, *args: str, **extra: str) -> subprocess.CompletedProcess:
+    return subprocess.run(  # noqa: S603
+        ["bash", str(MACOS / "uninstall.sh"), *args],  # noqa: S607
+        env=_env(tmp_path, **extra), capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+
+
+def test_uninstall_on_a_mac_keeps_the_data_unless_purged(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home, bundle = _home(tmp_path), _bundle(tmp_path)
+    (home / "data/models").mkdir(parents=True)
+    (home / "src").mkdir()
+    logs = tmp_path / "home/Library/Logs/Lectern"
+    logs.mkdir(parents=True)
+    (logs / "lectern.log").touch()
+
+    with _open_app(tmp_path) as app:
+        kept = _uninstall(tmp_path)
+        assert kept.returncode == 0, kept.stderr
+        assert app.wait(timeout=10) == -15  # the open app was quit first, which stops Lectern
+    assert not bundle.exists() and not (home / "app").exists() and not (home / "bin").exists()
+    assert not logs.exists()
+    assert (home / "data/models").exists() and (home / "lectern.env").exists()
+    assert (home / "src").exists()
+
+    purged = _uninstall(tmp_path, "--purge")
+    assert purged.returncode == 0, purged.stderr
+    assert not (home / "data").exists() and not (home / "lectern.env").exists()
+    assert (home / "src").exists()  # the copy it may be running from
+
+
+def test_uninstall_leaves_another_app_called_lectern_alone(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    theirs = {"CFBundleIdentifier": "com.example.reader"}
+    (_bundle(tmp_path) / "Contents/Info.plist").write_bytes(plistlib.dumps(theirs))
+    done = _uninstall(tmp_path)
+    assert done.returncode == 0 and "another app" in done.stderr
+    assert (_bundle(tmp_path) / "Contents/Info.plist").exists()
+    assert not (_home(tmp_path) / "app").exists()  # Lectern's own files still go
+
+
+def test_uninstall_with_an_app_that_wont_quit_removes_nothing(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    with _open_app(tmp_path, "trap '' TERM; while :; do sleep 1; done"):
+        done = _uninstall(tmp_path, LECTERN_QUIT_WAIT="2")
+    assert done.returncode == 1 and "didn't quit" in done.stderr
+    assert _bundle(tmp_path).exists() and (_home(tmp_path) / "app/venv").exists()
+
+
+def test_uninstall_on_a_mac_run_as_root_refuses(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    (tmp_path / "fakebin/id").write_text(
+        '#!/usr/bin/env bash\nif [ "$1" = -u ]; then echo 0; else /usr/bin/id "$@"; fi\n'
+    )
+    (tmp_path / "fakebin/id").chmod(0o755)
+    env = _env(tmp_path)
+    done = subprocess.run(  # noqa: S603
+        ["bash", str(MACOS / "uninstall.sh")],  # noqa: S607
+        env=env, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert done.returncode == 1 and "run it as yourself" in done.stderr
+    assert _bundle(tmp_path).exists() and (_home(tmp_path) / "app/venv").exists()
+
+
+def test_the_top_uninstall_script_picks_by_system_too(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    done = subprocess.run(  # noqa: S603
+        ["bash", str(ROOT / "uninstall.sh")],  # noqa: S607
+        env=_env(tmp_path), capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr
+    assert not _bundle(tmp_path).exists()
