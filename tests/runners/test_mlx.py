@@ -13,7 +13,7 @@ from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import GIB, Gpu, HardwareInfo
 from lectern.runners import mlx
-from lectern.runners.base import RunnerSpec
+from lectern.runners.base import RunnerError, RunnerSpec
 from lectern.runners.llamacpp import InstallingLlamaCppRunner
 from lectern.runtime.planner import ModelShape
 from lectern.runtime.supervisor import ModelChoice, NotAvailable
@@ -87,8 +87,33 @@ def test_start_gives_the_key_to_the_server_only_through_its_environment(
     assert key not in " ".join(seen["argv"])  # in the environment only
 
 
-@pytest.mark.parametrize(("vision", "path"), [(False, "/health"), (True, "/v1/models")])
-def test_each_server_is_asked_whether_its_ready_where_it_answers(tmp_path, vision, path):
+class _Handle:
+    """A started server, answered by `answer`."""
+
+    model_id = "m"
+
+    def __init__(self, answer) -> None:  # noqa: ANN001
+        self.answer = answer
+
+    def client(self, timeout: float = 600.0) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
+            base_url="http://127.0.0.1:1",
+            transport=httpx2.MockTransport(self.answer),
+            headers={"Authorization": "Bearer k3y"},
+        )
+
+    def is_running(self) -> bool:
+        return True
+
+    def log_tail(self, lines: int = 20) -> str:
+        return "ValueError: Model type qwen9 not supported."
+
+
+@pytest.mark.parametrize(
+    ("vision", "paths"),
+    [(False, ["/health", "/v1/chat/completions"]), (True, ["/v1/models"])],
+)
+def test_each_server_is_asked_whether_its_ready_where_it_answers(tmp_path, vision, paths):
     asked = []
 
     async def answer(request: httpx2.Request) -> httpx2.Response:
@@ -96,22 +121,58 @@ def test_each_server_is_asked_whether_its_ready_where_it_answers(tmp_path, visio
         asked.append((request.url.path, request.headers.get("Authorization")))
         return httpx2.Response(200)
 
-    class Handle:
-        model_id = "m"
-
-        def client(self, timeout: float = 600.0) -> httpx2.AsyncClient:
-            return httpx2.AsyncClient(
-                base_url="http://127.0.0.1:1",
-                transport=httpx2.MockTransport(answer),
-                headers={"Authorization": "Bearer k3y"},
-            )
-
-        def is_running(self) -> bool:
-            return True
-
-    asyncio.run(mlx.MlxRunner(tmp_path, vision=vision)._wait_ready(Handle()))
+    asyncio.run(mlx.MlxRunner(tmp_path, vision=vision)._wait_ready(_Handle(answer)))
     # With the key: the launcher refuses /health too without it.
-    assert asked == [(path, "Bearer k3y")]
+    assert asked == [(path, "Bearer k3y") for path in paths]
+
+
+def test_a_text_server_is_ready_when_its_model_has_answered(tmp_path):
+    """mlx_lm.server answers /health while the model is still loading: one token is asked of
+    the model, and that request returns when it's loaded."""
+    bodies = []
+
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        if request.method == "POST":
+            bodies.append(json.loads(request.content))
+        return httpx2.Response(200)
+
+    asyncio.run(mlx.MlxRunner(tmp_path, vision=False)._wait_ready(_Handle(answer)))
+    assert [body["max_tokens"] for body in bodies] == [1]
+    assert bodies[0]["messages"][0]["role"] == "user"
+
+
+@pytest.mark.parametrize("failure", [httpx2.Response(500), httpx2.ReadError("closed")])
+def test_a_text_model_that_does_not_load_is_a_failed_start(tmp_path, failure):
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        if request.method == "GET":
+            return httpx2.Response(200)  # the server itself is up
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    with pytest.raises(RunnerError) as raised:
+        asyncio.run(mlx.MlxRunner(tmp_path, vision=False)._wait_ready(_Handle(answer)))
+    assert "didn't load" in str(raised.value)
+    assert "Model type qwen9 not supported" in str(raised.value)  # the server's own words
+
+
+def test_a_text_server_that_says_its_model_failed_is_not_waited_for(tmp_path):
+    """Seen with the real server: when the model can't be loaded, /health answers 503 from
+    then on. Waiting out the timeout would also push the reason out of the log's last lines."""
+    asked = []
+
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        asked.append(request.url.path)
+        return httpx2.Response(503, json={"status": "unavailable"})
+
+    with pytest.raises(RunnerError) as raised:
+        asyncio.run(mlx.MlxRunner(tmp_path, vision=False)._wait_ready(_Handle(answer)))
+    assert asked == ["/health"]
+    assert "didn't load" in str(raised.value)
+    assert "Model type qwen9 not supported" in str(raised.value)
 
 
 def test_read_shape_from_config(tmp_path):

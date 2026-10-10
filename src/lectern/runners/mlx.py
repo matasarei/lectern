@@ -130,7 +130,34 @@ class MlxRunner:
                     # Text: /health, which answers at once (its /v1/models walks the Hugging
                     # Face cache). Vision is asked as before.
                     ready = "/v1/models" if self.vision else "/health"
-                    if (await client.get(ready)).status_code == 200:
+                    status = (await client.get(ready)).status_code
+                    if status == 200:
+                        if not self.vision:
+                            await self._load_model(client, handle, deadline - loop.time())
                         return
+                    if status == 503 and not self.vision:
+                        # mlx_lm.server's own word that the model couldn't be loaded: it
+                        # answers 503 from then on, so there's nothing to wait for.
+                        raise _not_loaded(handle)
                 await asyncio.sleep(0.25)
         raise RunnerError(f"MLX server for {handle.model_id} wasn't ready.\n{handle.log_tail()}")
+
+    async def _load_model(
+        self, client: httpx2.AsyncClient, handle: LlamaCppHandle, timeout: float
+    ) -> None:
+        """mlx_lm.server answers /health while it's still loading the model, in a thread of
+        its own, and a model it can't load leaves the server running. One token asked of the
+        model returns when it's loaded, and fails when it can't be: only then is the server
+        ready, and the failure is the start's, with the server's own words."""
+        one_token = {"messages": [{"role": "user", "content": "Hi"}], "max_tokens": 1}
+        try:
+            response = await client.post("/v1/chat/completions", json=one_token, timeout=timeout)
+            response.raise_for_status()
+        except httpx2.HTTPError as exc:
+            raise _not_loaded(handle) from exc
+
+
+def _not_loaded(handle: LlamaCppHandle) -> RunnerError:
+    return RunnerError(
+        f"MLX server for {handle.model_id} didn't load the model.\n{handle.log_tail()}"
+    )
