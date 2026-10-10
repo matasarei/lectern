@@ -303,6 +303,12 @@ async def _stream(run: TurnRun, client: httpx2.AsyncClient, body: dict) -> Reply
                     slot["function"]["arguments"] += function.get("arguments") or ""
                     if reply.first_token_at is None:
                         reply.first_token_at = time.perf_counter()
+    if reply.tps is None and reply.tokens > 1 and reply.first_token_at is not None:
+        # A server that reports no speed of its own (MLX's): the tokens after the first, over
+        # the time since it arrived.
+        elapsed = time.perf_counter() - reply.first_token_at
+        if elapsed > 0:
+            reply.tps = (reply.tokens - 1) / elapsed
     reply.calls = [calls[i] for i in sorted(calls)]
     for i, call in enumerate(reply.calls):
         call["id"] = call["id"] or f"call_{int(time.time() * 1000)}_{i}"
