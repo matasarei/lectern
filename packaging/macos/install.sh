@@ -178,6 +178,6 @@ if [ -n "$offer_models" ]; then
 You already have models in "$models_before"
 (from running Lectern out of a checkout). To use them here instead of downloading them
 again, quit Lectern and run:
-  rmdir "$data/models" 2>/dev/null; ln -s "$models_before" "$data/models"
+  rmdir "$data/models" 2>/dev/null; [ -e "$data/models" ] && echo "not linked: $data/models has models of its own" || ln -s "$models_before" "$data/models"
 MODELS
 fi

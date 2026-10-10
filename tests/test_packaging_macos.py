@@ -292,6 +292,34 @@ def test_models_from_a_checkout_are_offered_once(tmp_path):
     assert again.returncode == 0 and "ln -s" not in again.stdout
 
 
+def test_the_line_offered_for_models_links_them_only_into_an_empty_place(tmp_path):
+    _env(tmp_path)
+    old = tmp_path / "home/Library/Application Support/Lectern/models"
+    old.mkdir(parents=True)
+    (old / "chat.gguf").touch()
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    offered = done.stdout.strip().splitlines()[-1]  # the command it says to run
+    assert "ln -s" in offered
+    models = _home(tmp_path) / "data/models"
+
+    def run_it() -> str:
+        ran = subprocess.run(  # noqa: S603
+            ["/bin/sh", "-c", offered], capture_output=True, text=True, timeout=60
+        )
+        assert ran.returncode == 0, ran.stderr
+        return ran.stdout
+
+    # Lectern has downloaded a model of its own since: nothing is linked, least of all inside.
+    models.mkdir()
+    (models / "own.gguf").touch()
+    assert "not linked" in run_it()
+    assert not models.is_symlink() and [p.name for p in models.iterdir()] == ["own.gguf"]
+
+    (models / "own.gguf").unlink()  # the empty folder Lectern makes when it first starts
+    assert run_it() == ""
+    assert models.is_symlink() and (models / "chat.gguf").exists()
+
+
 def test_without_models_from_a_checkout_nothing_is_offered(tmp_path):
     done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
     assert done.returncode == 0 and "ln -s" not in done.stdout
