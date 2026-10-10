@@ -137,6 +137,8 @@ export interface RuntimeSettings {
   implemented: Record<"when_models_dont_fit" | "chat_during_job", string[]>;
   /** MLX runs only on Apple Silicon Macs; the switch is hidden elsewhere. */
   mlx_supported: boolean;
+  /** And only where MLX is installed: without it the switch shows, off and disabled. */
+  mlx_available: boolean;
 }
 
 // --- projects ------------------------------------------------------------------------

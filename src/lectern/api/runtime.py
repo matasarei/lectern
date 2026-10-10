@@ -53,6 +53,12 @@ IMPLEMENTED = {
 }
 
 
+MLX_NOT_INSTALLED = (
+    "MLX isn't installed with this Lectern. The Mac installer adds it; from a checkout, run "
+    "`uv sync --extra mlx` and start Lectern again."
+)
+
+
 class RuntimeSettings(BaseModel):
     mlx_enabled: bool
     when_models_dont_fit: Literal["swap_between_phases", "keep_one_loaded"]
@@ -64,14 +70,16 @@ def get_settings(request: Request) -> dict:
     values = settings.get(
         request.app.state.sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
     )
-    supported = mlx.mlx_supported()
-    # Switched on before the switch was hidden elsewhere: it does nothing there, so report it
-    # off, and the next save stores it off.
-    values = {**values, "mlx_enabled": values["mlx_enabled"] and supported}
+    available = mlx.mlx_available()
+    # Switched on where MLX can't run (before the switch was hidden there) or isn't installed
+    # (a checkout without the extra, on the installed Lectern's data): it does nothing here,
+    # so report it off, and the next save stores it off.
+    values = {**values, "mlx_enabled": values["mlx_enabled"] and available}
     return {
         "values": values,
         "implemented": {k: sorted(v) for k, v in IMPLEMENTED.items()},
-        "mlx_supported": supported,
+        "mlx_supported": mlx.mlx_supported(),
+        "mlx_available": available,
     }
 
 
@@ -82,6 +90,8 @@ async def put_settings(body: RuntimeSettings, request: Request) -> dict:
             raise HTTPException(409, f"{getattr(body, key)!r} for {key} isn't available yet.")
     if body.mlx_enabled and not mlx.mlx_supported():
         raise HTTPException(409, "MLX only runs on Apple Silicon Macs.")
+    if body.mlx_enabled and not mlx.mlx_available():
+        raise HTTPException(409, MLX_NOT_INSTALLED)
     sessions = request.app.state.sessions
     before = await run_in_threadpool(
         settings.get, sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS

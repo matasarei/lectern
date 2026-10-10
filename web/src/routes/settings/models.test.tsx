@@ -51,7 +51,7 @@ const RESPONSES: Record<string, unknown> = {
               chat_during_job: "pause_job_after_current_item" },
     implemented: { when_models_dont_fit: ["swap_between_phases"],
                    chat_during_job: ["pause_job_after_current_item"] },
-    mlx_supported: true,
+    mlx_supported: true, mlx_available: true,
   },
 };
 
@@ -268,10 +268,25 @@ describe("Models & memory", () => {
     expect(screen.getByTestId("status-main").textContent).toBe("Downloaded, not loaded");
   });
 
+  it("says MLX isn't installed, and keeps the switch off, on a Mac without it", async () => {
+    withMlxBuild("none", false);
+    overrides["/api/runtime/settings"] = {
+      ...(RESPONSES["/api/runtime/settings"] as object),
+      mlx_available: false,
+    };
+    renderPage();
+
+    const mlxSwitch = (await screen.findByLabelText(/Use MLX for MLX models/)) as HTMLInputElement;
+    expect(mlxSwitch.disabled).toBe(true);
+    expect(mlxSwitch.checked).toBe(false);
+    expect(screen.getByText(/MLX isn't installed/)).toBeTruthy();
+    expect(screen.queryByTestId("status-main-mlx")).toBeNull();
+  });
+
   it("hides the MLX switch where MLX can't run", async () => {
     overrides["/api/runtime/settings"] = {
       ...(RESPONSES["/api/runtime/settings"] as object),
-      mlx_supported: false,
+      mlx_supported: false, mlx_available: false,
     };
     renderPage();
 

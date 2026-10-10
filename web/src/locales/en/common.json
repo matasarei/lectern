@@ -137,6 +137,7 @@
       "chat_waits": "Chat waits until the job has finished"
     },
     "mlx": "Use MLX for MLX models (Apple Silicon)",
+    "mlxMissing": "MLX isn't installed with this Lectern, so every model runs on llama.cpp. The Mac installer adds it; from a checkout, run `uv sync --extra mlx` and start Lectern again.",
     "mlxWhy": "MLX is Apple's own engine and can be faster on a Mac. Switched on, a model that has an MLX build shows it under Models by role: once downloaded, the build runs in place of the usual model. On MLX the chat makes more mistakes when it uses its tools. Scanned pages are still read and cleaned up by the usual models, so cleaning one loads the usual chat model as well."
   },
   "projects": {

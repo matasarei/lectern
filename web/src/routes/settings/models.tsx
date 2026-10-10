@@ -339,7 +339,7 @@ function SettingsCard() {
     onSuccess: (data) => queryClient.setQueryData(["runtime-settings"], data),
   });
   if (!current.data) return null;
-  const { values, implemented, mlx_supported } = current.data;
+  const { values, implemented, mlx_supported, mlx_available } = current.data;
   const set = (patch: Partial<RuntimeSettingsValues>) => save.mutate({ ...values, ...patch });
 
   const group = (key: "when_models_dont_fit" | "chat_during_job", options: string[]) => (
@@ -378,12 +378,14 @@ function SettingsCard() {
           <input
             type="checkbox"
             checked={values.mlx_enabled}
-            disabled={save.isPending}
+            disabled={!mlx_available || save.isPending}
             onChange={(e) => set({ mlx_enabled: e.target.checked })}
           />
           <span>
             {t("policy.mlx")}
-            <span className="block text-muted">{t("policy.mlxWhy")}</span>
+            <span className="block text-muted">
+              {t(mlx_available ? "policy.mlxWhy" : "policy.mlxMissing")}
+            </span>
           </span>
         </label>
       )}
