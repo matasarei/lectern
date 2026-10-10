@@ -15,7 +15,8 @@ const download = (id: string, status: string) => ({
 
 const model = (id: string, title: string, roles: string[], status: string) => ({
   id, title, quant: "Q4_K_M", roles, size: 2 * 10 ** 9, licence: "Apache-2.0",
-  licence_notice: false, notes: null, repo: "x/y", download: download(id, status),
+  licence_notice: false, notes: null, repo: "x/y", suits_tier: true,
+  download: download(id, status),
 });
 
 const RESPONSES: Record<string, unknown> = {
@@ -34,6 +35,7 @@ const RESPONSES: Record<string, unknown> = {
   "/api/models": {
     tier: "recommended",
     defaults: { main: "qwen3.5-9b", ocr: "paddleocr-vl-1.6", "ocr.hand": "qwen3-vl-8b", code: "coder-7b" },
+    chosen: { main: "qwen3.5-9b", ocr: "paddleocr-vl-1.6", "ocr.hand": "qwen3-vl-8b", code: "coder-7b" },
     models: [
       model("qwen3.5-9b", "Qwen3.5 9B", ["main"], "done"),
       model("paddleocr-vl-1.6", "PaddleOCR-VL 1.6", ["ocr"], "done"),
@@ -56,11 +58,13 @@ const RESPONSES: Record<string, unknown> = {
 };
 
 let puts: unknown[] = [];
+let choices: { role: string; modelId: string | null }[] = [];
 let posts: { url: string; body: unknown }[] = [];
 let overrides: Record<string, unknown> = {};
 
 beforeEach(() => {
   puts = [];
+  choices = [];
   posts = [];
   overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
@@ -71,6 +75,18 @@ beforeEach(() => {
       if (init?.method === "POST") {
         posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
         return new Response(JSON.stringify(download(url.split("/")[3], "queued")), { status: 202 });
+      }
+      if (init?.method === "PUT" && url.startsWith("/api/models/roles/")) {
+        // As the server: the list again, with the role on the chosen model (null: the
+        // recommended one).
+        const role = decodeURIComponent(url.split("/")[4]);
+        const modelId = JSON.parse(String(init.body)).model_id as string | null;
+        choices.push({ role, modelId });
+        const list = (overrides["/api/models"] ?? RESPONSES["/api/models"]) as {
+          defaults: Record<string, string>; chosen: Record<string, string>;
+        };
+        const chosen = { ...list.chosen, [role]: modelId ?? list.defaults[role] };
+        return new Response(JSON.stringify({ ...list, chosen }));
       }
       if (init?.method === "PUT") {
         const body = JSON.parse(String(init.body));
@@ -285,6 +301,104 @@ describe("Models & memory", () => {
     expect(screen.getByTestId("status-main-mlx").textContent).toBe("Loaded");
     const segment = screen.getByTitle(/^main@qwen3.5-9b · /);
     expect(segment.className).toContain("bg-accent");
+  });
+
+  // Three chat models in the catalog: the 9B recommended here, the 35B more than this card
+  // is meant for.
+  const withChatModels = (chosen = "qwen3.5-9b") => {
+    const base = RESPONSES["/api/models"] as { models: unknown[]; chosen: object };
+    overrides["/api/models"] = {
+      ...base,
+      chosen: { ...base.chosen, main: chosen },
+      models: [
+        model("qwen3.5-4b", "Qwen3.5 4B", ["main"], "none"),
+        ...base.models,
+        { ...model("qwen3.5-35b-a3b", "Qwen3.5 35B-A3B", ["main"], "none"), suits_tier: false },
+      ],
+    };
+  };
+
+  it("offers a role's models, marking the recommended one and one too big for this computer", async () => {
+    withChatModels();
+    renderPage();
+
+    const select = (await screen.findByLabelText("Model for main")) as HTMLSelectElement;
+    expect(select.value).toBe("qwen3.5-9b");
+    expect([...select.options].map((o) => o.textContent)).toEqual([
+      "Qwen3.5 4B · Q4_K_M · 2 GB",
+      "Qwen3.5 9B · Q4_K_M · 2 GB · recommended",
+      "Qwen3.5 35B-A3B · Q4_K_M · 2 GB · more than this computer is meant for",
+    ]);
+    // On the recommended model there's nothing to go back to.
+    expect(screen.queryByRole("button", { name: /Use it/ })).toBeNull();
+  });
+
+  it("has nothing to choose for a role with one model, and still marks it recommended", async () => {
+    renderPage();
+
+    await screen.findByTestId("status-ocr");
+    expect(screen.queryByLabelText("Model for ocr")).toBeNull();
+    const row = screen.getByTestId("status-ocr").closest("tr");
+    expect(row?.textContent).toContain("PaddleOCR-VL 1.6");
+    expect(row?.textContent).toContain("recommended");
+  });
+
+  it("saves a chosen model, shows its row, and offers the way back to the recommended one", async () => {
+    withChatModels();
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("Model for main"), {
+      target: { value: "qwen3.5-4b" },
+    });
+
+    await waitFor(() => expect(choices).toEqual([{ role: "main", modelId: "qwen3.5-4b" }]));
+    // The row is the chosen model's now: its download state, its Download button.
+    await waitFor(() => expect(screen.getByTestId("status-main").textContent).toBe("Not downloaded"));
+    expect(screen.getByRole("button", { name: "Download Qwen3.5 4B" })).toBeTruthy();
+    expect(screen.getByText(/Recommended for this computer: Qwen3.5 9B/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Use it/ }));
+
+    await waitFor(() => expect(choices[1]).toEqual({ role: "main", modelId: null }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Use it/ })).toBeNull());
+  });
+
+  it("warns under a chosen model that this computer isn't meant for", async () => {
+    withChatModels("qwen3.5-35b-a3b");
+    renderPage();
+
+    await screen.findByLabelText("Model for main");
+    expect(screen.getByText(/may be slow, run with a small context, or not load/)).toBeTruthy();
+  });
+
+  it("lists the MLX build of the chosen model, not of the recommended one", async () => {
+    withChatModels("qwen3.5-4b");
+    const list = overrides["/api/models"] as { models: unknown[] };
+    const build = (id: string, title: string, replaces: string) => ({
+      ...model(id, title, ["main"], "none"), quant: "4bit", format: "mlx", replaces,
+    });
+    overrides["/api/models"] = {
+      ...list,
+      models: [
+        ...list.models,
+        build("qwen3.5-4b-mlx", "Qwen3.5 4B (MLX)", "qwen3.5-4b"),
+        build("qwen3.5-9b-mlx", "Qwen3.5 9B (MLX)", "qwen3.5-9b"),
+      ],
+    };
+    const settings = RESPONSES["/api/runtime/settings"] as { values: object };
+    overrides["/api/runtime/settings"] = {
+      ...settings, values: { ...settings.values, mlx_enabled: true },
+    };
+    renderPage();
+
+    const buildRow = (await screen.findByTestId("status-main-mlx")).closest("tr");
+    expect(buildRow?.textContent).toContain("Qwen3.5 4B (MLX)");
+    expect(screen.queryByText(/Qwen3.5 9B \(MLX\)/)).toBeNull();
+    // A build isn't something to choose: it comes with its model.
+    const select = screen.getByLabelText("Model for main") as HTMLSelectElement;
+    expect([...select.options].map((o) => o.value)).toEqual([
+      "qwen3.5-4b", "qwen3.5-9b", "qwen3.5-35b-a3b",
+    ]);
   });
 
   it("says MLX isn't installed, and keeps the switch off, on a Mac without it", async () => {

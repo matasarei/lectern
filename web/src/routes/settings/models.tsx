@@ -54,6 +54,17 @@ export function ModelsPage() {
     queryFn: () => apiFetch<ModelsResponse>("/api/models"),
   });
   const mlxOn = useRuntimeSettings().data?.values.mlx_enabled ?? false;
+  const queryClient = useQueryClient();
+  // The answer is the list again, with the role on the chosen model.
+  const choose = useMutation({
+    mutationFn: ({ role, modelId }: { role: Role; modelId: string | null }) =>
+      apiFetch<ModelsResponse>(`/api/models/roles/${encodeURIComponent(role)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId }),
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["models"], data),
+  });
 
   if (system.isPending || models.isPending) {
     return <Page>{t("common.loading")}</Page>;
@@ -68,7 +79,6 @@ export function ModelsPage() {
   }
 
   const byId = new Map(models.data.models.map((m) => [m.id, m]));
-  const residents = new Map((runtime.data?.residents ?? []).map((r) => [r.role, r]));
   const loaded = (role: Role, modelId: string) =>
     runtime.data?.residents.find((r) => roleOf(r) === role && r.model_id === modelId);
 
@@ -122,10 +132,19 @@ export function ModelsPage() {
             </thead>
             <tbody>
               {ROLES.map((role) => {
-                const id = models.data.defaults[role];
+                // The role's model: the one recommended for this computer, unless another
+                // was chosen here.
+                const id = models.data.chosen[role];
                 const model = id ? byId.get(id) : undefined;
                 if (!model) return null;
-                const resident = residents.get(role);
+                const recommendedId = models.data.defaults[role];
+                const choice: RoleChoice = {
+                  // An MLX build isn't offered: it comes with its model.
+                  options: models.data.models.filter((m) => m.roles.includes(role) && !m.replaces),
+                  recommended: recommendedId ? byId.get(recommendedId) : undefined,
+                  pending: choose.isPending,
+                  onChoose: (modelId) => choose.mutate({ role, modelId }),
+                };
                 // With MLX switched on, a model's MLX build is listed under it. The runtime
                 // uses the build once it's on disk, and the model until then.
                 const build = mlxOn
@@ -137,7 +156,10 @@ export function ModelsPage() {
                       key={role}
                       role={role}
                       model={model}
-                      resident={resident}
+                      choice={choice}
+                      // Its own loaded copy: right after a change the role's old model can
+                      // still be loaded, finishing a reply.
+                      resident={loaded(role, model.id)}
                       live={live[model.id]}
                     />
                   );
@@ -148,6 +170,7 @@ export function ModelsPage() {
                     <RoleRow
                       role={role}
                       model={model}
+                      choice={choice}
                       resident={loaded(role, model.id)}
                       live={live[model.id]}
                       chosen={!buildOnDisk}
@@ -166,6 +189,13 @@ export function ModelsPage() {
             </tbody>
           </table>
         </div>
+        {choose.error && (
+          <ErrorNote
+            message={
+              choose.error instanceof ApiError ? choose.error.detail : t("common.loadFailed")
+            }
+          />
+        )}
         <p className="text-sm text-muted">{t("modelsPage.onFirstUse")}</p>
       </Card>
 
@@ -174,9 +204,19 @@ export function ModelsPage() {
   );
 }
 
+/** Choosing a role's model: what it can be given, which one is recommended for this
+ * computer, and how to change it (null: back to the recommended one). */
+interface RoleChoice {
+  options: CatalogModel[];
+  recommended?: CatalogModel;
+  pending: boolean;
+  onChoose: (modelId: string | null) => void;
+}
+
 function RoleRow({
   role,
   model,
+  choice,
   resident,
   live,
   mlxBuild = false,
@@ -184,6 +224,8 @@ function RoleRow({
 }: {
   role: Role;
   model: CatalogModel;
+  /** On a role's own row; an MLX build's row has nothing to choose. */
+  choice?: RoleChoice;
   resident?: Resident;
   live?: CatalogModel["download"];
   /** The row of a model's MLX build, under the model's own. */
@@ -207,8 +249,51 @@ function RoleRow({
         {mlxBuild ? <span className="text-muted">{t("modelsPage.mlxBuild")}</span> : role}
       </td>
       <td className="py-2 pr-4">
-        {model.title}
-        <span className="text-muted"> · {model.quant}</span>
+        {choice && choice.options.length > 1 ? (
+          <select
+            aria-label={t("modelsPage.modelFor", { role })}
+            className="max-w-full rounded border border-line bg-paper px-2 py-1"
+            value={model.id}
+            disabled={choice.pending}
+            onChange={(e) => choice.onChoose(e.target.value)}
+          >
+            {choice.options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {t(
+                  option.id === choice.recommended?.id
+                    ? "modelsPage.optionRecommended"
+                    : option.suits_tier
+                      ? "modelsPage.option"
+                      : "modelsPage.optionTooBig",
+                  { title: option.title, quant: option.quant, size: formatBytes(option.size) },
+                )}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <>
+            {model.title}
+            <span className="text-muted"> · {model.quant}</span>
+            {model.id === choice?.recommended?.id && (
+              <span className="text-muted"> · {t("modelsPage.recommended")}</span>
+            )}
+          </>
+        )}
+        {choice && !model.suits_tier && (
+          <span className="block text-muted">{t("modelsPage.tooBigWhy")}</span>
+        )}
+        {choice?.recommended && choice.recommended.id !== model.id && (
+          <span className="block text-muted">
+            {t("modelsPage.recommendedIs", { title: choice.recommended.title })}{" "}
+            <button
+              className="font-semibold text-accent underline-offset-4 hover:underline"
+              disabled={choice.pending}
+              onClick={() => choice.onChoose(null)}
+            >
+              {t("modelsPage.useRecommended")}
+            </button>
+          </span>
+        )}
       </td>
       <td className="py-2 pr-4 tabular-nums">{formatBytes(model.size)}</td>
       <td className="py-2 pr-4">{model.licence}</td>

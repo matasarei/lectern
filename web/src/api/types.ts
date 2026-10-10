@@ -63,12 +63,17 @@ export interface CatalogModel {
   format: "gguf" | "mlx";
   /** An MLX build: the id of the model it runs in place of, on a Mac with MLX switched on. */
   replaces: string | null;
+  /** Listed for this computer's tier. One that isn't can still be chosen, with a warning. */
+  suits_tier: boolean;
   download: DownloadState;
 }
 
 export interface ModelsResponse {
   tier: Tier;
+  /** The model recommended for each role on this computer. It follows the hardware. */
   defaults: Partial<Record<Role, string>>;
+  /** The model each role uses: the recommended one, unless another was chosen. */
+  chosen: Partial<Record<Role, string>>;
   models: CatalogModel[];
 }
 
