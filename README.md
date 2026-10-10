@@ -128,6 +128,54 @@ docker compose -f packaging/docker/compose.yaml exec lectern lectern url
 Models and projects live in the `lectern-data` volume. Scripts' sandbox is off in Docker unless
 you mount a Podman or Docker socket into the container.
 
+## Install on a Mac
+
+On a Mac, Lectern runs straight on macOS, never in Docker: a container there can't reach the
+GPU. The same script installs it for you and builds **Lectern.app**, a small menu-bar app
+that starts and stops it. Lectern runs for as long as the app is open.
+
+**Needs:** an Apple Silicon Mac (Intel Macs aren't supported yet) with macOS 13 or newer, the
+Command Line Tools (`xcode-select --install`), Node.js (`brew install node`, or the installer
+from nodejs.org), and internet for the first run. Python isn't needed: the installer brings
+its own.
+
+1. **Clone Lectern and run one script, as yourself** (no sudo):
+   ```sh
+   git clone https://github.com/matasarei/lectern.git ~/.lectern/src
+   cd ~/.lectern/src && ./install.sh
+   ```
+   It builds Lectern and the app from that copy, puts the app in `~/Applications` and opens
+   it: an icon appears in the menu bar. Everything else goes in `~/.lectern`, laid out as
+   [on Linux](#install-on-a-linux-server) (`src`, `app`, `data`, `lectern.env`,
+   `bin/lectern-url`). The app is built on your own Mac, so macOS opens it without the
+   warning it shows for a downloaded one.
+2. **Use the icon's menu:**
+
+   | | |
+   |---|---|
+   | Open Lectern | opens it in your browser, signed in (the link carries the access token) |
+   | Stop / Start, Restart | Lectern itself; the app stays in the menu bar |
+   | Show Log | `~/Library/Logs/Lectern/lectern.log`; the access link is never written to it |
+   | Quit Lectern | stops Lectern, then closes the app |
+
+   Opening Lectern.app again (Finder, Spotlight) opens it in the browser too. The first run
+   checks the hardware and downloads the chat model.
+
+**Update:** `cd ~/.lectern/src && git pull && ./install.sh`. An open app is quit, replaced and
+opened again; one that wasn't open is replaced and left closed. Your data and settings are
+kept, and if anything fails to build, the running app and version stay as they were.
+**Start at login:** System Settings → General → Login Items → add Lectern.
+**Settings:** `~/.lectern/lectern.env`, then Restart in the menu.
+**Uninstall:** `./uninstall.sh` removes the app, its log and `~/.lectern/app`; it keeps
+`~/.lectern/data` and `~/.lectern/lectern.env` unless you add `--purge`. `~/.lectern/src`
+always stays.
+**The script sandbox** needs Docker Desktop or Podman; Lectern looks for them in
+`/opt/homebrew/bin` and `/usr/local/bin` as well as the system's folders.
+**If you also run Lectern from a checkout** (`uv run lectern serve`): both use port 8765, so
+run one at a time or change `LECTERN_PORT` in `~/.lectern/lectern.env`. The installed one
+keeps its own data in `~/.lectern/data`; the installer prints the line that lets it use the
+models a checkout already downloaded.
+
 ## Licence
 
 Apache-2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Models are downloaded separately and keep their own licences; the app shows each model's licence before downloading it.

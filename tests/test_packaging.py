@@ -329,12 +329,29 @@ def test_the_scripts_pass_shellcheck():
         ROOT / "packaging/make_package.sh",
         ROOT / "packaging/pins.sh",  # sourced, but checked on its own too
         ROOT / "packaging/install_lib.sh",  # the same
+        ROOT / "packaging/macos/install.sh",
+        ROOT / "packaging/macos/uninstall.sh",
+        ROOT / "packaging/macos/build_app.sh",
         ROOT / "install.sh",
         ROOT / "uninstall.sh",
     ]
     checked = subprocess.run(["shellcheck", "-x", *map(str, scripts)],  # noqa: S603, S607
                              capture_output=True, text=True, cwd=ROOT)  # fmt: skip
     assert checked.returncode == 0, checked.stdout
+
+
+def test_no_script_puts_a_non_ascii_character_right_after_a_variable():
+    """macOS's /bin/bash (3.2), in a UTF-8 locale, reads the first byte of "…" as part of the
+    name before it: "$version…" is then an unbound variable and the install stops. ${version}…
+    is safe. The tests' bare environment has no such locale, so they can't catch it by running."""
+    scripts = [ROOT / "install.sh", ROOT / "uninstall.sh", *(ROOT / "packaging").rglob("*.sh")]
+    found = [
+        f"{script.relative_to(ROOT)}:{number}: {line.strip()}"
+        for script in scripts
+        for number, line in enumerate(script.read_text().splitlines(), 1)
+        if re.search(r"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]", line)
+    ]
+    assert not found, "\n".join(found)
 
 
 def test_the_package_carries_every_file_the_installer_sources():
