@@ -195,7 +195,7 @@ What it gives and what it costs, measured with the 4B chat model on an M4 Max:
   summarised a little early or late.
 
 OCR models always run on llama.cpp. Lectern starts MLX's server with a key of its own, as it
-does llama.cpp's: no web page or other program can use the model.
+does llama.cpp's: a web page can't use the model, and neither can another user of the Mac.
 
 ## Licence
 
