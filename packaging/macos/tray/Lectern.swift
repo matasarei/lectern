@@ -53,6 +53,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private static let logLimit = 5_000_000  // bytes; past it the file becomes lectern.log.1
 
     private var statusItem: NSStatusItem!
+    // The size the system's own menu-bar symbols have; left alone, a symbol comes out smaller
+    // (the open book 19 x 14 points in a 22-point bar; now 22 x 17). A symbol is a vector, so
+    // it's drawn sharp for the screen it's on, Retina or not.
+    private static let menuBarSymbol = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let openItem = NSMenuItem(title: "Open Lectern", action: #selector(openLectern), keyEquivalent: "o")
     private let logItem = NSMenuItem(title: "Show Log", action: #selector(showLog), keyEquivalent: "")
@@ -474,7 +478,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         restartItem.isEnabled = state == .starting || state == .running
 
         let symbol = state == .running ? "book" : "book.closed"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Lectern")
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Lectern")?
+            .withSymbolConfiguration(Self.menuBarSymbol)
         image?.isTemplate = true
         statusItem.button?.image = image
         statusItem.button?.title = image == nil ? "Lectern" : ""

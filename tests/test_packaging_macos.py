@@ -49,7 +49,18 @@ def test_the_app_builds_into_a_signed_bundle(tmp_path):
     assert info["LSUIElement"] is True  # a menu-bar item, no Dock icon
     # Its icon, drawn by the app itself while it was being built.
     assert info["CFBundleIconFile"] == "Lectern"
-    assert (bundle / "Contents/Resources/Lectern.icns").read_bytes()[:4] == b"icns"
+    icns = bundle / "Contents/Resources/Lectern.icns"
+    assert icns.read_bytes()[:4] == b"icns"
+    # Every size is in it twice: for an ordinary screen, and at double the pixels for Retina.
+    unpacked = tmp_path / "unpacked.iconset"
+    subprocess.run(  # noqa: S603
+        ["/usr/bin/iconutil", "-c", "iconset", "-o", str(unpacked), str(icns)],
+        check=True,
+        timeout=60,
+    )
+    names = {p.name for p in unpacked.iterdir()}
+    for points in (16, 32, 128, 256, 512):
+        assert {f"icon_{points}x{points}.png", f"icon_{points}x{points}@2x.png"} <= names
     verified = subprocess.run(  # noqa: S603
         ["codesign", "--verify", "--deep", "--strict", str(bundle)],  # noqa: S607
         capture_output=True, text=True, timeout=60,
