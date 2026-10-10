@@ -67,7 +67,9 @@ class UpdateState:
     """How far a model's update is, or how it failed."""
 
     model_id: str
-    status: str  # "updating" or "failed"
+    # "checking" (what's on disk against the new pin), "updating" (fetching what differs),
+    # "waiting" (all fetched: for the model to be free), or "failed"
+    status: str
     bytes_done: int
     bytes_total: int
     rate: float = 0.0  # bytes per second
@@ -359,7 +361,7 @@ class DownloadManager:
         if not self.update_available(entry):
             raise NothingToUpdate(f"{entry.title} has no update.")
         so_far = self._staged_bytes(entry) if self._staged_for(entry) else 0
-        state = UpdateState(entry.id, "updating", so_far, entry.size)
+        state = UpdateState(entry.id, "checking", so_far, entry.size)
         self._updates[entry.id] = state
         self._update_tasks[entry.id] = asyncio.get_running_loop().create_task(self._update(entry))
         return state
@@ -388,8 +390,10 @@ class DownloadManager:
                     if not await self._carry_over(entry, file, progress)
                 ]
                 self._needs_room(entry, changed)
+                self._note(progress, "updating", at_once=True)
                 for file in changed:
                     await self._fetch_update(client, entry, file, progress)
+            self._note(progress, "waiting", at_once=True)
             await self.exclusive(entry.id, lambda: asyncio.to_thread(self._swap, entry))
         except asyncio.CancelledError:
             self._updates.pop(entry.id, None)  # the folder stays: the next start goes on
@@ -439,7 +443,7 @@ class DownloadManager:
         target.parent.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(_link_or_copy, current, target)
         progress.done += file.size
-        self._note(progress)
+        self._note(progress, "checking", at_once=True)
         return True
 
     def _needs_room(self, entry: CatalogEntry, changed: list[ModelFile]) -> None:
@@ -457,7 +461,7 @@ class DownloadManager:
         def advance(delta: int) -> None:
             progress.done += delta
             if delta > 0:
-                self._note(progress)
+                self._note(progress, "updating")
 
         await fetch_verified(
             client,
@@ -469,16 +473,18 @@ class DownloadManager:
             label=file.path,
         )
 
-    def _note(self, progress: _Progress) -> None:
+    def _note(self, progress: _Progress, status: str, *, at_once: bool = False) -> None:
+        """Say how far the update is: at a change of phase at once, while fetching no more
+        often than a download does."""
         now = time.monotonic()
-        if now - progress.last_event >= PROGRESS_EVERY:
+        if at_once or now - progress.last_event >= PROGRESS_EVERY:
             progress.update_rate(now)
             self._updates[progress.entry.id] = UpdateState(
                 progress.entry.id,
-                "updating",
+                status,
                 progress.done,
                 progress.entry.size,
-                rate=progress.rate,
+                rate=progress.rate if status == "updating" else 0.0,
             )
 
     def _staged_bytes(self, entry: CatalogEntry, files: list[ModelFile] | None = None) -> int:

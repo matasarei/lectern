@@ -511,6 +511,8 @@ def test_the_old_copy_is_whole_until_the_model_is_free_and_then_swapped(paths, s
         # the model is loaded.
         staged = (paths.models / "tiny.update" / "tiny.gguf").read_bytes() == NEWER
         seen.append((model_id, (folder / "tiny.gguf").read_bytes(), staged, "before"))
+        waiting = manager.update_state("tiny")  # all fetched: only the model is waited for
+        assert (waiting.status, waiting.bytes_done) == ("waiting", waiting.bytes_total)
         await swap()
         seen.append((model_id, (folder / "tiny.gguf").read_bytes(), False, "after"))
 
@@ -537,7 +539,8 @@ def test_while_an_update_runs_the_list_can_say_how_far_it_is(paths, sessions):
         return started, again, during, usable
 
     started, again, during, usable = asyncio.run(go())
-    assert (started.status, again.status, during.status) == ("updating",) * 3
+    # First what's on disk is compared with the new pin, then what differs is fetched.
+    assert (started.status, again.status, during.status) == ("checking", "checking", "updating")
     assert during.bytes_total == entry.size and during.error is None
     assert usable  # the model on disk went on being a finished download throughout
     assert len(hub.requests) == 1

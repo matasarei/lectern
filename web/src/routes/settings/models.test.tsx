@@ -604,6 +604,20 @@ describe("Models & memory", () => {
     expect(installedRow("qwen3.5-9b").textContent).not.toContain("newer version");
   }, 10_000);
 
+  it.each([
+    ["checking", "comparing the files on disk with the new version"],
+    ["waiting", "It takes the model's place as soon as the model is free"],
+  ])("says what an update is doing while it is %s", async (status, words) => {
+    withUpdate({ update: { ...updating(0), status } });
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    expect(installedRow("qwen3.5-9b").textContent).toContain(words);
+    // Under way: not offered again, and no bar that would sit at 0% or 100% saying nothing.
+    expect(screen.queryByRole("button", { name: "Update Qwen3.5 9B" })).toBeNull();
+    expect(installedRow("qwen3.5-9b").querySelector("progress")).toBeNull();
+  });
+
   it("says why an update failed and offers it again", async () => {
     withUpdate({ update: updating(10 ** 9, "Connection problem (ReadError). Try again to resume.") });
     renderPage();

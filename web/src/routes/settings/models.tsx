@@ -56,7 +56,7 @@ export function ModelsPage() {
     // An update's progress is in the list, not in the download events: ask again while one
     // runs, to show how far it is and the new version when it's done.
     refetchInterval: (query) =>
-      query.state.data?.models.some((m) => m.update?.status === "updating")
+      query.state.data?.models.some((m) => m.update && m.update.status !== "failed")
         ? UPDATE_POLL_MS
         : false,
   });
@@ -414,7 +414,7 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
           roles: m.used_by,
           update: m.update,
           // Offered again after a failure; not while one runs.
-          canUpdate: m.update_available && m.update?.status !== "updating",
+          canUpdate: m.update_available && (!m.update || m.update.status === "failed"),
         },
       ];
     }),
@@ -466,11 +466,17 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
                 </button>
               )}
             </span>
+            {row.update?.status === "checking" && (
+              <span className="w-full text-xs text-muted">{t("modelsPage.updateChecking")}</span>
+            )}
             {row.update?.status === "updating" && (
               <span className="grid w-full gap-1">
                 <DownloadProgress state={{ ...row.update, status: "downloading" }} />
                 <span className="text-xs text-muted">{t("modelsPage.updating")}</span>
               </span>
+            )}
+            {row.update?.status === "waiting" && (
+              <span className="w-full text-xs text-muted">{t("modelsPage.updateWaiting")}</span>
             )}
             {row.update?.status === "failed" && row.update.error && (
               <span className="w-full">

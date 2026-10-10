@@ -79,7 +79,9 @@ export interface CatalogModel {
 
 export interface UpdateState {
   model_id: string;
-  status: "updating" | "failed";
+  /** checking: what's on disk against the new version; updating: fetching what differs;
+   * waiting: all fetched, for the model to be free. */
+  status: "checking" | "updating" | "waiting" | "failed";
   bytes_done: number;
   bytes_total: number;
   rate: number;
