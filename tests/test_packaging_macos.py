@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import plistlib
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -89,6 +92,174 @@ def test_build_app_without_swiftc_says_how_to_get_it(tmp_path):
                   LECTERN_SWIFTC="no-such-swiftc")  # fmt: skip
     assert done.returncode == 1 and "xcode-select --install" in done.stderr
     assert not (tmp_path / "Lectern.app").exists()
+
+
+# --- the app itself, run for real ---------------------------------------------------------------
+# The built binary is started directly, as a menu-bar app for a second or two, against a
+# stand-in for Lectern in a temporary install folder. CFFIXED_USER_HOME moves its log there.
+
+
+def _on_a_mac_desktop() -> bool:
+    if sys.platform != "darwin" or shutil.which("swiftc") is None:
+        return False
+    session = subprocess.run(  # noqa: S603
+        ["/bin/launchctl", "managername"], capture_output=True, text=True, timeout=60
+    )
+    return session.stdout.strip() == "Aqua"  # a login at the screen, not ssh
+
+
+needs_a_desktop = pytest.mark.skipif(
+    not _on_a_mac_desktop(),
+    reason="running the app needs a Mac desktop session and the Command Line Tools",
+)
+
+# What `lectern serve` does that the app depends on: prints the access link, keeps running,
+# and ends on SIGINT. It leaves a file behind to say that's how it was stopped.
+STAND_IN = """#!/bin/sh
+echo "Lectern is running at http://127.0.0.1:1/#token=SECRET"
+echo "an ordinary line"
+trap 'echo interrupted > "$0.stopped"; exit 0' INT
+while :; do sleep 1; done
+"""
+
+
+def _until(condition, what: str, timeout: float = 20.0) -> None:  # noqa: ANN001
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"never happened: {what}")
+
+
+def _arguments(pid: int) -> str:
+    shown = subprocess.run(  # noqa: S603
+        ["/bin/ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=60
+    )
+    return shown.stdout
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.fixture
+def installed(tmp_path):
+    """An install folder with a stand-in for Lectern, and the app built for it."""
+    folder = tmp_path / "lectern"
+    lectern = folder / "app/venv/bin/lectern"
+    lectern.parent.mkdir(parents=True)
+    lectern.write_text(STAND_IN)
+    lectern.chmod(0o755)
+    (folder / "bin").mkdir()
+    (folder / "bin/lectern-serve").write_text(f'#!/bin/sh\nexec "{lectern}" serve --no-browser\n')
+    (folder / "bin/lectern-serve").chmod(0o755)
+    bundle = tmp_path / "Lectern.app"
+    built = _build(str(bundle), str(folder), "1.0.0")
+    assert built.returncode == 0, built.stderr
+    yield folder, bundle
+    # Whatever a failed test left running.
+    pid_file = folder / "app/lectern.pid"
+    if pid_file.exists() and _alive(int(pid_file.read_text())):
+        os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+@contextlib.contextmanager
+def _app(tmp_path: Path, bundle: Path) -> Iterator[subprocess.Popen]:
+    app = subprocess.Popen(  # noqa: S603
+        [str(bundle / "Contents/MacOS/Lectern"), "--background"],
+        env={"PATH": "/usr/bin:/bin", "CFFIXED_USER_HOME": str(tmp_path / "home")},
+    )
+    try:
+        yield app
+    finally:
+        app.kill()
+        app.wait()
+
+
+@needs_a_desktop
+def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_quit(
+    tmp_path, installed
+):
+    folder, bundle = installed
+    pid_file = folder / "app/lectern.pid"
+    log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
+    with _app(tmp_path, bundle) as app:
+        _until(pid_file.exists, "the app started Lectern and wrote its process id")
+        lectern = int(pid_file.read_text())
+        assert _alive(lectern)
+        _until(lambda: log.exists() and "an ordinary line" in log.read_text(), "the log")
+        assert "SECRET" not in log.read_text() and "token" not in log.read_text()
+        assert log.stat().st_mode & 0o777 == 0o600
+
+        app.send_signal(signal.SIGTERM)  # what the installer sends: the app's own Quit
+        assert app.wait(timeout=20) == 0
+    stopped = folder / "app/venv/bin/lectern.stopped"
+    assert stopped.read_text().strip() == "interrupted"  # SIGINT, as Ctrl+C: runners stop too
+    assert not _alive(lectern) and not pid_file.exists()
+
+
+@needs_a_desktop
+@pytest.mark.parametrize("caught", ["running", "still starting"])
+def test_the_app_takes_over_a_lectern_left_running_and_says_its_log_is_paused(
+    tmp_path, installed, caught
+):
+    folder, bundle = installed
+    pid_file = folder / "app/lectern.pid"
+    log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
+    if caught == "still starting":
+        # The app dies while Lectern is still its start script, a moment before it becomes
+        # app/venv/bin/lectern. Here the moment is made long enough to land in.
+        serve = folder / "bin/lectern-serve"
+        serve.write_text(serve.read_text().replace("exec ", "sleep 3\nexec "))
+    with _app(tmp_path, bundle) as crashed:
+        _until(pid_file.exists, "the app started Lectern")
+        lectern = int(pid_file.read_text())
+        if caught == "running":
+            _until(lambda: "an ordinary line" in log.read_text(), "Lectern is up")
+        crashed.kill()  # the app is force-quit: Lectern lives on
+        crashed.wait()
+    assert _alive(lectern)
+
+    with _app(tmp_path, bundle) as app:
+        _until(lambda: f"took over Lectern (process {lectern})" in log.read_text(), "the take-over")
+        assert "isn't kept until Restart" in log.read_text()
+        assert int(pid_file.read_text()) == lectern  # no second Lectern was started
+        assert log.read_text().count("---- Lectern 1.0.0 started") == 1
+
+        stopped = folder / "app/venv/bin/lectern.stopped"
+        if caught == "still starting":  # let it become Lectern, so SIGINT is its to handle
+            _until(lambda: "app/venv/bin/lectern" in _arguments(lectern), "the start script ended")
+        app.send_signal(signal.SIGTERM)
+        assert app.wait(timeout=20) == 0
+    if caught == "running":  # (caught earlier, the stand-in may not have set its trap yet)
+        assert stopped.exists()
+    assert not _alive(lectern) and not pid_file.exists()
+
+
+@needs_a_desktop
+def test_the_app_leaves_alone_a_process_that_only_shares_the_number_in_the_pid_file(
+    tmp_path, installed
+):
+    folder, bundle = installed
+    pid_file = folder / "app/lectern.pid"
+    with contextlib.ExitStack() as stack:
+        other = subprocess.Popen(["/bin/sleep", "600"])  # noqa: S603
+        stack.callback(other.wait)
+        stack.callback(other.kill)
+        pid_file.write_text(f"{other.pid}\n")  # a stale file; its number is another's now
+        app = stack.enter_context(_app(tmp_path, bundle))
+        _until(
+            lambda: pid_file.exists() and pid_file.read_text().strip() != str(other.pid),
+            "the app started its own Lectern",
+        )
+        app.send_signal(signal.SIGTERM)
+        assert app.wait(timeout=20) == 0
+        assert other.poll() is None  # never signalled
 
 
 # --- install.sh in a fake home, with fake system commands ------------------------------------
