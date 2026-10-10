@@ -290,7 +290,7 @@ function ModelChoice({
     <>
       <select
         aria-label={t("firstRun.chooseModel")}
-        className="max-w-full rounded border border-line bg-paper px-2 py-1"
+        className="max-w-full rounded border border-line bg-paper px-2 py-1 disabled:opacity-60"
         value={model.id}
         disabled={disabled}
         onChange={(e) => onChoose(e.target.value)}
