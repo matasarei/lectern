@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import shutil
 import threading
 from pathlib import Path
 
@@ -594,6 +595,37 @@ def test_a_swap_whose_second_step_fails_puts_the_model_back_at_once(paths, sessi
     failed = manager.update_state("tiny")
     assert failed.status == "failed" and "Operation not permitted" in failed.error
     assert _row(sessions, "tiny").revision == "a" * 40
+
+
+def test_an_update_is_done_even_if_the_old_folder_cannot_be_deleted_yet(
+    paths, sessions, monkeypatch
+):
+    manager, _ = _updating(paths, sessions)
+    rmtree = shutil.rmtree
+
+    def busy(path, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+        if Path(path).name == "tiny.old":
+            raise OSError("Resource busy")
+        return rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "rmtree", busy)
+
+    asyncio.run(_updated(manager, _newer()))
+
+    # The new revision is in place and recorded: that's an update that worked.
+    assert manager.update_state("tiny") is None
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+    assert _row(sessions, "tiny").revision == "b" * 40
+    assert (paths.models / "tiny.old").is_dir()  # left for the next start
+
+    async def next_start():
+        return manager.resume_interrupted({"tiny": _newer()})
+
+    # And a start that can't delete it either still starts.
+    assert asyncio.run(next_start()) == []
+    monkeypatch.setattr(shutil, "rmtree", rmtree)
+    assert asyncio.run(next_start()) == []
+    assert not (paths.models / "tiny.old").exists()
 
 
 def test_there_is_nothing_to_update_for_a_model_at_the_pinned_revision(paths, sessions):

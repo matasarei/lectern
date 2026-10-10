@@ -507,7 +507,7 @@ class DownloadManager:
             old.rename(current)  # not left renamed away until the next start
             raise
         self._record_swapped(entry, entry.revision)
-        shutil.rmtree(old)
+        _discard(old)
 
     def _record_swapped(self, entry: CatalogEntry, revision: str) -> None:
         self._save(
@@ -536,7 +536,7 @@ class DownloadManager:
                     marker = current / UPDATE_MARKER
                     if marker.is_file():
                         self._record_swapped(entry, marker.read_text().strip())
-                    shutil.rmtree(old)
+                    _discard(old)
                 else:
                     old.rename(current)
             if staging.is_dir() and not staging.is_symlink():
@@ -615,6 +615,14 @@ class DownloadManager:
         if now - progress.last_save >= SAVE_EVERY:
             progress.last_save = now
             self._save(progress.entry.id, bytes_done=progress.done)
+
+
+def _discard(old: Path) -> None:
+    """Delete the folder of the revision that was replaced. The swap is done by then, so a
+    folder that can't be deleted now (a file in it still open, on Windows) doesn't undo it or
+    stop Lectern starting: it stays for the next start to try again."""
+    with contextlib.suppress(OSError):
+        shutil.rmtree(old)
 
 
 def _link_or_copy(source: Path, target: Path) -> None:
