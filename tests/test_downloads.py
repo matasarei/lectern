@@ -17,6 +17,7 @@ from lectern.downloads.manager import (
     DISK_HEADROOM,
     DownloadManager,
     NoSuchFolder,
+    NothingToUpdate,
     NotRemovable,
 )
 
@@ -428,6 +429,257 @@ async def _until(condition, *, steps: int = 2000) -> None:  # noqa: ANN001
     raise AssertionError("condition never became true")
 
 
+# --- a newer revision in the catalog: Update --------------------------------------------------
+
+NEWER = b"GGUF" + bytes(range(255, -1, -1)) * 400  # the model file of a newer revision
+
+
+def _newer() -> CatalogEntry:
+    """The same model as the catalog pins it after a Lectern update: the model file changed,
+    its projector didn't."""
+    return _entry(NEWER).model_copy(update={"revision": "b" * 40})
+
+
+def _updating(paths, sessions, **hub_files):  # noqa: ANN001, ANN202
+    """Tiny installed at its first revision, and a manager whose hub serves the newer one."""
+    _installed_tiny(paths, sessions)
+    hub = FakeHub({"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ, **hub_files})
+    return _manager(paths, sessions, hub), hub
+
+
+async def _updated(manager: DownloadManager, entry: CatalogEntry) -> None:
+    manager.start_update(entry)
+    await manager._update_tasks[entry.id]
+
+
+def test_an_update_is_there_when_the_catalog_pins_another_revision_than_the_one_on_disk(
+    paths, sessions
+):
+    manager, entry = _installed_tiny(paths, sessions)
+    assert manager.update_available(entry) is False  # the revision on disk is the pinned one
+    assert manager.update_available(_newer()) is True
+
+    never_installed = _newer().model_copy(update={"id": "another-model"})
+    assert manager.update_available(never_installed) is False
+
+
+def test_no_update_is_offered_for_a_model_folder_that_is_a_link(paths, sessions):
+    manager, _ = _installed_tiny(paths, sessions)
+    elsewhere = paths.models.parent / "elsewhere"
+    (paths.models / "tiny").rename(elsewhere)
+    (paths.models / "tiny").symlink_to(elsewhere, target_is_directory=True)
+    # Usable through the link, and not Lectern's to replace: as with Remove.
+    assert manager.is_downloaded(_newer()) is True
+    assert manager.update_available(_newer()) is False
+
+
+def test_no_update_is_offered_for_a_model_whose_revision_is_not_known(paths, sessions):
+    manager, entry = _installed_tiny(paths, sessions)
+    manager._save("tiny", revision=None)  # as for files that were copied in by hand
+    # It may be the newer one already: Lectern can't tell, and doesn't guess.
+    assert manager.update_available(_newer()) is False
+
+
+def test_an_update_fetches_what_changed_and_keeps_what_did_not(paths, sessions):
+    manager, hub = _updating(paths, sessions)
+    folder = paths.models / "tiny"
+    projector_before = (folder / "mmproj.gguf").stat().st_ino
+
+    asyncio.run(_updated(manager, _newer()))
+
+    assert (folder / "tiny.gguf").read_bytes() == NEWER
+    assert (folder / "mmproj.gguf").read_bytes() == MMPROJ
+    # Only the changed file was downloaded; the other is the very file that was there.
+    assert [r.url.path.rsplit("/", 1)[-1] for r in hub.requests] == ["tiny.gguf"]
+    assert "/resolve/" + "b" * 40 + "/" in str(hub.requests[0].url)
+    assert (folder / "mmproj.gguf").stat().st_ino == projector_before
+    assert _row(sessions, "tiny").revision == "b" * 40
+    assert manager.update_available(_newer()) is False and manager.update_state("tiny") is None
+    assert sorted(p.name for p in paths.models.iterdir()) == ["tiny"]  # nothing left beside it
+
+
+def test_the_old_copy_is_whole_until_the_model_is_free_and_then_swapped(paths, sessions):
+    manager, _ = _updating(paths, sessions)
+    folder = paths.models / "tiny"
+    seen: list[tuple[str, bytes, bool, str]] = []
+
+    async def when_free(model_id, swap):  # noqa: ANN001, ANN202
+        # As the runtime: called when the new revision is ready; runs `swap` once no copy of
+        # the model is loaded.
+        staged = (paths.models / "tiny.update" / "tiny.gguf").read_bytes() == NEWER
+        seen.append((model_id, (folder / "tiny.gguf").read_bytes(), staged, "before"))
+        await swap()
+        seen.append((model_id, (folder / "tiny.gguf").read_bytes(), False, "after"))
+
+    manager.exclusive = when_free
+
+    asyncio.run(_updated(manager, _newer()))
+
+    assert seen == [("tiny", MODEL, True, "before"), ("tiny", NEWER, False, "after")]
+
+
+def test_while_an_update_runs_the_list_can_say_how_far_it_is(paths, sessions):
+    manager, hub = _updating(paths, sessions)
+    hub.gate = threading.Event()  # the transfer hangs mid-file
+    entry = _newer()
+
+    async def go():
+        started = manager.start_update(entry)
+        again = manager.start_update(entry)  # pressed twice: still one update
+        await _until(lambda: list((paths.models / "tiny.update").glob("*.part")))
+        during = manager.update_state("tiny")
+        usable = manager.is_downloaded(entry) and manager.state(entry).status == "done"
+        hub.gate.set()
+        await manager._update_tasks["tiny"]
+        return started, again, during, usable
+
+    started, again, during, usable = asyncio.run(go())
+    assert (started.status, again.status, during.status) == ("updating",) * 3
+    assert during.bytes_total == entry.size and during.error is None
+    assert usable  # the model on disk went on being a finished download throughout
+    assert len(hub.requests) == 1
+
+
+def test_an_update_that_fails_leaves_the_model_as_it_was_and_can_be_tried_again(paths, sessions):
+    manager, hub = _updating(paths, sessions)
+    hub.cut_after["tiny.gguf"] = 30_000
+    entry = _newer()
+
+    asyncio.run(_updated(manager, entry))
+
+    failed = manager.update_state("tiny")
+    assert failed.status == "failed" and "Connection problem" in failed.error
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
+    assert _row(sessions, "tiny").revision == "a" * 40
+    assert manager.update_available(entry) is True
+
+    asyncio.run(_updated(manager, entry))  # Update again: it goes on from where it stopped
+
+    assert hub.requests[1].headers["range"] == "bytes=30000-"
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+    assert manager.update_state("tiny") is None
+
+
+def test_an_update_is_refused_without_room_for_what_it_has_to_fetch(paths, sessions):
+    _installed_tiny(paths, sessions)
+    hub = FakeHub({"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ})
+    manager = _manager(paths, sessions, hub, disk_free=DISK_HEADROOM + len(NEWER) - 1)
+
+    asyncio.run(_updated(manager, _newer()))
+
+    failed = manager.update_state("tiny")
+    assert failed.status == "failed" and "Not enough disk space" in failed.error
+    assert hub.requests == []  # the unchanged file doesn't count: it isn't fetched
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
+
+
+def test_there_is_nothing_to_update_for_a_model_at_the_pinned_revision(paths, sessions):
+    manager, entry = _installed_tiny(paths, sessions)
+
+    async def go():
+        manager.start_update(entry)
+
+    with pytest.raises(NothingToUpdate):
+        asyncio.run(go())
+
+
+def _put(folder, **files: bytes) -> None:  # noqa: ANN001
+    folder.mkdir(parents=True)
+    for name, data in files.items():
+        (folder / name).write_bytes(data)
+
+
+def test_a_swap_cut_short_after_the_new_revision_was_in_place_is_finished_at_start(paths, sessions):
+    manager, _ = _installed_tiny(paths, sessions)
+    (paths.models / "tiny").rename(paths.models / "tiny.old")
+    _put(paths.models / "tiny", **{"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ})
+
+    async def go():
+        return manager.resume_interrupted({"tiny": _newer()})
+
+    assert asyncio.run(go()) == []
+    assert not (paths.models / "tiny.old").exists()
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+    assert _row(sessions, "tiny").revision == "b" * 40
+
+
+def test_a_swap_cut_short_before_the_new_revision_was_in_place_is_undone_and_run_again(
+    paths, sessions
+):
+    manager, _ = _updating(paths, sessions)
+    (paths.models / "tiny").rename(paths.models / "tiny.old")
+    _put(paths.models / "tiny.update", **{"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ})
+
+    async def go():
+        resumed = manager.resume_interrupted({"tiny": _newer()})
+        # The old revision is back in its place at once, usable while the update finishes.
+        back = (paths.models / "tiny" / "tiny.gguf").read_bytes()
+        await manager._update_tasks["tiny"]
+        return resumed, back
+
+    assert asyncio.run(go()) == (["tiny"], MODEL)
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+    assert _row(sessions, "tiny").revision == "b" * 40
+    assert sorted(p.name for p in paths.models.iterdir()) == ["tiny"]
+
+
+def test_an_update_interrupted_mid_download_goes_on_at_the_next_start(paths, sessions):
+    manager, hub = _updating(paths, sessions)
+    _put(paths.models / "tiny.update", **{"tiny.gguf.part": NEWER[:40_000]})
+
+    async def go():
+        resumed = manager.resume_interrupted({"tiny": _newer()})
+        await manager._update_tasks["tiny"]
+        return resumed
+
+    assert asyncio.run(go()) == ["tiny"]
+    assert hub.requests[0].headers["range"] == "bytes=40000-"
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+
+
+def test_what_an_update_left_behind_for_a_model_already_current_is_cleared(paths, sessions):
+    manager, entry = _installed_tiny(paths, sessions)
+    _put(paths.models / "tiny.update", **{"tiny.gguf.part": b"x" * 10})
+
+    async def go():
+        return manager.resume_interrupted({"tiny": entry})
+
+    assert asyncio.run(go()) == []
+    assert not (paths.models / "tiny.update").exists()
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
+
+
+def test_a_models_update_folders_are_not_listed_as_strays_and_go_with_the_model(paths, sessions):
+    manager, hub = _updating(paths, sessions)
+    hub.gate = threading.Event()
+    entry = _newer()
+
+    async def go():
+        manager.start_update(entry)
+        await _until(lambda: list((paths.models / "tiny.update").glob("*.part")))
+        strays = manager.unlisted({"tiny"})
+        await manager.remove("tiny")  # the update is stopped, and its folder goes too
+        return strays, manager.update_state("tiny")
+
+    assert asyncio.run(go()) == ([], None)
+    assert list(paths.models.iterdir()) == []
+
+
+def test_shutting_down_stops_an_update_and_keeps_what_it_fetched(paths, sessions):
+    manager, hub = _updating(paths, sessions)
+    hub.gate = threading.Event()
+
+    async def go():
+        manager.start_update(_newer())
+        await _until(lambda: list((paths.models / "tiny.update").glob("*.part")))
+        await manager.stop_all()
+        return manager._update_tasks["tiny"].done()
+
+    assert asyncio.run(go()) is True
+    assert (paths.models / "tiny.update").is_dir()  # the next start goes on from it
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
+
+
 @pytest.fixture
 def api(paths, sessions, monkeypatch):
     from lectern.catalog import catalog as catalog_module
@@ -464,6 +716,32 @@ def test_post_returns_before_the_download_finishes(api):
             break
         threading.Event().wait(0.02)
     assert (manager.models_dir / "tiny" / "tiny.gguf").read_bytes() == MODEL
+
+
+def test_update_over_http_brings_a_model_to_the_pinned_revision(api):
+    client, headers, hub, manager = api
+    client.post("/api/models/tiny/download", headers=headers)
+    hub.gate.set()
+    _until_downloaded(client, headers, "tiny")
+    manager._save("tiny", revision="0" * 40)  # as if an older Lectern's pin had fetched it
+
+    def tiny() -> dict:
+        models = client.get("/api/models", headers=headers).json()["models"]
+        return next(m for m in models if m["id"] == "tiny")
+
+    assert tiny()["update_available"] is True
+
+    started = client.post("/api/models/tiny/update", headers=headers)
+
+    assert started.status_code == 202
+    for _ in range(200):
+        if not tiny()["update_available"] and tiny()["update"] is None:
+            break
+        threading.Event().wait(0.02)
+    # Through the app: the downloads' swap went by way of the runtime's gate.
+    assert tiny()["installed"]["revision"] == "a" * 40
+    assert (manager.models_dir / "tiny" / "tiny.gguf").read_bytes() == MODEL
+    assert sorted(p.name for p in manager.models_dir.iterdir()) == ["tiny"]
 
 
 def test_unknown_model_is_404(api):

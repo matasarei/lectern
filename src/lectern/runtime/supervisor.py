@@ -463,16 +463,23 @@ class ModelRuntime:
                 idle = [r for r in idle if r.partition("@")[0] == role]
             return await self._unload_all([r for r in idle if r not in self._turn_models])
 
-    async def without_model(self, model_id: str, action: Callable[[], Awaitable[None]]) -> None:
+    async def without_model(
+        self, model_id: str, action: Callable[[], Awaitable[None]], *, wait: bool = False
+    ) -> None:
         """Run `action` with no copy of the model loaded and none able to load until it's
-        done: for removing the model's files. Idle copies are unloaded first, under whatever
-        key they were loaded. Raises ModelInUse, having done nothing, when a copy is leased
-        or a reply is being written with it. The runtime's lock is held throughout, so a
-        lease that arrives meanwhile waits and then finds the model as `action` left it."""
+        done: for removing the model's files, or putting an updated copy in their place. Idle
+        copies are unloaded first, under whatever key they were loaded. When a copy is leased
+        or a reply is being written with it: raises ModelInUse, having done nothing, or with
+        `wait` waits until it's free. The runtime's lock is held throughout, so a lease that
+        arrives meanwhile waits and then finds the model as `action` left it."""
         async with self._cond:
-            keys = [k for k, r in self._residents.items() if r.choice.model_id == model_id]
-            if any(self._residents[k].leases or k in self._turn_models for k in keys):
-                raise ModelInUse(model_id)
+            while True:
+                keys = [k for k, r in self._residents.items() if r.choice.model_id == model_id]
+                if not any(self._residents[k].leases or k in self._turn_models for k in keys):
+                    break
+                if not wait:
+                    raise ModelInUse(model_id)
+                await self._cond.wait()  # a lease given back, or a turn ended
             await self._unload_all(keys)
             await action()
 

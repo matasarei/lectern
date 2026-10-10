@@ -11,7 +11,12 @@ from starlette.concurrency import run_in_threadpool
 from lectern.api.sse import hub_stream
 from lectern.catalog import catalog
 from lectern.core import settings
-from lectern.downloads.manager import DownloadManager, NoSuchFolder, NotRemovable
+from lectern.downloads.manager import (
+    DownloadManager,
+    NoSuchFolder,
+    NothingToUpdate,
+    NotRemovable,
+)
 from lectern.hardware.probe import probe
 from lectern.hardware.tiers import effective_tier
 from lectern.projects.tables import iso
@@ -68,6 +73,10 @@ def list_models(request: Request) -> dict:
                 "download": downloads.state(m).to_dict(),
                 "installed": _installed(downloads, m),  # None: nothing of it on disk
                 "used_by": used_by(m),
+                # The catalog pins a newer revision than the one on disk (POST …/update), and
+                # that update while it runs or after it failed.
+                "update_available": downloads.update_available(m),
+                "update": _update(downloads, m),
             }
             for m in cat.models
         ],
@@ -89,6 +98,11 @@ def _installed(downloads: DownloadManager, entry: catalog.CatalogEntry) -> dict 
         "at": iso(installed.at) if installed.at else None,
         "bytes": installed.bytes,
     }
+
+
+def _update(downloads: DownloadManager, entry: catalog.CatalogEntry) -> dict | None:
+    state = downloads.update_state(entry.id)
+    return state.to_dict() if state is not None else None
 
 
 class RoleModel(BaseModel):
@@ -156,6 +170,22 @@ async def start_download(
             "with accept_licence set to true.",
         )
     return _manager(request).start(entry).to_dict()
+
+
+@router.post("/models/{model_id}/update", status_code=202)
+async def update_model(model_id: str, request: Request) -> dict:
+    """Bring an installed model to the revision the catalog pins now. It runs in the
+    background: the new revision is built beside the model, which stays in use, and takes its
+    place when the model is free. The list (`update`) says how far it is."""
+    entry = catalog.load().get(model_id)
+    if entry is None:
+        raise HTTPException(404, f"No model {model_id!r} in the catalog.")
+    try:
+        return _manager(request).start_update(entry).to_dict()
+    except NothingToUpdate as exc:
+        raise HTTPException(
+            409, f"{exc} It isn't on disk, or it is the catalog's version."
+        ) from exc
 
 
 @router.delete("/models/{name}")

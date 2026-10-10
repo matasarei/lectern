@@ -401,6 +401,32 @@ def test_a_model_in_use_keeps_its_files():
     assert ran == []
 
 
+def test_an_update_waits_for_the_model_to_be_free_instead_of_giving_up():
+    runtime, runner = _runtime(16, {"main": 2})
+    order: list[str] = []
+
+    async def swap() -> None:
+        order.append(f"swapped with {[r['model_id'] for r in runtime.state()['residents']]}")
+
+    async def go():
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            waiting = asyncio.create_task(runtime.without_model("main-model", swap, wait=True))
+            for _ in range(20):
+                await asyncio.sleep(0)
+            order.append("still leased")
+        for _ in range(20):  # the lease is back, the reply isn't finished
+            await asyncio.sleep(0)
+        order.append("turn still running")
+        await runtime.turn_ended()
+        await waiting
+
+    asyncio.run(go())
+    # Not while it was leased, not between two model calls of the reply: once the turn ended,
+    # with the model unloaded.
+    assert order == ["still leased", "turn still running", "swapped with []"]
+
+
 def test_nothing_loads_the_model_while_its_files_are_going():
     runtime, runner = _runtime(16, {"main": 2})
     order: list[str] = []

@@ -6,6 +6,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -87,6 +88,8 @@ def create_app(
     app.state.runtime = runtime or build_runtime(
         paths, app.state.downloads, probe(), app.state.sessions
     )
+    # A model's update is put in place when nothing has the model loaded: the runtime knows.
+    app.state.downloads.exclusive = partial(app.state.runtime.without_model, wait=True)
 
     modules = load_modules()
     app.state.tool_env = EnvProbe()
