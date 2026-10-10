@@ -95,6 +95,8 @@ async def put_settings(body: RuntimeSettings, request: Request) -> dict:
         # The switch changes which model a role runs on, and whether OCR cleanup needs its
         # own copy of the chat model. What's loaded and idle goes now and loads again by the
         # new rule when it's next used; the model of a reply being written changes over with
-        # the next turn.
+        # the next turn. A model a job is using stays as well, and one kind is then left over:
+        # cleanup's copy of the chat model, in use when MLX is switched off, isn't asked for
+        # again and stays loaded until another model needs its room.
         await _runtime(request).unload_between_replies()
     return await run_in_threadpool(get_settings, request)
