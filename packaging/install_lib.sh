@@ -10,6 +10,8 @@
 #   uv        the uv to run, once it has one (fetch_uv, or LECTERN_UV_BIN)
 # Each function says what it sets for the installer to use.
 
+# In a message, a variable right before a non-ASCII character is written ${name}: macOS's
+# bash (3.2), in a UTF-8 locale, otherwise takes the character's first byte into the name.
 die() { echo "install.sh: $*" >&2; exit 1; }
 
 # A file's sha256: sha256sum where there is one (Linux, recent macOS), else shasum.
@@ -28,7 +30,7 @@ fetch_uv() {
     if [ -x "$to/uv" ] && [ "$("$to/uv" --version 2>/dev/null | cut -d' ' -f2)" = "$UV_VERSION" ]; then
         return
     fi
-    echo "Getting uv $UV_VERSION…"
+    echo "Getting uv ${UV_VERSION}…"
     mkdir -p "$to"
     tmp="$(mktemp -d)"
     curl -fsSL "${LECTERN_UV_URL:-$url}" -o "$tmp/uv.tar.gz" \
@@ -60,7 +62,7 @@ find_wheel() {
             command -v "${LECTERN_NPM:-npm}" >/dev/null || die "building the web UI needs Node.js (npm): \
 $how_to_get_node. Or copy a \
 package made with packaging/make_package.sh, which needs none."
-            echo "Building Lectern from $top…"
+            echo "Building Lectern from ${top}…"
             PATH="$(dirname "$uv"):$PATH" "$top/packaging/build_wheel.sh" >/dev/null \
                 || die "building the app failed (see above)."
             wheel="$(newest "$top"/dist/lectern_ai-*.whl)"
@@ -83,7 +85,7 @@ package made with packaging/make_package.sh, which needs none."
 install_version() {
     export UV_PYTHON_INSTALL_DIR="$app/python" UV_CACHE_DIR="$app/cache" UV_NO_CONFIG=1
     target="$app/versions/$version-$(date +%Y%m%d%H%M%S)-$$"  # $$: two runs in a second
-    echo "Installing Lectern $version…"
+    echo "Installing Lectern ${version}…"
     if ! { "$uv" venv --quiet --python 3.12 "$target" \
            && "$uv" pip install --quiet --refresh-package lectern-ai \
                   --python "$target/bin/python" "$wheel"; }; then
@@ -140,7 +142,7 @@ ENV
 wait_for_health() {
     port="$(sed -n 's/^LECTERN_PORT=//p' "$settings" | tail -1)"
     port="${port:-8765}"
-    echo "Waiting for Lectern to answer on 127.0.0.1:$port…"
+    echo "Waiting for Lectern to answer on 127.0.0.1:${port}…"
     for _ in $(seq "${LECTERN_HEALTH_WAIT:-60}"); do
         if curl -fsS "http://127.0.0.1:$port/health" >/dev/null 2>&1; then return 0; fi
         sleep 1

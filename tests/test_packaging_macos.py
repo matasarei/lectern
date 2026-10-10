@@ -135,6 +135,7 @@ def _env(tmp_path: Path, **extra: str) -> dict[str, str]:
         "PATH": f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": str(tmp_path / "home"),  # ~/.lectern and ~/Applications are the defaults
         "USER": "someone",
+        "LANG": "en_US.UTF-8",  # as on a real Mac: its bash 3.2 reads scripts differently in it
         "LECTERN_UV_BIN": str(bin_dir / "uv"),
         "LECTERN_HEALTH_WAIT": "2",
         "LECTERN_QUIT_WAIT": "5",
