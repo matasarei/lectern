@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+import httpx2
 import pytest
 
 from lectern.core import settings
@@ -23,11 +24,14 @@ SPEC = RunnerSpec(
 )
 
 
-def test_text_models_use_mlx_lm_on_localhost_without_a_key():
+def test_text_models_go_through_lecterns_launcher_on_localhost():
     args = mlx.build_args(SPEC, vision=False, port=4321)
-    assert args[:3] == [sys.executable, "-m", "mlx_lm.server"]
+    # Not mlx_lm.server itself: that one has no key and answers every website.
+    assert args[:3] == [sys.executable, "-m", "lectern.runners.mlx_text_server"]
     assert args[args.index("--host") + 1] == "127.0.0.1"
     assert "--api-key" not in args
+    # Its own address, which no page is served from, in place of the default "*".
+    assert args[args.index("--allowed-origins") + 1] == "http://127.0.0.1:4321"
 
 
 def test_vision_models_use_mlx_vlm_on_localhost():
@@ -35,25 +39,29 @@ def test_vision_models_use_mlx_vlm_on_localhost():
     assert args[2] == "mlx_vlm.server"
     assert args[args.index("--host") + 1] == "127.0.0.1"  # its default would be 0.0.0.0
     assert "--api-key" not in args  # on the command line, `ps` would show it to every user
+    assert "--allowed-origins" not in args  # mlx_lm.server's flag, not this server's
 
 
-def test_the_key_goes_in_the_servers_environment(monkeypatch):
+@pytest.mark.parametrize(
+    ("vision", "name", "other"),
+    [(True, mlx.VISION_KEY_ENV, mlx.TEXT_KEY_ENV), (False, mlx.TEXT_KEY_ENV, mlx.VISION_KEY_ENV)],
+)
+def test_the_key_goes_in_the_servers_environment_under_the_name_it_reads(
+    monkeypatch, vision, name, other
+):
     monkeypatch.setenv("LECTERN_HOME", "/somewhere")
-    env = mlx.build_env("k3y")
-    assert env is not None
-    assert env[mlx.KEY_ENV] == "k3y"
+    monkeypatch.delenv(other, raising=False)
+    env = mlx.build_env("k3y", vision=vision)
+    assert env[name] == "k3y" and other not in env
     assert env["LECTERN_HOME"] == "/somewhere"  # the rest of ours is passed on
+    assert env["HF_HUB_OFFLINE"] == "1"  # the model is a folder here: nothing to fetch
 
 
-def test_a_key_already_in_our_environment_is_replaced(monkeypatch):
-    monkeypatch.setenv(mlx.KEY_ENV, "someone-elses")
-    env = mlx.build_env("k3y")
-    assert env is not None and env[mlx.KEY_ENV] == "k3y"
-
-
-@pytest.mark.parametrize("key", [None, ""])
-def test_without_a_key_the_server_inherits_our_environment(key):
-    assert mlx.build_env(key) is None
+@pytest.mark.parametrize("vision", [True, False])
+def test_a_key_already_in_our_environment_is_replaced(monkeypatch, vision):
+    name = mlx.VISION_KEY_ENV if vision else mlx.TEXT_KEY_ENV
+    monkeypatch.setenv(name, "someone-elses")
+    assert mlx.build_env("k3y", vision=vision)[name] == "k3y"
 
 
 class _Started(Exception):
@@ -74,11 +82,36 @@ def test_start_gives_the_key_to_the_server_only_through_its_environment(
     with pytest.raises(_Started):
         asyncio.run(mlx.MlxRunner(tmp_path, vision=vision).start(SPEC))
     assert "--api-key" not in seen["argv"]
-    if vision:
-        assert seen["env"][mlx.KEY_ENV]  # a fresh key, in the environment only
-        assert seen["env"][mlx.KEY_ENV] not in " ".join(seen["argv"])
-    else:
-        assert seen["env"] is None  # mlx_lm.server has no key: it inherits ours
+    key = seen["env"][mlx.VISION_KEY_ENV if vision else mlx.TEXT_KEY_ENV]
+    assert len(key) >= 32  # a fresh key, for either server
+    assert key not in " ".join(seen["argv"])  # in the environment only
+
+
+@pytest.mark.parametrize(("vision", "path"), [(False, "/health"), (True, "/v1/models")])
+def test_each_server_is_asked_whether_its_ready_where_it_answers(tmp_path, vision, path):
+    asked = []
+
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        asked.append((request.url.path, request.headers.get("Authorization")))
+        return httpx2.Response(200)
+
+    class Handle:
+        model_id = "m"
+
+        def client(self, timeout: float = 600.0) -> httpx2.AsyncClient:
+            return httpx2.AsyncClient(
+                base_url="http://127.0.0.1:1",
+                transport=httpx2.MockTransport(answer),
+                headers={"Authorization": "Bearer k3y"},
+            )
+
+        def is_running(self) -> bool:
+            return True
+
+    asyncio.run(mlx.MlxRunner(tmp_path, vision=vision)._wait_ready(Handle()))
+    # With the key: the launcher refuses /health too without it.
+    assert asked == [(path, "Bearer k3y")]
 
 
 def test_read_shape_from_config(tmp_path):
