@@ -59,12 +59,14 @@ const RESPONSES: Record<string, unknown> = {
 
 let puts: unknown[] = [];
 let choices: { role: string; modelId: string | null }[] = [];
+let refusal: string | null = null; // what the server answers a choice with, when it refuses
 let posts: { url: string; body: unknown }[] = [];
 let overrides: Record<string, unknown> = {};
 
 beforeEach(() => {
   puts = [];
   choices = [];
+  refusal = null;
   posts = [];
   overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
@@ -82,6 +84,7 @@ beforeEach(() => {
         const role = decodeURIComponent(url.split("/")[4]);
         const modelId = JSON.parse(String(init.body)).model_id as string | null;
         choices.push({ role, modelId });
+        if (refusal) return new Response(JSON.stringify({ detail: refusal }), { status: 409 });
         const list = (overrides["/api/models"] ?? RESPONSES["/api/models"]) as {
           defaults: Record<string, string>; chosen: Record<string, string>;
         };
@@ -369,6 +372,20 @@ describe("Models & memory", () => {
 
     await waitFor(() => expect(choices[1]).toEqual({ role: "main", modelId: null }));
     await waitFor(() => expect(screen.queryByText("Use it")).toBeNull());
+  });
+
+  it("says why a choice was refused, and leaves the role on its model", async () => {
+    withChatModels();
+    refusal = "Qwen3.5 4B can't be used for the 'main' role.";
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("Model for main"), {
+      target: { value: "qwen3.5-4b" },
+    });
+
+    expect(await screen.findByText(refusal)).toBeTruthy();
+    expect((screen.getByLabelText("Model for main") as HTMLSelectElement).value).toBe("qwen3.5-9b");
+    expect(screen.getByTestId("status-main").textContent).toBe("Loaded, in use");
   });
 
   it("warns under a chosen model that this computer isn't meant for", async () => {
