@@ -67,7 +67,7 @@ export function FirstRunPage() {
     onSuccess: (data) => queryClient.setQueryData(["first-run"], data),
   });
   // Why the last pick (a model or an engine) was refused; the next pick clears it.
-  const [refused, setRefused] = useState<unknown>(null);
+  const [refused, setRefused] = useState<Error | null>(null);
   // The same choice as in Models & memory, which shows it afterwards.
   const choose = useMutation({
     onMutate: () => setRefused(null),
