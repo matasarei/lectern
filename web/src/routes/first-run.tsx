@@ -7,6 +7,7 @@ import type {
   DownloadState,
   EngineState,
   FirstRun,
+  FirstRunModel,
   SandboxStatus,
   SystemReport,
 } from "../api/types";
@@ -63,6 +64,16 @@ export function FirstRunPage() {
     mutationFn: () => apiPost<FirstRun>("/api/first-run/engine"),
     onSuccess: (data) => queryClient.setQueryData(["first-run"], data),
   });
+  // The same choice as in Models & memory, which shows it afterwards.
+  const choose = useMutation({
+    mutationFn: (modelId: string) =>
+      apiFetch("/api/models/roles/main", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["first-run"] }),
+  });
 
   if (system.isPending || firstRun.isPending) {
     return <Page>{t("common.loading")}</Page>;
@@ -104,7 +115,26 @@ export function FirstRunPage() {
 
       {run.step !== "hardware" && (
         <Card title={t("firstRun.modelCard")}>
-          <Row label={t("models.model")} value={`${model.title} · ${model.quant}`} />
+          <Row
+            label={t("models.model")}
+            value={
+              <ModelChoice
+                model={model}
+                options={run.chat_models}
+                // A pick is kept while it downloads: changing it would leave that running.
+                disabled={choose.isPending || ACTIVE.includes(state.status)}
+                onChoose={(id) => choose.mutate(id)}
+              />
+            }
+          />
+          {!model.suits_tier && <p className="text-sm text-muted">{t("modelsPage.tooBigWhy")}</p>}
+          {choose.error && (
+            <ErrorNote
+              message={
+                choose.error instanceof ApiError ? choose.error.detail : t("common.loadFailed")
+              }
+            />
+          )}
           <Row label={t("models.size")} value={formatBytes(model.size)} />
           <Row label={t("models.licence")} value={model.licence} />
           <Row label={t("firstRun.diskFree")} value={formatBytes(system.data.disk_free)} />
@@ -190,6 +220,47 @@ function SandboxCard({ initial }: { initial: SandboxStatus }) {
 
 function Page({ children }: { children: React.ReactNode }) {
   return <main className="mx-auto grid max-w-2xl gap-5 px-4 py-12">{children}</main>;
+}
+
+/** The chat model: a list when there's more than one to choose from. */
+function ModelChoice({
+  model,
+  options,
+  disabled,
+  onChoose,
+}: {
+  model: FirstRunModel;
+  options: FirstRunModel[];
+  disabled: boolean;
+  onChoose: (modelId: string) => void;
+}) {
+  const { t } = useTranslation();
+  if (options.length < 2) return <>{`${model.title} · ${model.quant}`}</>;
+  return (
+    <>
+      <select
+        aria-label={t("firstRun.chooseModel")}
+        className="max-w-full rounded border border-line bg-paper px-2 py-1"
+        value={model.id}
+        disabled={disabled}
+        onChange={(e) => onChoose(e.target.value)}
+      >
+        {options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {t(
+              option.recommended
+                ? "modelsPage.optionRecommended"
+                : option.suits_tier
+                  ? "modelsPage.option"
+                  : "modelsPage.optionTooBig",
+              { title: option.title, size: formatBytes(option.size) },
+            )}
+          </option>
+        ))}
+      </select>
+      <span className="text-muted"> · {model.quant}</span>
+    </>
+  );
 }
 
 /** The llama.cpp build: what it is, where its download is, and why it stopped. */

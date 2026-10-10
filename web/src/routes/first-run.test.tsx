@@ -16,6 +16,22 @@ const running = { runtime: "docker", version: "28.1", engine_running: true, foun
 let sandboxAnswer: unknown;
 let firstRun: Record<string, unknown> | null = null; // overrides /api/first-run
 let posts: string[] = [];
+let puts: { url: string; body: unknown }[] = [];
+let onPut: ((url: string, body: unknown) => void) | null = null; // what the server would then say
+let putRefused: string | null = null;
+
+const idle = (id: string) => ({
+  model_id: id, status: "none", bytes_done: 0, bytes_total: 1, rate: 0, error: null,
+});
+const chatModel = (id: string, title: string, size: number, more: object = {}) => ({
+  id, title, quant: "Q4_K_M", size, licence: "Apache-2.0", recommended: false, suits_tier: true,
+  download: idle(id),
+  mlx_build: { id: `${id}-mlx`, title: `${title} (MLX)`, size: size + 4 * 10 ** 8, download: idle(`${id}-mlx`) },
+  ...more,
+});
+const four = chatModel("qwen3.5-4b", "Qwen3.5 4B", 27 * 10 ** 8);
+const nine = chatModel("qwen3.5-9b", "Qwen3.5 9B", 6 * 10 ** 9, { recommended: true });
+const big = chatModel("qwen3.5-35b-a3b", "Qwen3.5 35B-A3B", 22 * 10 ** 9, { suits_tier: false });
 let sandboxFails = false;
 let sandboxChecks = 0;
 
@@ -31,10 +47,9 @@ const responses = (): Record<string, unknown> => ({
   },
   "/api/first-run": {
     step: "hardware",
-    chat_model: {
-      id: "qwen3.5-9b", title: "Qwen3.5 9B", quant: "Q4_K_M", size: 6 * 10 ** 9, licence: "Apache-2.0",
-      download: { model_id: "qwen3.5-9b", status: "none", bytes_done: 0, bytes_total: 1, rate: 0, error: null },
-    },
+    chat_model: nine,
+    chat_models: [four, nine, big],
+    mlx: { supported: false, available: false, enabled: false },
   },
 });
 
@@ -44,6 +59,9 @@ beforeEach(() => {
   sandboxChecks = 0;
   firstRun = null;
   posts = [];
+  puts = [];
+  onPut = null;
+  putRefused = null;
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
@@ -52,6 +70,13 @@ beforeEach(() => {
       if (init?.method === "POST") {
         posts.push(url);
         return new Response(JSON.stringify(firstRun ?? responses()["/api/first-run"]), { status: 202 });
+      }
+      if (init?.method === "PUT") {
+        const body: unknown = JSON.parse(init.body as string);
+        puts.push({ url, body });
+        if (putRefused) return new Response(JSON.stringify({ detail: putRefused }), { status: 409 });
+        onPut?.(url, body);
+        return new Response(JSON.stringify({}));
       }
       if (url === "/api/first-run" && firstRun) return new Response(JSON.stringify(firstRun));
       if (url === "/api/system/sandbox") {
@@ -165,5 +190,65 @@ describe("First run: the engine", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("no network");
     fireEvent.click(screen.getByRole("button", { name: "Try the engine again" }));
     await vi.waitFor(() => expect(posts).toEqual(["/api/first-run/engine"]));
+  });
+});
+
+describe("First run: choosing the chat model", () => {
+  const options = () =>
+    Array.from(screen.getByLabelText<HTMLSelectElement>("Chat model").options).map((o) => o.text);
+
+  it("lists the chat models, the recommended one marked and selected", async () => {
+    firstRun = atDownload(engine("none"));
+    renderPage();
+
+    const list = await screen.findByLabelText<HTMLSelectElement>("Chat model");
+
+    expect(list.value).toBe("qwen3.5-9b");
+    expect(options()).toEqual([
+      "Qwen3.5 4B · 2.7 GB",
+      "Qwen3.5 9B · 6 GB · recommended",
+      "Qwen3.5 35B-A3B · 22 GB · more than this computer is meant for",
+    ]);
+    expect(screen.queryByText(/it may be slow/)).toBeNull();
+  });
+
+  it("saves a pick, and the card and the download follow it", async () => {
+    firstRun = atDownload(engine("done"));
+    onPut = () => {
+      firstRun = { ...atDownload(engine("done")), chat_model: four };
+    };
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("Chat model"), { target: { value: "qwen3.5-4b" } });
+
+    expect(await screen.findByText("2.7 GB")).toBeTruthy();
+    expect(puts).toEqual([{ url: "/api/models/roles/main", body: { model_id: "qwen3.5-4b" } }]);
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await vi.waitFor(() => expect(posts).toEqual(["/api/models/qwen3.5-4b/download"]));
+  });
+
+  it("says what to expect of a model that's more than this computer is meant for", async () => {
+    firstRun = { ...atDownload(engine("none")), chat_model: big };
+    renderPage();
+
+    expect(await screen.findByText(/it may be slow, run with a small context, or not load/)).toBeTruthy();
+  });
+
+  it("keeps the pick while its download runs", async () => {
+    firstRun = atDownload(engine("done"), "downloading");
+    renderPage();
+
+    expect((await screen.findByLabelText<HTMLSelectElement>("Chat model")).disabled).toBe(true);
+  });
+
+  it("says why a pick was refused", async () => {
+    firstRun = atDownload(engine("none"));
+    putRefused = "No model called qwen3.5-4b.";
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("Chat model"), { target: { value: "qwen3.5-4b" } });
+
+    expect((await screen.findByRole("alert")).textContent).toBe("No model called qwen3.5-4b.");
+    expect(screen.getByLabelText<HTMLSelectElement>("Chat model").value).toBe("qwen3.5-9b");
   });
 });
