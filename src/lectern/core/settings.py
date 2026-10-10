@@ -11,7 +11,7 @@ from lectern.core.tables import SettingRow
 
 RUNTIME_KEY = "runtime"
 RUNTIME_DEFAULTS: dict[str, Any] = {
-    "mlx_enabled": False,  # MLX servers can't be protected with a key yet
+    "mlx_enabled": False,  # a choice on a Mac; llama.cpp is what a fresh install runs
     "when_models_dont_fit": "swap_between_phases",  # or "keep_one_loaded"
     "chat_during_job": "pause_job_after_current_item",  # or "chat_waits"
 }

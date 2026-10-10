@@ -75,8 +75,21 @@ def build_runtime(
     unified = not hw.gpus or any(g.unified for g in hw.gpus)
     installer = LlamaCppInstaller(paths.runners)
 
+    def mlx_is_on() -> bool:
+        switched_on = settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
+            "mlx_enabled"
+        ]
+        return bool(switched_on) and mlx.mlx_available()
+
     def resolve(key: str) -> ModelChoice:
         role, entry = pick(key, tier)
+        # A role's model gives way to its MLX build on a Mac with MLX switched on, once the
+        # build is downloaded. Until then the GGUF runs, so the switch alone breaks nothing.
+        # A key that names a model ("main@qwen3.5-4b") gets that model.
+        if "@" not in key:
+            build = catalog.load().mlx_build_of(entry)
+            if build is not None and mlx_is_on() and downloads.is_downloaded(build):
+                entry = build
         if not downloads.is_downloaded(entry):
             raise NotAvailable(
                 f"{entry.title} isn't downloaded yet. Download it in Models & memory."
@@ -107,15 +120,13 @@ def build_runtime(
                     f"{choice.model_id} is an MLX model, and MLX only runs on Apple Silicon "
                     "Macs. Choose a GGUF model."
                 )
-            if not settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
-                "mlx_enabled"
-            ]:
+            if not mlx.mlx_available():
+                raise NotAvailable("MLX needs Apple Silicon and `pip install lectern-ai[mlx]`.")
+            if not mlx_is_on():
                 raise NotAvailable(
                     f"{choice.model_id} is an MLX model and MLX is off. Turn it on in "
                     "Models & memory, or choose a GGUF model."
                 )
-            if not mlx.mlx_available():
-                raise NotAvailable("MLX needs Apple Silicon and `pip install lectern-ai[mlx]`.")
             return mlx.MlxRunner(paths.home / "run", vision=choice.role in mlx.VISION_ROLES)
         try:
             variant = select_variant(hw)
