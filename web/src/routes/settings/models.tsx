@@ -26,9 +26,9 @@ import { formatAgo, formatBytes, formatMemory, percent } from "../../format";
 import { useDownloadEvents } from "../../hooks/useDownloadEvents";
 import { useRuntime } from "../../hooks/useRuntime";
 import { formatCountdown, modelWaitText, useCountdown } from "../../status";
+import { UPDATE_POLL_MS } from "./polling";
 
 const ROLES: Role[] = ["main", "ocr", "ocr.hand", "code"];
-const UPDATE_POLL_MS = 2000;
 const ROLE_COLOURS: Record<Role, string> = {
   main: "bg-accent",
   ocr: "bg-amber-600",

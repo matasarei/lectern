@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "../../router";
 
+// The page asks for the list again while an update runs; no test should wait out the real gap.
+vi.mock("./polling", () => ({ UPDATE_POLL_MS: 20 }));
+
 const GIB = 1024 ** 3;
 
 const download = (id: string, status: string) => ({
@@ -597,12 +600,10 @@ describe("Models & memory", () => {
       update_available: false,
       installed: { revision: "b".repeat(40), at: new Date().toISOString(), bytes: 5 * 10 ** 9 },
     });
-    await waitFor(
-      () => expect(installedRow("qwen3.5-9b").textContent).toContain("version bbbbbbb"),
-      { timeout: 5000 },
-    );
+    await waitFor(() =>
+      expect(installedRow("qwen3.5-9b").textContent).toContain("version bbbbbbb"));
     expect(installedRow("qwen3.5-9b").textContent).not.toContain("newer version");
-  }, 10_000);
+  });
 
   it.each([
     ["checking", "comparing the files on disk with the new version"],
