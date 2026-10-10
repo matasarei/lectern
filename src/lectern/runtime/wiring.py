@@ -75,8 +75,32 @@ def build_runtime(
     unified = not hw.gpus or any(g.unified for g in hw.gpus)
     installer = LlamaCppInstaller(paths.runners)
 
+    def mlx_is_on() -> bool:
+        switched_on = settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
+            "mlx_enabled"
+        ]
+        return bool(switched_on) and mlx.mlx_available()
+
+    def mlx_build_for(key: str, entry: catalog.CatalogEntry) -> catalog.CatalogEntry | None:
+        """The MLX build that runs in place of a role's model: on a Mac with MLX switched on,
+        once the build is downloaded. Until then the GGUF runs, so the switch alone breaks
+        nothing. A key that names a model ("main@qwen3.5-4b") gets that model, never a build."""
+        if "@" in key:
+            return None
+        build = catalog.load().mlx_build_of(entry)
+        if build is not None and mlx_is_on() and downloads.is_downloaded(build):
+            return build
+        return None
+
+    def schema_key(role: str) -> str:
+        """MLX's server can't hold a model to a JSON schema. Work that needs one names the
+        role's GGUF model when the role itself would run on its MLX build."""
+        _, entry = pick(role, tier)
+        return f"{role}@{entry.id}" if mlx_build_for(role, entry) else role
+
     def resolve(key: str) -> ModelChoice:
         role, entry = pick(key, tier)
+        entry = mlx_build_for(key, entry) or entry
         if not downloads.is_downloaded(entry):
             raise NotAvailable(
                 f"{entry.title} isn't downloaded yet. Download it in Models & memory."
@@ -107,15 +131,13 @@ def build_runtime(
                     f"{choice.model_id} is an MLX model, and MLX only runs on Apple Silicon "
                     "Macs. Choose a GGUF model."
                 )
-            if not settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
-                "mlx_enabled"
-            ]:
+            if not mlx.mlx_available():
+                raise NotAvailable(mlx.NOT_INSTALLED)
+            if not mlx_is_on():
                 raise NotAvailable(
                     f"{choice.model_id} is an MLX model and MLX is off. Turn it on in "
                     "Models & memory, or choose a GGUF model."
                 )
-            if not mlx.mlx_available():
-                raise NotAvailable("MLX needs Apple Silicon and `pip install lectern-ai[mlx]`.")
             return mlx.MlxRunner(paths.home / "run", vision=choice.role in mlx.VISION_ROLES)
         try:
             variant = select_variant(hw)
@@ -146,6 +168,7 @@ def build_runtime(
         if chat_during_job == "pause_job_after_current_item"
         else 0,
     )
+    runtime.schema_key = schema_key
     # runner_for reports the engine's download to it; first-run downloads it ahead of time.
     runtime.engine = (
         Engine(installer, engine_variant, runtime) if engine_variant is not None else None

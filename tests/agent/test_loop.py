@@ -15,7 +15,7 @@ from lectern.core.auth import LOCAL_USER
 from lectern.projects import files
 from lectern.projects.tables import ConfirmationRow, MessageRow, SessionRow
 
-from .fake_model import FakeHandle, make_runtime, text_reply, tool_reply
+from .fake_model import FakeHandle, make_runtime, sse, text_reply, tool_reply
 
 
 @pytest.fixture
@@ -148,8 +148,11 @@ def test_a_turn_waiting_for_a_card_doesnt_count_as_a_chat_writing(setup, store):
     """Jobs held for the chat go while the person reads a card (the model is idle), and the
     turn counts again once answered, or stopped."""
     manager, project, _, runtime = setup(
-        [tool_reply("artifact_trash", {"name": "old.md"}), text_reply("Done."),
-         tool_reply("artifact_trash", {"name": "older.md"})]  # fmt: skip
+        [
+            tool_reply("artifact_trash", {"name": "old.md"}),
+            text_reply("Done."),
+            tool_reply("artifact_trash", {"name": "older.md"}),
+        ]  # fmt: skip
     )
     add_file(store, project, "old.md", "old")
     add_file(store, project, "older.md", "older")
@@ -500,3 +503,49 @@ def test_a_failure_passing_an_event_on_does_not_break_the_chats_own_stream(caplo
     assert heard == {"type": "tool_result", "call_id": "a", "seq": 1}
     assert chat.events == [heard]
     assert "Couldn't pass a chat event on to its project" in caplog.text
+
+
+# --- the reply's speed ------------------------------------------------------------------------
+
+
+def _ticking_clock(monkeypatch):
+    """Every look at the clock is one second after the last: time passes, the same way each run."""
+    now = iter(range(1, 10_000))
+    monkeypatch.setattr(loop.time, "perf_counter", lambda: float(next(now)))
+
+
+def _done(manager, project):
+    return next(e for e in events(manager, project) if e["type"] == "done")
+
+
+def test_a_reply_has_a_speed_when_the_model_server_reports_none(setup, monkeypatch):
+    # MLX's server gives the token count and no timings; llama.cpp gives both.
+    _ticking_clock(monkeypatch)
+    manager, project, _, _ = setup([text_reply("The", " lease", " runs", " from", " March.")])
+    assert asyncio.run(turn(manager, project, "When does the lease start?")) == "done"
+    done = _done(manager, project)
+    assert done["tokens"] == 5
+    # Counted here: the tokens after the first, over the time since it arrived.
+    assert done["tps"] is not None and 0 < done["tps"] <= 4
+
+
+def test_the_model_servers_own_speed_is_kept_when_it_gives_one(setup, monkeypatch):
+    _ticking_clock(monkeypatch)
+    reply = sse(
+        {"choices": [{"delta": {"content": "March."}}]},
+        {
+            "choices": [],
+            "usage": {"completion_tokens": 2},
+            "timings": {"predicted_per_second": 42.5},
+        },
+    )
+    manager, project, _, _ = setup([reply])
+    assert asyncio.run(turn(manager, project, "When?")) == "done"
+    assert _done(manager, project)["tps"] == 42.5
+
+
+def test_a_reply_of_one_token_claims_no_speed(setup, monkeypatch):
+    _ticking_clock(monkeypatch)
+    manager, project, _, _ = setup([text_reply("Yes.")])
+    assert asyncio.run(turn(manager, project, "Is it signed?")) == "done"
+    assert _done(manager, project)["tps"] is None  # nothing to time between tokens

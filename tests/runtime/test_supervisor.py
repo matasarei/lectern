@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 from pathlib import Path
 
 import httpx2
@@ -231,6 +232,116 @@ def test_a_crashed_runner_shows_as_crashed_and_restarts_on_next_lease():
     assert asyncio.run(go()) == "crashed"
     assert runner.started == ["main-model", "main-model"]
     assert runtime.state()["residents"][0]["status"] == "loaded"
+
+
+def _resolving_to(runtime: ModelRuntime, model_id: str) -> None:
+    """From now on every role asks for `model_id`: a setting changed, or a download finished."""
+    before = runtime.resolve
+    runtime.resolve = lambda role: dataclasses.replace(before(role), model_id=model_id)
+
+
+def test_an_idle_model_gives_way_when_its_role_asks_for_another():
+    runtime, runner = _runtime(8, {"main": 5})
+
+    async def go():
+        async with runtime.events.listen() as queue:
+            async with runtime.lease("main"):
+                pass
+            _resolving_to(runtime, "main-mlx")
+            async with runtime.lease("main") as lease:
+                served = (await lease.client.get("/v1/models")).json()
+            async with runtime.lease("main"):
+                pass  # and the new one is reused, not loaded again
+            return served, [queue.get_nowait() for _ in range(queue.qsize())]
+
+    served, events = asyncio.run(go())
+    assert served == {"model": "main-mlx"}
+    assert runner.started == ["main-model", "main-mlx"]
+    assert not runner.handles[0].alive  # the old one was stopped, not left behind
+    assert [(r["role"], r["model_id"]) for r in runtime.state()["residents"]] == [
+        ("main", "main-mlx")
+    ]
+    unloaded = [e for e in events if e["event"] == "unloaded"]
+    assert [(e["model_id"], e["reason"]) for e in unloaded] == [("main-model", "changed")]
+    assert runtime.swaps == 0  # a change of model isn't a swap for room
+
+
+def test_a_model_in_use_stays_until_it_is_idle_even_if_its_role_asks_for_another():
+    runtime, runner = _runtime(8, {"main": 5})
+
+    async def go():
+        async with runtime.lease("main"):
+            _resolving_to(runtime, "main-mlx")
+            async with runtime.lease("main") as second:  # a reply is being written on it
+                during = (await second.client.get("/v1/models")).json()
+            assert runner.handles[0].alive
+        async with runtime.lease("main") as lease:
+            return during, (await lease.client.get("/v1/models")).json()
+
+    during, after = asyncio.run(go())
+    assert during == {"model": "main-model"} and after == {"model": "main-mlx"}
+    assert runner.started == ["main-model", "main-mlx"]
+
+
+def test_a_reply_being_written_keeps_its_model_between_its_model_calls():
+    """A turn leases the model once per model call, so between a tool call and the next one
+    nothing is leased. The model still mustn't change under the reply: it changes for the
+    next turn."""
+    runtime, runner = _runtime(8, {"main": 5})
+
+    async def served(priority: Priority = Priority.CHAT) -> str:
+        async with runtime.lease("main", priority) as lease:
+            return (await lease.client.get("/v1/models")).json()["model"]
+
+    async def go():
+        await runtime.turn_started(message=True)
+        first = await served()
+        _resolving_to(runtime, "main-mlx")  # its MLX build finished downloading, say
+        second = await served()  # the same reply, after a tool call
+        by_a_job = await served(Priority.JOB)  # OCR cleanup, on the same model meanwhile
+        await runtime.turn_ended()
+        await runtime.turn_started(message=True)
+        next_turn = await served()
+        await runtime.turn_ended()
+        return first, second, by_a_job, next_turn
+
+    assert asyncio.run(go()) == ("main-model", "main-model", "main-model", "main-mlx")
+    assert runner.started == ["main-model", "main-mlx"]
+
+
+def test_a_change_of_settings_unloads_what_no_reply_is_being_written_with():
+    runtime, runner = _runtime(8, {"ocr": 1, "main": 5})
+
+    async def go():
+        async with runtime.lease("ocr"):
+            pass
+        await runtime.turn_started(message=True)
+        async with runtime.lease("main", Priority.CHAT):
+            pass
+        mid_reply = await runtime.unload_between_replies()
+        left = [r["role"] for r in runtime.state()["residents"]]
+        await runtime.turn_ended()
+        return mid_reply, left, await runtime.unload_between_replies()
+
+    assert asyncio.run(go()) == (["ocr"], ["main"], ["main"])
+    assert runner.started == ["ocr-model", "main-model"]
+
+
+def test_a_loaded_model_stays_when_what_its_role_asks_for_cannot_be_had():
+    runtime, runner = _runtime(8, {"main": 5})
+
+    def gone(role: str) -> ModelChoice:
+        raise NotAvailable("The model's file was deleted.")
+
+    async def go():
+        async with runtime.lease("main"):
+            pass
+        runtime.resolve = gone
+        async with runtime.lease("main") as lease:
+            return (await lease.client.get("/v1/models")).json()
+
+    assert asyncio.run(go()) == {"model": "main-model"}
+    assert runner.started == ["main-model"]
 
 
 def test_measured_memory_replaces_the_estimate():

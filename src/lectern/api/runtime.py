@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from lectern.api.sse import hub_stream
 from lectern.core import settings
@@ -63,23 +64,39 @@ def get_settings(request: Request) -> dict:
     values = settings.get(
         request.app.state.sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
     )
-    supported = mlx.mlx_supported()
-    # Switched on before the switch was hidden elsewhere: it does nothing there, so report it
-    # off, and the next save stores it off.
-    values = {**values, "mlx_enabled": values["mlx_enabled"] and supported}
+    available = mlx.mlx_available()
+    # Switched on where MLX can't run (before the switch was hidden there) or isn't installed
+    # (a checkout without the extra, on the installed Lectern's data): it does nothing here,
+    # so report it off, and the next save stores it off.
+    values = {**values, "mlx_enabled": values["mlx_enabled"] and available}
     return {
         "values": values,
         "implemented": {k: sorted(v) for k, v in IMPLEMENTED.items()},
-        "mlx_supported": supported,
+        "mlx_supported": mlx.mlx_supported(),
+        "mlx_available": available,
     }
 
 
 @router.put("/runtime/settings")
-def put_settings(body: RuntimeSettings, request: Request) -> dict:
+async def put_settings(body: RuntimeSettings, request: Request) -> dict:
     for key, allowed in IMPLEMENTED.items():
         if getattr(body, key) not in allowed:
             raise HTTPException(409, f"{getattr(body, key)!r} for {key} isn't available yet.")
     if body.mlx_enabled and not mlx.mlx_supported():
         raise HTTPException(409, "MLX only runs on Apple Silicon Macs.")
-    settings.put(request.app.state.sessions, settings.RUNTIME_KEY, body.model_dump())
-    return get_settings(request)
+    if body.mlx_enabled and not mlx.mlx_available():
+        raise HTTPException(409, mlx.NOT_INSTALLED)
+    sessions = request.app.state.sessions
+    before = await run_in_threadpool(
+        settings.get, sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
+    )
+    await run_in_threadpool(settings.put, sessions, settings.RUNTIME_KEY, body.model_dump())
+    if body.mlx_enabled != before["mlx_enabled"]:
+        # The switch changes which model a role runs on, and whether OCR cleanup needs its
+        # own copy of the chat model. What's loaded and idle goes now and loads again by the
+        # new rule when it's next used; the model of a reply being written changes over with
+        # the next turn. A model a job is using stays as well, and one kind is then left over:
+        # cleanup's copy of the chat model, in use when MLX is switched off, isn't asked for
+        # again and stays loaded until another model needs its room.
+        await _runtime(request).unload_between_replies()
+    return await run_in_threadpool(get_settings, request)

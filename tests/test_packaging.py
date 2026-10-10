@@ -134,6 +134,13 @@ def test_a_first_install_puts_everything_in_the_home_folder_and_starts_a_user_se
     assert all(name.endswith(".whl") for name in outside), outside
 
 
+def test_on_linux_lectern_is_installed_without_extras(tmp_path):
+    wheel = _wheel(tmp_path, "0.1.0")
+    assert _install(tmp_path, wheel).returncode == 0
+    (installed,) = [line for line in _log(tmp_path) if line.startswith("uv pip install")]
+    assert installed.endswith(str(wheel))  # the bare wheel: MLX is the Mac installer's
+
+
 def test_run_as_root_it_refuses(tmp_path):
     env = _env(tmp_path)
     (tmp_path / "fakebin/id").write_text(

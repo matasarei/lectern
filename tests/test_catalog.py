@@ -109,6 +109,10 @@ def test_models_api_flags_restricted_and_lists_defaults(paths, monkeypatch):
     assert by_id["chandra-ocr-2"]["licence_notice"] is True
     assert by_id["qwen3.5-4b"]["licence_notice"] is False
     assert by_id["qwen3.5-4b"]["size"] == 2740937888
+    # A page pairs a model with its MLX build by these two.
+    assert (by_id["qwen3.5-4b"]["format"], by_id["qwen3.5-4b"]["replaces"]) == ("gguf", None)
+    build = by_id["qwen3.5-4b-mlx"]
+    assert (build["format"], build["replaces"]) == ("mlx", "qwen3.5-4b")
 
 
 @pytest.mark.parametrize(
@@ -156,4 +160,89 @@ def test_a_page_side_below_what_a_model_can_read_is_rejected():
     paddle = next(m for m in raw["models"] if m["id"] == "paddleocr-vl-1.6")
     paddle["ocr"]["max_side"] = 100
     with pytest.raises(ValidationError, match="max_side"):
+        catalog.Catalog.model_validate(raw)
+
+
+# --- MLX builds: the same model in MLX's format, standing in for a GGUF one on a Mac ---------
+
+MLX_BUILDS = {
+    "qwen3.5-4b-mlx": "qwen3.5-4b",
+    "qwen3.5-9b-mlx": "qwen3.5-9b",
+    "qwen3.5-35b-a3b-mlx": "qwen3.5-35b-a3b",
+}
+
+
+@pytest.mark.parametrize(("build_id", "model_id"), MLX_BUILDS.items())
+def test_each_chat_model_has_an_mlx_build(build_id, model_id):
+    cat = catalog.load()
+    build, model = cat.get(build_id), cat.get(model_id)
+    assert build is not None and model is not None
+    assert build.format == "mlx" and build.replaces == model_id
+    assert cat.mlx_build_of(model) is build
+    assert build.roles == model.roles and build.ctx == model.ctx
+    assert build.permissive and build.licence == "Apache-2.0"
+    assert not build.defaults  # a choice, never what a role gets by default
+    # The runtime takes the model's folder from its first file.
+    assert build.files.model[0].path == "config.json"
+    assert build.files.mmproj is None
+    assert "/" not in "".join(f.path for f in build.files.model)  # one flat folder
+
+
+def test_a_model_without_an_mlx_build_has_none():
+    cat = catalog.load()
+    assert cat.mlx_build_of(cat.get("paddleocr-vl-1.6")) is None
+    assert cat.mlx_build_of(cat.get("qwen3.5-4b-mlx")) is None  # a build has no build
+
+
+@pytest.mark.parametrize("tier", list(Tier))
+def test_no_default_is_an_mlx_build(tier):
+    assert all(entry.format == "gguf" for entry in catalog.load().defaults_for(tier).values())
+
+
+def _raw_with_build() -> tuple[dict, dict]:
+    raw = _raw()
+    return raw, next(m for m in raw["models"] if m["id"] == "qwen3.5-4b-mlx")
+
+
+def test_an_mlx_build_must_say_what_it_replaces():
+    raw, build = _raw_with_build()
+    del build["replaces"]
+    with pytest.raises(ValidationError, match="replaces"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_only_an_mlx_build_replaces_another_model():
+    raw = _raw()
+    next(m for m in raw["models"] if m["id"] == "qwen3.5-9b")["replaces"] = "qwen3.5-4b"
+    with pytest.raises(ValidationError, match="only an MLX build"):
+        catalog.Catalog.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    ("replaces", "why"),
+    [
+        ("no-such-model", "isn't in the catalog"),
+        ("qwen3.5-9b-mlx", "must be a GGUF model"),  # another build
+        ("qwen2.5-coder-7b", "same roles"),  # a model for another role
+        ("qwen3.5-9b", "two MLX builds"),  # one that already has its build
+    ],
+)
+def test_an_mlx_build_replaces_one_gguf_model_with_its_roles(replaces, why):
+    raw, build = _raw_with_build()
+    build["replaces"] = replaces
+    with pytest.raises(ValidationError, match=why):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_an_mlx_build_cant_be_a_default():
+    raw, build = _raw_with_build()
+    build["defaults"] = {"main": ["comfortable"]}
+    with pytest.raises(ValidationError, match="can't be a default"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_an_mlx_builds_first_file_is_its_config():
+    raw, build = _raw_with_build()
+    build["files"]["model"].reverse()
+    with pytest.raises(ValidationError, match="config.json"):
         catalog.Catalog.model_validate(raw)

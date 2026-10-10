@@ -2,6 +2,10 @@
 
 Defaults must be permissively licensed. That rule is enforced when the catalog loads, so a
 catalog edit can't quietly make a restricted model the default.
+
+Defaults are GGUF models, run by llama.cpp everywhere. A model can also have an MLX build: the
+same model in MLX's format, which `replaces` it on an Apple Silicon Mac when MLX is switched on
+and the build is downloaded (runtime/wiring.py). A build is never a default itself.
 """
 
 from __future__ import annotations
@@ -70,6 +74,7 @@ class CatalogEntry(BaseModel):
     ctx: dict[Tier, int] = Field(default_factory=dict)
     files: ModelFiles
     ocr: OcrSettings | None = None  # for models with an OCR role
+    replaces: str | None = None  # an MLX build: the id of the GGUF model it stands in for
     notes: str | None = None
 
     @property
@@ -94,6 +99,21 @@ class CatalogEntry(BaseModel):
             raise ValueError(f"{self.id}: only models with an OCR role take an `ocr:` block")
         return self
 
+    @model_validator(mode="after")
+    def _an_mlx_build_stands_in_for_a_model(self) -> CatalogEntry:
+        if self.format != "mlx":
+            if self.replaces is not None:
+                raise ValueError(f"{self.id}: only an MLX build replaces another model")
+            return self
+        if self.replaces is None:
+            raise ValueError(f"{self.id}: an MLX build says which model it `replaces`")
+        if self.defaults:
+            raise ValueError(f"{self.id}: an MLX build can't be a default")
+        # An MLX model is a folder, and the runtime takes it from the first file's place.
+        if self.files.model[0].path != "config.json":
+            raise ValueError(f"{self.id}: an MLX build's first file is its config.json")
+        return self
+
 
 class Catalog(BaseModel):
     schema_version: int = Field(alias="schema")
@@ -115,8 +135,32 @@ class Catalog(BaseModel):
                     seen[key] = entry.id
         return self
 
+    @model_validator(mode="after")
+    def _each_mlx_build_replaces_its_own_gguf_model(self) -> Catalog:
+        replaced: dict[str, str] = {}
+        for build in self.models:
+            if build.replaces is None:
+                continue
+            model = self.get(build.replaces)
+            if model is None:
+                raise ValueError(
+                    f"{build.id}: replaces {build.replaces!r}, which isn't in the catalog"
+                )
+            if model.format != "gguf":
+                raise ValueError(f"{build.id}: what it replaces must be a GGUF model")
+            if set(model.roles) != set(build.roles):
+                raise ValueError(f"{build.id}: must have the same roles as {model.id}")
+            if model.id in replaced:
+                raise ValueError(f"two MLX builds of {model.id}: {replaced[model.id]}, {build.id}")
+            replaced[model.id] = build.id
+        return self
+
     def get(self, model_id: str) -> CatalogEntry | None:
         return next((m for m in self.models if m.id == model_id), None)
+
+    def mlx_build_of(self, model: CatalogEntry) -> CatalogEntry | None:
+        """The MLX build that stands in for this model, when it has one."""
+        return next((m for m in self.models if m.replaces == model.id), None)
 
     def defaults_for(self, tier: Tier) -> dict[str, CatalogEntry]:
         """Role → default model for this tier."""

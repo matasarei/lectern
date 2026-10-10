@@ -407,8 +407,10 @@ class OcrJobs:
             tokens = await asyncio.to_thread(ocr_store.page_tokens, project.root, ocr, page)
             decided = await asyncio.to_thread(ocr_store.decisions, db, ocr.session_id)
             marked = mark_unsure(raw, unsure_words(tokens))
+            # The chat model, held to cleanup's JSON schema: not its MLX build, which can't be.
+            clean_key = self.runtime.schema_key("main")
             try:
-                self._say_if_held(key, "main")
+                self._say_if_held(key, clean_key)
 
                 async def cleaning(page=page) -> None:  # noqa: ANN001 — once the model is ours
                     marked = await asyncio.to_thread(
@@ -418,7 +420,7 @@ class OcrJobs:
 
                 cleaned = await self._leased_unless_paused(
                     key,
-                    "main",
+                    clean_key,
                     functools.partial(
                         clean_page,
                         number=page.number,

@@ -173,6 +173,7 @@ def test_chat_needs_the_token(paths):
 
 def test_runtime_settings_default_save_and_refuse_unimplemented(paths, monkeypatch):
     monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+    monkeypatch.setattr("lectern.runners.mlx.mlx_available", lambda: True)
     client, headers, _ = _app(paths)
 
     body = client.get("/api/runtime/settings", headers=headers).json()
@@ -201,7 +202,7 @@ def test_mlx_switch_is_refused_off_apple_silicon(paths, monkeypatch):
     monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: False)
 
     body = client.get("/api/runtime/settings", headers=headers).json()
-    assert body["mlx_supported"] is False
+    assert (body["mlx_supported"], body["mlx_available"]) == (False, False)
     assert body["values"]["mlx_enabled"] is False  # reported off, so other saves still work
 
     refused = client.put(
@@ -210,6 +211,55 @@ def test_mlx_switch_is_refused_off_apple_silicon(paths, monkeypatch):
     assert refused.status_code == 409 and "Apple Silicon" in refused.json()["detail"]
     saved = client.put("/api/runtime/settings", json=body["values"], headers=headers)
     assert saved.status_code == 200
+
+
+def test_mlx_switch_is_refused_where_mlx_is_not_installed(paths, monkeypatch):
+    client, headers, _ = _app(paths)
+    values = client.get("/api/runtime/settings", headers=headers).json()["values"]
+    # Switched on by the installed Lectern; this one runs from a checkout without the extra.
+    settings.put(client.app.state.sessions, settings.RUNTIME_KEY, {**values, "mlx_enabled": True})
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+    monkeypatch.setattr("lectern.runners.mlx.mlx_available", lambda: False)
+
+    body = client.get("/api/runtime/settings", headers=headers).json()
+    assert (body["mlx_supported"], body["mlx_available"]) == (True, False)
+    assert body["values"]["mlx_enabled"] is False  # no model runs on MLX here: say so
+
+    refused = client.put(
+        "/api/runtime/settings", json={**values, "mlx_enabled": True}, headers=headers
+    )
+    assert refused.status_code == 409 and "isn't installed" in refused.json()["detail"]
+    saved = client.put("/api/runtime/settings", json=body["values"], headers=headers)
+    assert saved.status_code == 200
+
+
+def test_changing_the_mlx_switch_unloads_idle_models(paths, monkeypatch):
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+    monkeypatch.setattr("lectern.runners.mlx.mlx_available", lambda: True)
+    client, headers, _ = _app(paths)
+    chat = {"messages": [{"role": "user", "content": "x"}]}
+
+    def loaded() -> list[str]:
+        residents = client.get("/api/runtime", headers=headers).json()["residents"]
+        return [r["role"] for r in residents]
+
+    values = client.get("/api/runtime/settings", headers=headers).json()["values"]
+    client.post("/api/chat", json=chat, headers=headers)
+    assert loaded() == ["main"]
+
+    # Saved as it was: nothing a loaded model depends on has changed.
+    assert client.put("/api/runtime/settings", json=values, headers=headers).status_code == 200
+    assert loaded() == ["main"]
+
+    # The switch changes which model a role runs on, and which copies are needed at all: what
+    # is loaded and idle goes, and loads again by the new rule when it's next used.
+    switched = {**values, "mlx_enabled": True}
+    assert client.put("/api/runtime/settings", json=switched, headers=headers).status_code == 200
+    assert loaded() == []
+
+    client.post("/api/chat", json=chat, headers=headers)
+    assert client.put("/api/runtime/settings", json=values, headers=headers).status_code == 200
+    assert loaded() == []  # and the same when it's switched off again
 
 
 def test_routes_reading_runtime_state_run_on_the_event_loop():

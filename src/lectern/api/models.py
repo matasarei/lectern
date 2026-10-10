@@ -11,6 +11,7 @@ from lectern.catalog import catalog
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.hardware.tiers import effective_tier
+from lectern.runners import mlx
 
 router = APIRouter()
 
@@ -38,6 +39,8 @@ def list_models(request: Request) -> dict:
                 "licence_notice": m.licence_notice,
                 "notes": m.notes,
                 "repo": m.repo,
+                "format": m.format,
+                "replaces": m.replaces,  # an MLX build: the model it stands in for
                 "download": downloads.state(m).to_dict(),
             }
             for m in cat.models
@@ -56,6 +59,12 @@ async def start_download(
     entry = catalog.load().get(model_id)
     if entry is None:
         raise HTTPException(404, f"No model {model_id!r} in the catalog.")
+    if entry.format == "mlx" and not mlx.mlx_supported():
+        # The page doesn't offer it here; a request made by hand shouldn't fill the disk
+        # with a model nothing on this machine can load.
+        raise HTTPException(
+            409, f"{entry.title} is an MLX model, and MLX only runs on Apple Silicon Macs."
+        )
     if entry.licence_notice and not (body and body.accept_licence):
         raise HTTPException(
             409,

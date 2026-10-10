@@ -177,6 +177,26 @@ run one at a time or change `LECTERN_PORT` in `~/.lectern/lectern.env`. The inst
 keeps its own data in `~/.lectern/data`; the installer prints the line that lets it use the
 models a checkout already downloaded.
 
+### MLX, if you want it
+
+Models run on llama.cpp (Metal) by default, on a Mac as everywhere. The installer also adds
+MLX, Apple's own engine, which you can switch on in **Models & memory** → "Use MLX for MLX
+models". The chat model then shows an MLX build under it: download that, and the chat runs
+on it. Until it's downloaded nothing changes.
+
+What it gives and what it costs, measured with the 4B chat model on an M4 Max:
+
+- **Faster replies:** about 124 tokens a second against 105.
+- **More mistakes with tools:** MLX can't hold the model to the exact shape a tool expects,
+  so the chat gets a tool call wrong more often and has to be told.
+- **Scanned pages are cleaned by the usual chat model,** for the same reason. So while an OCR
+  session is cleaned, both chat models are in memory.
+- **Long conversations count their size by estimate,** not exactly, so old messages may be
+  summarised a little early or late.
+
+OCR models always run on llama.cpp. Lectern starts MLX's server with a key of its own, as it
+does llama.cpp's: a web page can't use the model, and neither can another user of the Mac.
+
 ## Licence
 
 Apache-2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Models are downloaded separately and keep their own licences; the app shows each model's licence before downloading it.

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, ApiError, apiPost } from "../../api/client";
@@ -34,6 +35,10 @@ const ROLE_COLOURS: Record<Role, string> = {
   code: "bg-slate-500",
 };
 
+/** The role a loaded model serves. The runtime also loads a model by name
+ * ("main@qwen3.5-9b": OCR cleanup's copy of the chat model while the chat runs on MLX). */
+const roleOf = (resident: Resident) => resident.role.split("@")[0] as Role;
+
 /** Models & memory: the machine, live memory use, the model for each role, and how the
  * runtime shares the GPU. */
 export function ModelsPage() {
@@ -48,6 +53,7 @@ export function ModelsPage() {
     queryKey: ["models"],
     queryFn: () => apiFetch<ModelsResponse>("/api/models"),
   });
+  const mlxOn = useRuntimeSettings().data?.values.mlx_enabled ?? false;
 
   if (system.isPending || models.isPending) {
     return <Page>{t("common.loading")}</Page>;
@@ -63,6 +69,8 @@ export function ModelsPage() {
 
   const byId = new Map(models.data.models.map((m) => [m.id, m]));
   const residents = new Map((runtime.data?.residents ?? []).map((r) => [r.role, r]));
+  const loaded = (role: Role, modelId: string) =>
+    runtime.data?.residents.find((r) => roleOf(r) === role && r.model_id === modelId);
 
   return (
     <Page>
@@ -117,14 +125,42 @@ export function ModelsPage() {
                 const id = models.data.defaults[role];
                 const model = id ? byId.get(id) : undefined;
                 if (!model) return null;
+                const resident = residents.get(role);
+                // With MLX switched on, a model's MLX build is listed under it. The runtime
+                // uses the build once it's on disk, and the model until then.
+                const build = mlxOn
+                  ? models.data.models.find((m) => m.replaces === model.id)
+                  : undefined;
+                if (!build) {
+                  return (
+                    <RoleRow
+                      key={role}
+                      role={role}
+                      model={model}
+                      resident={resident}
+                      live={live[model.id]}
+                    />
+                  );
+                }
+                const buildOnDisk = (live[build.id] ?? build.download).status === "done";
                 return (
-                  <RoleRow
-                    key={role}
-                    role={role}
-                    model={model}
-                    resident={residents.get(role)}
-                    live={live[model.id]}
-                  />
+                  <Fragment key={role}>
+                    <RoleRow
+                      role={role}
+                      model={model}
+                      resident={loaded(role, model.id)}
+                      live={live[model.id]}
+                      chosen={!buildOnDisk}
+                    />
+                    <RoleRow
+                      role={role}
+                      model={build}
+                      mlxBuild
+                      resident={loaded(role, build.id)}
+                      live={live[build.id]}
+                      chosen={buildOnDisk}
+                    />
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -143,11 +179,17 @@ function RoleRow({
   model,
   resident,
   live,
+  mlxBuild = false,
+  chosen = false,
 }: {
   role: Role;
   model: CatalogModel;
   resident?: Resident;
   live?: CatalogModel["download"];
+  /** The row of a model's MLX build, under the model's own. */
+  mlxBuild?: boolean;
+  /** Of a model and its MLX build, the one the runtime uses. */
+  chosen?: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -161,7 +203,9 @@ function RoleRow({
   });
   return (
     <tr className="border-t border-line align-top" data-role={role}>
-      <td className="py-2 pr-4 font-mono text-xs">{role}</td>
+      <td className="py-2 pr-4 font-mono text-xs">
+        {mlxBuild ? <span className="text-muted">{t("modelsPage.mlxBuild")}</span> : role}
+      </td>
       <td className="py-2 pr-4">
         {model.title}
         <span className="text-muted"> · {model.quant}</span>
@@ -169,7 +213,7 @@ function RoleRow({
       <td className="py-2 pr-4 tabular-nums">{formatBytes(model.size)}</td>
       <td className="py-2 pr-4">{model.licence}</td>
       <td className="py-2">
-        <span data-testid={`status-${role}`}>
+        <span data-testid={mlxBuild ? `status-${role}-mlx` : `status-${role}`}>
           {resident ? (
             <span className={resident.status === "crashed" ? "text-red-700" : "text-accent"}>
               {resident.status === "crashed"
@@ -184,6 +228,12 @@ function RoleRow({
             <StatusText state={state} />
           )}
         </span>
+        {chosen && (
+          <span className="text-muted" data-testid={`chosen-${role}`}>
+            {" · "}
+            {t("modelsPage.chosen")}
+          </span>
+        )}
         {state.status === "downloading" && <DownloadProgress state={state} />}
         {canStart && state.error && <ErrorNote message={state.error} />}
         {canStart && (
@@ -246,7 +296,7 @@ function MemoryGauge({
         {residents.map((r) => (
           <div
             key={r.role}
-            className={`${ROLE_COLOURS[r.role]} h-full`}
+            className={`${ROLE_COLOURS[roleOf(r)]} h-full`}
             // Set through the element's style object: the CSP forbids inline style
             // attributes, not this.
             ref={(el) => {
@@ -259,7 +309,7 @@ function MemoryGauge({
       <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         {residents.map((r) => (
           <li key={r.role}>
-            <span className={`mr-1 inline-block size-2 rounded-full ${ROLE_COLOURS[r.role]}`} />
+            <span className={`mr-1 inline-block size-2 rounded-full ${ROLE_COLOURS[roleOf(r)]}`} />
             {t("memory.legend", {
               role: r.role,
               model: r.model_id,
@@ -274,13 +324,17 @@ function MemoryGauge({
   );
 }
 
-function SettingsCard() {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const current = useQuery({
+function useRuntimeSettings() {
+  return useQuery({
     queryKey: ["runtime-settings"],
     queryFn: () => apiFetch<RuntimeSettings>("/api/runtime/settings"),
   });
+}
+
+function SettingsCard() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const current = useRuntimeSettings();
   const save = useMutation({
     mutationFn: (values: RuntimeSettingsValues) =>
       apiFetch<RuntimeSettings>("/api/runtime/settings", {
@@ -291,7 +345,7 @@ function SettingsCard() {
     onSuccess: (data) => queryClient.setQueryData(["runtime-settings"], data),
   });
   if (!current.data) return null;
-  const { values, implemented, mlx_supported } = current.data;
+  const { values, implemented, mlx_supported, mlx_available } = current.data;
   const set = (patch: Partial<RuntimeSettingsValues>) => save.mutate({ ...values, ...patch });
 
   const group = (key: "when_models_dont_fit" | "chat_during_job", options: string[]) => (
@@ -330,12 +384,14 @@ function SettingsCard() {
           <input
             type="checkbox"
             checked={values.mlx_enabled}
-            disabled={save.isPending}
+            disabled={!mlx_available || save.isPending}
             onChange={(e) => set({ mlx_enabled: e.target.checked })}
           />
           <span>
             {t("policy.mlx")}
-            <span className="block text-muted">{t("policy.mlxWhy")}</span>
+            <span className="block text-muted">
+              {t(mlx_available ? "policy.mlxWhy" : "policy.mlxMissing")}
+            </span>
           </span>
         </label>
       )}

@@ -81,7 +81,8 @@ export function ocrLoadingText(
   if (phase === "recognise" && (loading === "ocr" || loading === "ocr.hand")) {
     return t("ocrStep.loadingOcr");
   }
-  if (phase === "clean" && loading === "main") return t("ocrStep.loadingMain");
+  // "main", or "main@<model>" when cleanup names the chat model it needs.
+  if (phase === "clean" && loading?.split("@")[0] === "main") return t("ocrStep.loadingMain");
   return null;
 }
 

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
+from lectern.core import settings
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import GIB, Gpu, HardwareInfo
+from lectern.runners import mlx
 from lectern.runtime import planner, wiring
 from lectern.runtime.supervisor import NotAvailable
 from lectern.runtime.wiring import CPU_RESERVE, budget_for, build_runtime
@@ -121,3 +123,113 @@ def test_the_engines_download_progress_reaches_the_runtime(paths, monkeypatch):
         "done": 5,
         "total": 50,
     }
+
+
+# --- on a Mac: a model's MLX build in its place, when MLX is on and the build is there --------
+
+
+@pytest.fixture
+def mac(paths, monkeypatch):
+    """The runtime of an Apple Silicon Mac with MLX installed and every model downloaded.
+    Returns (runtime, switch): switch(True) turns MLX on in the settings."""
+    monkeypatch.delenv("LECTERN_BUDGET_MB", raising=False)
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    monkeypatch.setattr(DownloadManager, "is_downloaded", lambda self, entry: True)
+    monkeypatch.setattr(wiring, "_shape", lambda path: planner.ModelShape(8, 8, 1, 64, 64))
+    monkeypatch.setattr(mlx, "read_shape", lambda folder: planner.ModelShape(8, 8, 1, 64, 64))
+    monkeypatch.setattr(mlx, "mlx_supported", lambda: True)
+    monkeypatch.setattr(mlx, "mlx_available", lambda: True)
+    hw = HardwareInfo(
+        os="macos",
+        arch="arm64",
+        cpu="M4",
+        cpu_cores=8,
+        ram_total=48 * GIB,
+        ram_available=24 * GIB,
+        gpus=[Gpu("apple", "M4", 48 * GIB, None, unified=True)],
+        gpu_budget=36 * GIB,
+    )
+    runtime = build_runtime(paths, DownloadManager(paths.models, sessions), hw, sessions)
+
+    def switch(on: bool) -> None:
+        settings.put(sessions, settings.RUNTIME_KEY, {"mlx_enabled": on})
+
+    return runtime, switch
+
+
+def test_with_mlx_on_a_role_gets_its_models_mlx_build(mac, paths):
+    runtime, switch = mac
+    switch(True)
+    choice = runtime.resolve("main")
+    assert (choice.role, choice.model_id, choice.format) == ("main", "qwen3.5-35b-a3b-mlx", "mlx")
+    assert choice.model_file == paths.models / "qwen3.5-35b-a3b-mlx"  # the folder, not a file
+    assert choice.mmproj is None
+    runner = runtime.runner_for(choice)
+    assert isinstance(runner, mlx.MlxRunner) and not runner.vision
+
+
+def test_mlx_is_a_choice_and_off_until_switched_on(mac):
+    runtime, switch = mac
+    assert runtime.resolve("main").model_id == "qwen3.5-35b-a3b"  # nothing was switched
+    switch(True)
+    switch(False)
+    assert runtime.resolve("main").model_id == "qwen3.5-35b-a3b"
+
+
+def test_until_the_mlx_build_is_downloaded_the_gguf_runs(mac, monkeypatch):
+    runtime, switch = mac
+    switch(True)
+    # Turning the switch on never breaks a chat: nothing changes until the build is there.
+    monkeypatch.setattr(
+        DownloadManager, "is_downloaded", lambda self, entry: entry.format == "gguf"
+    )
+    choice = runtime.resolve("main")
+    assert (choice.model_id, choice.format) == ("qwen3.5-35b-a3b", "gguf")
+
+
+@pytest.mark.parametrize("missing", ["mlx_available", "mlx_supported"])
+def test_without_mlx_on_this_machine_the_switch_changes_nothing(mac, monkeypatch, missing):
+    runtime, switch = mac
+    switch(True)  # a setting carried over from another machine, say
+    monkeypatch.setattr(mlx, "mlx_available", lambda: False)  # false off Apple Silicon too
+    monkeypatch.setattr(mlx, missing, lambda: False)
+    assert runtime.resolve("main").model_id == "qwen3.5-35b-a3b"
+
+
+def test_a_named_model_is_what_runs_whatever_the_switch_says(mac):
+    runtime, switch = mac
+    switch(True)
+    assert runtime.resolve("main@qwen3.5-35b-a3b").format == "gguf"
+    assert runtime.resolve("main@qwen3.5-4b").model_id == "qwen3.5-4b"
+    switch(False)
+    # Asked for by name, an MLX build is resolved; whether it may run is runner_for's answer.
+    named = runtime.resolve("main@qwen3.5-4b-mlx")
+    assert named.format == "mlx"
+    with pytest.raises(NotAvailable, match="MLX is off"):
+        runtime.runner_for(named)
+
+
+def test_a_role_whose_model_has_no_mlx_build_is_unchanged(mac):
+    runtime, switch = mac
+    switch(True)
+    assert runtime.resolve("ocr").format == "gguf"
+    assert runtime.resolve("code").format == "gguf"
+
+
+def test_work_that_needs_a_schema_is_kept_off_the_mlx_build(mac, monkeypatch):
+    runtime, switch = mac
+    # MLX's server can't hold a model to a JSON schema, which OCR cleanup relies on.
+    assert runtime.schema_key("main") == "main"  # MLX off: the role's own model can
+    switch(True)
+    key = runtime.schema_key("main")
+    assert key == "main@qwen3.5-35b-a3b"  # the GGUF model, by name
+    assert runtime.resolve(key).format == "gguf"
+    assert runtime.resolve("main").format == "mlx"  # the chat itself is on MLX
+    assert runtime.schema_key("ocr") == "ocr"  # a role with no MLX build
+
+    monkeypatch.setattr(
+        DownloadManager, "is_downloaded", lambda self, entry: entry.format == "gguf"
+    )
+    assert runtime.schema_key("main") == "main"  # the build isn't there: nothing to avoid

@@ -60,6 +60,9 @@ export interface CatalogModel {
   licence_notice: boolean;
   notes: string | null;
   repo: string;
+  format: "gguf" | "mlx";
+  /** An MLX build: the id of the model it runs in place of, on a Mac with MLX switched on. */
+  replaces: string | null;
   download: DownloadState;
 }
 
@@ -92,8 +95,12 @@ export interface EngineState {
   error: string | null;
 }
 
+/** What a model is loaded as: a role, or a role and a model by name ("main@qwen3.5-9b",
+ * OCR cleanup's copy of the chat model while the chat runs on its MLX build). */
+export type LeaseKey = Role | `${Role}@${string}`;
+
 export interface Resident {
-  role: Role;
+  role: LeaseKey;
   model_id: string;
   bytes: number;
   ctx: number;
@@ -134,6 +141,8 @@ export interface RuntimeSettings {
   implemented: Record<"when_models_dont_fit" | "chat_during_job", string[]>;
   /** MLX runs only on Apple Silicon Macs; the switch is hidden elsewhere. */
   mlx_supported: boolean;
+  /** And only where MLX is installed: without it the switch shows, off and disabled. */
+  mlx_available: boolean;
 }
 
 // --- projects ------------------------------------------------------------------------

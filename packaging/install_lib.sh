@@ -81,14 +81,16 @@ package made with packaging/make_package.sh, which needs none."
 }
 
 # The wheel installed into a new folder, app/versions/<version>-<time>-<pid>. Sets target.
+# $1, when given, is the wheel's extras to install with it, as pip writes them: "[mlx]".
 # A failed install removes the folder and stops here: the version in use is unchanged.
 install_version() {
+    local extras="${1:-}"
     export UV_PYTHON_INSTALL_DIR="$app/python" UV_CACHE_DIR="$app/cache" UV_NO_CONFIG=1
     target="$app/versions/$version-$(date +%Y%m%d%H%M%S)-$$"  # $$: two runs in a second
     echo "Installing Lectern ${version}…"
     if ! { "$uv" venv --quiet --python 3.12 "$target" \
            && "$uv" pip install --quiet --refresh-package lectern-ai \
-                  --python "$target/bin/python" "$wheel"; }; then
+                  --python "$target/bin/python" "$wheel$extras"; }; then
         rm -rf "$target"
         die "installing Lectern $version failed (see above); the version in use is unchanged."
     fi

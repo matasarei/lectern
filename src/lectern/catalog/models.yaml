@@ -54,6 +54,90 @@ models:
         - {path: Qwen3.5-35B-A3B-Q4_K_M.gguf, size: 22016023168, sha256: 3b46d1066bc91cc2d613e3bc22ce691dd77e6f0d33c9060690d24ce6de494375}
       mmproj: null
 
+  # MLX builds of the chat models, for Apple Silicon (Hugging Face API, 2026-10-10). Each one
+  # `replaces` a GGUF model when MLX is switched on in Models & memory and the build is
+  # downloaded; none is a default. An MLX model is a folder: config.json comes first, and the
+  # runtime takes the folder from it. Small files' sha256 were hashed at the pinned revision.
+  - id: qwen3.5-4b-mlx
+    title: Qwen3.5 4B (MLX)
+    quant: 4bit
+    roles: [main]
+    format: mlx
+    repo: mlx-community/Qwen3.5-4B-MLX-4bit
+    revision: 32f3e8ecf65426fc3306969496342d504bfa13f3
+    licence: Apache-2.0
+    permissive: true
+    replaces: qwen3.5-4b
+    ctx: {below_minimum: 8192, minimum: 8192, recommended: 16384, comfortable: 32768}
+    files:
+      model:
+        - {path: config.json, size: 3366, sha256: f3efc81b2ea8d96a45301037d3ccccbcccdef44a961845c87f286aaddbc6eaaa}
+        - {path: chat_template.jinja, size: 7756, sha256: a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715}
+        - {path: model.safetensors, size: 3034300695, sha256: 5fb9acd0246866381cf8c5c354c6db1019f6498eec4ccb4f5edcc71ffeacb2db}
+        - {path: model.safetensors.index.json, size: 101944, sha256: 52e534c41f7b97708329c85f762e5882bf48bd5955a422c6ae74eba321e6048a}
+        - {path: preprocessor_config.json, size: 390, sha256: 27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516}
+        - {path: processor_config.json, size: 1300, sha256: 14932921ca485d458a04dafd8069fbb0a4505622a48208d19ed247115801385b}
+        - {path: tokenizer.json, size: 19989343, sha256: 87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4}
+        - {path: tokenizer_config.json, size: 1139, sha256: e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182}
+        - {path: video_preprocessor_config.json, size: 385, sha256: 7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13}
+        - {path: vocab.json, size: 6722759, sha256: ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003}
+      mmproj: null
+
+  - id: qwen3.5-9b-mlx
+    title: Qwen3.5 9B (MLX)
+    quant: 4bit
+    roles: [main]
+    format: mlx
+    repo: mlx-community/Qwen3.5-9B-MLX-4bit
+    revision: 938d8919941c6e7efd3c7150eff7fe9d12afa631
+    licence: Apache-2.0
+    permissive: true
+    replaces: qwen3.5-9b
+    ctx: {recommended: 16384, comfortable: 32768}
+    files:
+      model:
+        - {path: config.json, size: 3331, sha256: a96942cb6a8a1d3f1d17514d81a1925d04362a6a3233b389d13012211baaa9f8}
+        - {path: chat_template.jinja, size: 7756, sha256: a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715}
+        - {path: model-00001-of-00002.safetensors, size: 5349771222, sha256: a68b87558c6ef43f74c2bd63ce7e9092ceddc3101f3def0030774bae5f42aadd}
+        - {path: model-00002-of-00002.safetensors, size: 600449850, sha256: b0a770bf8469c7f3f18756a0e0283f1c1174344a83e059a4e483f6af4907352d}
+        - {path: model.safetensors.index.json, size: 123592, sha256: dd023913fb87cfdae27fb11dcf695117c925833796ccac3c64117d6652d8ff1e}
+        - {path: preprocessor_config.json, size: 390, sha256: 27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516}
+        - {path: processor_config.json, size: 1300, sha256: 14932921ca485d458a04dafd8069fbb0a4505622a48208d19ed247115801385b}
+        - {path: tokenizer.json, size: 19989343, sha256: 87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4}
+        - {path: tokenizer_config.json, size: 1139, sha256: e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182}
+        - {path: video_preprocessor_config.json, size: 385, sha256: 7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13}
+        - {path: vocab.json, size: 6722759, sha256: ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003}
+      mmproj: null
+
+  - id: qwen3.5-35b-a3b-mlx
+    title: Qwen3.5 35B-A3B (MLX)
+    quant: 4bit
+    roles: [main]
+    format: mlx
+    repo: mlx-community/Qwen3.5-35B-A3B-4bit
+    revision: 1e20fd8d42056f870933bf98ca6211024744f7ec
+    licence: Apache-2.0
+    permissive: true
+    replaces: qwen3.5-35b-a3b
+    ctx: {comfortable: 32768}
+    files:
+      model:
+        - {path: config.json, size: 3809, sha256: c0cf317cba802cfb1d2984d4b4afc98ceb3d86450ed757e028383bfb03643964}
+        - {path: chat_template.jinja, size: 7756, sha256: a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715}
+        - {path: generation_config.json, size: 244, sha256: 4f25002776b741773666203dcea8f54619f177ace3ae483d311102092a4658e0}
+        - {path: model-00001-of-00004.safetensors, size: 5285828971, sha256: 0952c2fd5ec5f6163a045003eb0e60465290ac0ebedbe2cecde35dd95abed345}
+        - {path: model-00002-of-00004.safetensors, size: 5366101807, sha256: ddf163fcbaa7fc1ff2e93ee2e3306b1c31c4fe3c7dd46990cd2737d0cc30197f}
+        - {path: model-00003-of-00004.safetensors, size: 5364643286, sha256: 5e7d8deca9240eec828c9a451fbd8a95389a7cc18494f400c330d0717c41f6e1}
+        - {path: model-00004-of-00004.safetensors, size: 4375105375, sha256: b540bac1ef081d7011e32428e0c2da77f00699db2f4f1508da73ee3b8de40551}
+        - {path: model.safetensors.index.json, size: 215755, sha256: 56f02123353b7fe444b287a46a779a836cb939860502908da4a79e3b43931cdb}
+        - {path: preprocessor_config.json, size: 390, sha256: 27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516}
+        - {path: processor_config.json, size: 1300, sha256: 14932921ca485d458a04dafd8069fbb0a4505622a48208d19ed247115801385b}
+        - {path: tokenizer.json, size: 19989343, sha256: 87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4}
+        - {path: tokenizer_config.json, size: 1139, sha256: e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182}
+        - {path: video_preprocessor_config.json, size: 385, sha256: 7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13}
+        - {path: vocab.json, size: 6722759, sha256: ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003}
+      mmproj: null
+
   - id: paddleocr-vl-1.6
     title: PaddleOCR-VL 1.6
     quant: F16

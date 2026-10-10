@@ -112,11 +112,18 @@ class ModelRuntime:
         # loading. Shown in the chat, the OCR tab and Models & memory.
         self.activity: dict | None = None
         self.engine: Any = None  # wiring.Engine: the llama.cpp build, for first-run to fetch
+        # The key to lease a role by for work whose answer is held to a JSON schema (OCR
+        # cleanup): the role itself, unless wiring knows better. On a Mac with MLX on, the
+        # role's model is an MLX build, whose server can't do that; wiring then names the GGUF.
+        self.schema_key: Callable[[str], str] = lambda role: role
         self._loading: dict | None = None  # what activity goes back to after the engine
         # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
         # waits out the idle window only for a message sent after the job started.
         self._turns = 0
         self._waiting_turns = 0  # of those, how many wait for the person (a card): model idle
+        # What the running turns have written with. A turn leases its model once per model
+        # call; between two of them nothing is leased, and the reply's model still stays.
+        self._turn_models: set[str] = set()
         self._last_message_at: float | None = None
         self._skip_hold = False  # "Start now": the next job admission ignores the window
         self._held: dict | None = None  # the job waiting for the chat, for state()
@@ -211,6 +218,8 @@ class ModelRuntime:
     async def turn_ended(self) -> None:
         async with self._cond:
             self._turns = max(0, self._turns - 1)
+            if not self._turns:
+                self._turn_models.clear()
             self._chat_ended = time.monotonic()
             self._emit("turn", status="ended")
             self._cond.notify_all()
@@ -308,6 +317,8 @@ class ModelRuntime:
                         resident = await self._try_admit(role, chat=priority is Priority.CHAT)
                         if resident is not None:
                             resident.leases += 1
+                            if priority is Priority.CHAT and self._turns:
+                                self._turn_models.add(role)
                             self._emit("lease", role=role, model_id=resident.choice.model_id)
                             return resident
                     if not waited:
@@ -342,15 +353,20 @@ class ModelRuntime:
     async def _try_admit(self, role: str, *, chat: bool) -> Resident | None:
         """With the lock held. The role's resident, or a newly loaded one, or None to wait."""
         current = self._residents.get(role)
+        choice: ModelChoice | None = None
         if current is not None:
             if current.handle.is_running() and role not in self._crashed:
-                return current
-            self._emit("crash", role=role, model_id=current.choice.model_id)
-            self._residents.pop(role)
-            self._crashed.discard(role)
-            await current.handle.stop()
+                choice = self._changed_choice(role, current)
+                if choice is None:
+                    return current
+                await self._unload(role, reason="changed")
+            else:
+                self._emit("crash", role=role, model_id=current.choice.model_id)
+                self._residents.pop(role)
+                self._crashed.discard(role)
+                await current.handle.stop()
 
-        choice = self.resolve(role)
+        choice = choice or self.resolve(role)
         while True:
             try:
                 plan = planner.plan(
@@ -372,6 +388,19 @@ class ModelRuntime:
                 return None  # everything loaded is in use: wait for a release
             await self._unload(victim, reason="make room")
             self.swaps += 1
+
+    def _changed_choice(self, role: str, current: Resident) -> ModelChoice | None:
+        """The model the role asks for now, when it isn't the one loaded for it any more: a
+        setting changed what the role runs on, or the model it prefers finished downloading.
+        None keeps what's loaded: it's in use (leased, or a reply is being written with it),
+        it's still the one, or the other can't be had."""
+        if current.leases or role in self._turn_models:
+            return None
+        try:
+            choice = self.resolve(role)
+        except NotAvailable:
+            return None
+        return None if choice.model_id == current.choice.model_id else choice
 
     def _least_recently_used_idle(self) -> str | None:
         idle = [(r.last_used, role) for role, r in self._residents.items() if r.leases == 0]
@@ -415,10 +444,20 @@ class ModelRuntime:
             roles = [r for r, res in self._residents.items() if res.leases == 0]
             if role is not None:
                 roles = [r for r in roles if r == role]
-            for r in roles:
-                await self._unload(r, reason="requested")
-            self._cond.notify_all()
-            return roles
+            return await self._unload_all(roles)
+
+    async def unload_between_replies(self) -> list[str]:
+        """Unload idle models, except one a reply is being written with: for a setting that
+        changes which models are wanted. That model changes over with the next turn."""
+        async with self._cond:
+            idle = [r for r, res in self._residents.items() if res.leases == 0]
+            return await self._unload_all([r for r in idle if r not in self._turn_models])
+
+    async def _unload_all(self, roles: list[str]) -> list[str]:
+        for role in roles:
+            await self._unload(role, reason="requested")
+        self._cond.notify_all()
+        return roles
 
     async def stop_all(self) -> None:
         async with self._cond:

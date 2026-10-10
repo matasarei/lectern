@@ -786,3 +786,14 @@ def test_the_top_uninstall_script_picks_by_system_too(tmp_path):
     )  # fmt: skip
     assert done.returncode == 0, done.stderr
     assert not _bundle(tmp_path).exists()
+
+
+# --- MLX --------------------------------------------------------------------------------------
+
+
+def test_on_a_mac_lectern_is_installed_with_mlx(tmp_path):
+    wheel = _wheel(tmp_path, "0.1.0")
+    assert _install(tmp_path, wheel).returncode == 0
+    (installed,) = [line for line in _log(tmp_path) if line.startswith("uv pip install")]
+    # The wheel with its `mlx` extra: MLX's text server, which Models & memory can switch on.
+    assert installed.endswith(f"{wheel}[mlx]")

@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+import httpx2
 import pytest
 
 from lectern.core import settings
@@ -12,7 +13,7 @@ from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import GIB, Gpu, HardwareInfo
 from lectern.runners import mlx
-from lectern.runners.base import RunnerSpec
+from lectern.runners.base import RunnerError, RunnerSpec
 from lectern.runners.llamacpp import InstallingLlamaCppRunner
 from lectern.runtime.planner import ModelShape
 from lectern.runtime.supervisor import ModelChoice, NotAvailable
@@ -23,11 +24,14 @@ SPEC = RunnerSpec(
 )
 
 
-def test_text_models_use_mlx_lm_on_localhost_without_a_key():
+def test_text_models_go_through_lecterns_launcher_on_localhost():
     args = mlx.build_args(SPEC, vision=False, port=4321)
-    assert args[:3] == [sys.executable, "-m", "mlx_lm.server"]
+    # Not mlx_lm.server itself: that one has no key and answers every website.
+    assert args[:3] == [sys.executable, "-m", "lectern.runners.mlx_text_server"]
     assert args[args.index("--host") + 1] == "127.0.0.1"
     assert "--api-key" not in args
+    # Its own address, which no page is served from, in place of the default "*".
+    assert args[args.index("--allowed-origins") + 1] == "http://127.0.0.1:4321"
 
 
 def test_vision_models_use_mlx_vlm_on_localhost():
@@ -35,25 +39,29 @@ def test_vision_models_use_mlx_vlm_on_localhost():
     assert args[2] == "mlx_vlm.server"
     assert args[args.index("--host") + 1] == "127.0.0.1"  # its default would be 0.0.0.0
     assert "--api-key" not in args  # on the command line, `ps` would show it to every user
+    assert "--allowed-origins" not in args  # mlx_lm.server's flag, not this server's
 
 
-def test_the_key_goes_in_the_servers_environment(monkeypatch):
+@pytest.mark.parametrize(
+    ("vision", "name", "other"),
+    [(True, mlx.VISION_KEY_ENV, mlx.TEXT_KEY_ENV), (False, mlx.TEXT_KEY_ENV, mlx.VISION_KEY_ENV)],
+)
+def test_the_key_goes_in_the_servers_environment_under_the_name_it_reads(
+    monkeypatch, vision, name, other
+):
     monkeypatch.setenv("LECTERN_HOME", "/somewhere")
-    env = mlx.build_env("k3y")
-    assert env is not None
-    assert env[mlx.KEY_ENV] == "k3y"
+    monkeypatch.delenv(other, raising=False)
+    env = mlx.build_env("k3y", vision=vision)
+    assert env[name] == "k3y" and other not in env
     assert env["LECTERN_HOME"] == "/somewhere"  # the rest of ours is passed on
+    assert env["HF_HUB_OFFLINE"] == "1"  # the model is a folder here: nothing to fetch
 
 
-def test_a_key_already_in_our_environment_is_replaced(monkeypatch):
-    monkeypatch.setenv(mlx.KEY_ENV, "someone-elses")
-    env = mlx.build_env("k3y")
-    assert env is not None and env[mlx.KEY_ENV] == "k3y"
-
-
-@pytest.mark.parametrize("key", [None, ""])
-def test_without_a_key_the_server_inherits_our_environment(key):
-    assert mlx.build_env(key) is None
+@pytest.mark.parametrize("vision", [True, False])
+def test_a_key_already_in_our_environment_is_replaced(monkeypatch, vision):
+    name = mlx.VISION_KEY_ENV if vision else mlx.TEXT_KEY_ENV
+    monkeypatch.setenv(name, "someone-elses")
+    assert mlx.build_env("k3y", vision=vision)[name] == "k3y"
 
 
 class _Started(Exception):
@@ -74,11 +82,97 @@ def test_start_gives_the_key_to_the_server_only_through_its_environment(
     with pytest.raises(_Started):
         asyncio.run(mlx.MlxRunner(tmp_path, vision=vision).start(SPEC))
     assert "--api-key" not in seen["argv"]
-    if vision:
-        assert seen["env"][mlx.KEY_ENV]  # a fresh key, in the environment only
-        assert seen["env"][mlx.KEY_ENV] not in " ".join(seen["argv"])
-    else:
-        assert seen["env"] is None  # mlx_lm.server has no key: it inherits ours
+    key = seen["env"][mlx.VISION_KEY_ENV if vision else mlx.TEXT_KEY_ENV]
+    assert len(key) >= 32  # a fresh key, for either server
+    assert key not in " ".join(seen["argv"])  # in the environment only
+
+
+class _Handle:
+    """A started server, answered by `answer`."""
+
+    model_id = "m"
+
+    def __init__(self, answer) -> None:  # noqa: ANN001
+        self.answer = answer
+
+    def client(self, timeout: float = 600.0) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
+            base_url="http://127.0.0.1:1",
+            transport=httpx2.MockTransport(self.answer),
+            headers={"Authorization": "Bearer k3y"},
+        )
+
+    def is_running(self) -> bool:
+        return True
+
+    def log_tail(self, lines: int = 20) -> str:
+        return "ValueError: Model type qwen9 not supported."
+
+
+@pytest.mark.parametrize(
+    ("vision", "paths"),
+    [(False, ["/health", "/v1/chat/completions"]), (True, ["/v1/models"])],
+)
+def test_each_server_is_asked_whether_its_ready_where_it_answers(tmp_path, vision, paths):
+    asked = []
+
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        asked.append((request.url.path, request.headers.get("Authorization")))
+        return httpx2.Response(200)
+
+    asyncio.run(mlx.MlxRunner(tmp_path, vision=vision)._wait_ready(_Handle(answer)))
+    # With the key: the launcher refuses /health too without it.
+    assert asked == [(path, "Bearer k3y") for path in paths]
+
+
+def test_a_text_server_is_ready_when_its_model_has_answered(tmp_path):
+    """mlx_lm.server answers /health while the model is still loading: one token is asked of
+    the model, and that request returns when it's loaded."""
+    bodies = []
+
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        if request.method == "POST":
+            bodies.append(json.loads(request.content))
+        return httpx2.Response(200)
+
+    asyncio.run(mlx.MlxRunner(tmp_path, vision=False)._wait_ready(_Handle(answer)))
+    assert [body["max_tokens"] for body in bodies] == [1]
+    assert bodies[0]["messages"][0]["role"] == "user"
+
+
+@pytest.mark.parametrize("failure", [httpx2.Response(500), httpx2.ReadError("closed")])
+def test_a_text_model_that_does_not_load_is_a_failed_start(tmp_path, failure):
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        if request.method == "GET":
+            return httpx2.Response(200)  # the server itself is up
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    with pytest.raises(RunnerError) as raised:
+        asyncio.run(mlx.MlxRunner(tmp_path, vision=False)._wait_ready(_Handle(answer)))
+    assert "didn't load" in str(raised.value)
+    assert "Model type qwen9 not supported" in str(raised.value)  # the server's own words
+
+
+def test_a_text_server_that_says_its_model_failed_is_not_waited_for(tmp_path):
+    """Seen with the real server: when the model can't be loaded, /health answers 503 from
+    then on. Waiting out the timeout would also push the reason out of the log's last lines."""
+    asked = []
+
+    async def answer(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(0)
+        asked.append(request.url.path)
+        return httpx2.Response(503, json={"status": "unavailable"})
+
+    with pytest.raises(RunnerError) as raised:
+        asyncio.run(mlx.MlxRunner(tmp_path, vision=False)._wait_ready(_Handle(answer)))
+    assert asked == ["/health"]
+    assert "didn't load" in str(raised.value)
+    assert "Model type qwen9 not supported" in str(raised.value)
 
 
 def test_read_shape_from_config(tmp_path):
@@ -157,8 +251,11 @@ def test_mlx_needs_the_extra_installed(runtime, monkeypatch):
     rt, sessions = runtime
     settings.put(sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
     monkeypatch.setattr(mlx, "mlx_available", lambda: False)
-    with pytest.raises(NotAvailable, match="lectern-ai\\[mlx\\]"):
+    # The words the switch in Models & memory is refused with, too.
+    with pytest.raises(NotAvailable) as raised:
         rt.runner_for(_choice("mlx"))
+    assert str(raised.value) == mlx.NOT_INSTALLED
+    assert "uv sync --extra mlx" in mlx.NOT_INSTALLED
 
 
 def test_mlx_is_used_when_enabled_available_and_the_model_is_mlx(runtime, monkeypatch):
