@@ -84,11 +84,13 @@ async def set_role_model(role: str, body: RoleModel, request: Request) -> dict:
         tier = await run_in_threadpool(lambda: effective_tier(probe()))
         if cat.defaults_for(tier).get(role) is entry:
             model_id = None  # the recommended one: the role follows the recommendation again
-    sessions = request.app.state.sessions
-    chosen = await run_in_threadpool(
-        settings.get, sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS
+    await run_in_threadpool(
+        settings.update,
+        request.app.state.sessions,
+        settings.MODELS_KEY,
+        settings.MODEL_DEFAULTS,
+        {role: model_id},
     )
-    await run_in_threadpool(settings.put, sessions, settings.MODELS_KEY, {**chosen, role: model_id})
     # The role's idle model goes now and the chosen one loads when the role is next used; a
     # model a reply is being written with changes over with the next turn.
     await request.app.state.runtime.unload_between_replies(role)

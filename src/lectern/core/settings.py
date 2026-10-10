@@ -32,6 +32,24 @@ def get(sessions: sessionmaker[Session], key: str, default: dict[str, Any]) -> d
     return {**default, **{k: v for k, v in stored.items() if k in default}}
 
 
+def update(
+    sessions: sessionmaker[Session], key: str, default: dict[str, Any], changes: dict[str, Any]
+) -> dict[str, Any]:
+    """Change some of a setting's values and return them as they were. Read, change and write
+    are one transaction: with `get` and then `put`, two changes made at the same moment could
+    each write back the other's old value."""
+    with sessions.begin() as session:
+        row = session.get(SettingRow, key)
+        stored = json.loads(row.value) if row else {}
+        before = {**default, **{k: v for k, v in stored.items() if k in default}}
+        value = json.dumps({**before, **changes})
+        if row is None:
+            session.add(SettingRow(key=key, value=value))
+        else:
+            row.value = value
+    return before
+
+
 def put(sessions: sessionmaker[Session], key: str, values: dict[str, Any]) -> None:
     with sessions.begin() as session:
         row = session.get(SettingRow, key)
