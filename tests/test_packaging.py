@@ -328,6 +328,7 @@ def test_the_scripts_pass_shellcheck():
         ROOT / "packaging/build_wheel.sh",
         ROOT / "packaging/make_package.sh",
         ROOT / "packaging/pins.sh",  # sourced, but checked on its own too
+        ROOT / "packaging/install_lib.sh",  # the same
         ROOT / "install.sh",
         ROOT / "uninstall.sh",
     ]
@@ -336,11 +337,23 @@ def test_the_scripts_pass_shellcheck():
     assert checked.returncode == 0, checked.stdout
 
 
+def test_the_package_carries_every_file_the_installer_sources():
+    """make_package.sh copies by name, so a file install.sh sources and the package lacks
+    would only show on the server it's unpacked on."""
+    sourced = re.findall(r'^\. "\$here/\.\./([\w.]+)"', (LINUX / "install.sh").read_text(), re.M)
+    assert "pins.sh" in sourced
+    script = (ROOT / "packaging/make_package.sh").read_text()
+    (copied,) = re.findall(r'^cp -R (.+) "\$stage/\$name/packaging/"$', script, re.M)
+    missing = [name for name in sourced if f"packaging/{name}" not in copied.split()]
+    assert not missing, f"make_package.sh doesn't copy {missing}"
+
+
 def _copy_scripts(to: Path) -> None:
     """The install scripts as a package or a working copy has them."""
     (to / "packaging").mkdir(parents=True)
     shutil.copytree(LINUX, to / "packaging/linux")
     shutil.copy(ROOT / "packaging/pins.sh", to / "packaging/pins.sh")
+    shutil.copy(ROOT / "packaging/install_lib.sh", to / "packaging/install_lib.sh")
     shutil.copy(ROOT / "install.sh", to / "install.sh")
 
 

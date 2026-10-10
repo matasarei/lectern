@@ -32,8 +32,10 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=packaging/pins.sh
 . "$here/../pins.sh" 2>/dev/null || . "$here/pins.sh"
+# What isn't particular to Linux: uv, the wheel, the version switch, the /health wait.
+# shellcheck source=packaging/install_lib.sh
+. "$here/../install_lib.sh"
 
-die() { echo "install.sh: $*" >&2; exit 1; }
 user="${USER:-$(id -un)}"  # not every shell sets USER (su, cron)
 
 [ "$(id -u)" -ne 0 ] || die "run it as yourself, not as root or with sudo: Lectern installs \
@@ -61,64 +63,16 @@ data="$dir/data"
 settings="$dir/lectern.env"
 units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
-# uv, pinned and checksum-checked, into $1/uv (unless it's already that version).
-fetch_uv() {
-    local to="$1" tmp got
-    if [ -x "$to/uv" ] && [ "$("$to/uv" --version 2>/dev/null | cut -d' ' -f2)" = "$UV_VERSION" ]; then
-        return
-    fi
-    echo "Getting uv $UV_VERSION…"
-    mkdir -p "$to"
-    tmp="$(mktemp -d)"
-    curl -fsSL "${LECTERN_UV_URL:-$UV_LINUX_X86_64_URL}" -o "$tmp/uv.tar.gz" \
-        || { rm -rf "$tmp"; die "couldn't download uv (is the network up?)."; }
-    got="$(sha256sum "$tmp/uv.tar.gz" | cut -d' ' -f1)"
-    if [ "$got" != "$UV_LINUX_X86_64_SHA256" ]; then
-        rm -rf "$tmp"
-        die "uv's checksum is wrong ($got); not installing it."
-    fi
-    tar -xzf "$tmp/uv.tar.gz" -C "$tmp"
-    install -m 0755 "$tmp"/uv-*/uv "$to/uv"
-    rm -rf "$tmp"
-}
-
-# The most recent of the files given (wheel names are plain: lectern_ai-<version>-…whl).
-# shellcheck disable=SC2012
-newest() { { ls -t "$@" 2>/dev/null || true; } | head -1; }  # a glob with no match: ""
-
 # --- uv ---------------------------------------------------------------------------------
 if [ -n "${LECTERN_UV_BIN:-}" ]; then
     uv="$LECTERN_UV_BIN"
 else
-    fetch_uv "$app/bin"
+    fetch_uv "$app/bin" "$UV_LINUX_X86_64_URL" "$UV_LINUX_X86_64_SHA256"
     uv="$app/bin/uv"
 fi
 
 # --- the wheel --------------------------------------------------------------------------
-wheel="${1:-}"
-top="$(cd "$here/../.." && pwd)"  # the working copy's root, or the package's
-if [ -z "$wheel" ]; then
-    if [ -f "$top/pyproject.toml" ] && [ -d "$top/web" ]; then
-        # A working copy: build its wheel (it writes node_modules and dist here).
-        command -v "${LECTERN_NPM:-npm}" >/dev/null || die "building the web UI needs Node.js (npm): \
-sudo dnf install nodejs (Fedora) or sudo apt install nodejs npm (Debian/Ubuntu). Or copy a \
-package made with packaging/make_package.sh, which needs none."
-        echo "Building Lectern from $top…"
-        PATH="$(dirname "$uv"):$PATH" "$top/packaging/build_wheel.sh" >/dev/null \
-            || die "building the app failed (see above)."
-        wheel="$(newest "$top"/dist/lectern_ai-*.whl)"
-    else
-        wheel="$(newest "$top"/lectern_ai-*.whl "$here"/lectern_ai-*.whl)"
-        [ -n "$wheel" ] || die "no Lectern wheel next to this script, and this isn't a working copy of the repository."
-    fi
-fi
-[ -f "$wheel" ] || die "no such file: $wheel"
-case "$(basename "$wheel")" in
-    lectern_ai-*.whl) ;;
-    *) die "$wheel isn't a Lectern wheel (lectern_ai-<version>-py3-none-any.whl)" ;;
-esac
-wheel="$(cd "$(dirname "$wheel")" && pwd)/$(basename "$wheel")"
-version="$(basename "$wheel" | cut -d- -f2)"
+find_wheel "${1:-}" "sudo dnf install nodejs (Fedora) or sudo apt install nodejs npm (Debian/Ubuntu)"
 
 if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1; then
     echo "NVIDIA GPU found: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"
@@ -129,49 +83,12 @@ fi
 mkdir -p "$app/versions" "$dir/bin" "$data" "$units"
 
 # --- the app ----------------------------------------------------------------------------
-export UV_PYTHON_INSTALL_DIR="$app/python" UV_CACHE_DIR="$app/cache" UV_NO_CONFIG=1
-target="$app/versions/$version-$(date +%Y%m%d%H%M%S)-$$"  # $$: two runs in a second
-echo "Installing Lectern $version…"
-if ! { "$uv" venv --quiet --python 3.12 "$target" \
-       && "$uv" pip install --quiet --refresh-package lectern-ai \
-              --python "$target/bin/python" "$wheel"; }; then
-    rm -rf "$target"
-    die "installing Lectern $version failed (see above); the version in use is unchanged."
-fi
-previous="$(readlink "$app/venv" 2>/dev/null || true)"
-# Switched in one step (GNU mv -T renames over the old link), so the service never sees none.
-ln -sfn "$target" "$app/venv.next"
-if ! mv -T "$app/venv.next" "$app/venv" 2>/dev/null; then
-    rm -f "$app/venv" "$app/venv.next"  # BSD mv (the tests on macOS)
-    ln -s "$target" "$app/venv"
-fi
-
-# The way to the access link, with Lectern's settings loaded: ~/.lectern/bin/lectern-url
-cat > "$dir/bin/lectern-url" <<URL
-#!/bin/sh
-set -a
-. "$settings"
-set +a
-exec "$app/venv/bin/lectern" url --port "\${LECTERN_PORT:-8765}"
-URL
-chmod 0755 "$dir/bin/lectern-url"
+install_version
+switch_venv
+write_lectern_url
 
 # --- settings and the service -------------------------------------------------------------
-if [ ! -f "$settings" ]; then
-    cat > "$settings" <<ENV
-# Lectern's settings (read by its service). Restart after a change:
-#   systemctl --user restart lectern
-LECTERN_HOME=$data
-LECTERN_PORT=8765
-# The address(es) people use to reach Lectern, through whatever you put in front of it,
-# e.g. https://lectern.example.com (comma-separate several).
-LECTERN_PUBLIC_URL=
-# To reach Lectern on your network without a proxy, uncomment this and set LECTERN_PUBLIC_URL
-# to the address people type, e.g. http://192.168.1.2:8765. There's no login yet and it's
-# plain http: see README "Reaching it from other computers".
-# LECTERN_HOST=0.0.0.0
-ENV
-fi
+write_settings "systemctl --user restart lectern"
 sed "s|@LECTERN_DIR@|$dir|g" "$here/lectern.service" > "$units/lectern.service"
 systemctl --user daemon-reload
 if [ -n "$previous" ] && systemctl --user is-active --quiet lectern; then
@@ -183,15 +100,7 @@ else
 fi
 
 # Only a version that answers counts as installed. Until then nothing older is deleted.
-port="$(sed -n 's/^LECTERN_PORT=//p' "$settings" | tail -1)"
-port="${port:-8765}"
-echo "Waiting for Lectern to answer on 127.0.0.1:$port…"
-up=""
-for _ in $(seq "${LECTERN_HEALTH_WAIT:-60}"); do
-    if curl -fsS "http://127.0.0.1:$port/health" >/dev/null 2>&1; then up=1; break; fi
-    sleep 1
-done
-if [ -z "$up" ]; then
+if ! wait_for_health; then
     echo "install.sh: Lectern $version didn't start; see: journalctl --user -u lectern -n 50" >&2
     if [ -n "$previous" ] && [ -d "$previous" ]; then
         echo "The previous version is kept in $previous. To go back to it:" >&2
@@ -201,10 +110,7 @@ if [ -z "$up" ]; then
     exit 1
 fi
 echo "$started"
-# The new version works: keep it and the one before it (to go back to), drop the rest.
-for old in "$app"/versions/*; do
-    [ "$old" = "$target" ] || [ "$old" = "$previous" ] || rm -rf "$old"
-done
+prune_versions  # the new version works: it and the one before it stay
 
 # --- starting at boot, and the GPU --------------------------------------------------------
 # A user service runs only while you're logged in, unless lingering is on.
