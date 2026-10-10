@@ -66,6 +66,26 @@ export interface CatalogModel {
   /** Listed for this computer's tier. One that isn't can still be chosen, with a warning. */
   suits_tier: boolean;
   download: DownloadState;
+  /** What of it is on disk, or null. No revision: a download that isn't finished, or files
+   * that weren't downloaded through Lectern. */
+  installed: { revision: string | null; at: string | null; bytes: number } | null;
+  /** The roles that use it now. */
+  used_by: Role[];
+  /** The catalog pins a newer revision than the one on disk. */
+  update_available: boolean;
+  /** That update, while it runs or after it failed. */
+  update: UpdateState | null;
+}
+
+export interface UpdateState {
+  model_id: string;
+  /** checking: what's on disk against the new version; updating: fetching what differs;
+   * waiting: all fetched, for the model to be free. */
+  status: "checking" | "updating" | "waiting" | "failed";
+  bytes_done: number;
+  bytes_total: number;
+  rate: number;
+  error: string | null;
 }
 
 export interface ModelsResponse {
@@ -75,6 +95,8 @@ export interface ModelsResponse {
   /** The model each role uses: the recommended one, unless another was chosen. */
   chosen: Partial<Record<Role, string>>;
   models: CatalogModel[];
+  /** Folders in the models directory that no catalog model owns. */
+  unlisted: { name: string; bytes: number }[];
 }
 
 export interface FirstRun {

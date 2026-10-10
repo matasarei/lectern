@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "../../router";
 
+// The page asks for the list again while an update runs; no test should wait out the real gap.
+vi.mock("./polling", () => ({ UPDATE_POLL_MS: 20 }));
+
 const GIB = 1024 ** 3;
 
 const download = (id: string, status: string) => ({
@@ -16,7 +19,13 @@ const download = (id: string, status: string) => ({
 const model = (id: string, title: string, roles: string[], status: string) => ({
   id, title, quant: "Q4_K_M", roles, size: 2 * 10 ** 9, licence: "Apache-2.0",
   licence_notice: false, notes: null, repo: "x/y", suits_tier: true,
-  download: download(id, status),
+  download: download(id, status), installed: null, used_by: [],
+  update_available: false, update: null,
+});
+
+const updating = (done: number, error: string | null = null) => ({
+  model_id: "qwen3.5-9b", status: error ? "failed" : "updating",
+  bytes_done: done, bytes_total: 5 * 10 ** 9, rate: 0, error,
 });
 
 const RESPONSES: Record<string, unknown> = {
@@ -42,6 +51,7 @@ const RESPONSES: Record<string, unknown> = {
       model("qwen3-vl-8b", "Qwen3-VL 8B", ["ocr.hand"], "none"),
       model("coder-7b", "Coder 7B", ["code"], "none"),
     ],
+    unlisted: [],
   },
   "/api/runtime": {
     tier: "recommended", budget: 7.4 * GIB, unified: false, used: 5.5 * GIB, swaps: 3, waiting: 0,
@@ -60,6 +70,8 @@ const RESPONSES: Record<string, unknown> = {
 let puts: unknown[] = [];
 let choices: { role: string; modelId: string | null }[] = [];
 let refusal: string | null = null; // what the server answers a choice with, when it refuses
+let removed: string[] = [];
+let afterUpdate: (() => void) | null = null; // what the server's list says once Update was pressed
 let posts: { url: string; body: unknown }[] = [];
 let overrides: Record<string, unknown> = {};
 
@@ -67,6 +79,8 @@ beforeEach(() => {
   puts = [];
   choices = [];
   refusal = null;
+  removed = [];
+  afterUpdate = null;
   posts = [];
   overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
@@ -74,9 +88,29 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
+      if (init?.method === "POST" && url.endsWith("/update")) {
+        posts.push({ url, body: null });
+        if (refusal) return new Response(JSON.stringify({ detail: refusal }), { status: 409 });
+        afterUpdate?.();
+        return new Response(JSON.stringify(updating(0)), { status: 202 });
+      }
       if (init?.method === "POST") {
         posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
         return new Response(JSON.stringify(download(url.split("/")[3], "queued")), { status: 202 });
+      }
+      if (init?.method === "DELETE") {
+        // As the server: the list again, without what was removed.
+        const name = decodeURIComponent(url.split("/")[3]);
+        removed.push(name);
+        if (refusal) return new Response(JSON.stringify({ detail: refusal }), { status: 409 });
+        const list = (overrides["/api/models"] ?? RESPONSES["/api/models"]) as {
+          models: { id: string }[]; unlisted: { name: string }[];
+        };
+        return new Response(JSON.stringify({
+          ...list,
+          models: list.models.map((m) => (m.id === name ? { ...m, installed: null } : m)),
+          unlisted: list.unlisted.filter((u) => u.name !== name),
+        }));
       }
       if (init?.method === "PUT" && url.startsWith("/api/models/roles/")) {
         // As the server: the list again, with the role on the chosen model (null: the
@@ -424,6 +458,184 @@ describe("Models & memory", () => {
     expect([...select.options].map((o) => o.value)).toEqual([
       "qwen3.5-4b", "qwen3.5-9b", "qwen3.5-35b-a3b",
     ]);
+  });
+
+  // On disk: the chat model (a recorded version), the OCR model copied in by hand, a coder
+  // whose download stopped halfway, and a folder left by an older Lectern.
+  const withInstalled = () => {
+    const base = RESPONSES["/api/models"] as { models: { id: string }[] };
+    const on = (id: string, installed: object | null, extra: object = {}) =>
+      ({ ...base.models.find((m) => m.id === id), installed, ...extra });
+    overrides["/api/models"] = {
+      ...base,
+      models: [
+        on("qwen3.5-9b", {
+          revision: "3885219b6810b007914f3a7950a8d1b469d598a5",
+          at: new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString(),
+          bytes: 5.6 * 10 ** 9,
+        }, { used_by: ["main"] }),
+        on("paddleocr-vl-1.6", { revision: null, at: null, bytes: 1.8 * 10 ** 9 }, { used_by: ["ocr"] }),
+        on("qwen3-vl-8b", null),
+        on("coder-7b", { revision: null, at: null, bytes: 4 * 10 ** 8 },
+           { download: download("coder-7b", "paused") }),
+      ],
+      unlisted: [{ name: "model-of-an-older-lectern", bytes: 3 * 10 ** 9 }],
+    };
+  };
+  const installedRow = (text: string) =>
+    screen.getByTestId("installed-models").querySelector(`[data-installed="${text}"]`) as HTMLElement;
+
+  it("lists what's on disk with its version, size and the roles using it", async () => {
+    withInstalled();
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    const chat = installedRow("qwen3.5-9b").textContent;
+    expect(chat).toContain("Qwen3.5 9B");
+    expect(chat).toContain("version 3885219");
+    expect(chat).toContain("installed 3 days ago");
+    expect(chat).toContain("used by main");
+    expect(chat).toContain("5.6 GB");
+    expect(installedRow("paddleocr-vl-1.6").textContent).toContain("version not recorded");
+    expect(installedRow("coder-7b").textContent).toContain("download not finished");
+    const left = installedRow("model-of-an-older-lectern").textContent;
+    expect(left).toContain("not in this Lectern's catalog");
+    expect(left).toContain("3 GB");
+    // Not on disk, not listed.
+    expect(screen.getByTestId("installed-models").textContent).not.toContain("Qwen3-VL 8B");
+  });
+
+  it("shows no installed list when nothing is on disk", async () => {
+    renderPage();
+
+    await screen.findByTestId("status-main");
+    expect(screen.queryByTestId("installed-models")).toBeNull();
+  });
+
+  it("removes a model only after a second click, and says what the role is left with", async () => {
+    withInstalled();
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Qwen3.5 9B" }));
+
+    // Asked first, in place: nothing was sent.
+    expect(removed).toEqual([]);
+    expect(installedRow("qwen3.5-9b").textContent).toContain(
+      "Remove 5.6 GB? main will have no model until it's downloaded again.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.queryByRole("button", { name: "Keep" })).toBeNull();
+    expect(removed).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Qwen3.5 9B" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(removed).toEqual(["qwen3.5-9b"]));
+    await waitFor(() => expect(installedRow("qwen3.5-9b")).toBeNull());
+    expect(installedRow("paddleocr-vl-1.6")).toBeTruthy(); // the others stay
+  });
+
+  it("removes a folder no catalog model owns", async () => {
+    withInstalled();
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove model-of-an-older-lectern" }));
+    expect(installedRow("model-of-an-older-lectern").textContent).toContain("Remove 3 GB?");
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(removed).toEqual(["model-of-an-older-lectern"]));
+    await waitFor(() => expect(installedRow("model-of-an-older-lectern")).toBeNull());
+  });
+
+  it("says why a model wasn't removed, and keeps it listed", async () => {
+    withInstalled();
+    refusal = "Qwen3.5 9B is in use. Remove it when the reply or the job using it is done.";
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Qwen3.5 9B" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(await screen.findByText(refusal)).toBeTruthy();
+    expect(installedRow("qwen3.5-9b")).toBeTruthy();
+  });
+
+  // The chat model on disk at an older pin than this Lectern's catalog.
+  const withUpdate = (chat: object = {}) => {
+    withInstalled();
+    const list = overrides["/api/models"] as { models: { id: string }[] };
+    overrides["/api/models"] = {
+      ...list,
+      models: list.models.map((m) =>
+        m.id === "qwen3.5-9b" ? { ...m, update_available: true, ...chat } : m),
+    };
+  };
+
+  it("offers Update only for a model the catalog has a newer version of", async () => {
+    withUpdate();
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    expect(installedRow("qwen3.5-9b").textContent).toContain("a newer version is available");
+    expect(screen.getByRole("button", { name: "Update Qwen3.5 9B" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update PaddleOCR-VL 1.6" })).toBeNull();
+    expect(installedRow("paddleocr-vl-1.6").textContent).not.toContain("newer version");
+  });
+
+  it("starts an update, shows how far it is, and the new version when it's done", async () => {
+    withUpdate();
+    afterUpdate = () => withUpdate({ update: updating(2 * 10 ** 9) });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update Qwen3.5 9B" }));
+
+    await waitFor(() => expect(posts).toEqual([{ url: "/api/models/qwen3.5-9b/update", body: null }]));
+    await waitFor(() =>
+      expect(installedRow("qwen3.5-9b").textContent).toContain("2 GB of 5 GB"));
+    // It's on its way: nothing to press again. The model stays in use meanwhile.
+    expect(screen.queryByRole("button", { name: "Update Qwen3.5 9B" })).toBeNull();
+    expect(installedRow("qwen3.5-9b").textContent).toContain("stays in use");
+
+    // The server finishes it. Nobody presses anything: the page asks again while one runs.
+    withUpdate({
+      update_available: false,
+      installed: { revision: "b".repeat(40), at: new Date().toISOString(), bytes: 5 * 10 ** 9 },
+    });
+    await waitFor(() =>
+      expect(installedRow("qwen3.5-9b").textContent).toContain("version bbbbbbb"));
+    expect(installedRow("qwen3.5-9b").textContent).not.toContain("newer version");
+  });
+
+  it.each([
+    ["checking", "comparing the files on disk with the new version"],
+    ["waiting", "It takes the model's place as soon as the model is free"],
+  ])("says what an update is doing while it is %s", async (status, words) => {
+    withUpdate({ update: { ...updating(0), status } });
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    expect(installedRow("qwen3.5-9b").textContent).toContain(words);
+    // Under way: not offered again, and no bar that would sit at 0% or 100% saying nothing.
+    expect(screen.queryByRole("button", { name: "Update Qwen3.5 9B" })).toBeNull();
+    expect(installedRow("qwen3.5-9b").querySelector("progress")).toBeNull();
+  });
+
+  it("says why an update failed and offers it again", async () => {
+    withUpdate({ update: updating(10 ** 9, "Connection problem (ReadError). Try again to resume.") });
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    expect(installedRow("qwen3.5-9b").textContent).toContain("Connection problem (ReadError)");
+    expect(screen.getByRole("button", { name: "Update Qwen3.5 9B" })).toBeTruthy();
+  });
+
+  it("says why an update couldn't start", async () => {
+    withUpdate();
+    refusal = "Qwen3.5 9B has no update. It isn't on disk, or it's at the catalog's version already.";
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update Qwen3.5 9B" }));
+
+    expect(await screen.findByText(refusal)).toBeTruthy();
   });
 
   it("says MLX isn't installed, and keeps the switch off, on a Mac without it", async () => {
