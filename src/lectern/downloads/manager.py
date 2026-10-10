@@ -37,6 +37,7 @@ SAVE_EVERY = 1.0  # seconds between database writes
 ACTIVE = ("queued", "downloading", "verifying")
 UPDATE_SUFFIX = ".update"  # <id>.update: a newer revision being built beside the model
 OLD_SUFFIX = ".old"  # <id>.old: the revision being replaced, for the moment of the swap
+UPDATE_MARKER = ".for-revision"  # in an update's folder: the revision it's being built for
 
 
 @dataclass(frozen=True)
@@ -357,7 +358,8 @@ class DownloadManager:
             return self._updates[entry.id]
         if not self.update_available(entry):
             raise NothingToUpdate(f"{entry.title} has no update.")
-        state = UpdateState(entry.id, "updating", self._staged_bytes(entry), entry.size)
+        so_far = self._staged_bytes(entry) if self._staged_for(entry) else 0
+        state = UpdateState(entry.id, "updating", so_far, entry.size)
         self._updates[entry.id] = state
         self._update_tasks[entry.id] = asyncio.get_running_loop().create_task(self._update(entry))
         return state
@@ -375,6 +377,7 @@ class DownloadManager:
     async def _update(self, entry: CatalogEntry) -> None:
         """Build the pinned revision in the model's `.update` folder, then put it in the
         model's place. The copy in use isn't touched until that last step."""
+        await asyncio.to_thread(self._claim_staging, entry)
         progress = _Progress(entry, self._staged_bytes(entry))
         try:
             async with self.client_factory() as client:
@@ -406,6 +409,20 @@ class DownloadManager:
                 entry.id, "failed", failed.bytes_done, failed.bytes_total, error=failed.error
             )
         self._publish(state)
+
+    def _staged_for(self, entry: CatalogEntry) -> bool:
+        marker = self._staging(entry) / UPDATE_MARKER
+        return marker.is_file() and marker.read_text().strip() == entry.revision
+
+    def _claim_staging(self, entry: CatalogEntry) -> None:
+        """The update's folder, noted as being built for this revision. One begun for
+        another pin (an update interrupted, then a Lectern that pins something newer) is
+        thrown away: its files were checked against that pin's checksums, not this one's."""
+        staging = self._staging(entry)
+        if staging.is_dir() and not self._staged_for(entry):
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True, exist_ok=True)
+        (staging / UPDATE_MARKER).write_text(entry.revision)
 
     async def _carry_over(self, entry: CatalogEntry, file: ModelFile, progress: _Progress) -> bool:
         """True when the file is in the update's folder without fetching it: it's there from
@@ -478,41 +495,44 @@ class DownloadManager:
 
     def _swap(self, entry: CatalogEntry) -> None:
         """The update's folder takes the model's place. Two renames and a record: a start
-        that finds this cut short between any two of them puts it right (`_recover`)."""
+        that finds this cut short between any two of them puts it right (`_recover`). The
+        folder's note of its revision goes last but one, so that until the record is written
+        the folder itself says what it holds."""
         current, staging = self.model_dir(entry), self._staging(entry)
         old = current.with_name(entry.id + OLD_SUFFIX)
         current.rename(old)
         staging.rename(current)
+        self._record_swapped(entry, entry.revision)
+        shutil.rmtree(old)
+
+    def _record_swapped(self, entry: CatalogEntry, revision: str) -> None:
         self._save(
             entry.id,
             status="done",
             bytes_done=entry.size,
             bytes_total=entry.size,
             error=None,
-            revision=entry.revision,
+            revision=revision,
         )
-        shutil.rmtree(old)
+        (self.model_dir(entry) / UPDATE_MARKER).unlink(missing_ok=True)
 
     def _recover(self, entries: dict[str, CatalogEntry]) -> list[CatalogEntry]:
         """At start: put right a swap that was cut short, and return the models whose update
         should go on. With `.old` beside the model, the new revision had taken its place:
-        the swap is finished. With `.old` and no model, it had only begun: it is undone, and
-        the update's folder, still whole, is swapped in again by the update going on."""
+        the swap is finished, and if the folder still carries its note, the revision in it
+        is recorded (the record hadn't been written). With `.old` and no model, it had only
+        begun: it is undone, and the update's folder, still whole, is swapped in again by
+        the update going on."""
         updating = []
         for entry in entries.values():
             current, staging = self.model_dir(entry), self._staging(entry)
             old = current.with_name(entry.id + OLD_SUFFIX)
             if old.is_dir() and not old.is_symlink():
                 if current.exists():
+                    marker = current / UPDATE_MARKER
+                    if marker.is_file():
+                        self._record_swapped(entry, marker.read_text().strip())
                     shutil.rmtree(old)
-                    self._save(
-                        entry.id,
-                        status="done",
-                        bytes_done=entry.size,
-                        bytes_total=entry.size,
-                        error=None,
-                        revision=entry.revision,
-                    )
                 else:
                     old.rename(current)
             if staging.is_dir() and not staging.is_symlink():

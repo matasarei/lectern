@@ -15,6 +15,7 @@ from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.tables import DownloadRow
 from lectern.downloads.manager import (
     DISK_HEADROOM,
+    UPDATE_MARKER,
     DownloadManager,
     NoSuchFolder,
     NothingToUpdate,
@@ -642,23 +643,47 @@ def test_whoever_waits_for_such_a_download_hears_how_it_ended(paths, sessions):
     assert asyncio.run(waited())[-1] == "done"  # tried again: it goes on, and ends well
 
 
-def _put(folder, **files: bytes) -> None:  # noqa: ANN001
+def _put(folder, *, built_for: str | None = None, **files: bytes) -> None:  # noqa: ANN001
+    """A folder as an update leaves it: its files and, with `built_for`, the note of the
+    revision it's being built for."""
     folder.mkdir(parents=True)
     for name, data in files.items():
         (folder / name).write_bytes(data)
+    if built_for is not None:
+        (folder / UPDATE_MARKER).write_text(built_for)
 
 
 def test_a_swap_cut_short_after_the_new_revision_was_in_place_is_finished_at_start(paths, sessions):
     manager, _ = _installed_tiny(paths, sessions)
     (paths.models / "tiny").rename(paths.models / "tiny.old")
+    # Cut after the second rename: the folder still carries the note of what it was built for.
+    _put(paths.models / "tiny", built_for="b" * 40, **{"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ})
+
+    async def go():
+        # A Lectern that pins yet another revision by now: what's recorded is what's there.
+        later = _newer().model_copy(update={"revision": "c" * 40})
+        return manager.resume_interrupted({"tiny": later})
+
+    assert asyncio.run(go()) == []
+    assert not (paths.models / "tiny.old").exists()
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+    assert _row(sessions, "tiny").revision == "b" * 40
+    assert sorted(p.name for p in (paths.models / "tiny").iterdir()) == ["mmproj.gguf", "tiny.gguf"]
+
+
+def test_a_swap_cut_short_with_only_the_old_folder_left_to_delete_is_finished_at_start(
+    paths, sessions
+):
+    manager, _ = _installed_tiny(paths, sessions)
+    (paths.models / "tiny").rename(paths.models / "tiny.old")
     _put(paths.models / "tiny", **{"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ})
+    manager._save("tiny", revision="b" * 40)  # the swap had recorded it already
 
     async def go():
         return manager.resume_interrupted({"tiny": _newer()})
 
     assert asyncio.run(go()) == []
     assert not (paths.models / "tiny.old").exists()
-    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
     assert _row(sessions, "tiny").revision == "b" * 40
 
 
@@ -667,7 +692,11 @@ def test_a_swap_cut_short_before_the_new_revision_was_in_place_is_undone_and_run
 ):
     manager, _ = _updating(paths, sessions)
     (paths.models / "tiny").rename(paths.models / "tiny.old")
-    _put(paths.models / "tiny.update", **{"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ})
+    _put(
+        paths.models / "tiny.update",
+        built_for="b" * 40,
+        **{"tiny.gguf": NEWER, "mmproj.gguf": MMPROJ},
+    )
 
     async def go():
         resumed = manager.resume_interrupted({"tiny": _newer()})
@@ -684,7 +713,7 @@ def test_a_swap_cut_short_before_the_new_revision_was_in_place_is_undone_and_run
 
 def test_an_update_interrupted_mid_download_goes_on_at_the_next_start(paths, sessions):
     manager, hub = _updating(paths, sessions)
-    _put(paths.models / "tiny.update", **{"tiny.gguf.part": NEWER[:40_000]})
+    _put(paths.models / "tiny.update", built_for="b" * 40, **{"tiny.gguf.part": NEWER[:40_000]})
 
     async def go():
         resumed = manager.resume_interrupted({"tiny": _newer()})
@@ -694,6 +723,27 @@ def test_an_update_interrupted_mid_download_goes_on_at_the_next_start(paths, ses
     assert asyncio.run(go()) == ["tiny"]
     assert hub.requests[0].headers["range"] == "bytes=40000-"
     assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+
+
+@pytest.mark.parametrize("built_for", ["c" * 40, None])
+def test_an_update_begun_for_another_pin_is_started_over(paths, sessions, built_for):
+    """An update had fetched and verified its file, for the pin of that time, and was
+    interrupted before the swap. The pin has moved since (or the folder doesn't say what it
+    was for). Its files are another revision's: none of them may be taken for this one's."""
+    manager, hub = _updating(paths, sessions)
+    other = b"GGUF" + b"the weights of some other revision" * 3000
+    _put(paths.models / "tiny.update", built_for=built_for, **{"tiny.gguf": other})
+
+    async def go():
+        resumed = manager.resume_interrupted({"tiny": _newer()})
+        await manager._update_tasks["tiny"]
+        return resumed
+
+    assert asyncio.run(go()) == ["tiny"]
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == NEWER
+    assert _row(sessions, "tiny").revision == "b" * 40
+    assert "range" not in hub.requests[0].headers  # fetched from its first byte
+    assert sorted(p.name for p in (paths.models / "tiny").iterdir()) == ["mmproj.gguf", "tiny.gguf"]
 
 
 def test_what_an_update_left_behind_for_a_model_already_current_is_cleared(paths, sessions):
