@@ -342,8 +342,9 @@ def test_the_package_carries_every_file_the_installer_sources():
     would only show on the server it's unpacked on."""
     sourced = re.findall(r'^\. "\$here/\.\./([\w.]+)"', (LINUX / "install.sh").read_text(), re.M)
     assert "pins.sh" in sourced
-    packed = (ROOT / "packaging/make_package.sh").read_text()
-    missing = [name for name in sourced if f"packaging/{name}" not in packed]
+    script = (ROOT / "packaging/make_package.sh").read_text()
+    (copied,) = re.findall(r'^cp -R (.+) "\$stage/\$name/packaging/"$', script, re.M)
+    missing = [name for name in sourced if f"packaging/{name}" not in copied.split()]
     assert not missing, f"make_package.sh doesn't copy {missing}"
 
 
