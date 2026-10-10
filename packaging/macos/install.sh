@@ -83,7 +83,9 @@ find_wheel "${1:-}" "brew install node, or the installer from nodejs.org"
 mkdir -p "$app/versions" "$dir/bin" "$data" "$(dirname "$bundle")"
 
 # --- the new version and the new app, before anything that runs is touched ----------------
-install_version
+# With MLX's text server (the wheel's `mlx` extra), so that the switch in Models & memory has
+# something to switch on.
+install_version "[mlx]"
 if ! "$here/build_app.sh" "$bundle.new" "$dir" "$version"; then
     rm -rf "$bundle.new" "$target"
     die "building Lectern.app failed (see above); the version in use is unchanged."

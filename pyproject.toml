@@ -25,11 +25,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Apple Silicon only, and off by default in the app (the MLX servers can't be keyed yet).
-mlx = [
-    "mlx-lm>=0.31; sys_platform == 'darwin' and platform_machine == 'arm64'",
-    "mlx-vlm>=0.7; sys_platform == 'darwin' and platform_machine == 'arm64'",
-]
+# Apple Silicon only. `mlx` is MLX's text server, which the Mac installer adds and Models &
+# memory can switch on. It is pinned to the versions lectern.runners.mlx_text_server was read
+# against: that module puts a key in front of the server by changing its request handler, so
+# a new mlx-lm is read before this range is widened. `mlx-vision` is the vision server, for
+# OCR models on MLX; nothing installs it yet.
+mlx = ["mlx-lm>=0.32,<0.33; sys_platform == 'darwin' and platform_machine == 'arm64'"]
+mlx-vision = ["mlx-vlm>=0.7; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 
 [project.scripts]
 lectern = "lectern.cli:app"
