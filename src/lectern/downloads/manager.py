@@ -501,7 +501,11 @@ class DownloadManager:
         current, staging = self.model_dir(entry), self._staging(entry)
         old = current.with_name(entry.id + OLD_SUFFIX)
         current.rename(old)
-        staging.rename(current)
+        try:
+            staging.rename(current)
+        except OSError:
+            old.rename(current)  # not left renamed away until the next start
+            raise
         self._record_swapped(entry, entry.revision)
         shutil.rmtree(old)
 

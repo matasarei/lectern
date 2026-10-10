@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import threading
+from pathlib import Path
 
 import httpx2
 import pytest
@@ -572,6 +573,27 @@ def test_an_update_is_refused_without_room_for_what_it_has_to_fetch(paths, sessi
     assert failed.status == "failed" and "Not enough disk space" in failed.error
     assert hub.requests == []  # the unchanged file doesn't count: it isn't fetched
     assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
+
+
+def test_a_swap_whose_second_step_fails_puts_the_model_back_at_once(paths, sessions, monkeypatch):
+    manager, _ = _updating(paths, sessions)
+    rename = Path.rename
+
+    def failing(self, target):  # noqa: ANN001, ANN202
+        if self.name == "tiny.update":
+            raise OSError("Operation not permitted")
+        return rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", failing)
+
+    asyncio.run(_updated(manager, _newer()))
+
+    # Not left renamed away until the next start: the model is where it was, usable.
+    assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
+    assert not (paths.models / "tiny.old").exists()
+    failed = manager.update_state("tiny")
+    assert failed.status == "failed" and "Operation not permitted" in failed.error
+    assert _row(sessions, "tiny").revision == "a" * 40
 
 
 def test_there_is_nothing_to_update_for_a_model_at_the_pinned_revision(paths, sessions):
