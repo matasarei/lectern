@@ -66,6 +66,11 @@ export interface CatalogModel {
   /** Listed for this computer's tier. One that isn't can still be chosen, with a warning. */
   suits_tier: boolean;
   download: DownloadState;
+  /** What of it is on disk, or null. No revision: a download that isn't finished, or files
+   * that weren't downloaded through Lectern. */
+  installed: { revision: string | null; at: string | null; bytes: number } | null;
+  /** The roles that use it now. */
+  used_by: Role[];
 }
 
 export interface ModelsResponse {
@@ -75,6 +80,8 @@ export interface ModelsResponse {
   /** The model each role uses: the recommended one, unless another was chosen. */
   chosen: Partial<Record<Role, string>>;
   models: CatalogModel[];
+  /** Folders in the models directory that no catalog model owns. */
+  unlisted: { name: string; bytes: number }[];
 }
 
 export interface FirstRun {

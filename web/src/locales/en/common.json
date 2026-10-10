@@ -105,7 +105,20 @@
     "recommendedIs": "Recommended for this computer: {{title}}.",
     "useRecommended": "Use it",
     "useRecommendedFor": "Use {{title}} for {{role}}",
-    "tooBigWhy": "This model is more than this computer is meant for: it may be slow, run with a small context, or not load."
+    "tooBigWhy": "This model is more than this computer is meant for: it may be slow, run with a small context, or not load.",
+    "installed": "Installed models",
+    "installedWhy": "What's on this computer's disk. Removing a model frees its room; it can be downloaded again.",
+    "version": "version {{revision}}",
+    "noVersion": "version not recorded",
+    "downloadNotFinished": "download not finished",
+    "installedAgo": "installed {{ago}}",
+    "usedBy": "used by {{roles}}",
+    "notInCatalog": "not in this Lectern's catalog",
+    "remove": "Remove",
+    "removeModel": "Remove {{title}}",
+    "removeAsk": "Remove {{size}}?",
+    "removeAskUsed": "Remove {{size}}? {{roles}} will have no model until it's downloaded again.",
+    "keep": "Keep"
   },
   "sandbox": {
     "podman": "Podman",

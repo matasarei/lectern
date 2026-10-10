@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, ApiError, apiPost } from "../../api/client";
@@ -22,7 +22,7 @@ import {
   StatusText,
   TierBadge,
 } from "../../components";
-import { formatBytes, formatMemory, percent } from "../../format";
+import { formatAgo, formatBytes, formatMemory, percent } from "../../format";
 import { useDownloadEvents } from "../../hooks/useDownloadEvents";
 import { useRuntime } from "../../hooks/useRuntime";
 import { formatCountdown, modelWaitText, useCountdown } from "../../status";
@@ -199,6 +199,8 @@ export function ModelsPage() {
         <p className="text-sm text-muted">{t("modelsPage.onFirstUse")}</p>
       </Card>
 
+      <InstalledCard models={models.data} />
+
       <SettingsCard />
     </Page>
   );
@@ -359,6 +361,119 @@ function RoleRow({
         )}
       </td>
     </tr>
+  );
+}
+
+/** What's on disk: every model with files there and every folder no catalog model owns, each
+ * with its version, its size and Remove. Nothing on disk: no card. */
+function InstalledCard({ models }: { models: ModelsResponse }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  // The one Remove was pressed for: it's asked about in place before anything is deleted.
+  const [asking, setAsking] = useState<string | null>(null);
+  // The answer is the list again, without what was removed.
+  const remove = useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<ModelsResponse>(`/api/models/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    onSuccess: (data) => queryClient.setQueryData(["models"], data),
+    onSettled: () => setAsking(null),
+  });
+  const rows = [
+    ...models.models.flatMap((m) => {
+      if (!m.installed) return [];
+      const version = m.installed.revision
+        ? t("modelsPage.version", { revision: m.installed.revision.slice(0, 7) })
+        : m.download.status === "done"
+          ? t("modelsPage.noVersion")
+          : t("modelsPage.downloadNotFinished");
+      const facts = [
+        version,
+        m.installed.at && t("modelsPage.installedAgo", { ago: formatAgo(m.installed.at) }),
+        m.used_by.length > 0 && t("modelsPage.usedBy", { roles: m.used_by.join(", ") }),
+      ];
+      return [
+        {
+          name: m.id,
+          title: m.title,
+          quant: m.quant,
+          facts: facts.filter((fact): fact is string => Boolean(fact)),
+          bytes: m.installed.bytes,
+          roles: m.used_by,
+        },
+      ];
+    }),
+    ...models.unlisted.map((folder) => ({
+      name: folder.name,
+      title: folder.name,
+      quant: null,
+      facts: [t("modelsPage.notInCatalog")],
+      bytes: folder.bytes,
+      roles: [] as Role[],
+    })),
+  ];
+  if (rows.length === 0) return null;
+  return (
+    <Card title={t("modelsPage.installed")}>
+      <ul className="grid text-sm" data-testid="installed-models">
+        {rows.map((row) => (
+          <li
+            key={row.name}
+            className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-t border-line py-2 first:border-t-0"
+            data-installed={row.name}
+          >
+            <span>
+              {row.title}
+              {row.quant && <span className="text-muted"> · {row.quant}</span>}
+              <span className="block text-muted">{row.facts.join(" · ")}</span>
+            </span>
+            <span className="flex items-center gap-3">
+              <span className="tabular-nums">{formatBytes(row.bytes)}</span>
+              {asking !== row.name && (
+                <button
+                  className="btn-secondary"
+                  aria-label={t("modelsPage.removeModel", { title: row.title })}
+                  onClick={() => setAsking(row.name)}
+                >
+                  {t("modelsPage.remove")}
+                </button>
+              )}
+            </span>
+            {asking === row.name && (
+              <span className="flex w-full flex-wrap items-center justify-end gap-2">
+                <span>
+                  {row.roles.length > 0
+                    ? t("modelsPage.removeAskUsed", {
+                        size: formatBytes(row.bytes),
+                        roles: row.roles.join(", "),
+                      })
+                    : t("modelsPage.removeAsk", { size: formatBytes(row.bytes) })}
+                </span>
+                <button
+                  className="btn-secondary"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(row.name)}
+                >
+                  {t("modelsPage.remove")}
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={remove.isPending}
+                  onClick={() => setAsking(null)}
+                >
+                  {t("modelsPage.keep")}
+                </button>
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {remove.error && (
+        <ErrorNote
+          message={remove.error instanceof ApiError ? remove.error.detail : t("common.loadFailed")}
+        />
+      )}
+      <p className="text-sm text-muted">{t("modelsPage.installedWhy")}</p>
+    </Card>
   );
 }
 
