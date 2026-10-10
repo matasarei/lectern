@@ -26,6 +26,7 @@ import { formatAgo, formatBytes, formatMemory, percent } from "../../format";
 import { useDownloadEvents } from "../../hooks/useDownloadEvents";
 import { useRuntime } from "../../hooks/useRuntime";
 import { formatCountdown, modelWaitText, useCountdown } from "../../status";
+import { UPDATE_POLL_MS } from "./polling";
 
 const ROLES: Role[] = ["main", "ocr", "ocr.hand", "code"];
 const ROLE_COLOURS: Record<Role, string> = {
@@ -52,6 +53,12 @@ export function ModelsPage() {
   const models = useQuery({
     queryKey: ["models"],
     queryFn: () => apiFetch<ModelsResponse>("/api/models"),
+    // An update's progress is in the list, not in the download events: ask again while one
+    // runs, to show how far it is and the new version when it's done.
+    refetchInterval: (query) =>
+      query.state.data?.models.some((m) => m.update && m.update.status !== "failed")
+        ? UPDATE_POLL_MS
+        : false,
   });
   const mlxOn = useRuntimeSettings().data?.values.mlx_enabled ?? false;
   const queryClient = useQueryClient();
@@ -378,6 +385,11 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
     onSuccess: (data) => queryClient.setQueryData(["models"], data),
     onSettled: () => setAsking(null),
   });
+  // It runs on the server from here; the list says how far it is.
+  const update = useMutation({
+    mutationFn: (id: string) => apiPost(`/api/models/${encodeURIComponent(id)}/update`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["models"] }),
+  });
   const rows = [
     ...models.models.flatMap((m) => {
       if (!m.installed) return [];
@@ -390,6 +402,7 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
         version,
         m.installed.at && t("modelsPage.installedAgo", { ago: formatAgo(m.installed.at) }),
         m.used_by.length > 0 && t("modelsPage.usedBy", { roles: m.used_by.join(", ") }),
+        m.update_available && t("modelsPage.updateAvailable"),
       ];
       return [
         {
@@ -399,6 +412,9 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
           facts: facts.filter((fact): fact is string => Boolean(fact)),
           bytes: m.installed.bytes,
           roles: m.used_by,
+          update: m.update,
+          // Offered again after a failure; not while one runs.
+          canUpdate: m.update_available && (!m.update || m.update.status === "failed"),
         },
       ];
     }),
@@ -409,6 +425,8 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
       facts: [t("modelsPage.notInCatalog")],
       bytes: folder.bytes,
       roles: [] as Role[],
+      update: null,
+      canUpdate: false,
     })),
   ];
   if (rows.length === 0) return null;
@@ -421,13 +439,25 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
             className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 border-t border-line py-2 first:border-t-0"
             data-installed={row.name}
           >
-            <span>
+            {/* Takes the room that's left and wraps inside it: a long line of facts doesn't
+                push the size and the buttons onto a row of their own. */}
+            <span className="min-w-0 flex-1">
               {row.title}
               {row.quant && <span className="text-muted"> · {row.quant}</span>}
               <span className="block text-muted">{row.facts.join(" · ")}</span>
             </span>
             <span className="flex items-center gap-3">
               <span className="tabular-nums">{formatBytes(row.bytes)}</span>
+              {row.canUpdate && (
+                <button
+                  className="btn-secondary"
+                  aria-label={t("modelsPage.updateModel", { title: row.title })}
+                  disabled={update.isPending}
+                  onClick={() => update.mutate(row.name)}
+                >
+                  {t("modelsPage.update")}
+                </button>
+              )}
               {asking !== row.name && (
                 <button
                   className="btn-secondary"
@@ -438,6 +468,23 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
                 </button>
               )}
             </span>
+            {row.update?.status === "checking" && (
+              <span className="w-full text-xs text-muted">{t("modelsPage.updateChecking")}</span>
+            )}
+            {row.update?.status === "updating" && (
+              <span className="grid w-full gap-1">
+                <DownloadProgress state={{ ...row.update, status: "downloading" }} />
+                <span className="text-xs text-muted">{t("modelsPage.updating")}</span>
+              </span>
+            )}
+            {row.update?.status === "waiting" && (
+              <span className="w-full text-xs text-muted">{t("modelsPage.updateWaiting")}</span>
+            )}
+            {row.update?.status === "failed" && row.update.error && (
+              <span className="w-full">
+                <ErrorNote message={row.update.error} />
+              </span>
+            )}
             {asking === row.name && (
               <span className="flex w-full flex-wrap items-center justify-end gap-2">
                 <span>
@@ -470,6 +517,11 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
       {remove.error && (
         <ErrorNote
           message={remove.error instanceof ApiError ? remove.error.detail : t("common.loadFailed")}
+        />
+      )}
+      {update.error && (
+        <ErrorNote
+          message={update.error instanceof ApiError ? update.error.detail : t("common.loadFailed")}
         />
       )}
       <p className="text-sm text-muted">{t("modelsPage.installedWhy")}</p>

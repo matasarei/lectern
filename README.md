@@ -197,6 +197,29 @@ What it gives and what it costs, measured with the 4B chat model on an M4 Max:
 OCR models always run on llama.cpp. Lectern starts MLX's server with a key of its own, as it
 does llama.cpp's: a web page can't use the model, and neither can another user of the Mac.
 
+## Models
+
+Lectern uses a model for each job: one for the chat, two for reading scanned pages (print and
+handwriting), one for writing scripts. It picks them from the computer it finds itself on, and
+everything about them is on the **Models & memory** page.
+
+- **Choosing.** Under "Models by role" each role has a list of the models it can use. The one
+  marked *recommended* is the default for this computer's hardware. A model marked as more
+  than this computer is meant for can still be chosen: it may be slow, run with a small
+  context, or not load. A change takes effect with the next reply, without a restart. After
+  a change of hardware (a new video card) the *recommended* mark moves, and a role goes on
+  using the model it already has until you switch.
+- **What's installed.** "Installed models" lists what's on disk: each model's version (the
+  Hugging Face revision it was downloaded at), its size and the roles using it. **Remove**
+  deletes a model after asking; one that's in use isn't removed. A role whose model was
+  removed shows Download.
+- **Updates.** Lectern downloads every model at one exact revision, with a checksum for each
+  file, and a new Lectern can move a model to a newer revision. The installed copy then shows
+  **Update**: the new version is downloaded beside the old one, which stays in use, and takes
+  its place when the model is free.
+
+The models are in `~/.lectern/data/models`, one folder each.
+
 ## Licence
 
 Apache-2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Models are downloaded separately and keep their own licences; the app shows each model's licence before downloading it.

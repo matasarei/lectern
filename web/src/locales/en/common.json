@@ -118,7 +118,13 @@
     "removeModel": "Remove {{title}}",
     "removeAsk": "Remove {{size}}?",
     "removeAskUsed": "Remove {{size}}? {{roles}} will have no model until it's downloaded again.",
-    "keep": "Keep"
+    "keep": "Keep",
+    "updateAvailable": "a newer version is available",
+    "update": "Update",
+    "updateModel": "Update {{title}}",
+    "updating": "Updating. The model stays in use until the new version is ready.",
+    "updateChecking": "Updating: comparing the files on disk with the new version…",
+    "updateWaiting": "The new version is downloaded. It takes the model's place as soon as the model is free: between two replies."
   },
   "sandbox": {
     "podman": "Podman",

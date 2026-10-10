@@ -71,6 +71,21 @@ export interface CatalogModel {
   installed: { revision: string | null; at: string | null; bytes: number } | null;
   /** The roles that use it now. */
   used_by: Role[];
+  /** The catalog pins a newer revision than the one on disk. */
+  update_available: boolean;
+  /** That update, while it runs or after it failed. */
+  update: UpdateState | null;
+}
+
+export interface UpdateState {
+  model_id: string;
+  /** checking: what's on disk against the new version; updating: fetching what differs;
+   * waiting: all fetched, for the model to be free. */
+  status: "checking" | "updating" | "waiting" | "failed";
+  bytes_done: number;
+  bytes_total: number;
+  rate: number;
+  error: string | null;
 }
 
 export interface ModelsResponse {

@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "../../router";
 
+// The page asks for the list again while an update runs; no test should wait out the real gap.
+vi.mock("./polling", () => ({ UPDATE_POLL_MS: 20 }));
+
 const GIB = 1024 ** 3;
 
 const download = (id: string, status: string) => ({
@@ -17,6 +20,12 @@ const model = (id: string, title: string, roles: string[], status: string) => ({
   id, title, quant: "Q4_K_M", roles, size: 2 * 10 ** 9, licence: "Apache-2.0",
   licence_notice: false, notes: null, repo: "x/y", suits_tier: true,
   download: download(id, status), installed: null, used_by: [],
+  update_available: false, update: null,
+});
+
+const updating = (done: number, error: string | null = null) => ({
+  model_id: "qwen3.5-9b", status: error ? "failed" : "updating",
+  bytes_done: done, bytes_total: 5 * 10 ** 9, rate: 0, error,
 });
 
 const RESPONSES: Record<string, unknown> = {
@@ -62,6 +71,7 @@ let puts: unknown[] = [];
 let choices: { role: string; modelId: string | null }[] = [];
 let refusal: string | null = null; // what the server answers a choice with, when it refuses
 let removed: string[] = [];
+let afterUpdate: (() => void) | null = null; // what the server's list says once Update was pressed
 let posts: { url: string; body: unknown }[] = [];
 let overrides: Record<string, unknown> = {};
 
@@ -70,6 +80,7 @@ beforeEach(() => {
   choices = [];
   refusal = null;
   removed = [];
+  afterUpdate = null;
   posts = [];
   overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
@@ -77,6 +88,12 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
+      if (init?.method === "POST" && url.endsWith("/update")) {
+        posts.push({ url, body: null });
+        if (refusal) return new Response(JSON.stringify({ detail: refusal }), { status: 409 });
+        afterUpdate?.();
+        return new Response(JSON.stringify(updating(0)), { status: 202 });
+      }
       if (init?.method === "POST") {
         posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
         return new Response(JSON.stringify(download(url.split("/")[3], "queued")), { status: 202 });
@@ -540,6 +557,85 @@ describe("Models & memory", () => {
 
     expect(await screen.findByText(refusal)).toBeTruthy();
     expect(installedRow("qwen3.5-9b")).toBeTruthy();
+  });
+
+  // The chat model on disk at an older pin than this Lectern's catalog.
+  const withUpdate = (chat: object = {}) => {
+    withInstalled();
+    const list = overrides["/api/models"] as { models: { id: string }[] };
+    overrides["/api/models"] = {
+      ...list,
+      models: list.models.map((m) =>
+        m.id === "qwen3.5-9b" ? { ...m, update_available: true, ...chat } : m),
+    };
+  };
+
+  it("offers Update only for a model the catalog has a newer version of", async () => {
+    withUpdate();
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    expect(installedRow("qwen3.5-9b").textContent).toContain("a newer version is available");
+    expect(screen.getByRole("button", { name: "Update Qwen3.5 9B" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update PaddleOCR-VL 1.6" })).toBeNull();
+    expect(installedRow("paddleocr-vl-1.6").textContent).not.toContain("newer version");
+  });
+
+  it("starts an update, shows how far it is, and the new version when it's done", async () => {
+    withUpdate();
+    afterUpdate = () => withUpdate({ update: updating(2 * 10 ** 9) });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update Qwen3.5 9B" }));
+
+    await waitFor(() => expect(posts).toEqual([{ url: "/api/models/qwen3.5-9b/update", body: null }]));
+    await waitFor(() =>
+      expect(installedRow("qwen3.5-9b").textContent).toContain("2 GB of 5 GB"));
+    // It's on its way: nothing to press again. The model stays in use meanwhile.
+    expect(screen.queryByRole("button", { name: "Update Qwen3.5 9B" })).toBeNull();
+    expect(installedRow("qwen3.5-9b").textContent).toContain("stays in use");
+
+    // The server finishes it. Nobody presses anything: the page asks again while one runs.
+    withUpdate({
+      update_available: false,
+      installed: { revision: "b".repeat(40), at: new Date().toISOString(), bytes: 5 * 10 ** 9 },
+    });
+    await waitFor(() =>
+      expect(installedRow("qwen3.5-9b").textContent).toContain("version bbbbbbb"));
+    expect(installedRow("qwen3.5-9b").textContent).not.toContain("newer version");
+  });
+
+  it.each([
+    ["checking", "comparing the files on disk with the new version"],
+    ["waiting", "It takes the model's place as soon as the model is free"],
+  ])("says what an update is doing while it is %s", async (status, words) => {
+    withUpdate({ update: { ...updating(0), status } });
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    expect(installedRow("qwen3.5-9b").textContent).toContain(words);
+    // Under way: not offered again, and no bar that would sit at 0% or 100% saying nothing.
+    expect(screen.queryByRole("button", { name: "Update Qwen3.5 9B" })).toBeNull();
+    expect(installedRow("qwen3.5-9b").querySelector("progress")).toBeNull();
+  });
+
+  it("says why an update failed and offers it again", async () => {
+    withUpdate({ update: updating(10 ** 9, "Connection problem (ReadError). Try again to resume.") });
+    renderPage();
+
+    await screen.findByTestId("installed-models");
+    expect(installedRow("qwen3.5-9b").textContent).toContain("Connection problem (ReadError)");
+    expect(screen.getByRole("button", { name: "Update Qwen3.5 9B" })).toBeTruthy();
+  });
+
+  it("says why an update couldn't start", async () => {
+    withUpdate();
+    refusal = "Qwen3.5 9B has no update. It isn't on disk, or it's at the catalog's version already.";
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update Qwen3.5 9B" }));
+
+    expect(await screen.findByText(refusal)).toBeTruthy();
   });
 
   it("says MLX isn't installed, and keeps the switch off, on a Mac without it", async () => {

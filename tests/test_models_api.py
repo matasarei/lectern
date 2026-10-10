@@ -288,3 +288,80 @@ def test_removing_needs_the_token(api):
 
     assert refused.status_code == 401
     assert (app.state.downloads.models_dir / "qwen3.5-4b").is_dir()
+
+
+# --- a newer revision in the catalog: Update --------------------------------------------------
+
+
+def test_the_list_says_when_a_model_has_an_update_and_how_far_one_is(api):
+    client, headers, app = api
+    _downloaded(app, "qwen3.5-4b")
+    assert _models(client, headers)["qwen3.5-4b"]["update_available"] is False
+
+    app.state.downloads._save("qwen3.5-4b", revision="0" * 40)  # an older pin's download
+
+    chat = _models(client, headers)["qwen3.5-4b"]
+    assert (chat["update_available"], chat["update"]) == (True, None)
+    assert chat["installed"]["revision"] == "0" * 40
+    assert _models(client, headers)["qwen3.5-9b"]["update_available"] is False  # not on disk
+
+
+def test_update_starts_in_the_background_and_answers_at_once(api):
+    from lectern.downloads.manager import UpdateState
+
+    client, headers, app = api
+    _downloaded(app, "qwen3.5-4b")
+    app.state.downloads._save("qwen3.5-4b", revision="0" * 40)
+    started: list[str] = []
+
+    def start_update(entry):  # noqa: ANN001, ANN202
+        started.append(entry.id)
+        state = UpdateState(entry.id, "updating", 5, entry.size)
+        app.state.downloads._updates[entry.id] = state
+        return state
+
+    app.state.downloads.start_update = start_update
+
+    answer = client.post("/api/models/qwen3.5-4b/update", headers=headers)
+
+    assert answer.status_code == 202 and started == ["qwen3.5-4b"]
+    assert answer.json()["status"] == "updating"
+    update = _models(client, headers)["qwen3.5-4b"]["update"]
+    assert (update["status"], update["bytes_done"]) == ("updating", 5)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "status", "says"),
+    [
+        ("nope", 404, "No model 'nope'"),
+        ("qwen3.5-4b", 409, "has no update"),  # on disk at the pinned revision
+        ("qwen3.5-9b", 409, "has no update"),  # not on disk
+    ],
+)
+def test_update_is_refused_when_there_is_nothing_to_update(api, model_id, status, says):
+    client, headers, app = api
+    _downloaded(app, "qwen3.5-4b")
+
+    refused = client.post(f"/api/models/{model_id}/update", headers=headers)
+
+    assert refused.status_code == status and says in refused.json()["detail"]
+
+
+def test_updating_needs_the_token(api):
+    client, _, app = api
+    _downloaded(app, "qwen3.5-4b")
+    app.state.downloads._save("qwen3.5-4b", revision="0" * 40)
+
+    refused = client.post("/api/models/qwen3.5-4b/update", headers={"Origin": BASE})
+
+    assert refused.status_code == 401
+    assert app.state.downloads.update_state("qwen3.5-4b") is None
+
+
+def test_the_swap_that_ends_an_update_goes_through_the_runtime(api):
+    _, _, app = api
+    # The app hands the downloads the runtime's own gate, in its waiting form: an update's
+    # last step runs once no copy of the model is loaded, however long that takes.
+    gate = app.state.downloads.exclusive
+    assert gate.func == app.state.runtime.without_model
+    assert gate.keywords == {"wait": True}
