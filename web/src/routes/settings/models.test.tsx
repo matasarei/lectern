@@ -325,10 +325,15 @@ describe("Models & memory", () => {
     const select = (await screen.findByLabelText("Model for main")) as HTMLSelectElement;
     expect(select.value).toBe("qwen3.5-9b");
     expect([...select.options].map((o) => o.textContent)).toEqual([
-      "Qwen3.5 4B · Q4_K_M · 2 GB",
-      "Qwen3.5 9B · Q4_K_M · 2 GB · recommended",
-      "Qwen3.5 35B-A3B · Q4_K_M · 2 GB · more than this computer is meant for",
+      "Qwen3.5 4B · 2 GB",
+      "Qwen3.5 9B · 2 GB · recommended",
+      "Qwen3.5 35B-A3B · 2 GB · more than this computer is meant for",
     ]);
+    // A list is as wide as its longest option unless told otherwise, and would push the
+    // Status column (the Download buttons) off the card.
+    expect(select.className).toContain("w-48");
+    // What the closed list has no room for is under it.
+    expect(select.closest("td")?.textContent).toContain("Q4_K_M · recommended");
     // On the recommended model there's nothing to go back to.
     expect(screen.queryByRole("button", { name: /Use it/ })).toBeNull();
   });

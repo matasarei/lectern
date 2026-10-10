@@ -250,34 +250,40 @@ function RoleRow({
       </td>
       <td className="py-2 pr-4">
         {choice && choice.options.length > 1 ? (
-          <select
-            aria-label={t("modelsPage.modelFor", { role })}
-            className="max-w-full rounded border border-line bg-paper px-2 py-1"
-            value={model.id}
-            disabled={choice.pending}
-            onChange={(e) => choice.onChoose(e.target.value)}
-          >
-            {choice.options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {t(
-                  option.id === choice.recommended?.id
-                    ? "modelsPage.optionRecommended"
-                    : option.suits_tier
-                      ? "modelsPage.option"
-                      : "modelsPage.optionTooBig",
-                  { title: option.title, quant: option.quant, size: formatBytes(option.size) },
-                )}
-              </option>
-            ))}
-          </select>
+          <>
+            {/* A fixed width: a list is as wide as its longest option otherwise, and pushes
+                the Status column off the card. The closed list shows the title; the rest
+                is on the line under it. */}
+            <select
+              aria-label={t("modelsPage.modelFor", { role })}
+              className="block w-48 max-w-full rounded border border-line bg-paper px-2 py-1"
+              value={model.id}
+              disabled={choice.pending}
+              onChange={(e) => choice.onChoose(e.target.value)}
+            >
+              {choice.options.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {t(
+                    option.id === choice.recommended?.id
+                      ? "modelsPage.optionRecommended"
+                      : option.suits_tier
+                        ? "modelsPage.option"
+                        : "modelsPage.optionTooBig",
+                    { title: option.title, size: formatBytes(option.size) },
+                  )}
+                </option>
+              ))}
+            </select>
+            <span className="text-muted">{model.quant}</span>
+          </>
         ) : (
           <>
             {model.title}
             <span className="text-muted"> · {model.quant}</span>
-            {model.id === choice?.recommended?.id && (
-              <span className="text-muted"> · {t("modelsPage.recommended")}</span>
-            )}
           </>
+        )}
+        {model.id === choice?.recommended?.id && (
+          <span className="text-muted"> · {t("modelsPage.recommended")}</span>
         )}
         {choice && !model.suits_tier && (
           <span className="block text-muted">{t("modelsPage.tooBigWhy")}</span>
