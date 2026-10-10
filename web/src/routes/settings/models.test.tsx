@@ -197,6 +197,77 @@ describe("Models & memory", () => {
     expect(puts[0]).toMatchObject({ mlx_enabled: true, chat_during_job: "pause_job_after_current_item" });
   });
 
+  // A Mac: the chat model has an MLX build in the catalog.
+  const withMlxBuild = (status: string, mlxEnabled: boolean) => {
+    const base = RESPONSES["/api/models"] as { models: unknown[] };
+    const build = {
+      ...model("qwen3.5-9b-mlx", "Qwen3.5 9B (MLX)", ["main"], status),
+      quant: "4bit", format: "mlx", replaces: "qwen3.5-9b",
+    };
+    overrides["/api/models"] = { ...base, models: [...base.models, build] };
+    const settings = RESPONSES["/api/runtime/settings"] as { values: object };
+    overrides["/api/runtime/settings"] = {
+      ...settings, values: { ...settings.values, mlx_enabled: mlxEnabled },
+    };
+  };
+
+  it("lists no MLX build while MLX is off", async () => {
+    withMlxBuild("none", false);
+    renderPage();
+
+    await screen.findByTestId("status-main");
+    await screen.findByLabelText(/Use MLX for MLX models/);
+    expect(screen.queryByText("Qwen3.5 9B (MLX)")).toBeNull();
+    expect(screen.queryByTestId("chosen-main")).toBeNull();
+  });
+
+  it("with MLX on, offers the model's MLX build for download, and the model stays the one used", async () => {
+    withMlxBuild("none", true);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Download Qwen3.5 9B (MLX)" }));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        { url: "/api/models/qwen3.5-9b-mlx/download", body: { accept_licence: false } },
+      ]),
+    );
+    expect(screen.getByTestId("status-main-mlx").textContent).toBe("Not downloaded");
+    // Until the build is on disk the usual model runs: the mark is on its row.
+    const chosen = screen.getByTestId("chosen-main");
+    expect(chosen.textContent).toBe(" · used for this role");
+    expect(chosen.closest("tr")?.textContent).toContain("Q4_K_M");
+  });
+
+  it("marks the MLX build as the one used once it's on disk", async () => {
+    withMlxBuild("done", true);
+    renderPage();
+
+    const chosen = await screen.findByTestId("chosen-main");
+    expect(chosen.closest("tr")?.textContent).toContain("Qwen3.5 9B (MLX)");
+    expect(screen.getAllByTestId("chosen-main")).toHaveLength(1);
+  });
+
+  it("shows a loaded model on its own row, not on its MLX build's", async () => {
+    withMlxBuild("done", true);
+    renderPage();
+
+    // The runtime still holds the usual model (loaded before the build arrived).
+    expect((await screen.findByTestId("status-main")).textContent).toBe("Loaded, in use");
+    expect(screen.getByTestId("status-main-mlx").textContent).toBe("Downloaded, not loaded");
+  });
+
+  it("shows a loaded MLX build on the build's row", async () => {
+    withMlxBuild("done", true);
+    const runtime = RESPONSES["/api/runtime"] as { residents: object[] };
+    overrides["/api/runtime"] = {
+      ...runtime, residents: [{ ...runtime.residents[0], model_id: "qwen3.5-9b-mlx" }],
+    };
+    renderPage();
+
+    expect((await screen.findByTestId("status-main-mlx")).textContent).toBe("Loaded, in use");
+    expect(screen.getByTestId("status-main").textContent).toBe("Downloaded, not loaded");
+  });
+
   it("hides the MLX switch where MLX can't run", async () => {
     overrides["/api/runtime/settings"] = {
       ...(RESPONSES["/api/runtime/settings"] as object),

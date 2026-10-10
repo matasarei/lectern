@@ -60,6 +60,9 @@ export interface CatalogModel {
   licence_notice: boolean;
   notes: string | null;
   repo: string;
+  format: "gguf" | "mlx";
+  /** An MLX build: the id of the model it runs in place of, on a Mac with MLX switched on. */
+  replaces: string | null;
   download: DownloadState;
 }
 

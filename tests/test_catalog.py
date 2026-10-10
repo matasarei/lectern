@@ -109,6 +109,10 @@ def test_models_api_flags_restricted_and_lists_defaults(paths, monkeypatch):
     assert by_id["chandra-ocr-2"]["licence_notice"] is True
     assert by_id["qwen3.5-4b"]["licence_notice"] is False
     assert by_id["qwen3.5-4b"]["size"] == 2740937888
+    # A page pairs a model with its MLX build by these two.
+    assert (by_id["qwen3.5-4b"]["format"], by_id["qwen3.5-4b"]["replaces"]) == ("gguf", None)
+    build = by_id["qwen3.5-4b-mlx"]
+    assert (build["format"], build["replaces"]) == ("mlx", "qwen3.5-4b")
 
 
 @pytest.mark.parametrize(

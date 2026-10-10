@@ -94,7 +94,9 @@
     "resume": "Resume",
     "acceptAndDownload": "Accept licence and download",
     "downloadModel": "Download {{title}}",
-    "acceptAndDownloadModel": "Accept the {{licence}} licence and download {{title}}"
+    "acceptAndDownloadModel": "Accept the {{licence}} licence and download {{title}}",
+    "mlxBuild": "MLX build",
+    "chosen": "used for this role"
   },
   "sandbox": {
     "podman": "Podman",
@@ -135,7 +137,7 @@
       "chat_waits": "Chat waits until the job has finished"
     },
     "mlx": "Use MLX for MLX models (Apple Silicon)",
-    "mlxWhy": "MLX can be faster on a Mac, but its servers can't be protected with a key yet, so websites you visit could reach them. Leave off unless you're testing."
+    "mlxWhy": "MLX is Apple's own engine and can be faster on a Mac. Switched on, a model that has an MLX build shows it under Models by role: once downloaded, the build runs in place of the usual model."
   },
   "projects": {
     "title": "Projects",

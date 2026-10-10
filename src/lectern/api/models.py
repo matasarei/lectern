@@ -38,6 +38,8 @@ def list_models(request: Request) -> dict:
                 "licence_notice": m.licence_notice,
                 "notes": m.notes,
                 "repo": m.repo,
+                "format": m.format,
+                "replaces": m.replaces,  # an MLX build: the model it stands in for
                 "download": downloads.state(m).to_dict(),
             }
             for m in cat.models
