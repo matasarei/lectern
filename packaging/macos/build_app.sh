@@ -49,7 +49,7 @@ scratch="$(mktemp -d)"
 iconset="$scratch/Lectern.iconset"
 mkdir -p "$bundle/Contents/Resources"
 if ! { "$bundle/Contents/MacOS/Lectern" --draw-icon "$iconset" \
-       && iconutil -c icns -o "$bundle/Contents/Resources/Lectern.icns" "$iconset"; } 2>/dev/null; then
+       && iconutil -c icns -o "$bundle/Contents/Resources/Lectern.icns" "$iconset"; }; then
     echo "build_app.sh: couldn't draw the app's icon; it will show the system's." >&2
     rm -rf "$bundle/Contents/Resources"
 fi
