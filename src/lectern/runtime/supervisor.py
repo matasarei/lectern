@@ -346,15 +346,20 @@ class ModelRuntime:
     async def _try_admit(self, role: str, *, chat: bool) -> Resident | None:
         """With the lock held. The role's resident, or a newly loaded one, or None to wait."""
         current = self._residents.get(role)
+        choice: ModelChoice | None = None
         if current is not None:
             if current.handle.is_running() and role not in self._crashed:
-                return current
-            self._emit("crash", role=role, model_id=current.choice.model_id)
-            self._residents.pop(role)
-            self._crashed.discard(role)
-            await current.handle.stop()
+                choice = self._changed_choice(role, current)
+                if choice is None:
+                    return current
+                await self._unload(role, reason="changed")
+            else:
+                self._emit("crash", role=role, model_id=current.choice.model_id)
+                self._residents.pop(role)
+                self._crashed.discard(role)
+                await current.handle.stop()
 
-        choice = self.resolve(role)
+        choice = choice or self.resolve(role)
         while True:
             try:
                 plan = planner.plan(
@@ -376,6 +381,18 @@ class ModelRuntime:
                 return None  # everything loaded is in use: wait for a release
             await self._unload(victim, reason="make room")
             self.swaps += 1
+
+    def _changed_choice(self, role: str, current: Resident) -> ModelChoice | None:
+        """The model the role asks for now, when it isn't the one loaded for it any more: a
+        setting changed what the role runs on, or the model it prefers finished downloading.
+        None keeps what's loaded: it's in use, it's still the one, or the other can't be had."""
+        if current.leases:
+            return None
+        try:
+            choice = self.resolve(role)
+        except NotAvailable:
+            return None
+        return None if choice.model_id == current.choice.model_id else choice
 
     def _least_recently_used_idle(self) -> str | None:
         idle = [(r.last_used, role) for role, r in self._residents.items() if r.leases == 0]
@@ -414,7 +431,8 @@ class ModelRuntime:
         self._emit("unloaded", role=role, model_id=resident.choice.model_id, reason=reason)
 
     async def unload_idle(self, role: str | None = None) -> list[str]:
-        """Unload idle models (all, or one role). Used to measure a cold first reply."""
+        """Unload idle models (all, or one role): to measure a cold first reply, and when a
+        setting changes which models are wanted."""
         async with self._cond:
             roles = [r for r, res in self._residents.items() if res.leases == 0]
             if role is not None:
