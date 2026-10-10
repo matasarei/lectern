@@ -367,6 +367,23 @@ describe("First run: the engine choice on a Mac", () => {
     expect(screen.queryByRole("radio")).toBeNull();
   });
 
+  it("drops a refusal once another pick goes through", async () => {
+    firstRun = onMac(false);
+    putRefused = "No model called qwen3.5-4b.";
+    renderPage();
+    fireEvent.change(await screen.findByLabelText("Chat model"), { target: { value: "qwen3.5-4b" } });
+    await screen.findByRole("alert");
+
+    putRefused = null;
+    onPut = () => {
+      firstRun = onMac(true);
+    };
+    fireEvent.click(screen.getByRole("radio", { name: /^MLX/ }));
+
+    await screen.findByText("Qwen3.5 9B (MLX)");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("says why the engine couldn't be changed", async () => {
     firstRun = onMac(false);
     putRefused = "MLX isn't installed with this Lectern.";

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, ApiError } from "../api/client";
@@ -65,8 +66,12 @@ export function FirstRunPage() {
     mutationFn: () => apiPost<FirstRun>("/api/first-run/engine"),
     onSuccess: (data) => queryClient.setQueryData(["first-run"], data),
   });
+  // Why the last pick (a model or an engine) was refused; the next pick clears it.
+  const [refused, setRefused] = useState<unknown>(null);
   // The same choice as in Models & memory, which shows it afterwards.
   const choose = useMutation({
+    onMutate: () => setRefused(null),
+    onError: setRefused,
     mutationFn: (modelId: string) =>
       apiFetch("/api/models/roles/main", {
         method: "PUT",
@@ -78,6 +83,8 @@ export function FirstRunPage() {
   // The "Use MLX" switch of Models & memory. The settings are saved whole, so the others
   // are read first and sent back as they are.
   const pickEngine = useMutation({
+    onMutate: () => setRefused(null),
+    onError: setRefused,
     mutationFn: async (enabled: boolean) => {
       const current = await apiFetch<RuntimeSettings>("/api/runtime/settings");
       return apiFetch<RuntimeSettings>("/api/runtime/settings", {
@@ -118,7 +125,6 @@ export function FirstRunPage() {
   // A pick is kept while it downloads: changing it would leave that download running.
   const downloading = ACTIVE.includes(state.status) || engine?.status === "downloading";
   const settled = !downloading && !choose.isPending && !pickEngine.isPending;
-  const refused = choose.error ?? pickEngine.error;
 
   return (
     <Page>
