@@ -141,7 +141,7 @@ wait_for_health() {
 # Keep the new version and the one before it (to go back to), drop the rest.
 prune_versions() {
     local old
-    for old in "$app"/versions/*; do
+    for old in "${app:?}"/versions/*; do
         [ "$old" = "$target" ] || [ "$old" = "$previous" ] || rm -rf "$old"
     done
 }
