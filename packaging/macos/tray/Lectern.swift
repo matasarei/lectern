@@ -198,21 +198,33 @@ final class LecternApp: NSObject, NSApplicationDelegate {
 
     // MARK: A Lectern left running
 
-    // The process the pid file names, when it's still there and is Lectern's: its program
-    // lives under <install folder>/app/ (the venv's Python). A number the system has since
-    // given to something else is never signalled. A stale file is removed.
+    // The process the pid file names, when it's still there and is Lectern's: started as
+    // <install folder>/app/venv/bin/lectern, the way bin/lectern-serve starts it. A number the
+    // system has since given to something else is never signalled. A stale file is removed.
     private func lecternLeftRunning() -> pid_t? {
         guard let written = try? String(contentsOfFile: pidFile, encoding: .utf8),
             let left = pid_t(written.trimmingCharacters(in: .whitespacesAndNewlines)), left > 1
         else { return nil }
-        var path = [CChar](repeating: 0, count: 4096)
-        let known = proc_pidpath(left, &path, UInt32(path.count)) > 0
-        if known, kill(left, 0) == 0, let real = realpath(dir + "/app", nil) {
-            defer { free(real) }
-            if String(cString: path).hasPrefix(String(cString: real) + "/") { return left }
+        if kill(left, 0) == 0, arguments(of: left).contains(dir + "/app/venv/bin/lectern") {
+            return left
         }
         try? FileManager.default.removeItem(atPath: pidFile)
         return nil
+    }
+
+    // What a process was started with. The system gives it as: the number of arguments, the
+    // program's path, padding, then the arguments and the environment, each ended by a NUL.
+    private func arguments(of process: pid_t) -> [String] {
+        var name = [CTL_KERN, KERN_PROCARGS2, process]
+        var size = 0
+        guard sysctl(&name, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else {
+            return []
+        }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard sysctl(&name, 3, &bytes, &size, nil, 0) == 0 else { return [] }
+        let count = Int(bytes.withUnsafeBytes { $0.load(as: Int32.self) })
+        let strings = bytes[MemoryLayout<Int32>.size..<size].split(separator: 0)
+        return strings.dropFirst().prefix(count).map { String(decoding: $0, as: UTF8.self) }
     }
 
     private func adopt(_ left: pid_t) {
