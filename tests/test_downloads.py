@@ -249,7 +249,8 @@ def api(paths, sessions, monkeypatch):
     entry = _entry()
     real = catalog_module.load()
     restricted = real.get("chandra-ocr-2")
-    fake = real.model_copy(update={"models": [entry, restricted]})
+    mlx_build = entry.model_copy(update={"id": "tiny-mlx", "format": "mlx", "replaces": "tiny"})
+    fake = real.model_copy(update={"models": [entry, restricted, mlx_build]})
     monkeypatch.setattr(catalog_module, "load", lambda: fake)
     hub = FakeHub({"tiny.gguf": MODEL, "mmproj.gguf": MMPROJ})
     hub.gate = threading.Event()  # hold the transfer until the test lets it go
@@ -292,6 +293,28 @@ def test_restricted_licence_needs_explicit_acceptance(api):
     assert refused.status_code == 409
     assert "licence" in refused.json()["detail"]
     assert hub.requests == []
+
+
+def test_an_mlx_build_is_not_downloaded_where_mlx_cannot_run(api, monkeypatch):
+    client, headers, hub, _ = api
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: False)
+
+    refused = client.post("/api/models/tiny-mlx/download", headers=headers)
+
+    assert refused.status_code == 409
+    assert "Apple Silicon" in refused.json()["detail"]
+    assert hub.requests == []
+    # The model it stands in for is still there to download.
+    assert client.post("/api/models/tiny/download", headers=headers).status_code == 202
+    hub.gate.set()
+
+
+def test_an_mlx_build_downloads_on_an_apple_silicon_mac(api, monkeypatch):
+    client, headers, hub, _ = api
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+
+    assert client.post("/api/models/tiny-mlx/download", headers=headers).status_code == 202
+    hub.gate.set()
 
 
 def test_resume_hashes_the_partial_file_off_the_event_loop(paths, sessions, monkeypatch):
