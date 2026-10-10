@@ -329,6 +329,8 @@ def test_the_scripts_pass_shellcheck():
         ROOT / "packaging/make_package.sh",
         ROOT / "packaging/pins.sh",  # sourced, but checked on its own too
         ROOT / "packaging/install_lib.sh",  # the same
+        ROOT / "packaging/macos/install.sh",
+        ROOT / "packaging/macos/build_app.sh",
         ROOT / "install.sh",
         ROOT / "uninstall.sh",
     ]

@@ -12,6 +12,15 @@
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 
+# A file's sha256: sha256sum where there is one (Linux, recent macOS), else shasum.
+sha256_of() {
+    if command -v sha256sum >/dev/null; then
+        sha256sum "$1" | cut -d' ' -f1
+    else
+        shasum -a 256 "$1" | cut -d' ' -f1
+    fi
+}
+
 # uv, pinned and checksum-checked, into $1/uv (unless it's already that version). $2 is the
 # release archive for this system and $3 its sha256, both from pins.sh.
 fetch_uv() {
@@ -24,7 +33,7 @@ fetch_uv() {
     tmp="$(mktemp -d)"
     curl -fsSL "${LECTERN_UV_URL:-$url}" -o "$tmp/uv.tar.gz" \
         || { rm -rf "$tmp"; die "couldn't download uv (is the network up?)."; }
-    got="$(sha256sum "$tmp/uv.tar.gz" | cut -d' ' -f1)"
+    got="$(sha256_of "$tmp/uv.tar.gz")"
     if [ "$got" != "$sha256" ]; then
         rm -rf "$tmp"
         die "uv's checksum is wrong ($got); not installing it."
