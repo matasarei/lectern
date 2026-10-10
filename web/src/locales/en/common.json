@@ -104,6 +104,7 @@
     "recommended": "recommended",
     "recommendedIs": "Recommended for this computer: {{title}}.",
     "useRecommended": "Use it",
+    "useRecommendedFor": "Use {{title}} for {{role}}",
     "tooBigWhy": "This model is more than this computer is meant for: it may be slow, run with a small context, or not load."
   },
   "sandbox": {

@@ -293,6 +293,10 @@ function RoleRow({
             {t("modelsPage.recommendedIs", { title: choice.recommended.title })}{" "}
             <button
               className="font-semibold text-accent underline-offset-4 hover:underline"
+              aria-label={t("modelsPage.useRecommendedFor", {
+                title: choice.recommended.title,
+                role,
+              })}
               disabled={choice.pending}
               onClick={() => choice.onChoose(null)}
             >

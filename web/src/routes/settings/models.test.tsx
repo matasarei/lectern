@@ -335,7 +335,7 @@ describe("Models & memory", () => {
     // What the closed list has no room for is under it.
     expect(select.closest("td")?.textContent).toContain("Q4_K_M · recommended");
     // On the recommended model there's nothing to go back to.
-    expect(screen.queryByRole("button", { name: /Use it/ })).toBeNull();
+    expect(screen.queryByText("Use it")).toBeNull();
   });
 
   it("has nothing to choose for a role with one model, and still marks it recommended", async () => {
@@ -362,10 +362,13 @@ describe("Models & memory", () => {
     expect(screen.getByRole("button", { name: "Download Qwen3.5 4B" })).toBeTruthy();
     expect(screen.getByText(/Recommended for this computer: Qwen3.5 9B/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Use it/ }));
+    // Read aloud, "Use it" on its own says nothing: every row can have one.
+    const back = screen.getByRole("button", { name: "Use Qwen3.5 9B for main" });
+    expect(back.textContent).toBe("Use it");
+    fireEvent.click(back);
 
     await waitFor(() => expect(choices[1]).toEqual({ role: "main", modelId: null }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /Use it/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Use it")).toBeNull());
   });
 
   it("warns under a chosen model that this computer isn't meant for", async () => {
