@@ -81,15 +81,26 @@ def build_runtime(
         ]
         return bool(switched_on) and mlx.mlx_available()
 
+    def mlx_build_for(key: str, entry: catalog.CatalogEntry) -> catalog.CatalogEntry | None:
+        """The MLX build that runs in place of a role's model: on a Mac with MLX switched on,
+        once the build is downloaded. Until then the GGUF runs, so the switch alone breaks
+        nothing. A key that names a model ("main@qwen3.5-4b") gets that model, never a build."""
+        if "@" in key:
+            return None
+        build = catalog.load().mlx_build_of(entry)
+        if build is not None and mlx_is_on() and downloads.is_downloaded(build):
+            return build
+        return None
+
+    def schema_key(role: str) -> str:
+        """MLX's server can't hold a model to a JSON schema. Work that needs one names the
+        role's GGUF model when the role itself would run on its MLX build."""
+        _, entry = pick(role, tier)
+        return f"{role}@{entry.id}" if mlx_build_for(role, entry) else role
+
     def resolve(key: str) -> ModelChoice:
         role, entry = pick(key, tier)
-        # A role's model gives way to its MLX build on a Mac with MLX switched on, once the
-        # build is downloaded. Until then the GGUF runs, so the switch alone breaks nothing.
-        # A key that names a model ("main@qwen3.5-4b") gets that model.
-        if "@" not in key:
-            build = catalog.load().mlx_build_of(entry)
-            if build is not None and mlx_is_on() and downloads.is_downloaded(build):
-                entry = build
+        entry = mlx_build_for(key, entry) or entry
         if not downloads.is_downloaded(entry):
             raise NotAvailable(
                 f"{entry.title} isn't downloaded yet. Download it in Models & memory."
@@ -157,6 +168,7 @@ def build_runtime(
         if chat_during_job == "pause_job_after_current_item"
         else 0,
     )
+    runtime.schema_key = schema_key
     # runner_for reports the engine's download to it; first-run downloads it ahead of time.
     runtime.engine = (
         Engine(installer, engine_variant, runtime) if engine_variant is not None else None

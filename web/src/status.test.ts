@@ -10,7 +10,8 @@ const t = i18next.t.bind(i18next);
 const base: OcrStepInput = {
   status: "running", phase: null, pagesTotal: 3, read: 0, cleaned: 0, openQuestions: 0, reason: null,
 };
-const loading = (role: "main" | "ocr") =>
+// A role, or a role with the model named ("main@qwen3.5-4b"): the runtime's lease key.
+const loading = (role: string) =>
   ({ activity: { kind: "loading", role, model_id: "m" } }) as unknown as RuntimeState;
 const step = (over: Partial<OcrStepInput>, runtime?: RuntimeState, waiting = false) =>
   ocrStepText({ ...base, ...over }, waiting, runtime, t);
@@ -22,6 +23,10 @@ describe("ocrStepText", () => {
     expect(step({ phase: "recognise" }, loading("ocr"))).toBe("loading the OCR model…");
     expect(step({ phase: "recognise", read: 1 })).toBe("reading page 2 of 3");
     expect(step({ phase: "clean", read: 3 }, loading("main"))).toBe(
+      "loading the chat model to clean the text…",
+    );
+    // With MLX on, cleanup loads the chat's GGUF model by name: the same thing to say.
+    expect(step({ phase: "clean", read: 3 }, loading("main@qwen3.5-4b"))).toBe(
       "loading the chat model to clean the text…",
     );
     expect(step({ phase: "clean", read: 3, cleaned: 2 })).toBe("cleaning page 3 of 3");

@@ -112,6 +112,10 @@ class ModelRuntime:
         # loading. Shown in the chat, the OCR tab and Models & memory.
         self.activity: dict | None = None
         self.engine: Any = None  # wiring.Engine: the llama.cpp build, for first-run to fetch
+        # The key to lease a role by for work whose answer is held to a JSON schema (OCR
+        # cleanup): the role itself, unless wiring knows better. On a Mac with MLX on, the
+        # role's model is an MLX build, whose server can't do that; wiring then names the GGUF.
+        self.schema_key: Callable[[str], str] = lambda role: role
         self._loading: dict | None = None  # what activity goes back to after the engine
         # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
         # waits out the idle window only for a message sent after the job started.

@@ -216,3 +216,20 @@ def test_a_role_whose_model_has_no_mlx_build_is_unchanged(mac):
     switch(True)
     assert runtime.resolve("ocr").format == "gguf"
     assert runtime.resolve("code").format == "gguf"
+
+
+def test_work_that_needs_a_schema_is_kept_off_the_mlx_build(mac, monkeypatch):
+    runtime, switch = mac
+    # MLX's server can't hold a model to a JSON schema, which OCR cleanup relies on.
+    assert runtime.schema_key("main") == "main"  # MLX off: the role's own model can
+    switch(True)
+    key = runtime.schema_key("main")
+    assert key == "main@qwen3.5-35b-a3b"  # the GGUF model, by name
+    assert runtime.resolve(key).format == "gguf"
+    assert runtime.resolve("main").format == "mlx"  # the chat itself is on MLX
+    assert runtime.schema_key("ocr") == "ocr"  # a role with no MLX build
+
+    monkeypatch.setattr(
+        DownloadManager, "is_downloaded", lambda self, entry: entry.format == "gguf"
+    )
+    assert runtime.schema_key("main") == "main"  # the build isn't there: nothing to avoid
