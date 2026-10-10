@@ -5,11 +5,13 @@ import json
 import threading
 import time
 
+import anyio.from_thread
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
 from lectern.agent import state
+from lectern.api import sessions as sessions_api
 from lectern.app import create_app
 from lectern.core.auth import User
 from lectern.core.tables import UserRow
@@ -62,6 +64,36 @@ def test_send_runs_a_turn_and_the_transcript_has_it(api):
         ("assistant", "Hello there"),
     ]
     assert chat["pending"] == []
+
+
+def test_a_chat_that_reads_idle_has_the_reply_its_turn_ended_with(paths, monkeypatch):
+    hold = threading.Event()
+    app, _ = _app(paths, [text_reply("Hello")], hold=hold)
+    client = TestClient(app, base_url=BASE)
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+    manager = app.state.turns
+
+    class EndsWhenAsked:
+        """The turn ends at the moment the route asks for its state."""
+
+        def state(self, key: tuple[int, int]) -> str:
+            hold.set()
+            anyio.from_thread.run(manager.wait, key)
+            return manager.state(key)
+
+    with client:
+        pid = client.post("/api/projects", json={}, headers=headers).json()["id"]
+        client.post(
+            f"/api/projects/{pid}/sessions/1/messages", json={"text": "Hi"}, headers=headers
+        )
+        monkeypatch.setattr(sessions_api, "turns", lambda request: EndsWhenAsked())
+        chat = client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()
+
+    assert chat["state"] == "idle"
+    assert [(m["role"], m["content"]) for m in chat["messages"]] == [
+        ("user", "Hi"),
+        ("assistant", "Hello"),
+    ]
 
 
 def test_new_chat_and_retitle(api):
