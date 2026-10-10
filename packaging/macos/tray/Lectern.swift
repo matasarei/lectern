@@ -198,18 +198,29 @@ final class LecternApp: NSObject, NSApplicationDelegate {
 
     // MARK: A Lectern left running
 
-    // The process the pid file names, when it's still there and is Lectern's: started as
-    // <install folder>/app/venv/bin/lectern, the way bin/lectern-serve starts it. A number the
+    // The process the pid file names, when it's still there and is Lectern's. A number the
     // system has since given to something else is never signalled. A stale file is removed.
     private func lecternLeftRunning() -> pid_t? {
         guard let written = try? String(contentsOfFile: pidFile, encoding: .utf8),
             let left = pid_t(written.trimmingCharacters(in: .whitespacesAndNewlines)), left > 1
         else { return nil }
-        if kill(left, 0) == 0, arguments(of: left).contains(dir + "/app/venv/bin/lectern") {
-            return left
-        }
+        if kill(left, 0) == 0, isLecterns(left) { return left }
         try? FileManager.default.removeItem(atPath: pidFile)
         return nil
+    }
+
+    // Lectern's own process runs <install folder>/app/venv/bin/lectern, or is still the
+    // bin/lectern-serve that becomes it a moment after being started. Compared as real paths:
+    // the system may hand a path on (/var/…) in another spelling than it was given (/private/var/…).
+    private func isLecterns(_ process: pid_t) -> Bool {
+        let ours = [dir + "/app/venv/bin/lectern", dir + "/bin/lectern-serve"].compactMap(realPath)
+        return arguments(of: process).prefix(2).compactMap(realPath).contains { ours.contains($0) }
+    }
+
+    private func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     // What a process was started with. The system gives it as: the number of arguments, the
