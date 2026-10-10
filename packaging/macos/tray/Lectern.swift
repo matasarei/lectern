@@ -32,9 +32,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private var aliveTimer: Timer?
     private var pid: pid_t? { child?.processIdentifier ?? adopted }
     private var afterStop: (() -> Void)?
-    // What Lectern had started when it was asked to stop: its model runners. It stops them
-    // itself on the way out. Any still there once it's gone (it was cut short) are ended by
-    // the app, so that stopping never leaves a model in memory.
+    // What Lectern had started when it was asked to stop: its model runners, and anything else
+    // it was running, such as a script in the sandbox. It stops them itself on the way out.
+    // Any still there once it's gone (it was cut short) are ended by the app, so that stopping
+    // never leaves a model in memory.
     private var runners: [(pid: pid_t, program: String)] = []
     private var healthTimer: Timer?
     private var stopTimers: [Timer] = []
@@ -220,7 +221,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         runners = []
         guard !left.isEmpty else { return }
         left.forEach { kill($0.pid, SIGTERM) }
-        writeLog(Data("---- ended \(left.count) process(es) Lectern left running (its model runners) ----\n".utf8))
+        writeLog(Data("---- ended \(left.count) process(es) Lectern left running ----\n".utf8))
     }
 
     private func children(of process: pid_t) -> [pid_t] {
