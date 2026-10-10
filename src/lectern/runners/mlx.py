@@ -32,6 +32,10 @@ from lectern.runtime.planner import ModelShape
 VISION_ROLES = frozenset({"ocr", "ocr.hand"})
 VISION_KEY_ENV = "MLX_VLM_SERVER_API_KEY"  # noqa: S105 (the variable's name, not a secret)
 TEXT_KEY_ENV = mlx_text_server.KEY_ENV
+NOT_INSTALLED = (
+    "MLX isn't installed with this Lectern. The Mac installer adds it; from a checkout, run "
+    "`uv sync --extra mlx` and start Lectern again."
+)
 
 
 def mlx_supported() -> bool:

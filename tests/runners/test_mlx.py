@@ -251,8 +251,11 @@ def test_mlx_needs_the_extra_installed(runtime, monkeypatch):
     rt, sessions = runtime
     settings.put(sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
     monkeypatch.setattr(mlx, "mlx_available", lambda: False)
-    with pytest.raises(NotAvailable, match="lectern-ai\\[mlx\\]"):
+    # The words the switch in Models & memory is refused with, too.
+    with pytest.raises(NotAvailable) as raised:
         rt.runner_for(_choice("mlx"))
+    assert str(raised.value) == mlx.NOT_INSTALLED
+    assert "uv sync --extra mlx" in mlx.NOT_INSTALLED
 
 
 def test_mlx_is_used_when_enabled_available_and_the_model_is_mlx(runtime, monkeypatch):

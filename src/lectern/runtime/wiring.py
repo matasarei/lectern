@@ -132,7 +132,7 @@ def build_runtime(
                     "Macs. Choose a GGUF model."
                 )
             if not mlx.mlx_available():
-                raise NotAvailable("MLX needs Apple Silicon and `pip install lectern-ai[mlx]`.")
+                raise NotAvailable(mlx.NOT_INSTALLED)
             if not mlx_is_on():
                 raise NotAvailable(
                     f"{choice.model_id} is an MLX model and MLX is off. Turn it on in "

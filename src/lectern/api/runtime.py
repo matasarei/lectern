@@ -53,12 +53,6 @@ IMPLEMENTED = {
 }
 
 
-MLX_NOT_INSTALLED = (
-    "MLX isn't installed with this Lectern. The Mac installer adds it; from a checkout, run "
-    "`uv sync --extra mlx` and start Lectern again."
-)
-
-
 class RuntimeSettings(BaseModel):
     mlx_enabled: bool
     when_models_dont_fit: Literal["swap_between_phases", "keep_one_loaded"]
@@ -91,7 +85,7 @@ async def put_settings(body: RuntimeSettings, request: Request) -> dict:
     if body.mlx_enabled and not mlx.mlx_supported():
         raise HTTPException(409, "MLX only runs on Apple Silicon Macs.")
     if body.mlx_enabled and not mlx.mlx_available():
-        raise HTTPException(409, MLX_NOT_INSTALLED)
+        raise HTTPException(409, mlx.NOT_INSTALLED)
     sessions = request.app.state.sessions
     before = await run_in_threadpool(
         settings.get, sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
