@@ -4,6 +4,10 @@ engine, then done.
 The step is stored in the settings table, so closing the app halfway through picks up where
 it left off. Only the chat model and the engine are downloaded up front (so the first chat
 only loads the model); everything else on first use.
+
+The chat model is the recommended one unless another is chosen from the list here. On a Mac
+with MLX switched on, the model's MLX build is all the first chat needs: setup finishes on it,
+and llama.cpp and the usual model are fetched by whatever first needs them.
 """
 
 from __future__ import annotations
@@ -16,8 +20,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from lectern.catalog import catalog
 from lectern.catalog.catalog import CatalogEntry
+from lectern.core import settings
 from lectern.core.tables import SettingRow
+from lectern.runners import mlx
 from lectern.runtime.wiring import pick
 
 Step = Literal["hardware", "download", "done"]
@@ -51,21 +58,81 @@ def _chat_model(request: Request) -> CatalogEntry:
     return pick("main", runtime.tier, runtime.chosen_models())[1]
 
 
+def _mlx(request: Request) -> dict:
+    """Whether MLX can run here, and whether it's switched on. Switched on where it can't
+    run, it does nothing, so it's reported off (as the runtime settings do)."""
+    values = settings.get(
+        request.app.state.sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
+    )
+    available = mlx.mlx_available()
+    return {
+        "supported": mlx.mlx_supported(),
+        "available": available,
+        "enabled": bool(values["mlx_enabled"]) and available,
+    }
+
+
+def _mlx_build(request: Request) -> CatalogEntry | None:
+    """The MLX build the chat would run on: the chat model's, while MLX is switched on."""
+    if not _mlx(request)["enabled"]:
+        return None
+    return catalog.load().mlx_build_of(_chat_model(request))
+
+
+def _missing(request: Request) -> str | None:
+    """What still has to be downloaded before setup can finish, as a sentence; None when the
+    first chat has what it runs on."""
+    downloads = request.app.state.downloads
+    build = _mlx_build(request)
+    if build is not None and downloads.is_downloaded(build):
+        return None
+    # Without its build on disk the chat runs on the usual model, MLX switched on or not.
+    if downloads.state(_chat_model(request)).status == "done":
+        if _engine_ready(request):
+            return None
+        return "Download the engine (llama.cpp) before finishing."
+    if build is not None:
+        return f"Download {build.title} before finishing."
+    return "Download the chat model before finishing."
+
+
+def _model(request: Request, entry: CatalogEntry) -> dict:
+    runtime = request.app.state.runtime
+    downloads = request.app.state.downloads
+    cat = catalog.load()
+    build = cat.mlx_build_of(entry)
+    return {
+        "id": entry.id,
+        "title": entry.title,
+        "quant": entry.quant,
+        "size": entry.size,
+        "licence": entry.licence,
+        "recommended": cat.defaults_for(runtime.tier).get("main") == entry,
+        "suits_tier": runtime.tier in entry.ctx,  # listed for this computer's tier
+        "download": downloads.state(entry).to_dict(),
+        # The same model in MLX's format, which runs in its place with MLX switched on.
+        "mlx_build": None if build is None else _build(request, build),
+    }
+
+
+def _build(request: Request, build: CatalogEntry) -> dict:
+    return {
+        "id": build.id,
+        "title": build.title,
+        "size": build.size,
+        "download": request.app.state.downloads.state(build).to_dict(),
+    }
+
+
 def _report(request: Request, step: Step) -> dict:
-    entry = _chat_model(request)
-    download = request.app.state.downloads.state(entry)
     return {
         "step": step,
-        "chat_model": {
-            "id": entry.id,
-            "title": entry.title,
-            "quant": entry.quant,
-            "size": entry.size,
-            "licence": entry.licence,
-            "download": download.to_dict(),
-        },
+        "chat_model": _model(request, _chat_model(request)),
+        # Every model the chat can be given (PUT /models/roles/main chooses one).
+        "chat_models": [_model(request, m) for m in catalog.load().choices_for("main")],
+        "mlx": _mlx(request),
         "engine": _engine_report(request),
-        "can_finish": download.status == "done" and _engine_ready(request),
+        "can_finish": _missing(request) is None,
     }
 
 
@@ -124,12 +191,7 @@ def advance_first_run(body: Advance, request: Request) -> dict:
         current = _load_step(session)
         if ORDER.index(body.to) != ORDER.index(current) + 1:
             raise HTTPException(409, f"First run is at '{current}'; it can't move to '{body.to}'.")
-        if (
-            body.to == "done"
-            and request.app.state.downloads.state(_chat_model(request)).status != "done"
-        ):
-            raise HTTPException(409, "Download the chat model before finishing.")
-        if body.to == "done" and not _engine_ready(request):
-            raise HTTPException(409, "Download the engine (llama.cpp) before finishing.")
+        if body.to == "done" and (missing := _missing(request)) is not None:
+            raise HTTPException(409, missing)
         _save_step(session, body.to)
     return get_first_run(request)

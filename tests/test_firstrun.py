@@ -168,3 +168,134 @@ def test_cannot_finish_without_the_engine(paths):
 
     assert response.status_code == 409 and "engine" in response.json()["detail"]
     assert client.get("/api/first-run", headers=headers).json()["can_finish"] is False
+
+
+@pytest.fixture
+def mlx_installed(monkeypatch):
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+    monkeypatch.setattr("lectern.runners.mlx.mlx_available", lambda: True)
+
+
+def _switch_mlx_on(app):
+    values = {**settings.RUNTIME_DEFAULTS, "mlx_enabled": True}
+    settings.put(app.state.sessions, settings.RUNTIME_KEY, values)
+
+
+def test_lists_the_chat_models_with_the_recommended_one_marked(paths):
+    client, headers, app = _client(paths)
+    _fake_downloaded(app, "qwen3.5-9b-mlx")
+
+    models = client.get("/api/first-run", headers=headers).json()["chat_models"]
+
+    assert [(m["id"], m["recommended"], m["suits_tier"]) for m in models] == [
+        ("qwen3.5-4b", True, True),
+        ("qwen3.5-9b", False, False),
+        ("qwen3.5-35b-a3b", False, False),
+    ]
+    four, nine = models[0], models[1]
+    assert (four["title"], four["licence"], four["download"]["status"]) == (
+        "Qwen3.5 4B", "Apache-2.0", "none"
+    )  # fmt: skip
+    build = four["mlx_build"]
+    assert (build["id"], build["title"]) == ("qwen3.5-4b-mlx", "Qwen3.5 4B (MLX)")
+    assert build["size"] > 0 and build["download"]["status"] == "none"
+    assert nine["mlx_build"]["download"]["status"] == "done"
+
+
+def test_the_chosen_chat_model_is_one_of_the_list(paths):
+    client, headers, app = _client(paths)
+    chosen = {**settings.MODEL_DEFAULTS, "main": "qwen3.5-9b"}
+    settings.put(app.state.sessions, settings.MODELS_KEY, chosen)
+
+    body = client.get("/api/first-run", headers=headers).json()
+
+    assert body["chat_model"] == body["chat_models"][1]
+
+
+def test_mlx_is_off_on_a_fresh_install_that_has_it(paths, mlx_installed):
+    client, headers, _ = _client(paths)
+
+    body = client.get("/api/first-run", headers=headers).json()
+
+    assert body["mlx"] == {"supported": True, "available": True, "enabled": False}
+
+
+def test_mlx_switched_on_where_it_cannot_run_is_reported_off(paths, monkeypatch):
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: False)
+    client, headers, app = _client(paths)
+    _switch_mlx_on(app)
+
+    body = client.get("/api/first-run", headers=headers).json()
+
+    assert body["mlx"] == {"supported": False, "available": False, "enabled": False}
+
+
+def test_with_mlx_on_setup_finishes_on_the_mlx_build_alone(paths, mlx_installed):
+    app, headers = _with_engine(paths, FakeEngine())  # no llama.cpp, no GGUF file
+    client = TestClient(app, base_url=BASE)
+    _switch_mlx_on(app)
+    client.post("/api/first-run", json={"to": "download"}, headers=headers)
+
+    before = client.get("/api/first-run", headers=headers).json()
+    refused = client.post("/api/first-run", json={"to": "done"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-4b-mlx")
+    ready = client.get("/api/first-run", headers=headers).json()
+    done = client.post("/api/first-run", json={"to": "done"}, headers=headers)
+
+    assert before["mlx"]["enabled"] is True and before["can_finish"] is False
+    assert refused.status_code == 409 and "Qwen3.5 4B (MLX)" in refused.json()["detail"]
+    assert ready["can_finish"] is True
+    assert done.status_code == 200 and done.json()["step"] == "done"
+
+
+def test_with_mlx_on_it_is_the_chosen_models_build_that_counts(paths, mlx_installed):
+    app, headers = _with_engine(paths, FakeEngine())
+    client = TestClient(app, base_url=BASE)
+    _switch_mlx_on(app)
+    chosen = {**settings.MODEL_DEFAULTS, "main": "qwen3.5-9b"}
+    settings.put(app.state.sessions, settings.MODELS_KEY, chosen)
+    client.post("/api/first-run", json={"to": "download"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-4b-mlx")
+
+    refused = client.post("/api/first-run", json={"to": "done"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-9b-mlx")
+    done = client.post("/api/first-run", json={"to": "done"}, headers=headers)
+
+    assert refused.status_code == 409 and "Qwen3.5 9B (MLX)" in refused.json()["detail"]
+    assert done.status_code == 200
+
+
+def test_with_mlx_on_the_usual_model_and_the_engine_still_finish_setup(paths, mlx_installed):
+    """Without its build the chat runs on the usual model, MLX on or not."""
+    app, headers = _with_engine(paths, FakeEngine(installed=True))
+    client = TestClient(app, base_url=BASE)
+    _switch_mlx_on(app)
+    client.post("/api/first-run", json={"to": "download"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-4b")
+
+    assert client.get("/api/first-run", headers=headers).json()["can_finish"] is True
+    assert client.post("/api/first-run", json={"to": "done"}, headers=headers).status_code == 200
+
+
+def test_an_mlx_build_is_not_enough_while_mlx_is_off(paths, mlx_installed):
+    app, headers = _with_engine(paths, FakeEngine(installed=True))
+    client = TestClient(app, base_url=BASE)
+    client.post("/api/first-run", json={"to": "download"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-4b-mlx")
+
+    response = client.post("/api/first-run", json={"to": "done"}, headers=headers)
+
+    assert response.status_code == 409 and "chat model" in response.json()["detail"]
+    assert client.get("/api/first-run", headers=headers).json()["can_finish"] is False
+
+
+def test_an_mlx_build_is_not_enough_where_mlx_is_not_installed(paths, monkeypatch):
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+    monkeypatch.setattr("lectern.runners.mlx.mlx_available", lambda: False)
+    app, headers = _with_engine(paths, FakeEngine(installed=True))
+    client = TestClient(app, base_url=BASE)
+    _switch_mlx_on(app)
+    client.post("/api/first-run", json={"to": "download"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-4b-mlx")
+
+    assert client.post("/api/first-run", json={"to": "done"}, headers=headers).status_code == 409
