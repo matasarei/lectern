@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from lectern.app import create_app
 from lectern.catalog import catalog
+from lectern.core import settings
 
 BASE = "http://127.0.0.1:8765"
 
@@ -37,6 +38,21 @@ def test_starts_at_hardware_with_the_tiers_chat_model(paths):
     assert body["chat_model"]["id"] == "qwen3.5-4b"
     assert body["chat_model"]["licence"] == "Apache-2.0"
     assert body["can_finish"] is False
+
+
+def test_it_is_the_chat_model_chosen_in_models_and_memory_that_setup_waits_for(paths):
+    client, headers, app = _client(paths)
+    app.state.runtime.engine = FakeEngine(installed=True)
+    chosen = {**settings.MODEL_DEFAULTS, "main": "qwen3.5-9b"}
+    settings.put(app.state.sessions, settings.MODELS_KEY, chosen)
+
+    assert client.get("/api/first-run", headers=headers).json()["chat_model"]["id"] == "qwen3.5-9b"
+
+    client.post("/api/first-run", json={"to": "download"}, headers=headers)
+    _fake_downloaded(app, "qwen3.5-4b")  # the recommended one being there isn't enough
+    assert client.post("/api/first-run", json={"to": "done"}, headers=headers).status_code == 409
+    _fake_downloaded(app, "qwen3.5-9b")
+    assert client.post("/api/first-run", json={"to": "done"}, headers=headers).status_code == 200
 
 
 def test_moves_forward_one_step_at_a_time(paths):

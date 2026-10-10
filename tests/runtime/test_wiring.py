@@ -233,3 +233,193 @@ def test_work_that_needs_a_schema_is_kept_off_the_mlx_build(mac, monkeypatch):
         DownloadManager, "is_downloaded", lambda self, entry: entry.format == "gguf"
     )
     assert runtime.schema_key("main") == "main"  # the build isn't there: nothing to avoid
+
+
+# --- a model chosen for a role, in place of the one recommended for the computer --------------
+
+
+@pytest.fixture
+def card(paths, monkeypatch):
+    """The runtime of an 8 GB card (tier recommended: the chat model is the 9B) with every
+    model downloaded. Returns (runtime, choose): choose(role, model_id) stores a choice."""
+    monkeypatch.delenv("LECTERN_BUDGET_MB", raising=False)
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    monkeypatch.setattr(DownloadManager, "is_downloaded", lambda self, entry: True)
+    monkeypatch.setattr(wiring, "_shape", lambda path: planner.ModelShape(8, 8, 1, 64, 64))
+    monkeypatch.setattr(mlx, "read_shape", lambda folder: planner.ModelShape(8, 8, 1, 64, 64))
+    runtime = build_runtime(
+        paths, DownloadManager(paths.models, sessions), _hw(int(7.4 * GIB)), sessions
+    )
+
+    def choose(role: str, model_id: str | None) -> None:
+        chosen = settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
+        settings.put(sessions, settings.MODELS_KEY, {**chosen, role: model_id})
+
+    choose.sessions = sessions  # for the tests that switch MLX on as well
+    return runtime, choose
+
+
+def test_every_role_can_have_a_chosen_model():
+    from typing import get_args
+
+    from lectern.catalog.catalog import Role
+
+    assert set(settings.MODEL_DEFAULTS) == set(get_args(Role))
+    assert set(settings.MODEL_DEFAULTS.values()) == {None}  # nothing chosen: the recommended
+
+
+def test_a_role_uses_the_model_chosen_for_it(card):
+    runtime, choose = card
+    assert runtime.resolve("main").model_id == "qwen3.5-9b"  # recommended for this card
+    choose("main", "qwen3.5-4b")
+    assert runtime.resolve("main").model_id == "qwen3.5-4b"
+    assert runtime.resolve("ocr").model_id == "paddleocr-vl-1.6"  # the other roles as before
+    assert wiring.role_model(runtime, "main").id == "qwen3.5-4b"
+    choose("main", None)
+    assert runtime.resolve("main").model_id == "qwen3.5-9b"
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "gone-from-the-catalog",
+        "paddleocr-vl-1.6",  # in the catalog, not a chat model
+        "qwen3.5-4b-mlx",  # a build belongs to its model: never a role's own choice
+    ],
+)
+def test_a_stored_choice_that_cannot_be_used_falls_back_to_the_recommended(card, stored):
+    runtime, choose = card
+    choose("main", stored)
+    assert runtime.resolve("main").model_id == "qwen3.5-9b"
+
+
+def test_a_key_that_names_a_model_is_not_the_roles_choice(card):
+    runtime, choose = card
+    choose("ocr.hand", "qwen3-vl-4b")
+    assert runtime.resolve("ocr.hand@chandra-ocr-2").model_id == "chandra-ocr-2"
+    assert runtime.resolve("ocr.hand").model_id == "qwen3-vl-4b"
+
+
+def test_the_roles_model_is_none_for_a_role_nothing_fills(card):
+    runtime, _ = card
+    assert wiring.role_model(runtime, "stt") is None
+    assert wiring.role_model(runtime, "code").id == "qwen2.5-coder-7b"
+
+
+def test_with_mlx_on_the_chosen_models_build_runs_and_cleanup_names_the_chosen_gguf(
+    card, monkeypatch
+):
+    runtime, choose = card
+    monkeypatch.setattr(mlx, "mlx_supported", lambda: True)
+    monkeypatch.setattr(mlx, "mlx_available", lambda: True)
+    settings.put(choose.sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
+    choose("main", "qwen3.5-4b")
+    assert runtime.resolve("main").model_id == "qwen3.5-4b-mlx"
+    assert runtime.schema_key("main") == "main@qwen3.5-4b"
+
+
+# --- after a change of hardware, a role nobody set keeps the model it has ---------------------
+
+
+@pytest.fixture
+def started(paths, monkeypatch):
+    """started(tier, on_disk) builds the runtime as a start on a computer of that tier would,
+    over one database, with only the models in `on_disk` downloaded. Returns
+    (runtime, the stored choices)."""
+    monkeypatch.delenv("LECTERN_BUDGET_MB", raising=False)
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    monkeypatch.setattr(wiring, "_shape", lambda path: planner.ModelShape(8, 8, 1, 64, 64))
+
+    def start(tier: str, on_disk: set[str]):
+        monkeypatch.setenv("LECTERN_TIER", tier)
+        monkeypatch.setattr(
+            DownloadManager, "is_downloaded", lambda self, entry: entry.id in on_disk
+        )
+        runtime = build_runtime(
+            paths, DownloadManager(paths.models, sessions), _hw(int(7.4 * GIB)), sessions
+        )
+        return runtime, settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
+
+    start.sessions = sessions
+    return start
+
+
+def test_a_role_keeps_its_installed_model_when_the_computer_moves_up_a_tier(started):
+    runtime, chosen = started("minimum", {"qwen3.5-4b"})
+    assert chosen["main"] is None  # the recommended model is the one on disk: nothing to keep
+    assert runtime.resolve("main").model_id == "qwen3.5-4b"
+
+    # A new video card: the 9B is recommended now, and it isn't downloaded.
+    runtime, chosen = started("recommended", {"qwen3.5-4b"})
+    assert chosen["main"] == "qwen3.5-4b"
+    assert runtime.resolve("main").model_id == "qwen3.5-4b"  # the chat goes on working
+    assert chosen["code"] is None  # a role with nothing on disk follows the recommendation
+
+    # It's a choice from here on: later starts, and the 9B arriving, change nothing.
+    _, chosen = started("recommended", {"qwen3.5-4b", "qwen3.5-9b"})
+    assert chosen["main"] == "qwen3.5-4b"
+
+
+def test_a_fresh_install_stores_nothing_and_asks_for_the_recommended_model(started):
+    runtime, chosen = started("recommended", set())
+    assert set(chosen.values()) == {None}
+    with pytest.raises(NotAvailable, match="Qwen3.5 9B isn't downloaded yet"):
+        runtime.resolve("main")
+
+
+def test_of_several_installed_models_the_largest_is_kept(started):
+    on_disk = {"qwen3.5-4b", "qwen3.5-9b", "qwen3.5-9b-mlx"}
+    started("recommended", on_disk)
+    _, chosen = started("comfortable", on_disk)
+    assert chosen["main"] == "qwen3.5-9b"  # and never an MLX build
+
+
+def test_on_the_same_computer_a_role_set_back_to_the_recommended_model_stays_there(started):
+    """The 9B was chosen and downloaded, then "Use it" put the role back on the recommended
+    35B, which stores no choice. Starting again before the 35B is downloaded mustn't undo
+    that: nothing about the computer changed."""
+    for _ in range(2):
+        runtime, chosen = started("comfortable", {"qwen3.5-9b"})
+        assert chosen["main"] is None
+        with pytest.raises(NotAvailable, match="Qwen3.5 35B-A3B isn't downloaded yet"):
+            runtime.resolve("main")
+
+
+def test_the_first_start_only_notes_the_computer_it_runs_on(started):
+    # Nothing to compare with yet, so nothing is taken to have changed.
+    _, chosen = started("comfortable", {"qwen3.5-9b"})
+    assert set(chosen.values()) == {None}
+    seen = settings.get(started.sessions, settings.HARDWARE_KEY, settings.HARDWARE_DEFAULTS)
+    assert seen == {"tier": "comfortable"}
+
+
+def test_a_restricted_licence_model_never_becomes_a_roles_model_by_itself(started):
+    """Chandra is on disk because a page was once re-read with it by name. A default must be
+    permissively licensed, and so must a model a role takes without being asked."""
+    started("minimum", {"chandra-ocr-2"})
+    _, chosen = started("recommended", {"chandra-ocr-2"})
+    assert chosen["ocr.hand"] is None
+
+    _, chosen = started("comfortable", {"chandra-ocr-2", "qwen3-vl-4b"})
+    assert chosen["ocr.hand"] == "qwen3-vl-4b"  # the permissive one that's there
+
+
+def test_a_model_this_computer_is_not_meant_for_is_not_kept(started):
+    # The data moved to a smaller computer: the 35B is on disk and not listed for this tier.
+    started("comfortable", {"qwen3.5-35b-a3b"})
+    runtime, chosen = started("minimum", {"qwen3.5-35b-a3b"})
+    assert chosen["main"] is None
+    with pytest.raises(NotAvailable, match="Qwen3.5 4B isn't downloaded yet"):
+        runtime.resolve("main")
+
+
+def test_a_role_that_was_given_a_model_is_left_alone(started):
+    stored = {**settings.MODEL_DEFAULTS, "main": "qwen3.5-35b-a3b"}
+    settings.put(started.sessions, settings.MODELS_KEY, stored)
+    started("minimum", {"qwen3.5-4b"})
+    _, chosen = started("recommended", {"qwen3.5-4b"})
+    assert chosen["main"] == "qwen3.5-35b-a3b"  # the person's choice, downloaded or not

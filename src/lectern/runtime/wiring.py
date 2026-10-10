@@ -4,6 +4,7 @@ catalog defaults for the tier, files from the downloader, llama-server from the 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
 
@@ -43,14 +44,21 @@ def budget_for(hw: HardwareInfo) -> tuple[int, str]:
     return max(hw.ram_total - CPU_RESERVE, 2 * GIB), "ram"
 
 
-def pick(key: str, tier: Tier) -> tuple[str, catalog.CatalogEntry]:
-    """The role and model a lease key asks for. A key is a role ("ocr"), which gets the tier's
-    default, or a role and a model ("ocr.hand@chandra-ocr-2"), which gets that model: the OCR
-    check compares models this way, and "Re-run page with…" will use it too."""
+def pick(
+    key: str, tier: Tier, chosen: Mapping[str, str | None] | None = None
+) -> tuple[str, catalog.CatalogEntry]:
+    """The role and model a lease key asks for. A key is a role ("ocr"), which gets the model
+    chosen for it in Models & memory (`chosen`, role → catalog id) or else the tier's default,
+    the one recommended for this computer. Or it is a role and a model
+    ("ocr.hand@chandra-ocr-2"), which gets that model: the OCR check compares models this way,
+    and "Re-run page with…" will use it too."""
     role, _, model_id = key.partition("@")
     models = catalog.load()
     if not model_id:
-        entry = models.defaults_for(tier).get(role)
+        # A choice the catalog no longer offers for the role is as good as none.
+        wanted = (chosen or {}).get(role)
+        entry = next((m for m in models.choices_for(role) if m.id == wanted), None)
+        entry = entry or models.defaults_for(tier).get(role)
         if entry is None:
             raise NotAvailable(f"No model is set for the {role!r} role.")
         return role, entry
@@ -60,6 +68,53 @@ def pick(key: str, tier: Tier) -> tuple[str, catalog.CatalogEntry]:
     if role not in entry.roles:
         raise NotAvailable(f"{entry.title} can't be used for the {role!r} role.")
     return role, entry
+
+
+def role_model(runtime: ModelRuntime, role: str) -> catalog.CatalogEntry | None:
+    """The model a role uses on this computer: the one chosen for it, else the recommended
+    one. None for a role nothing fills."""
+    try:
+        return pick(role, runtime.tier, runtime.chosen_models())[1]
+    except NotAvailable:
+        return None
+
+
+def keep_installed_models(sessions, downloads: DownloadManager, tier: Tier) -> None:  # noqa: ANN001
+    """At start. A role nobody gave a model follows the recommendation, and a new video card
+    moves the recommendation to a model that isn't downloaded. So that the role goes on
+    working, the model it has becomes its choice: the largest one on disk that the catalog
+    lists for this tier. Models & memory still marks the recommended one.
+
+    Only when the tier differs from the last start's. On the same computer a role without its
+    recommended model on disk was put there by a person ("Use it", before downloading), or
+    never used: neither is a reason to move it. And never a restricted-licence model: like a
+    default, a model a role takes unasked must be permissively licensed."""
+    seen = settings.get(sessions, settings.HARDWARE_KEY, settings.HARDWARE_DEFAULTS)["tier"]
+    if seen == tier.value:
+        return
+    if seen is not None:
+        _keep_what_is_installed(sessions, downloads, tier)
+    settings.put(sessions, settings.HARDWARE_KEY, {"tier": tier.value})
+
+
+def _keep_what_is_installed(sessions, downloads: DownloadManager, tier: Tier) -> None:  # noqa: ANN001
+    models = catalog.load()
+    recommended = models.defaults_for(tier)
+    chosen = settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
+    kept: dict[str, str] = {}
+    for role, choice in chosen.items():
+        default = recommended.get(role)
+        if choice is not None or default is None or downloads.is_downloaded(default):
+            continue
+        installed = [
+            m
+            for m in models.choices_for(role)
+            if m.permissive and tier in m.ctx and downloads.is_downloaded(m)
+        ]
+        if installed:
+            kept[role] = max(installed, key=lambda m: m.size).id
+    if kept:
+        settings.put(sessions, settings.MODELS_KEY, {**chosen, **kept})
 
 
 @cache
@@ -74,6 +129,10 @@ def build_runtime(
     budget, _source = budget_for(hw)
     unified = not hw.gpus or any(g.unified for g in hw.gpus)
     installer = LlamaCppInstaller(paths.runners)
+    keep_installed_models(sessions, downloads, tier)
+
+    def chosen() -> dict[str, str | None]:
+        return settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
 
     def mlx_is_on() -> bool:
         switched_on = settings.get(sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS)[
@@ -95,11 +154,11 @@ def build_runtime(
     def schema_key(role: str) -> str:
         """MLX's server can't hold a model to a JSON schema. Work that needs one names the
         role's GGUF model when the role itself would run on its MLX build."""
-        _, entry = pick(role, tier)
+        _, entry = pick(role, tier, chosen())
         return f"{role}@{entry.id}" if mlx_build_for(role, entry) else role
 
     def resolve(key: str) -> ModelChoice:
-        role, entry = pick(key, tier)
+        role, entry = pick(key, tier, chosen())
         entry = mlx_build_for(key, entry) or entry
         if not downloads.is_downloaded(entry):
             raise NotAvailable(
@@ -169,6 +228,7 @@ def build_runtime(
         else 0,
     )
     runtime.schema_key = schema_key
+    runtime.chosen_models = chosen
     # runner_for reports the engine's download to it; first-run downloads it ahead of time.
     runtime.engine = (
         Engine(installer, engine_variant, runtime) if engine_variant is not None else None

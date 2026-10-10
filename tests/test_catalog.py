@@ -246,3 +246,18 @@ def test_an_mlx_builds_first_file_is_its_config():
     build["files"]["model"].reverse()
     with pytest.raises(ValidationError, match="config.json"):
         catalog.Catalog.model_validate(raw)
+
+
+def test_the_models_a_role_can_be_given_leave_out_mlx_builds():
+    models = catalog.load()
+    assert [m.id for m in models.choices_for("main")] == [
+        "qwen3.5-4b",
+        "qwen3.5-9b",
+        "qwen3.5-35b-a3b",
+    ]
+    assert {m.id for m in models.choices_for("ocr.hand")} == {
+        "qwen3-vl-4b",
+        "qwen3-vl-8b",
+        "chandra-ocr-2",  # a restricted licence doesn't stop it being chosen
+    }
+    assert models.choices_for("stt") == []

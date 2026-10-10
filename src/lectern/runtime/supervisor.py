@@ -25,7 +25,7 @@ import asyncio
 import contextlib
 import itertools
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -116,6 +116,9 @@ class ModelRuntime:
         # cleanup): the role itself, unless wiring knows better. On a Mac with MLX on, the
         # role's model is an MLX build, whose server can't do that; wiring then names the GGUF.
         self.schema_key: Callable[[str], str] = lambda role: role
+        # The model chosen for each role in Models & memory (role → catalog id); wiring reads
+        # it from the settings. Nothing chosen: every role gets the one recommended here.
+        self.chosen_models: Callable[[], Mapping[str, str | None]] = dict
         self._loading: dict | None = None  # what activity goes back to after the engine
         # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
         # waits out the idle window only for a message sent after the job started.
@@ -446,11 +449,14 @@ class ModelRuntime:
                 roles = [r for r in roles if r == role]
             return await self._unload_all(roles)
 
-    async def unload_between_replies(self) -> list[str]:
-        """Unload idle models, except one a reply is being written with: for a setting that
-        changes which models are wanted. That model changes over with the next turn."""
+    async def unload_between_replies(self, role: str | None = None) -> list[str]:
+        """Unload idle models (all, or one role's, a copy loaded for it by name included),
+        except one a reply is being written with: for a setting that changes which models
+        are wanted. That model changes over with the next turn."""
         async with self._cond:
             idle = [r for r, res in self._residents.items() if res.leases == 0]
+            if role is not None:
+                idle = [r for r in idle if r.partition("@")[0] == role]
             return await self._unload_all([r for r in idle if r not in self._turn_models])
 
     async def _unload_all(self, roles: list[str]) -> list[str]:

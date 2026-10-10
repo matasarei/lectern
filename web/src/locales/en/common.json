@@ -96,7 +96,16 @@
     "downloadModel": "Download {{title}}",
     "acceptAndDownloadModel": "Accept the {{licence}} licence and download {{title}}",
     "mlxBuild": "MLX build",
-    "chosen": "used for this role"
+    "chosen": "used for this role",
+    "modelFor": "Model for {{role}}",
+    "option": "{{title}} · {{size}}",
+    "optionRecommended": "{{title}} · {{size}} · recommended",
+    "optionTooBig": "{{title}} · {{size}} · more than this computer is meant for",
+    "recommended": "recommended",
+    "recommendedIs": "Recommended for this computer: {{title}}.",
+    "useRecommended": "Use it",
+    "useRecommendedFor": "Use {{title}} for {{role}}",
+    "tooBigWhy": "This model is more than this computer is meant for: it may be slow, run with a small context, or not load."
   },
   "sandbox": {
     "podman": "Podman",

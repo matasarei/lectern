@@ -16,11 +16,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from lectern.catalog import catalog
 from lectern.catalog.catalog import CatalogEntry
 from lectern.core.tables import SettingRow
-from lectern.hardware.probe import probe
-from lectern.hardware.tiers import effective_tier
+from lectern.runtime.wiring import pick
 
 Step = Literal["hardware", "download", "done"]
 ORDER: tuple[Step, ...] = ("hardware", "download", "done")
@@ -46,12 +44,15 @@ def _save_step(session: Session, step: Step) -> None:
         row.value = value
 
 
-def _chat_model() -> CatalogEntry:
-    return catalog.load().defaults_for(effective_tier(probe()))["main"]
+def _chat_model(request: Request) -> CatalogEntry:
+    """The chat role's model: the one recommended for this computer, unless another was
+    chosen in Models & memory."""
+    runtime = request.app.state.runtime
+    return pick("main", runtime.tier, runtime.chosen_models())[1]
 
 
 def _report(request: Request, step: Step) -> dict:
-    entry = _chat_model()
+    entry = _chat_model(request)
     download = request.app.state.downloads.state(entry)
     return {
         "step": step,
@@ -123,7 +124,10 @@ def advance_first_run(body: Advance, request: Request) -> dict:
         current = _load_step(session)
         if ORDER.index(body.to) != ORDER.index(current) + 1:
             raise HTTPException(409, f"First run is at '{current}'; it can't move to '{body.to}'.")
-        if body.to == "done" and request.app.state.downloads.state(_chat_model()).status != "done":
+        if (
+            body.to == "done"
+            and request.app.state.downloads.state(_chat_model(request)).status != "done"
+        ):
             raise HTTPException(409, "Download the chat model before finishing.")
         if body.to == "done" and not _engine_ready(request):
             raise HTTPException(409, "Download the engine (llama.cpp) before finishing.")
