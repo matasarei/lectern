@@ -144,6 +144,8 @@ export function FirstRunPage() {
             value={
               <ModelChoice
                 model={model}
+                // The usual model's own detail: its MLX build has a row to itself.
+                quant={build ? null : model.quant}
                 options={run.chat_models}
                 disabled={!settled}
                 onChoose={(id) => choose.mutate(id)}
@@ -257,17 +259,27 @@ function Page({ children }: { children: React.ReactNode }) {
 /** The chat model: a list when there's more than one to choose from. */
 function ModelChoice({
   model,
+  quant,
   options,
   disabled,
   onChoose,
 }: {
   model: FirstRunModel;
+  quant: string | null;
   options: FirstRunModel[];
   disabled: boolean;
   onChoose: (modelId: string) => void;
 }) {
   const { t } = useTranslation();
-  if (options.length < 2) return <>{`${model.title} · ${model.quant}`}</>;
+  const detail = quant && <span className="text-muted"> · {quant}</span>;
+  if (options.length < 2) {
+    return (
+      <>
+        {model.title}
+        {detail}
+      </>
+    );
+  }
   return (
     <>
       <select
@@ -290,7 +302,7 @@ function ModelChoice({
           </option>
         ))}
       </select>
-      <span className="text-muted"> · {model.quant}</span>
+      {detail}
     </>
   );
 }
@@ -307,10 +319,11 @@ function EngineChoice({
 }) {
   const { t } = useTranslation();
   const option = (picksMlx: boolean, name: string, why: string) => (
-    <label className="flex gap-2 text-sm">
+    <label className="flex items-start gap-2 text-sm">
       <input
         type="radio"
         name="engine"
+        className="mt-1"
         checked={mlx === picksMlx}
         disabled={disabled}
         onChange={() => onChoose(picksMlx)}

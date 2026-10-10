@@ -288,6 +288,7 @@ describe("First run: the engine choice on a Mac", () => {
     expect([radio("llama.cpp").checked, radio("MLX").checked]).toEqual([true, false]);
     expect(radio("MLX").closest("label")?.textContent).toMatch(/more mistakes.*first time you scan/);
     expect(screen.getByText("6 GB")).toBeTruthy(); // the usual model's size
+    expect(screen.getByText(/Q4_K_M/)).toBeTruthy();
     expect(screen.getByTestId("engine-status").textContent).toMatch(/llama\.cpp/);
   });
 
@@ -313,6 +314,7 @@ describe("First run: the engine choice on a Mac", () => {
     ]);
     expect(radio("MLX").checked).toBe(true);
     expect(screen.getByText("6.4 GB")).toBeTruthy(); // the build's size
+    expect(screen.queryByText(/Q4_K_M/)).toBeNull(); // the usual model's own detail
     expect(screen.queryByTestId("engine-status")).toBeNull(); // llama.cpp comes with the first scan
   });
 
