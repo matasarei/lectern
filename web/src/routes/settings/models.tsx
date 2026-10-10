@@ -35,6 +35,10 @@ const ROLE_COLOURS: Record<Role, string> = {
   code: "bg-slate-500",
 };
 
+/** The role a loaded model serves. The runtime also loads a model by name
+ * ("main@qwen3.5-9b": OCR cleanup's copy of the chat model while the chat runs on MLX). */
+const roleOf = (resident: Resident) => resident.role.split("@")[0] as Role;
+
 /** Models & memory: the machine, live memory use, the model for each role, and how the
  * runtime shares the GPU. */
 export function ModelsPage() {
@@ -65,6 +69,8 @@ export function ModelsPage() {
 
   const byId = new Map(models.data.models.map((m) => [m.id, m]));
   const residents = new Map((runtime.data?.residents ?? []).map((r) => [r.role, r]));
+  const loaded = (role: Role, modelId: string) =>
+    runtime.data?.residents.find((r) => roleOf(r) === role && r.model_id === modelId);
 
   return (
     <Page>
@@ -142,7 +148,7 @@ export function ModelsPage() {
                     <RoleRow
                       role={role}
                       model={model}
-                      resident={resident?.model_id === model.id ? resident : undefined}
+                      resident={loaded(role, model.id)}
                       live={live[model.id]}
                       chosen={!buildOnDisk}
                     />
@@ -150,7 +156,7 @@ export function ModelsPage() {
                       role={role}
                       model={build}
                       mlxBuild
-                      resident={resident?.model_id === build.id ? resident : undefined}
+                      resident={loaded(role, build.id)}
                       live={live[build.id]}
                       chosen={buildOnDisk}
                     />
@@ -290,7 +296,7 @@ function MemoryGauge({
         {residents.map((r) => (
           <div
             key={r.role}
-            className={`${ROLE_COLOURS[r.role]} h-full`}
+            className={`${ROLE_COLOURS[roleOf(r)]} h-full`}
             // Set through the element's style object: the CSP forbids inline style
             // attributes, not this.
             ref={(el) => {
@@ -303,7 +309,7 @@ function MemoryGauge({
       <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         {residents.map((r) => (
           <li key={r.role}>
-            <span className={`mr-1 inline-block size-2 rounded-full ${ROLE_COLOURS[r.role]}`} />
+            <span className={`mr-1 inline-block size-2 rounded-full ${ROLE_COLOURS[roleOf(r)]}`} />
             {t("memory.legend", {
               role: r.role,
               model: r.model_id,

@@ -268,6 +268,25 @@ describe("Models & memory", () => {
     expect(screen.getByTestId("status-main").textContent).toBe("Downloaded, not loaded");
   });
 
+  it("shows the usual model as loaded, in the chat's colour, while it cleans scanned pages", async () => {
+    withMlxBuild("done", true);
+    const runtime = RESPONSES["/api/runtime"] as { residents: object[] };
+    // The chat runs on the build; OCR cleanup holds the usual model under its own name.
+    overrides["/api/runtime"] = {
+      ...runtime,
+      residents: [
+        { ...runtime.residents[0], model_id: "qwen3.5-9b-mlx", leases: 0 },
+        { ...runtime.residents[0], role: "main@qwen3.5-9b", pid: 8 },
+      ],
+    };
+    renderPage();
+
+    expect((await screen.findByTestId("status-main")).textContent).toBe("Loaded, in use");
+    expect(screen.getByTestId("status-main-mlx").textContent).toBe("Loaded");
+    const segment = screen.getByTitle(/^main@qwen3.5-9b · /);
+    expect(segment.className).toContain("bg-accent");
+  });
+
   it("says MLX isn't installed, and keeps the switch off, on a Mac without it", async () => {
     withMlxBuild("none", false);
     overrides["/api/runtime/settings"] = {
