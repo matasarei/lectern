@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
 from lectern.app import create_app
 from lectern.catalog import catalog
 from lectern.core import settings
+from lectern.core.tables import DownloadRow
 
 BASE = "http://127.0.0.1:8765"
 
@@ -163,7 +166,13 @@ def test_the_list_says_what_is_installed_at_which_version_and_who_uses_it(api):
     chat = models["qwen3.5-4b"]
     assert chat["installed"]["revision"] == catalog.load().get("qwen3.5-4b").revision
     assert chat["installed"]["bytes"] == size
-    assert chat["installed"]["at"].startswith("20")  # a date the page can show
+    # With its zone: SQLite hands the time back without one, and a browser would read that
+    # as local time and show the model installed hours off.
+    at = datetime.fromisoformat(chat["installed"]["at"])
+    assert at.utcoffset() == timedelta(0)
+    with app.state.sessions() as session:
+        recorded = session.get(DownloadRow, "qwen3.5-4b").updated_at
+    assert at.replace(tzinfo=None) == recorded.replace(tzinfo=None)
     assert chat["used_by"] == ["main"]
     assert models["qwen3.5-9b"]["installed"]["revision"] is None  # version not recorded
     assert models["qwen3.5-9b"]["used_by"] == []

@@ -14,6 +14,7 @@ from lectern.core import settings
 from lectern.downloads.manager import DownloadManager, NoSuchFolder, NotRemovable
 from lectern.hardware.probe import probe
 from lectern.hardware.tiers import effective_tier
+from lectern.projects.tables import iso
 from lectern.runners import mlx
 from lectern.runtime.supervisor import ModelInUse
 from lectern.runtime.wiring import pick
@@ -85,7 +86,7 @@ def _installed(downloads: DownloadManager, entry: catalog.CatalogEntry) -> dict 
         return None
     return {
         "revision": installed.revision,  # the model's version on disk; None: not recorded
-        "at": installed.at.isoformat() if installed.at else None,
+        "at": iso(installed.at) if installed.at else None,
         "bytes": installed.bytes,
     }
 
