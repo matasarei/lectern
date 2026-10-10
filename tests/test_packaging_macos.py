@@ -7,9 +7,11 @@ import os
 import plistlib
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import time
+import zlib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -45,6 +47,20 @@ def test_the_app_builds_into_a_signed_bundle(tmp_path):
     assert info["CFBundleShortVersionString"] == "1.2.3"
     assert info["LecternDir"] == "/Users/someone/.lectern"
     assert info["LSUIElement"] is True  # a menu-bar item, no Dock icon
+    # Its icon, drawn by the app itself while it was being built.
+    assert info["CFBundleIconFile"] == "Lectern"
+    icns = bundle / "Contents/Resources/Lectern.icns"
+    assert icns.read_bytes()[:4] == b"icns"
+    # Every size is in it twice: for an ordinary screen, and at double the pixels for Retina.
+    unpacked = tmp_path / "unpacked.iconset"
+    subprocess.run(  # noqa: S603
+        ["/usr/bin/iconutil", "-c", "iconset", "-o", str(unpacked), str(icns)],
+        check=True,
+        timeout=60,
+    )
+    names = {p.name for p in unpacked.iterdir()}
+    for points in (16, 32, 128, 256, 512):
+        assert {f"icon_{points}x{points}.png", f"icon_{points}x{points}@2x.png"} <= names
     verified = subprocess.run(  # noqa: S603
         ["codesign", "--verify", "--deep", "--strict", str(bundle)],  # noqa: S607
         capture_output=True, text=True, timeout=60,
@@ -61,6 +77,45 @@ def test_building_again_replaces_the_bundle(tmp_path):
     info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())
     assert info["CFBundleShortVersionString"] == "1.1.0"
     assert not (bundle / "Contents/left-over").exists()
+
+
+def _png(path: Path) -> tuple[int, int, bytes]:
+    """A PNG's width and height, and its pixel data still filtered: enough to tell a drawing
+    from a blank."""
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    width, height = struct.unpack(">II", data[16:24])
+    packed, at = b"", 8
+    while at < len(data):
+        (length,), kind = struct.unpack(">I", data[at : at + 4]), data[at + 4 : at + 8]
+        if kind == b"IDAT":
+            packed += data[at + 8 : at + 8 + length]
+        at += 12 + length
+    return width, height, zlib.decompress(packed)
+
+
+@needs_swiftc
+def test_the_app_draws_every_size_of_its_icon(tmp_path):
+    bundle = tmp_path / "Lectern.app"
+    assert _build(str(bundle), "/Users/someone/.lectern", "1.0.0").returncode == 0
+    iconset = tmp_path / "Lectern.iconset"
+    drawn = subprocess.run(  # noqa: S603
+        [str(bundle / "Contents/MacOS/Lectern"), "--draw-icon", str(iconset)],
+        capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert drawn.returncode == 0, drawn.stderr
+
+    # What iconutil asks of an .iconset: these names, each at its size in pixels.
+    expected = {
+        f"icon_{points}x{points}{'@2x' if scale == 2 else ''}.png": points * scale
+        for points in (16, 32, 128, 256, 512)
+        for scale in (1, 2)
+    }
+    assert {p.name for p in iconset.iterdir()} == set(expected)
+    for name, pixels in expected.items():
+        width, height, picture = _png(iconset / name)
+        assert (width, height) == (pixels, pixels), name
+        assert len(set(picture)) > 32, f"{name} looks blank"  # a plate, a book, a letter
 
 
 def test_the_info_plist_template_is_a_plist_with_both_placeholders():
@@ -196,11 +251,39 @@ def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_qui
         assert "SECRET" not in log.read_text() and "token" not in log.read_text()
         assert log.stat().st_mode & 0o777 == 0o600
 
-        app.send_signal(signal.SIGTERM)  # what the installer sends: the app's own Quit
+        app.send_signal(signal.SIGTERM)  # what the installer sends: the app's own Shut Down
         assert app.wait(timeout=20) == 0
     stopped = folder / "app/venv/bin/lectern.stopped"
     assert stopped.read_text().strip() == "interrupted"  # SIGINT, as Ctrl+C: runners stop too
+    assert "left running" not in log.read_text()  # nothing was left for the app to end
     assert not _alive(lectern) and not pid_file.exists()
+
+
+@needs_a_desktop
+@pytest.mark.parametrize(
+    "runner_command",
+    ["/bin/sleep 600", "/bin/sh -c 'trap \"\" TERM; while :; do sleep 1; done'"],
+    ids=["a runner that ends on SIGTERM", "a runner that ignores SIGTERM"],
+)
+def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, installed, runner_command):
+    folder, bundle = installed
+    lectern = folder / "app/venv/bin/lectern"
+    # A Lectern that starts a runner and, told to stop, goes without stopping it.
+    with_runner = f'{runner_command} &\necho $! > "$0.runner"\ntrap '
+    lectern.write_text(STAND_IN.replace("trap ", with_runner))
+    runner_file = lectern.with_name("lectern.runner")
+    log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
+    with contextlib.ExitStack() as stack:
+        app = stack.enter_context(_app(tmp_path, bundle))
+        _until(runner_file.exists, "Lectern started its runner")
+        runner = int(runner_file.read_text())
+        stack.callback(lambda: _alive(runner) and os.kill(runner, signal.SIGKILL))
+        _until(lambda: "an ordinary line" in log.read_text(), "Lectern is up")
+
+        app.send_signal(signal.SIGTERM)  # Shut Down
+        assert app.wait(timeout=20) == 0
+        assert not _alive(runner)  # gone before the app left, not some time after
+    assert "ended 1 process(es) Lectern left running" in log.read_text()
 
 
 @needs_a_desktop
@@ -367,6 +450,16 @@ def test_a_first_install_puts_lectern_in_the_home_folder_and_builds_and_opens_th
     # Nothing written outside the home folder (beyond the test's own fakes and wheels).
     outside = {p.name for p in tmp_path.iterdir()} - {"home", "fakebin", "state", "log"}
     assert all(name.endswith(".whl") for name in outside), outside
+
+
+def test_an_app_whose_icon_cant_be_drawn_is_still_installed(tmp_path):
+    # The fake swiftc's output can't be run, as a real one's couldn't on a Mac with no display.
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 0, done.stderr
+    assert "couldn't draw the app's icon" in done.stderr
+    bundle = _bundle(tmp_path)
+    assert (bundle / "Contents/MacOS/Lectern").exists()
+    assert not (bundle / "Contents/Resources").exists()
 
 
 def test_on_a_mac_run_as_root_it_refuses(tmp_path):
@@ -539,7 +632,7 @@ def test_an_update_quits_the_open_app_replaces_both_and_opens_it_again(tmp_path)
     with _open_app(tmp_path) as app:
         done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
         assert done.returncode == 0, done.stderr
-        # Asked to quit with SIGTERM, which the app treats as its own Quit.
+        # Asked to quit with SIGTERM, which the app treats as its own Shut Down.
         assert app.wait(timeout=10) == -15
 
     assert _version(bundle) == "0.2.0" and (home / "app/venv").resolve().name.startswith("0.2.0-")

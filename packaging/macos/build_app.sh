@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build Lectern's menu-bar app for macOS: compile tray/Lectern.swift with swiftc (the Command
-# Line Tools are enough; there's no Xcode project), write its Info.plist, sign it ad hoc.
+# Build Lectern's menu-bar app for macOS: compile tray/*.swift with swiftc (the Command Line
+# Tools are enough; there's no Xcode project), have it draw its own icon, write its
+# Info.plist, sign it ad hoc.
 #
 #   build_app.sh <bundle> <install folder> <version>
 #   build_app.sh ~/Applications/Lectern.app ~/.lectern 0.1.0
@@ -40,8 +41,19 @@ swiftc="${LECTERN_SWIFTC:-swiftc}"
 rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS"
 "$swiftc" -O -swift-version 5 -parse-as-library -target arm64-apple-macos13.0 \
-    -o "$bundle/Contents/MacOS/Lectern" "$here/tray/Lectern.swift" \
+    -o "$bundle/Contents/MacOS/Lectern" "$here/tray/Lectern.swift" "$here/tray/Icon.swift" \
     || { rm -rf "$bundle"; die "compiling the app failed (see above)."; }
+# The icon is drawn by the app itself (tray/Icon.swift), here, with this Mac's own fonts: no
+# artwork is kept in the repository. Without it the app works and shows the system's icon.
+scratch="$(mktemp -d)"
+iconset="$scratch/Lectern.iconset"
+mkdir -p "$bundle/Contents/Resources"
+if ! { "$bundle/Contents/MacOS/Lectern" --draw-icon "$iconset" \
+       && iconutil -c icns -o "$bundle/Contents/Resources/Lectern.icns" "$iconset"; }; then
+    echo "build_app.sh: couldn't draw the app's icon; it will show the system's." >&2
+    rm -rf "$bundle/Contents/Resources"
+fi
+rm -rf "${scratch:?}"
 sed -e "s|@VERSION@|$version|g" -e "s|@LECTERN_DIR@|$dir|g" "$here/tray/Info.plist" \
     > "$bundle/Contents/Info.plist"
 # Ad hoc: no developer identity. Apple Silicon runs nothing unsigned, and a bundle whose

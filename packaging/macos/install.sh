@@ -19,7 +19,7 @@
 #   Nothing that runs is touched until both are ready: a failure before that leaves the
 #   running app and version as they were.
 # - An update is the same command after `git pull`. An app that's open is quit (which stops
-#   Lectern the way its Quit does), replaced and opened again; one that wasn't open isn't
+#   Lectern the way its Shut Down does), replaced and opened again; one that wasn't open isn't
 #   started.
 #
 # LECTERN_DIR moves ~/.lectern; LECTERN_UV_BIN and LECTERN_HEALTH_WAIT as on Linux;
@@ -96,13 +96,13 @@ offer_models=""
 if [ -d "$models_before" ] && [ ! -e "$data/models" ]; then offer_models=1; fi
 
 # --- the switch ---------------------------------------------------------------------------
-# An open app is quit first: it handles SIGTERM as its own Quit, which stops Lectern cleanly.
+# An open app is quit first: it handles SIGTERM as its own Shut Down, which stops Lectern cleanly.
 # It's opened again below. An app that isn't open isn't started by an update.
 start=""
 [ -e "$bundle" ] || start=1  # a first install
 if pgrep -f "$binary" >/dev/null; then
     start=1
-    echo "Quitting Lectern…"
+    echo "Shutting Lectern down…"
     pgrep -f "$binary" | while read -r pid; do kill -TERM "$pid" 2>/dev/null || true; done
     for _ in $(seq "${LECTERN_QUIT_WAIT:-60}"); do
         pgrep -f "$binary" >/dev/null || break
@@ -110,7 +110,7 @@ if pgrep -f "$binary" >/dev/null; then
     done
     if pgrep -f "$binary" >/dev/null; then
         rm -rf "$bundle.new" "$target"
-        die "Lectern.app didn't quit. Quit it from its menu and run this again; the version \
+        die "Lectern.app didn't quit. Shut it down from its menu and run this again; the version \
 in use is unchanged."
     fi
 fi

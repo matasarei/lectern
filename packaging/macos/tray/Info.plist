@@ -10,6 +10,9 @@
     <string>io.github.matasarei.lectern</string>
     <key>CFBundleExecutable</key>
     <string>Lectern</string>
+    <!-- Contents/Resources/Lectern.icns, drawn at build time (tray/Icon.swift). -->
+    <key>CFBundleIconFile</key>
+    <string>Lectern</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>

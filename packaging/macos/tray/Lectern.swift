@@ -1,6 +1,7 @@
 // Lectern's menu-bar app for macOS. It runs Lectern as its child process
 // (<install folder>/bin/lectern-serve), shows whether it's up, opens it in the browser, keeps
-// its output in ~/Library/Logs/Lectern/lectern.log, and stops it on Quit.
+// its output in ~/Library/Logs/Lectern/lectern.log, and on Shut Down stops it, its models
+// with it, and leaves.
 // One file, AppKit only, built by packaging/macos/build_app.sh with swiftc: no Xcode project.
 import AppKit
 
@@ -16,6 +17,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // same way. Never SIGKILL: nothing would clean up the llama-server processes left behind.
     private static let interruptPatience: TimeInterval = 30
     private static let terminatePatience: TimeInterval = 10
+    // What Lectern left running gets this long to end on SIGTERM before it's killed.
+    private static let leftoverPatience: TimeInterval = 5
 
     // The install folder (~/.lectern) and the version, written into Info.plist at build time.
     private let dir = Bundle.main.object(forInfoDictionaryKey: "LecternDir") as? String ?? ""
@@ -31,6 +34,11 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private var aliveTimer: Timer?
     private var pid: pid_t? { child?.processIdentifier ?? adopted }
     private var afterStop: (() -> Void)?
+    // What Lectern had started when it was asked to stop: its model runners, and anything else
+    // it was running, such as a script in the sandbox. It stops them itself on the way out.
+    // Any still there once it's gone (it was cut short) are ended by the app, so that stopping
+    // never leaves a model in memory.
+    private var runners: [(pid: pid_t, program: String)] = []
     private var healthTimer: Timer?
     private var stopTimers: [Timer] = []
     private var signalSource: DispatchSourceSignal?
@@ -45,6 +53,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private static let logLimit = 5_000_000  // bytes; past it the file becomes lectern.log.1
 
     private var statusItem: NSStatusItem!
+    // The size the system's own menu-bar symbols have; left alone, a symbol comes out smaller
+    // (the open book 19 x 14 points in a 22-point bar; now 22 x 17). A symbol is a vector, so
+    // it's drawn sharp for the screen it's on, Retina or not.
+    private static let menuBarSymbol = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let openItem = NSMenuItem(title: "Open Lectern", action: #selector(openLectern), keyEquivalent: "o")
     private let logItem = NSMenuItem(title: "Show Log", action: #selector(showLog), keyEquivalent: "")
@@ -52,6 +64,11 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private let restartItem = NSMenuItem(title: "Restart", action: #selector(restart), keyEquivalent: "")
 
     static func main() {
+        // For build_app.sh: write the icon's .iconset into the folder given, and leave.
+        let arguments = CommandLine.arguments
+        if let flag = arguments.firstIndex(of: "--draw-icon"), flag + 1 < arguments.count {
+            exit(Icon.writeSet(into: arguments[flag + 1]) ? 0 : 1)
+        }
         let app = NSApplication.shared
         let delegate = LecternApp()
         app.delegate = delegate
@@ -66,7 +83,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         statusLine.isEnabled = false
         for item in [openItem, startStopItem, restartItem, logItem] { item.target = self }
         let quitItem = NSMenuItem(
-            title: "Quit Lectern", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+            title: "Shut Down Lectern", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.target = NSApp
         for item in [
             statusLine, .separator(), openItem, startStopItem, restartItem, .separator(), logItem, quitItem,
@@ -160,6 +177,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         healthTimer?.invalidate()
         detail = ""
         state = .stopping
+        runners = children(of: pid).map { (pid: $0, program: program(of: $0)) }
         kill(pid, SIGINT)
         stopTimers = [
             timer(every: Self.interruptPatience, repeats: false) { [weak self] in
@@ -184,16 +202,66 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         stopTimers.forEach { $0.invalidate() }
         stopTimers = []
         try? FileManager.default.removeItem(atPath: pidFile)
-        if state == .stopping {
-            detail = ""
-            state = .stopped
-            let next = afterStop
-            afterStop = nil
-            next?()
-        } else {
-            detail = status.map { "see the log (exit \($0))" } ?? "see the log"
-            state = .failed
+        endRunnersLeftBehind { [weak self] in
+            guard let self else { return }
+            if self.state == .stopping {
+                self.detail = ""
+                self.state = .stopped
+                let next = self.afterStop
+                self.afterStop = nil
+                next?()
+            } else {
+                self.detail = status.map { "see the log (exit \($0))" } ?? "see the log"
+                self.state = .failed
+            }
         }
+    }
+
+    // MARK: What Lectern leaves behind
+
+    // Of the processes noted when Lectern was asked to stop, those that outlived it: the same
+    // program under the same number, now with no parent. They get SIGTERM, which a model
+    // runner ends on, and a few seconds; one that's still there after that is killed (unlike
+    // Lectern, it has nothing under it to leave behind in turn). Then `done` runs.
+    private func endRunnersLeftBehind(then done: @escaping () -> Void) {
+        let left = runners.filter {
+            !$0.program.isEmpty && parent(of: $0.pid) == 1 && program(of: $0.pid) == $0.program
+        }
+        runners = []
+        guard !left.isEmpty else {
+            done()
+            return
+        }
+        left.forEach { kill($0.pid, SIGTERM) }
+        writeLog(Data("---- ended \(left.count) process(es) Lectern left running ----\n".utf8))
+        let deadline = Date().addingTimeInterval(Self.leftoverPatience)
+        var check: Timer?
+        check = timer(every: 0.2, repeats: true) { [weak self] in
+            guard let self else { return }
+            let still = left.filter { self.program(of: $0.pid) == $0.program }
+            guard still.isEmpty || Date() >= deadline else { return }
+            still.forEach { kill($0.pid, SIGKILL) }
+            check?.invalidate()
+            done()
+        }
+    }
+
+    private func children(of process: pid_t) -> [pid_t] {
+        var found = [pid_t](repeating: 0, count: 512)
+        let count = proc_listchildpids(process, &found, Int32(found.count * MemoryLayout<pid_t>.size))
+        return count > 0 ? found.prefix(Int(count)).filter { $0 > 1 } : []
+    }
+
+    private func program(of process: pid_t) -> String {
+        var path = [CChar](repeating: 0, count: 4096)
+        return proc_pidpath(process, &path, UInt32(path.count)) > 0 ? String(cString: path) : ""
+    }
+
+    private func parent(of process: pid_t) -> pid_t? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(process, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return pid_t(info.pbi_ppid)
     }
 
     // MARK: A Lectern left running
@@ -379,9 +447,11 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         stop { [weak self] in self?.start() }
     }
 
-    // Quit, logging out and shutting down stop Lectern first.
+    // Shut Down (and logging out, and the Mac shutting down) stops Lectern first: the server,
+    // and with it every model it has loaded. Only then does the app leave.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard pid != nil else { return .terminateNow }
+        // (No process but still "stopping": what Lectern left behind is being ended.)
+        guard pid != nil || state == .stopping else { return .terminateNow }
         let quit = { sender.reply(toApplicationShouldTerminate: true) }
         if state == .stopping { afterStop = quit } else { stop(then: quit) }
         return .terminateLater
@@ -408,7 +478,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         restartItem.isEnabled = state == .starting || state == .running
 
         let symbol = state == .running ? "book" : "book.closed"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Lectern")
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Lectern")?
+            .withSymbolConfiguration(Self.menuBarSymbol)
         image?.isTemplate = true
         statusItem.button?.image = image
         statusItem.button?.title = image == nil ? "Lectern" : ""
