@@ -162,6 +162,11 @@ class Catalog(BaseModel):
         """The MLX build that stands in for this model, when it has one."""
         return next((m for m in self.models if m.replaces == model.id), None)
 
+    def choices_for(self, role: str) -> list[CatalogEntry]:
+        """The models a role can be given, in catalog order. An MLX build isn't one: it
+        comes with its model."""
+        return [m for m in self.models if role in m.roles and m.replaces is None]
+
     def defaults_for(self, tier: Tier) -> dict[str, CatalogEntry]:
         """Role → default model for this tier."""
         return {

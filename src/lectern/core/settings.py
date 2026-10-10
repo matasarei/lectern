@@ -15,6 +15,10 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
     "when_models_dont_fit": "swap_between_phases",  # or "keep_one_loaded"
     "chat_during_job": "pause_job_after_current_item",  # or "chat_waits"
 }
+MODELS_KEY = "models"
+# The model chosen for each role, as a catalog id. None: the one recommended for this computer,
+# which follows the hardware (runtime/wiring.py `pick`).
+MODEL_DEFAULTS: dict[str, Any] = {"main": None, "ocr": None, "ocr.hand": None, "code": None}
 
 
 def get(sessions: sessionmaker[Session], key: str, default: dict[str, Any]) -> dict[str, Any]:

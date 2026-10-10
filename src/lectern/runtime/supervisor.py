@@ -25,7 +25,7 @@ import asyncio
 import contextlib
 import itertools
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
@@ -116,6 +116,9 @@ class ModelRuntime:
         # cleanup): the role itself, unless wiring knows better. On a Mac with MLX on, the
         # role's model is an MLX build, whose server can't do that; wiring then names the GGUF.
         self.schema_key: Callable[[str], str] = lambda role: role
+        # The model chosen for each role in Models & memory (role → catalog id); wiring reads
+        # it from the settings. Nothing chosen: every role gets the one recommended here.
+        self.chosen_models: Callable[[], Mapping[str, str | None]] = dict
         self._loading: dict | None = None  # what activity goes back to after the engine
         # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
         # waits out the idle window only for a message sent after the job started.
