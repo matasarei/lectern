@@ -17,6 +17,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // same way. Never SIGKILL: nothing would clean up the llama-server processes left behind.
     private static let interruptPatience: TimeInterval = 30
     private static let terminatePatience: TimeInterval = 10
+    // What Lectern left running gets this long to end on SIGTERM before it's killed.
+    private static let leftoverPatience: TimeInterval = 5
 
     // The install folder (~/.lectern) and the version, written into Info.plist at build time.
     private let dir = Bundle.main.object(forInfoDictionaryKey: "LecternDir") as? String ?? ""
@@ -196,16 +198,18 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         stopTimers.forEach { $0.invalidate() }
         stopTimers = []
         try? FileManager.default.removeItem(atPath: pidFile)
-        endRunnersLeftBehind()
-        if state == .stopping {
-            detail = ""
-            state = .stopped
-            let next = afterStop
-            afterStop = nil
-            next?()
-        } else {
-            detail = status.map { "see the log (exit \($0))" } ?? "see the log"
-            state = .failed
+        endRunnersLeftBehind { [weak self] in
+            guard let self else { return }
+            if self.state == .stopping {
+                self.detail = ""
+                self.state = .stopped
+                let next = self.afterStop
+                self.afterStop = nil
+                next?()
+            } else {
+                self.detail = status.map { "see the log (exit \($0))" } ?? "see the log"
+                self.state = .failed
+            }
         }
     }
 
@@ -213,15 +217,29 @@ final class LecternApp: NSObject, NSApplicationDelegate {
 
     // Of the processes noted when Lectern was asked to stop, those that outlived it: the same
     // program under the same number, now with no parent. They get SIGTERM, which a model
-    // runner ends on.
-    private func endRunnersLeftBehind() {
+    // runner ends on, and a few seconds; one that's still there after that is killed (unlike
+    // Lectern, it has nothing under it to leave behind in turn). Then `done` runs.
+    private func endRunnersLeftBehind(then done: @escaping () -> Void) {
         let left = runners.filter {
             !$0.program.isEmpty && parent(of: $0.pid) == 1 && program(of: $0.pid) == $0.program
         }
         runners = []
-        guard !left.isEmpty else { return }
+        guard !left.isEmpty else {
+            done()
+            return
+        }
         left.forEach { kill($0.pid, SIGTERM) }
         writeLog(Data("---- ended \(left.count) process(es) Lectern left running ----\n".utf8))
+        let deadline = Date().addingTimeInterval(Self.leftoverPatience)
+        var check: Timer?
+        check = timer(every: 0.2, repeats: true) { [weak self] in
+            guard let self else { return }
+            let still = left.filter { self.program(of: $0.pid) == $0.program }
+            guard still.isEmpty || Date() >= deadline else { return }
+            still.forEach { kill($0.pid, SIGKILL) }
+            check?.invalidate()
+            done()
+        }
     }
 
     private func children(of process: pid_t) -> [pid_t] {
@@ -428,7 +446,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // Shut Down (and logging out, and the Mac shutting down) stops Lectern first: the server,
     // and with it every model it has loaded. Only then does the app leave.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard pid != nil else { return .terminateNow }
+        // (No process but still "stopping": what Lectern left behind is being ended.)
+        guard pid != nil || state == .stopping else { return .terminateNow }
         let quit = { sender.reply(toApplicationShouldTerminate: true) }
         if state == .stopping { afterStop = quit } else { stop(then: quit) }
         return .terminateLater

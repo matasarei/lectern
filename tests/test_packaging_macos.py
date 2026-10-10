@@ -208,11 +208,17 @@ def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_qui
 
 
 @needs_a_desktop
-def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, installed):
+@pytest.mark.parametrize(
+    "runner_command",
+    ["/bin/sleep 600", "/bin/sh -c 'trap \"\" TERM; while :; do sleep 1; done'"],
+    ids=["a runner that ends on SIGTERM", "a runner that ignores SIGTERM"],
+)
+def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, installed, runner_command):
     folder, bundle = installed
     lectern = folder / "app/venv/bin/lectern"
     # A Lectern that starts a runner and, told to stop, goes without stopping it.
-    lectern.write_text(STAND_IN.replace("trap ", '/bin/sleep 600 &\necho $! > "$0.runner"\ntrap '))
+    with_runner = f'{runner_command} &\necho $! > "$0.runner"\ntrap '
+    lectern.write_text(STAND_IN.replace("trap ", with_runner))
     runner_file = lectern.with_name("lectern.runner")
     log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
     with contextlib.ExitStack() as stack:
@@ -224,7 +230,7 @@ def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, install
 
         app.send_signal(signal.SIGTERM)  # Shut Down
         assert app.wait(timeout=20) == 0
-        _until(lambda: not _alive(runner), "the runner left behind was ended")
+        assert not _alive(runner)  # gone before the app left, not some time after
     assert "ended 1 process(es) Lectern left running" in log.read_text()
 
 
