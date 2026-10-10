@@ -116,3 +116,10 @@ def test_a_change_unloads_the_roles_idle_model(api):
     _choose(client, headers, "code", "qwen2.5-coder-3b")
 
     assert unloaded == ["code"]  # that role's model only, and never mid-reply
+
+    # Saved again as it is, or set to what it already uses: the loaded model is the right
+    # one, and unloading it would only make the next use wait for a load.
+    _choose(client, headers, "code", "qwen2.5-coder-3b")
+    _choose(client, headers, "main", None)
+    _choose(client, headers, "main", "qwen3.5-4b")  # the recommended one: stored as no choice
+    assert unloaded == ["code"]
