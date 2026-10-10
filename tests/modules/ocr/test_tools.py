@@ -44,6 +44,10 @@ class FakeRuntime:
     def __init__(self, swap: bool, missing: bool = False) -> None:
         self.swap = swap
         self.missing = missing
+        self.chosen: dict[str, str | None] = {}
+
+    def chosen_models(self) -> dict[str, str | None]:
+        return self.chosen
 
     def resident_bytes(self) -> int:
         return 3 * 10**9 if self.swap else 0  # the chat model, loaded
@@ -114,7 +118,9 @@ def test_keep_layout_reads_a_pdf_with_text_and_the_card_says_why(ctx):
 
     (sid,) = ctx.ocr_jobs.started
     assert result.action == {
-        "type": "open_tab", "tab": {"kind": "session", "id": sid}, "focus": False
+        "type": "open_tab",
+        "tab": {"kind": "session", "id": sid},
+        "focus": False,
     }
     (follow,) = followups.pending(ctx.sessions, 1)
     assert follow.arguments == {"name": "letter/", "format": "docx"}
@@ -134,7 +140,9 @@ def test_starting_opens_the_session_and_queues_the_export(ctx):
 
     (sid,) = ctx.ocr_jobs.started
     assert result.action == {
-        "type": "open_tab", "tab": {"kind": "session", "id": sid}, "focus": False
+        "type": "open_tab",
+        "tab": {"kind": "session", "id": sid},
+        "focus": False,
     }
     (follow,) = followups.pending(ctx.sessions, 1)
     assert (follow.ocr_session_id, follow.tool) == (sid, "export.run")
@@ -195,6 +203,21 @@ def test_without_the_ocr_model_the_card_says_it_downloads_it_first(ctx):
     assert question.endswith(
         "The chat model may be unloaded while pages are read, so replies may wait until then."
     )
+
+
+def test_the_card_and_the_download_are_for_the_ocr_model_chosen_for_the_role(ctx, monkeypatch):
+    real = catalog.load()
+    other = real.get("paddleocr-vl-1.6").model_copy(
+        update={"id": "other-ocr", "title": "Other OCR", "defaults": {}}
+    )
+    fake = real.model_copy(update={"models": [*real.models, other]})
+    monkeypatch.setattr(catalog, "load", lambda: fake)
+    _missing_ocr_model(ctx)
+    ctx.runtime.chosen = {"ocr": "other-ocr"}
+
+    assert "It downloads Other OCR first" in _question(ctx, name="lease-scan.pdf")
+    _call(START, ctx, name="lease-scan.pdf")
+    assert ctx.downloads.started == ["other-ocr"]
 
 
 def test_starting_downloads_the_ocr_model_then_opens_the_session(ctx):

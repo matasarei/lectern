@@ -355,7 +355,7 @@ class OcrJobs:
             lease_key = page.lease_key or ("ocr.hand" if page.handwritten else "ocr")
             image = ocr_store.page_image(project.root, ocr, page)
             try:
-                _role, entry = pick(lease_key, self.runtime.tier)
+                _role, entry = pick(lease_key, self.runtime.tier, self.runtime.chosen_models())
                 self._say_if_held(key, lease_key)
 
                 async def reading(page=page) -> None:  # noqa: ANN001 — once the model is ours

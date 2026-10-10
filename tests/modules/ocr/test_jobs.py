@@ -305,6 +305,47 @@ def test_a_model_still_loaded_after_a_chat_is_used_at_once(store, tmp_path):
     assert not any(e["type"] == "waiting" for e in _events(jobs, project, sid))
 
 
+def test_pages_are_read_the_way_the_model_chosen_for_the_role_is_asked(
+    store, tmp_path, monkeypatch
+):
+    """Each OCR model has its own prompt and page size in the catalog: the ones used are the
+    chosen model's, not the recommended model's."""
+    from lectern.catalog import catalog
+    from lectern.modules.ocr import jobs as jobs_module
+
+    real = catalog.load()
+    paddle = real.get("paddleocr-vl-1.6")
+    other = paddle.model_copy(
+        update={
+            "id": "other-ocr",
+            "defaults": {},
+            "ocr": paddle.ocr.model_copy(update={"prompt": "Read it my way.", "max_side": 999}),
+        }
+    )
+    fake = real.model_copy(update={"models": [*real.models, other]})
+    monkeypatch.setattr(catalog, "load", lambda: fake)
+    asked: list[tuple[str, int]] = []
+    recognise = jobs_module.recognise
+
+    async def recording(client, *, image, prompt, max_side):  # noqa: ANN001, ANN202
+        asked.append((prompt, max_side))
+        return await recognise(client, image=image, prompt=prompt, max_side=max_side)
+
+    monkeypatch.setattr(jobs_module, "recognise", recording)
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    runtime.chosen_models = lambda: {"ocr": "other-ocr"}
+    project, sid = _session(store, tmp_path, pages=1)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert asked == [("Read it my way.", 999)]
+
+
 def test_a_page_read_again_with_another_model_keeps_both_readings(store, tmp_path):
     server = FakeServer()
     runtime, _ = _runtime(server)

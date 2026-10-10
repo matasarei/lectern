@@ -22,12 +22,12 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.agent import model_download
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult, page
-from lectern.catalog import catalog
 from lectern.modules.sandbox.container import IMAGE, RunResult, Sandbox, SandboxError
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow, ScriptRunRow
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable, Priority
+from lectern.runtime.wiring import role_model
 
 SCRIPTS = "scripts"
 OUTPUTS = "scripts/out"
@@ -496,7 +496,7 @@ def _input_path(session, item: Input) -> str:  # noqa: ANN001
 async def ensure_coder(ctx: ToolContext) -> None:
     """The coding model on disk: asks with a card to download it the first time, and waits
     for the download, reporting its progress."""
-    entry = catalog.load().defaults_for(ctx.runtime.tier).get("code")
+    entry = role_model(ctx.runtime, "code")
     if entry is None:
         raise ToolError("No coding model is set for this computer. Say the result is not computed.")
     if model_download.on_disk(ctx, entry):

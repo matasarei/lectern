@@ -124,6 +124,17 @@ def test_it_gives_up_after_three_fixes_and_saves_nothing(make_ctx):
     assert not (ctx.project.root / "scripts").exists()
 
 
+def test_the_coding_model_downloaded_is_the_one_chosen_for_the_role(make_ctx):
+    downloads = FakeDownloads(downloaded=False)
+    ctx, _ = ctx_for(make_ctx, [GOOD], downloads=downloads, answers=[True])
+    ctx.runtime.chosen_models = lambda: {"code": "qwen2.5-coder-7b"}
+
+    write(ctx)
+
+    assert "Qwen2.5-Coder 7B" in ctx.asked[0]
+    assert downloads.started == ["qwen2.5-coder-7b"]
+
+
 def test_the_coding_model_is_downloaded_after_a_card(make_ctx):
     downloads = FakeDownloads(downloaded=False)
     ctx, _ = ctx_for(make_ctx, [GOOD], downloads=downloads, answers=[True])
@@ -201,6 +212,7 @@ def test_script_names_are_plain_slugs(name):
 def test_a_coding_model_that_cannot_start_means_not_computed(make_ctx, failure, reason):
     class Failing:
         tier = Tier.MINIMUM
+        chosen_models = staticmethod(dict)  # nothing chosen: the recommended coding model
 
         def lease(self, role, priority):  # noqa: ANN001
             raise failure

@@ -14,13 +14,13 @@ from starlette.concurrency import run_in_threadpool
 from lectern.agent import followups, model_download
 from lectern.agent.core_tools import _artifact_by_name
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult
-from lectern.catalog import catalog
 from lectern.catalog.catalog import CatalogEntry
 from lectern.modules.ocr import store as ocr_store
 from lectern.modules.ocr.jobs import page_dict
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, NotAPageSource, page_count
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow, OcrSessionRow, SessionRow
+from lectern.runtime.wiring import role_model
 
 # Reading plus cleanup, per page, on the minimum tier (docs/acceptance/m3a.md: ~1.5 s + ~12 s)
 SECONDS_PER_PAGE = 15
@@ -58,11 +58,12 @@ def _source(ctx: ToolContext, name: str, *, keep_layout: bool = False) -> Artifa
 
 
 def _ocr_model(ctx: ToolContext) -> CatalogEntry | None:
-    """The model an OCR session reads pages with on this computer: the "ocr" role's default.
-    A page later marked handwritten uses "ocr.hand", which this doesn't fetch."""
+    """The model an OCR session reads pages with on this computer: the "ocr" role's (the
+    recommended one, unless another was chosen). A page later marked handwritten uses
+    "ocr.hand", which this doesn't fetch."""
     if ctx.runtime is None:
         return None
-    return catalog.load().defaults_for(ctx.runtime.tier).get("ocr")
+    return role_model(ctx.runtime, "ocr")
 
 
 def _start_question(ctx: ToolContext, params: StartParams) -> str:
