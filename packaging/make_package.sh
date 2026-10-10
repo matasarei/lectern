@@ -13,7 +13,7 @@ trap 'rm -rf "$stage"' EXIT
 
 mkdir -p "$stage/$name/packaging"
 cp install.sh uninstall.sh README.md "$wheel" "$stage/$name/"
-cp -R packaging/linux packaging/pins.sh "$stage/$name/packaging/"
+cp -R packaging/linux packaging/pins.sh packaging/install_lib.sh "$stage/$name/packaging/"
 # No macOS metadata files (._*) in the archive when it's made on a Mac.
 COPYFILE_DISABLE=1 tar -czf "dist/$name-linux.tar.gz" -C "$stage" "$name"
 echo "dist/$name-linux.tar.gz"
