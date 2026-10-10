@@ -198,6 +198,7 @@ def test_lists_the_chat_models_with_the_recommended_one_marked(paths):
     )  # fmt: skip
     build = four["mlx_build"]
     assert (build["id"], build["title"]) == ("qwen3.5-4b-mlx", "Qwen3.5 4B (MLX)")
+    assert build["licence"] == catalog.load().get("qwen3.5-4b-mlx").licence
     assert build["size"] > 0 and build["download"]["status"] == "none"
     assert nine["mlx_build"]["download"]["status"] == "done"
 

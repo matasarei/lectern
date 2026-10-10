@@ -176,7 +176,7 @@ export function FirstRunPage() {
           )}
           {build && <Row label={t("modelsPage.mlxBuild")} value={build.title} />}
           <Row label={t("models.size")} value={formatBytes(target.size)} />
-          <Row label={t("models.licence")} value={model.licence} />
+          <Row label={t("models.licence")} value={target.licence} />
           <Row label={t("firstRun.diskFree")} value={formatBytes(system.data.disk_free)} />
           <Row label={t("models.status")} value={<StatusText state={state} />} />
           {ACTIVE.includes(state.status) && <DownloadProgress state={state} />}

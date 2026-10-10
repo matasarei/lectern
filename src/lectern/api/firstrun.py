@@ -120,6 +120,7 @@ def _build(request: Request, build: CatalogEntry) -> dict:
         "id": build.id,
         "title": build.title,
         "size": build.size,
+        "licence": build.licence,
         "download": request.app.state.downloads.state(build).to_dict(),
     }
 

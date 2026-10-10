@@ -26,7 +26,10 @@ const idle = (id: string) => ({
 const chatModel = (id: string, title: string, size: number, more: object = {}) => ({
   id, title, quant: "Q4_K_M", size, licence: "Apache-2.0", recommended: false, suits_tier: true,
   download: idle(id),
-  mlx_build: { id: `${id}-mlx`, title: `${title} (MLX)`, size: size + 4 * 10 ** 8, download: idle(`${id}-mlx`) },
+  mlx_build: {
+    id: `${id}-mlx`, title: `${title} (MLX)`, size: size + 4 * 10 ** 8, licence: "MIT",
+    download: idle(`${id}-mlx`),
+  },
   ...more,
 });
 const four = chatModel("qwen3.5-4b", "Qwen3.5 4B", 27 * 10 ** 8);
@@ -315,6 +318,8 @@ describe("First run: the engine choice on a Mac", () => {
     expect(radio("MLX").checked).toBe(true);
     expect(screen.getByText("6.4 GB")).toBeTruthy(); // the build's size
     expect(screen.queryByText(/Q4_K_M/)).toBeNull(); // the usual model's own detail
+    expect(screen.getByText("MIT")).toBeTruthy(); // the build's licence, not the model's
+    expect(screen.queryByText("Apache-2.0")).toBeNull();
     expect(screen.queryByTestId("engine-status")).toBeNull(); // llama.cpp comes with the first scan
   });
 

@@ -112,7 +112,13 @@ export interface FirstRunModel {
   suits_tier: boolean;
   download: DownloadState;
   /** The same model in MLX's format: it runs in the model's place with MLX switched on. */
-  mlx_build: { id: string; title: string; size: number; download: DownloadState } | null;
+  mlx_build: {
+    id: string;
+    title: string;
+    size: number;
+    licence: string;
+    download: DownloadState;
+  } | null;
 }
 
 export interface FirstRun {
