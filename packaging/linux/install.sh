@@ -83,7 +83,7 @@ fi
 mkdir -p "$app/versions" "$dir/bin" "$data" "$units"
 
 # --- the app ----------------------------------------------------------------------------
-install_version
+install_version ""  # the bare wheel: no extras on Linux
 switch_venv
 write_lectern_url
 
