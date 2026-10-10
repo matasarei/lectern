@@ -229,6 +229,9 @@ final class LecternApp: NSObject, NSApplicationDelegate {
 
     private func adopt(_ left: pid_t) {
         adopted = left
+        // Its output went to the app that started it, which is gone: nothing more reaches the
+        // log until Lectern is started again. Said here, and in the menu (refresh()).
+        writeLog(Data("---- took over Lectern (process \(left)), left running; its output isn't kept until Restart ----\n".utf8))
         detail = ""
         state = .starting  // "running" once /health answers, as for a child
         healthTimer = timer(every: 1, repeats: true) { [weak self] in self?.askHealth() }
@@ -381,6 +384,9 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         case .running: title = version.isEmpty ? "Lectern is running" : "Lectern is running · \(version)"
         case .stopping: title = "Stopping…"
         case .failed: title = "Stopped unexpectedly"
+        }
+        if adopted != nil, state == .starting || state == .running {
+            title += " · log paused until Restart"
         }
         if !detail.isEmpty { title += ": \(detail)" }
         statusLine.title = title
