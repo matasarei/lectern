@@ -1,5 +1,6 @@
 // Lectern's menu-bar app for macOS. It runs Lectern as its child process
-// (<install folder>/bin/lectern-serve), shows whether it's up, and stops it on Quit.
+// (<install folder>/bin/lectern-serve), shows whether it's up, opens it in the browser, keeps
+// its output in ~/Library/Logs/Lectern/lectern.log, and stops it on Quit.
 // One file, AppKit only, built by packaging/macos/build_app.sh with swiftc: no Xcode project.
 import AppKit
 
@@ -28,9 +29,20 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private var healthTimer: Timer?
     private var stopTimers: [Timer] = []
     private var signalSource: DispatchSourceSignal?
+    private var openWhenReady = false
+
+    // Lectern's output, without the access link `serve` prints when it starts.
+    private let logURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/Lectern/lectern.log")
+    private var log: FileHandle?
+    private var unfinishedLine = Data()
+    private static let tokenMark = Data("#token=".utf8)
+    private static let logLimit = 5_000_000  // bytes; past it the file becomes lectern.log.1
 
     private var statusItem: NSStatusItem!
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let openItem = NSMenuItem(title: "Open Lectern", action: #selector(openLectern), keyEquivalent: "o")
+    private let logItem = NSMenuItem(title: "Show Log", action: #selector(showLog), keyEquivalent: "")
     private let startStopItem = NSMenuItem(title: "", action: #selector(startOrStop), keyEquivalent: "")
     private let restartItem = NSMenuItem(title: "Restart", action: #selector(restart), keyEquivalent: "")
 
@@ -47,18 +59,38 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false  // the items are enabled by state, in refresh()
         statusLine.isEnabled = false
-        startStopItem.target = self
-        restartItem.target = self
+        for item in [openItem, startStopItem, restartItem, logItem] { item.target = self }
         let quitItem = NSMenuItem(
             title: "Quit Lectern", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.target = NSApp
-        for item in [statusLine, .separator(), startStopItem, restartItem, .separator(), quitItem] {
+        for item in [
+            statusLine, .separator(), openItem, startStopItem, restartItem, .separator(), logItem, quitItem,
+        ] {
             menu.addItem(item)
         }
         statusItem.menu = menu
         quitOnSIGTERM()
+
+        // Opened by hand, the browser follows once Lectern answers. Not when the installer
+        // starts the app (--background), nor when macOS does at login.
+        let launch = NSAppleEventManager.shared().currentAppleEvent
+        let atLogin =
+            launch?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue
+            == OSType(keyAELaunchedAsLogInItem)
+        openWhenReady = !CommandLine.arguments.contains("--background") && !atLogin
         refresh()
         start()
+    }
+
+    // Opening the app again while it runs (Finder, Spotlight) opens Lectern in the browser.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if state == .running {
+            openLectern()
+        } else {
+            openWhenReady = true
+            start()
+        }
+        return false
     }
 
     // `kill <pid>` (the installer's way to stop the app before replacing it) quits like the
@@ -82,8 +114,18 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: dir + "/bin/lectern-serve")
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if data.isEmpty {  // every writer is gone
+                handle.readabilityHandler = nil
+                DispatchQueue.main.async { self?.finishLogLine() }
+                return
+            }
+            DispatchQueue.main.async { self?.writeLog(data) }
+        }
         process.terminationHandler = { [weak self] ended in
             DispatchQueue.main.async { self?.childEnded(ended) }
         }
@@ -95,6 +137,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
             return
         }
         child = process
+        writeLog(Data("---- Lectern \(version) started \(ISO8601DateFormatter().string(from: Date())) ----\n".utf8))
         detail = ""
         state = .starting
         healthTimer = timer(every: 1, repeats: true) { [weak self] in self?.askHealth() }
@@ -135,9 +178,54 @@ final class LecternApp: NSObject, NSApplicationDelegate {
             afterStop = nil
             next?()
         } else {
-            detail = "exit \(ended.terminationStatus)"
+            detail = "see the log (exit \(ended.terminationStatus))"
             state = .failed
         }
+    }
+
+    // MARK: The log
+
+    private func writeLog(_ data: Data) {
+        openLog()
+        unfinishedLine.append(data)
+        while let newline = unfinishedLine.firstIndex(of: 0x0A) {
+            writeLogLine(unfinishedLine.prefix(through: newline))
+            unfinishedLine.removeSubrange(...newline)
+        }
+        if unfinishedLine.count > 65_536 {  // one endless line: don't hold it all
+            writeLogLine(unfinishedLine)
+            unfinishedLine.removeAll()
+        }
+    }
+
+    // What Lectern printed last, when it didn't end the line.
+    private func finishLogLine() {
+        guard !unfinishedLine.isEmpty else { return }
+        writeLogLine(unfinishedLine + Data("\n".utf8))
+        unfinishedLine.removeAll()
+    }
+
+    // The link `serve` prints carries the access token: that line never reaches the file.
+    private func writeLogLine(_ line: Data) {
+        if line.range(of: Self.tokenMark) == nil { try? log?.write(contentsOf: line) }
+    }
+
+    private func openLog() {
+        guard log == nil else { return }
+        let files = FileManager.default
+        try? files.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let size = (try? files.attributesOfItem(atPath: logURL.path))?[.size] as? Int ?? 0
+        if size > Self.logLimit {
+            let older = logURL.appendingPathExtension("1")
+            try? files.removeItem(at: older)
+            try? files.moveItem(at: logURL, to: older)
+        }
+        if !files.fileExists(atPath: logURL.path) {
+            files.createFile(atPath: logURL.path, contents: nil)
+        }
+        try? files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: logURL.path)
+        log = try? FileHandle(forWritingTo: logURL)
+        _ = try? log?.seekToEnd()
     }
 
     // Lectern counts as running once /health answers on its port. A child that ends is
@@ -154,6 +242,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
                 guard let self, self.state == .starting else { return }
                 self.healthTimer?.invalidate()
                 self.state = .running
+                if self.openWhenReady {
+                    self.openWhenReady = false
+                    self.openLectern()
+                }
             }
         }.resume()
     }
@@ -174,6 +266,40 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     }
 
     // MARK: The menu
+
+    // The link comes from bin/lectern-url (the settings loaded, the token from its file) and
+    // goes to the browser and nowhere else.
+    @objc private func openLectern() {
+        guard state == .running else { return }
+        let ask = Process()
+        ask.executableURL = URL(fileURLWithPath: dir + "/bin/lectern-url")
+        let answer = Pipe()
+        ask.standardOutput = answer
+        ask.standardError = FileHandle.nullDevice
+        ask.terminationHandler = { [weak self] _ in
+            let printed = answer.fileHandleForReading.readDataToEndOfFile()
+            let link = String(decoding: printed, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async { self?.openInBrowser(link) }
+        }
+        do {
+            try ask.run()
+        } catch {
+            openInBrowser("")
+        }
+    }
+
+    private func openInBrowser(_ link: String) {
+        if let url = URL(string: link), url.scheme == "http" || url.scheme == "https" {
+            NSWorkspace.shared.open(url)
+        } else if state == .running {
+            detail = "couldn't get the link (bin/lectern-url)"
+            refresh()
+        }
+    }
+
+    @objc private func showLog() {
+        NSWorkspace.shared.open(logURL)
+    }
 
     @objc private func startOrStop() {
         if child == nil { start() } else { stop() }
@@ -202,6 +328,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         }
         if !detail.isEmpty { title += ": \(detail)" }
         statusLine.title = title
+        openItem.isEnabled = state == .running
+        logItem.isEnabled = FileManager.default.fileExists(atPath: logURL.path)
         startStopItem.title = child == nil ? "Start" : "Stop"
         startStopItem.isEnabled = state != .stopping
         restartItem.isEnabled = state == .starting || state == .running
