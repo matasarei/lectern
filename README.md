@@ -148,7 +148,8 @@ its own.
    it: an icon appears in the menu bar. Everything else goes in `~/.lectern`, laid out as
    [on Linux](#install-on-a-linux-server) (`src`, `app`, `data`, `lectern.env`,
    `bin/lectern-url`). The app is built on your own Mac, so macOS opens it without the
-   warning it shows for a downloaded one.
+   warning it shows for a downloaded one. Its icon, an open book with an L on its first
+   page, is drawn there too.
 2. **Use the icon's menu:**
 
    | | |
@@ -156,7 +157,7 @@ its own.
    | Open Lectern | opens it in your browser, signed in (the link carries the access token) |
    | Stop / Start, Restart | Lectern itself; the app stays in the menu bar |
    | Show Log | `~/Library/Logs/Lectern/lectern.log`; the access link is never written to it |
-   | Quit Lectern | stops Lectern, then closes the app |
+   | Shut Down Lectern | stops Lectern and every model it has loaded, then closes the app |
 
    Opening Lectern.app again (Finder, Spotlight) opens it in the browser too. The first run
    checks the hardware and downloads the chat model.

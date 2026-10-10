@@ -34,14 +34,14 @@ fi
 
 # An open app is quit first, which stops Lectern: their files mustn't go from under them.
 if $ours && pgrep -f "$binary" >/dev/null; then
-    echo "Quitting Lectern…"
+    echo "Shutting Lectern down…"
     pgrep -f "$binary" | while read -r pid; do kill -TERM "$pid" 2>/dev/null || true; done
     for _ in $(seq "${LECTERN_QUIT_WAIT:-60}"); do
         pgrep -f "$binary" >/dev/null || break
         sleep 1
     done
     if pgrep -f "$binary" >/dev/null; then
-        echo "uninstall.sh: Lectern.app didn't quit. Quit it from its menu and run this again;" >&2
+        echo "uninstall.sh: Lectern.app didn't quit. Shut it down from its menu and run this again;" >&2
         echo "nothing was removed." >&2
         exit 1
     fi

@@ -45,6 +45,9 @@ def test_the_app_builds_into_a_signed_bundle(tmp_path):
     assert info["CFBundleShortVersionString"] == "1.2.3"
     assert info["LecternDir"] == "/Users/someone/.lectern"
     assert info["LSUIElement"] is True  # a menu-bar item, no Dock icon
+    # Its icon, drawn by the app itself while it was being built.
+    assert info["CFBundleIconFile"] == "Lectern"
+    assert (bundle / "Contents/Resources/Lectern.icns").read_bytes()[:4] == b"icns"
     verified = subprocess.run(  # noqa: S603
         ["codesign", "--verify", "--deep", "--strict", str(bundle)],  # noqa: S607
         capture_output=True, text=True, timeout=60,
@@ -196,11 +199,33 @@ def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_qui
         assert "SECRET" not in log.read_text() and "token" not in log.read_text()
         assert log.stat().st_mode & 0o777 == 0o600
 
-        app.send_signal(signal.SIGTERM)  # what the installer sends: the app's own Quit
+        app.send_signal(signal.SIGTERM)  # what the installer sends: the app's own Shut Down
         assert app.wait(timeout=20) == 0
     stopped = folder / "app/venv/bin/lectern.stopped"
     assert stopped.read_text().strip() == "interrupted"  # SIGINT, as Ctrl+C: runners stop too
+    assert "left running" not in log.read_text()  # nothing was left for the app to end
     assert not _alive(lectern) and not pid_file.exists()
+
+
+@needs_a_desktop
+def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, installed):
+    folder, bundle = installed
+    lectern = folder / "app/venv/bin/lectern"
+    # A Lectern that starts a runner and, told to stop, goes without stopping it.
+    lectern.write_text(STAND_IN.replace("trap ", '/bin/sleep 600 &\necho $! > "$0.runner"\ntrap '))
+    runner_file = lectern.with_name("lectern.runner")
+    log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
+    with contextlib.ExitStack() as stack:
+        app = stack.enter_context(_app(tmp_path, bundle))
+        _until(runner_file.exists, "Lectern started its runner")
+        runner = int(runner_file.read_text())
+        stack.callback(lambda: _alive(runner) and os.kill(runner, signal.SIGKILL))
+        _until(lambda: "an ordinary line" in log.read_text(), "Lectern is up")
+
+        app.send_signal(signal.SIGTERM)  # Shut Down
+        assert app.wait(timeout=20) == 0
+        _until(lambda: not _alive(runner), "the runner left behind was ended")
+    assert "ended 1 process(es) Lectern left running" in log.read_text()
 
 
 @needs_a_desktop
@@ -367,6 +392,16 @@ def test_a_first_install_puts_lectern_in_the_home_folder_and_builds_and_opens_th
     # Nothing written outside the home folder (beyond the test's own fakes and wheels).
     outside = {p.name for p in tmp_path.iterdir()} - {"home", "fakebin", "state", "log"}
     assert all(name.endswith(".whl") for name in outside), outside
+
+
+def test_an_app_whose_icon_cant_be_drawn_is_still_installed(tmp_path):
+    # The fake swiftc's output can't be run, as a real one's couldn't on a Mac with no display.
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 0, done.stderr
+    assert "couldn't draw the app's icon" in done.stderr
+    bundle = _bundle(tmp_path)
+    assert (bundle / "Contents/MacOS/Lectern").exists()
+    assert not (bundle / "Contents/Resources").exists()
 
 
 def test_on_a_mac_run_as_root_it_refuses(tmp_path):
@@ -539,7 +574,7 @@ def test_an_update_quits_the_open_app_replaces_both_and_opens_it_again(tmp_path)
     with _open_app(tmp_path) as app:
         done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
         assert done.returncode == 0, done.stderr
-        # Asked to quit with SIGTERM, which the app treats as its own Quit.
+        # Asked to quit with SIGTERM, which the app treats as its own Shut Down.
         assert app.wait(timeout=10) == -15
 
     assert _version(bundle) == "0.2.0" and (home / "app/venv").resolve().name.startswith("0.2.0-")
