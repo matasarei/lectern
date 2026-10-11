@@ -174,11 +174,17 @@ async def clean_page(
     before: str = "",
     after: str = "",
     confirmed: list[tuple[str, str]] = (),
+    reading_cut_off: bool = False,
 ) -> CleanedPage:
-    """`confirmed` is the person's decisions so far, (raw, value), newest first."""
+    """`confirmed` is the person's decisions so far, (raw, value), newest first.
+    `reading_cut_off`: the OCR model ran out of room before it finished the page."""
     # A reading that ran away at its end ("Red" 3,451 times) is cleaned without the loop: the
     # reply to all of it never fits in CLEAN_TOKENS, and the page's real lines went with it.
-    raw, repeated, more = cut_trailing_loop(raw)
+    # Only a reading that was cut off: equal lines at the end of one the model finished (a
+    # ledger's empty rows) are the page's own.
+    repeated, more = "", 0
+    if reading_cut_off:
+        raw, repeated, more = cut_trailing_loop(raw)
     messages = [
         {"role": "system", "content": CLEAN_PROMPT},
         {"role": "user", "content": page_message(number, raw, note, before, after, confirmed)},

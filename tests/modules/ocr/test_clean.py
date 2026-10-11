@@ -300,7 +300,9 @@ def test_a_reading_that_ran_away_is_cleaned_without_its_loop_and_says_what_was_l
         "fixes": [],
     }
     seen: list[dict] = []
-    page = _clean(_client(json.dumps(cleaned), seen=seen), raw=head + "\nRed" * 3451)
+    page = _clean(
+        _client(json.dumps(cleaned), seen=seen), raw=head + "\nRed" * 3451, reading_cut_off=True
+    )
 
     sent = seen[0]["messages"][1]["content"]
     assert f"<page>\n{head}\nRed\n</page>" in sent  # the loop's first line, not its 3,450 others
@@ -352,3 +354,16 @@ def test_the_model_and_the_person_are_told_what_was_wrong_with_a_reply(bad: str,
     assert problem in seen[1]["messages"][-1]["content"]  # the model, asked again
     assert problem in str(failed.value)  # the person, on the failed page
     assert "validation error" not in str(failed.value)
+
+
+def test_equal_lines_at_the_end_of_a_reading_that_wasnt_cut_off_are_the_pages_own():
+    """A ledger's empty rows, a form's dotted lines: the OCR model finished the page, so
+    nothing ran away. Cut, the page would lose them and say the model had repeated itself."""
+    ledger = "| Date | Item | Sum |\n| 1 May | Rent | 250 |" + "\n| | | |" * 25
+    cleaned = {"blocks": [{"type": "table", "rows": [["Date", "Item", "Sum"]]}],
+               "doubts": [], "fixes": []}  # fmt: skip
+    seen: list[dict] = []
+    page = _clean(_client(json.dumps(cleaned), seen=seen), raw=ledger)
+
+    assert f"<page>\n{ledger}\n</page>" in seen[0]["messages"][1]["content"]  # all 25 rows
+    assert not [f for f in page.fixes if "repeated" in f.why]

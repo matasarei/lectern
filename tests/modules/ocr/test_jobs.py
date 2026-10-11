@@ -37,6 +37,7 @@ class FakeServer:
         self.cleanups: list[str] = []  # the page text each cleanup got
         self.clean_messages: list[str] = []  # each cleanup's whole message
         self.hold: asyncio.Queue[None] | None = None
+        self.cut_off: set[int] = set()  # the readings (by request number) that ran out of room
 
     def handle(self, model_id: str):  # noqa: ANN201
         server = self
@@ -63,7 +64,11 @@ class FakeServer:
                     reply = server.answer(model_id, len(server.requests))
                     if isinstance(reply, int):
                         return httpx2.Response(reply, json={"error": {"message": "boom"}})
-                    choice = {"message": {"content": reply}, "finish_reason": "stop"}
+                    ran_out = len(server.requests) in server.cut_off
+                    choice = {
+                        "message": {"content": reply},
+                        "finish_reason": "length" if ran_out else "stop",
+                    }
                     return httpx2.Response(200, json={"choices": [choice], "usage": {}})
 
                 return httpx2.AsyncClient(
@@ -177,6 +182,31 @@ def test_a_page_that_fails_is_recorded_and_the_rest_are_read(store, tmp_path):
     assert second.status == "failed" and "answered 500" in second.error
     assert third.status == "done" and third.looped
     assert _status(store, project, sid).status == "done"
+
+
+def test_a_reading_that_ran_away_is_cleaned_without_its_loop_and_keeps_its_flags(store, tmp_path):
+    """Page 2's reading got stuck on a line until it was cut off. Page 3 ends in the same
+    lines but the model finished it: those are the page's own."""
+    stuck = "Tone Gradient Strips\nRed\nDark\n4" + "\nRed" * 200
+    server = FakeServer(lambda model, n: {2: stuck, 3: stuck}.get(n, "ok"))
+    server.cut_off = {2}
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+
+    _, second, third = ocr_store.pages(store.db(project), sid)
+    assert (second.cut_off, second.looped, second.clean_status) == (True, True, "done")
+    assert (third.cut_off, third.looped, third.clean_status) == (False, True, "done")
+    assert server.cleanups[1] == "Tone Gradient Strips\nRed\nDark\n4\nRed"
+    assert server.cleanups[2] == stuck
+    # The reading on disk is the model's, loop and all: it is the record of what was read.
+    assert (project.root / "lease-scan" / "pages" / "p002.ocr.md").read_text() == stuck + "\n"
 
 
 def test_pause_stops_after_the_current_page_and_resume_goes_on(store, tmp_path):
