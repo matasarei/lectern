@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import sqlalchemy as sa
 from fastapi import HTTPException
+from fastapi.routing import APIWebSocketRoute
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -39,17 +40,43 @@ def test_every_api_http_route_requires_current_user(guarded):
         assert response.status_code == SENTINEL, f"{method.upper()} {path} skips current_user"
 
 
-def test_api_websocket_requires_current_user(guarded):
+# Every WebSocket route: the ping, and the five event streams the page follows. A socket
+# isn't in the OpenAPI document, so they are listed; the count below says when one is missing.
+SOCKETS = [
+    "/api/ws/ping",
+    "/api/runtime/events",
+    "/api/models/events",
+    "/api/projects/1/events",
+    "/api/projects/1/sessions/1/events",
+    "/api/projects/1/ocr/1/events",
+]
+
+
+def _socket_routes(routes) -> list[APIWebSocketRoute]:  # noqa: ANN001
+    """The WebSocket routes under `routes`, through the routers included in each other."""
+    found: list[APIWebSocketRoute] = []
+    for route in routes:
+        if isinstance(route, APIWebSocketRoute):
+            found.append(route)
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            found.extend(_socket_routes(included.routes))
+    return found
+
+
+def test_every_api_websocket_requires_current_user(guarded):
     app, client, _ = guarded
-    with (
-        pytest.raises(WebSocketDisconnect),
-        client.websocket_connect(
-            "/api/ws/ping",
-            headers={"Host": "127.0.0.1:8765", "Origin": BASE},
-            subprotocols=["lectern.v1", f"lectern.token.{app.state.token}"],
-        ),
-    ):
-        pass
+    assert len(_socket_routes(app.routes)) == len(SOCKETS), "a socket route isn't in SOCKETS"
+    for path in SOCKETS:
+        with (
+            pytest.raises(WebSocketDisconnect),
+            client.websocket_connect(
+                path,
+                headers={"Host": "127.0.0.1:8765", "Origin": BASE},
+                subprotocols=["lectern.v1", f"lectern.token.{app.state.token}"],
+            ),
+        ):
+            pytest.fail(f"{path} skips current_user")
 
 
 def test_local_user_exists(paths):

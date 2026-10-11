@@ -13,15 +13,17 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import HTTPConnection
 
 from lectern.api.projects import CurrentUser, open_project, store
 from lectern.api.sessions import open_session
 from lectern.api.sse import event_response, pump
+from lectern.api.ws import refuse_as, socket_events
 from lectern.catalog import catalog
 from lectern.core.auth import User
 from lectern.documents.document import render_page
@@ -38,7 +40,7 @@ NOTE_LIMIT = 5000
 VALUE_LIMIT = 200  # a reading: a word, a number, a short phrase
 
 
-def jobs(request: Request) -> OcrJobs:
+def jobs(request: HTTPConnection) -> OcrJobs:
     return request.app.state.ocr_jobs
 
 
@@ -60,7 +62,7 @@ class Rerun(BaseModel):
     model_id: str | None = None  # a catalog OCR model; none means the page's usual model
 
 
-def _lookup(request: Request, project_id: int, session_id: int, user: User) -> Project:
+def _lookup(request: HTTPConnection, project_id: int, session_id: int, user: User) -> Project:
     project = open_project(request, project_id, user)
     row = open_session(request, project, session_id, user)
     if row.kind != "ocr":
@@ -68,7 +70,9 @@ def _lookup(request: Request, project_id: int, session_id: int, user: User) -> P
     return project
 
 
-async def open_ocr(request: Request, project_id: int, session_id: int, user: User) -> Project:
+async def open_ocr(
+    request: HTTPConnection, project_id: int, session_id: int, user: User
+) -> Project:
     """The project and OCR session lookups, in a worker thread: they read SQLite."""
     return await run_in_threadpool(_lookup, request, project_id, session_id, user)
 
@@ -375,3 +379,18 @@ async def events(project_id: int, session_id: int, request: Request, user: Curre
                 yield chunk
 
     return event_response(stream())
+
+
+@router.websocket("/projects/{project_id}/ocr/{session_id}/events")
+async def events_socket(
+    project_id: int, session_id: int, websocket: WebSocket, user: CurrentUser
+) -> None:
+    """The same events for the page, which follows them on a socket (see `lectern.api.ws`)."""
+    try:
+        project = await open_ocr(websocket, project_id, session_id, user)
+    except HTTPException as gone:
+        await refuse_as(websocket, gone)
+        return
+    channel = jobs(websocket).channel((project.id, session_id))
+    async with channel.listen() as (so_far, queue):
+        await socket_events(websocket, queue, [*so_far, {"type": "replayed", "seq": 0}])

@@ -3,12 +3,14 @@ a download, remove a model, follow progress."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import HTTPConnection
 
 from lectern.api.sse import hub_stream
+from lectern.api.ws import hub_socket
 from lectern.catalog import catalog
 from lectern.core import settings
 from lectern.downloads.manager import (
@@ -27,7 +29,7 @@ from lectern.runtime.wiring import choices, cleans_pages, pick
 router = APIRouter()
 
 
-def _manager(request: Request) -> DownloadManager:
+def _manager(request: HTTPConnection) -> DownloadManager:
     return request.app.state.downloads
 
 
@@ -250,6 +252,12 @@ async def remove_model(name: str, request: Request) -> dict:
 
 @router.get("/models/events")
 async def model_events(request: Request) -> StreamingResponse:
-    """Server-sent events with download progress. Read with fetch(); EventSource can't send
-    the token header."""
+    """Server-sent events with download progress, for tools and tests. The page follows the
+    socket below."""
     return hub_stream(request, _manager(request).events)
+
+
+@router.websocket("/models/events")
+async def model_events_socket(websocket: WebSocket) -> None:
+    """Download progress for the page, which follows it on a socket (see `lectern.api.ws`)."""
+    await hub_socket(websocket, _manager(websocket).events)

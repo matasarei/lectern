@@ -28,7 +28,7 @@ export function OcrLine({
   const summary = items.data?.sessions.find((s) => s.id === sessionId);
   if (!summary?.ocr) return null; // not listed yet, or gone
   // Only a session still at work follows its events: a transcript with many finished ones
-  // mustn't open a stream each (a browser allows six connections per host).
+  // has nothing to hear from them, and needn't hold a socket open for each.
   const finished = summary.ocr.status === "done" || summary.ocr.status === "failed";
   return finished ? (
     <Line summary={summary} onOpen={onOpen} input={finishedInput(summary, then)} />

@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "../router";
+import { type FakeSockets, installFakeSockets } from "../test/fake-socket";
 
 const GIB = 1024 ** 3;
 let savedTabs: unknown;
@@ -14,20 +15,7 @@ let sessionsFail = false; // POST /sessions answers 500
 let pushChat: (event: object) => void = () => {}; // the open chat's event stream
 let pushProject: (event: object) => void = () => {}; // the project's event stream
 let endChat: () => void = () => {}; // the server stops (a restart): the chat's stream ends
-
-function stream(onStart: (push: (event: object) => void, end: () => void) => void): Response {
-  const encoder = new TextEncoder();
-  return new Response(
-    new ReadableStream({
-      start(controller) {
-        onStart(
-          (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)),
-          () => controller.close(),
-        );
-      },
-    }),
-  );
-}
+let sockets: FakeSockets;
 
 const RESPONSES: Record<string, unknown> = {
   "/api/projects": [],
@@ -68,17 +56,19 @@ beforeEach(() => {
   sessionsFail = false;
   savedTabs = { open: [{ kind: "session", id: 1 }], active: { kind: "session", id: 1 } };
   window.sessionStorage.setItem("lectern.token", "t");
+  // The event streams: the open chat's and the project's send what a test pushes; the
+  // others stay silent.
+  sockets = installFakeSockets((socket) => {
+    socket.open();
+    if (socket.path === "/api/projects/1/sessions/1/events") {
+      pushChat = (event) => socket.push(event);
+      endChat = () => socket.drop(1001);
+    }
+    if (socket.path === "/api/projects/1/events") pushProject = (event) => socket.push(event);
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/projects/1/sessions/1/events") {
-        return stream((push, end) => {
-          pushChat = push;
-          endChat = end;
-        });
-      }
-      if (url === "/api/projects/1/events") return stream((push) => (pushProject = push));
-      if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/projects/1/tabs") {
         if (init?.method === "PUT") {
           savedTabs = JSON.parse(String(init.body));
@@ -345,8 +335,7 @@ describe("After the server restarts", () => {
       open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
       active: { kind: "session", id: 1 },
     }));
-    const opened = vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/projects/1/sessions/1/events");
-    expect(opened).toHaveLength(2);
+    expect(sockets.to("/api/projects/1/sessions/1/events")).toHaveLength(2);
   });
 });
 

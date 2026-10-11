@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OcrDocument, OcrSession, Tab } from "../api/types";
+import { installFakeSockets } from "../test/fake-socket";
 import { OcrTab } from "./ocr";
 import { block, doubt, documentOf, page, session } from "./ocr-fixtures";
 
@@ -29,10 +30,14 @@ beforeEach(() => {
   });
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:page", revokeObjectURL: () => {} });
+  // The event streams: the runtime's stays silent, the OCR session's sends what a test pushes.
+  installFakeSockets((socket) => {
+    socket.open();
+    if (socket.path !== "/api/runtime/events") push = (event) => socket.push(event);
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
       if (url === "/api/exporters") {
         return new Response(JSON.stringify([{ format: "odt", extension: ".odt", capabilities: [] }]));
@@ -40,16 +45,6 @@ beforeEach(() => {
       if (url === "/api/projects/1/export") {
         posts.push({ url, body: JSON.parse(String(init?.body)) });
         return new Response(JSON.stringify({ id: 50, name: "Lease.odt" }), { status: 201 });
-      }
-      if (url.endsWith("/events")) {
-        const encoder = new TextEncoder();
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              push = (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            },
-          }),
-        );
       }
       if (init?.method === "POST" || init?.method === "PATCH") {
         posts.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });

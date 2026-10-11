@@ -2,25 +2,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { type FakeSockets, installFakeSockets } from "../test/fake-socket";
 import { useRuntime } from "./useRuntime";
 
-let streams = 0;
-let aborted = 0;
+let sockets: FakeSockets;
 
 beforeEach(() => {
-  streams = 0;
-  aborted = 0;
   window.sessionStorage.setItem("lectern.token", "t");
+  sockets = installFakeSockets(); // each stays open
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/runtime/events") {
-        streams += 1;
-        init?.signal?.addEventListener("abort", () => (aborted += 1));
-        return new Response(new ReadableStream({ start: () => {} })); // stays open
-      }
-      return new Response(JSON.stringify({ residents: [], activity: null, hold: null }));
-    }),
+    vi.fn(async () => new Response(JSON.stringify({ residents: [], activity: null, hold: null }))),
   );
 });
 
@@ -35,8 +27,8 @@ function Reader() {
 }
 
 it("opens one runtime event stream however many components read the runtime", async () => {
-  // Over HTTP/1.1 a browser allows six connections per host: one stream per reader (the
-  // header, the chat, the OCR tab…) would use them up.
+  // One socket and one listener on the server, not one per reader (the header, the chat,
+  // the OCR tab…).
   const client = new QueryClient();
   const page = render(
     <QueryClientProvider client={client}>
@@ -45,8 +37,9 @@ it("opens one runtime event stream however many components read the runtime", as
       <Reader />
     </QueryClientProvider>,
   );
-  await vi.waitFor(() => expect(streams).toBe(1));
+  await vi.waitFor(() => expect(sockets.to("/api/runtime/events")).toHaveLength(1));
+  expect(sockets.all).toHaveLength(1);
 
   page.unmount();
-  await vi.waitFor(() => expect(aborted).toBe(1)); // closed with the last reader
+  await vi.waitFor(() => expect(sockets.all[0].closedByPage).toBe(true)); // with the last reader
 });
