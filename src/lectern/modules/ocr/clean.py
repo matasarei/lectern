@@ -27,7 +27,9 @@ from lectern.modules.ocr.text import cut_trailing_loop
 CLEAN_TOKENS = 3072  # at least: a 665-character page of 33 small blocks needed 2,051
 CLEAN_TOKENS_PER_CHAR = 1  # of the page, for a longer one
 CLEAN_TOKENS_OVER = 512  # and this much over, for its doubts and fixes
-CLEAN_TOKENS_MOST = 8192  # at most: the smallest context a chat model gets (4 GB tier)
+# At most: a chat model's context on the 4 GB tier. (Squeezed to 4,096 when memory is short,
+# the context itself cuts a dense page's reply off, whatever the room asked for.)
+CLEAN_TOKENS_MOST = 8192
 EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross the break
 # How long a reply of CLEAN_TOKENS is waited for: about 5 tokens a second, half what the
 # 4 GB tier is asked to reach. A reply given more room is given longer, at the same speed.
