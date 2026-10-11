@@ -308,25 +308,45 @@ describe("Models & memory", () => {
     expect(chosen.closest("tr")?.textContent).toContain("Q4_K_M");
   });
 
-  it("marks the MLX build as the one used once it's on disk", async () => {
+  it("shows the MLX build as the chat's model once it's on disk: one row, the build's facts", async () => {
     withMlxBuild("done", true);
     renderPage();
 
-    const chosen = await screen.findByTestId("chosen-main");
-    expect(chosen.closest("tr")?.textContent).toContain("Qwen3.5 9B (MLX)");
-    expect(screen.getAllByTestId("chosen-main")).toHaveLength(1);
+    const row = (await screen.findByTestId("status-main")).closest("tr")!;
+    await waitFor(() => expect(row.textContent).toContain("runs on its MLX build · 4bit"));
+    expect(row.textContent).not.toContain("Q4_K_M"); // the usual file's own detail
+    expect(screen.queryByTestId("status-main-mlx")).toBeNull();
+    expect(screen.queryByTestId("chosen-main")).toBeNull();
+    expect(document.querySelectorAll("tr[data-role=main]")).toHaveLength(1);
   });
 
-  it("shows a loaded model on its own row, not on its MLX build's", async () => {
+  it("offers no download of the usual file on the chat's row while its MLX build runs", async () => {
+    withMlxBuild("done", true);
+    const list = overrides["/api/models"] as { models: { id: string }[] };
+    overrides["/api/models"] = {
+      ...list,
+      models: list.models.map((m) =>
+        m.id === "qwen3.5-9b" ? { ...m, download: download("qwen3.5-9b", "none") } : m,
+      ),
+    };
+    overrides["/api/runtime"] = { ...(RESPONSES["/api/runtime"] as object), residents: [] };
+    renderPage();
+
+    const status = await screen.findByTestId("status-main");
+    await waitFor(() => expect(status.textContent).toBe("Downloaded, not loaded")); // the build
+    expect(screen.queryByRole("button", { name: "Download Qwen3.5 9B" })).toBeNull();
+  });
+
+  it("shows the build's state on the chat's row, not a usual copy that is still loaded", async () => {
     withMlxBuild("done", true);
     renderPage();
 
     // The runtime still holds the usual model (loaded before the build arrived).
-    expect((await screen.findByTestId("status-main")).textContent).toBe("Loaded, in use");
-    expect(screen.getByTestId("status-main-mlx").textContent).toBe("Downloaded, not loaded");
+    const status = await screen.findByTestId("status-main");
+    await waitFor(() => expect(status.textContent).toBe("Downloaded, not loaded"));
   });
 
-  it("shows a loaded MLX build on the build's row", async () => {
+  it("shows a loaded MLX build on the chat's row", async () => {
     withMlxBuild("done", true);
     const runtime = RESPONSES["/api/runtime"] as { residents: object[] };
     overrides["/api/runtime"] = {
@@ -334,12 +354,19 @@ describe("Models & memory", () => {
     };
     renderPage();
 
-    expect((await screen.findByTestId("status-main-mlx")).textContent).toBe("Loaded, in use");
-    expect(screen.getByTestId("status-main").textContent).toBe("Downloaded, not loaded");
+    const status = await screen.findByTestId("status-main");
+    await waitFor(() => expect(status.closest("tr")?.textContent).toContain("MLX build"));
+    expect(status.textContent).toBe("Loaded, in use");
   });
 
-  it("shows the usual model as loaded, in the chat's colour, while it cleans scanned pages", async () => {
+  it("shows the model that cleans scanned pages as loaded on its own row, in the chat's colour", async () => {
     withMlxBuild("done", true);
+    const list = overrides["/api/models"] as { defaults: object; chosen: object };
+    overrides["/api/models"] = {
+      ...list,
+      defaults: { ...list.defaults, clean: "qwen3.5-9b" },
+      chosen: { ...list.chosen, clean: "qwen3.5-9b" },
+    };
     const runtime = RESPONSES["/api/runtime"] as { residents: object[] };
     // The chat runs on the build; OCR cleanup holds the usual model under its own name.
     overrides["/api/runtime"] = {
@@ -351,8 +378,11 @@ describe("Models & memory", () => {
     };
     renderPage();
 
-    expect((await screen.findByTestId("status-main")).textContent).toBe("Loaded, in use");
-    expect(screen.getByTestId("status-main-mlx").textContent).toBe("Loaded");
+    const cleans = await screen.findByTestId("status-clean");
+    expect(cleans.textContent).toBe("Loaded, in use");
+    // The chat's own model, but not the copy the chat runs on: that one is the build.
+    expect(cleans.closest("tr")?.textContent).not.toContain("The chat's own model");
+    await waitFor(() => expect(screen.getByTestId("status-main").textContent).toBe("Loaded"));
     const segment = screen.getByTitle(/^main@qwen3.5-9b · /);
     expect(segment.className).toContain("bg-accent");
   });

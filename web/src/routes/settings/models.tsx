@@ -194,7 +194,21 @@ export function ModelsPage() {
                     />
                   );
                 }
-                const buildOnDisk = (live[build.id] ?? build.download).status === "done";
+                if ((live[build.id] ?? build.download).status === "done") {
+                  // The build is what runs: the role's one row is the build's. The usual
+                  // file isn't offered here; what still needs one (cleanup) has its own row.
+                  return (
+                    <RoleRow
+                      key={role}
+                      role={role}
+                      model={model}
+                      choice={choice}
+                      runsOn={build}
+                      resident={loaded(role, build.id)}
+                      live={live[build.id]}
+                    />
+                  );
+                }
                 return (
                   <Fragment key={role}>
                     <RoleRow
@@ -203,7 +217,7 @@ export function ModelsPage() {
                       choice={choice}
                       resident={loaded(role, model.id)}
                       live={live[model.id]}
-                      chosen={!buildOnDisk}
+                      chosen
                     />
                     <RoleRow
                       role={role}
@@ -211,7 +225,6 @@ export function ModelsPage() {
                       mlxBuild
                       resident={loaded(role, build.id)}
                       live={live[build.id]}
-                      chosen={buildOnDisk}
                     />
                   </Fragment>
                 );
@@ -266,6 +279,7 @@ function RoleRow({
   live,
   mlxBuild = false,
   chosen = false,
+  runsOn,
   sharesTheChats = false,
 }: {
   role: ChoiceRole;
@@ -276,21 +290,27 @@ function RoleRow({
   live?: CatalogModel["download"];
   /** The row of a model's MLX build, under the model's own. */
   mlxBuild?: boolean;
-  /** Of a model and its MLX build, the one the runtime uses. */
+  /** Of a model and its MLX build not yet on disk, the one the runtime uses: the model. */
   chosen?: boolean;
+  /** The model's MLX build, when that is what the role runs on: the row's size, licence,
+   * status and `resident`/`live` are the build's, under the model's name and choice. */
+  runsOn?: CatalogModel;
   /** Cleanup's row: its model is the copy the chat runs on, so nothing more is loaded. */
   sharesTheChats?: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const state = live ?? model.download;
+  // What the row's facts are about: the model, or the MLX build the role runs on.
+  const shown = runsOn ?? model;
+  const state = live ?? shown.download;
   // Shown for what isn't on disk and isn't on its way: "none", a stopped or paused download.
   const canStart = !resident && ["none", "failed", "paused"].includes(state.status);
   const start = useMutation({
     mutationFn: () =>
-      apiPost(`/api/models/${model.id}/download`, { accept_licence: model.licence_notice }),
+      apiPost(`/api/models/${shown.id}/download`, { accept_licence: shown.licence_notice }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["models"] }),
   });
+  const detail = runsOn ? t("modelsPage.runsOnBuild", { quant: runsOn.quant }) : model.quant;
   return (
     <tr className="border-t border-line align-top" data-role={role}>
       <td className="py-2 pr-4 font-mono text-xs">
@@ -322,12 +342,12 @@ function RoleRow({
                 </option>
               ))}
             </select>
-            <span className="text-muted">{model.quant}</span>
+            <span className="text-muted">{detail}</span>
           </>
         ) : (
           <>
             {model.title}
-            <span className="text-muted"> · {model.quant}</span>
+            <span className="text-muted"> · {detail}</span>
           </>
         )}
         {model.id === choice?.recommended?.id && (
@@ -356,8 +376,8 @@ function RoleRow({
           </span>
         )}
       </td>
-      <td className="py-2 pr-4 tabular-nums">{formatBytes(model.size)}</td>
-      <td className="py-2 pr-4">{model.licence}</td>
+      <td className="py-2 pr-4 tabular-nums">{formatBytes(shown.size)}</td>
+      <td className="py-2 pr-4">{shown.licence}</td>
       <td className="py-2">
         <span data-testid={mlxBuild ? `status-${role}-mlx` : `status-${role}`}>
           {resident ? (
@@ -387,16 +407,16 @@ function RoleRow({
             className="btn-secondary mt-1 block w-fit"
             disabled={start.isPending}
             aria-label={
-              model.licence_notice
+              shown.licence_notice
                 ? t("modelsPage.acceptAndDownloadModel", {
-                    licence: model.licence,
-                    title: model.title,
+                    licence: shown.licence,
+                    title: shown.title,
                   })
-                : t("modelsPage.downloadModel", { title: model.title })
+                : t("modelsPage.downloadModel", { title: shown.title })
             }
             onClick={() => start.mutate()}
           >
-            {model.licence_notice
+            {shown.licence_notice
               ? t("modelsPage.acceptAndDownload")
               : state.bytes_done > 0
                 ? t("modelsPage.resume")
