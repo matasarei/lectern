@@ -503,6 +503,8 @@ describe("Models & memory", () => {
       "Qwen3.5 35B-A3B · 2 GB · more than this computer is meant for",
     ]);
     expect(row.textContent).toContain("The chat's own model: nothing more is loaded for it.");
+    // "clean" on its own says little: the row says what the model is for.
+    expect(row.textContent).toContain("Cleans up scanned pages.");
   });
 
   it("has no cleanup row when the server names no model for it", async () => {

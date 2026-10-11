@@ -356,6 +356,7 @@ function RoleRow({
         {choice && !model.suits_tier && (
           <span className="block text-muted">{t("modelsPage.tooBigWhy")}</span>
         )}
+        {role === "clean" && <span className="block text-muted">{t("modelsPage.cleanWhat")}</span>}
         {sharesTheChats && (
           <span className="block text-muted">{t("modelsPage.cleanShares")}</span>
         )}

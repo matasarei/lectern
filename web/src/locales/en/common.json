@@ -103,6 +103,7 @@
     "acceptAndDownloadModel": "Accept the {{licence}} licence and download {{title}}",
     "mlxBuild": "MLX build",
     "runsOnBuild": "runs on its MLX build · {{quant}}",
+    "cleanWhat": "Cleans up scanned pages.",
     "cleanShares": "The chat's own model: nothing more is loaded for it.",
     "chosen": "used for this role",
     "modelFor": "Model for {{role}}",
