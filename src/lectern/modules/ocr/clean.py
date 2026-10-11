@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Literal
 
 import httpx2
@@ -20,7 +21,13 @@ from pydantic import BaseModel, Field, ValidationError
 
 from lectern.modules.ocr.text import cut_trailing_loop
 
-CLEAN_TOKENS = 3072  # a page's blocks; a dense page is ~1.5k tokens of text
+# The room a cleanup reply gets, in tokens. The reply is the page's text again plus its
+# structure, so it grows with the page: measured on the 4B, clean Ukrainian contract pages
+# needed 0.54 to 0.79 tokens per character (4,600 characters: 2,522; 6,000: 3,232 to 4,681).
+CLEAN_TOKENS = 3072  # at least: a 665-character page of 33 small blocks needed 2,051
+CLEAN_TOKENS_PER_CHAR = 1  # of the page, for a longer one
+CLEAN_TOKENS_OVER = 512  # and this much over, for its doubts and fixes
+CLEAN_TOKENS_MOST = 8192  # at most: the smallest context a chat model gets (4 GB tier)
 EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross the break
 CLEAN_TIMEOUT = 600.0
 CONFIRMED_LIMIT = 30  # readings the person confirmed, newest first, given to a later cleanup
@@ -179,7 +186,7 @@ async def clean_page(
     """`confirmed` is the person's decisions so far, (raw, value), newest first.
     `reading_cut_off`: the OCR model ran out of room before it finished the page."""
     # A reading that ran away at its end ("Red" 3,451 times) is cleaned without the loop: the
-    # reply to all of it never fits in CLEAN_TOKENS, and the page's real lines went with it.
+    # reply to all of it never fits in its room, and the page's real lines went with it.
     # Only a reading that was cut off: equal lines at the end of one the model finished (a
     # ledger's empty rows) are the page's own.
     repeated, more = "", 0
@@ -190,26 +197,27 @@ async def clean_page(
         {"role": "user", "content": page_message(number, raw, note, before, after, confirmed)},
     ]
     problem = ""
+    room = reply_room(raw)
     for attempt in range(2):
-        reply, cut_off = await _ask(client, messages)
+        reply = await _ask(client, messages, room)
         try:
-            page = CleanedPage.model_validate_json(reply)
+            page = CleanedPage.model_validate_json(reply.text)
             page = keep_this_page(_place_doubts(_tidy_fixes(page)), raw, before + "\n" + after)
             page = restore_missing_lines(restore_lookalikes(page, raw), raw)
             return _say_loop_left_out(page, repeated, more)
         except (ValidationError, ValueError) as exc:
-            if cut_off:
+            if reply.cut_off:
                 # Asking again gives the same page the same room: it would fail the same way,
                 # a second run of the model later.
                 raise CleanFailed(
-                    f"The cleaned page didn't fit in the chat model's reply ({CLEAN_TOKENS} "
-                    "tokens): the page has more text than one cleanup can return. If its "
-                    "reading repeats itself, read it again with Re-run page."
+                    "The cleaned page didn't fit in the chat model's reply (cut off after "
+                    f"{reply.tokens or room} tokens): the page has more text than one cleanup "
+                    "can return. If its reading repeats itself, read it again with Re-run page."
                 ) from None
             problem = _what_was_wrong(exc)
             if attempt == 0:
                 messages += [
-                    {"role": "assistant", "content": reply},
+                    {"role": "assistant", "content": reply.text},
                     {
                         "role": "user",
                         "content": f"That reply wasn't valid ({problem}). "
@@ -327,12 +335,25 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
     return CleanedPage(blocks=page.blocks, doubts=doubts, fixes=fixes)
 
 
-async def _ask(client: httpx2.AsyncClient, messages: list[dict]) -> tuple[str, bool]:
-    """The model's reply, and whether it was cut off at CLEAN_TOKENS."""
+def reply_room(raw: str) -> int:
+    """How many tokens the reply cleaning this page may take: enough for a dense page to come
+    back whole, bounded so a reply that runs away is stopped."""
+    for_its_length = len(raw) * CLEAN_TOKENS_PER_CHAR + CLEAN_TOKENS_OVER
+    return min(CLEAN_TOKENS_MOST, max(CLEAN_TOKENS, for_its_length))
+
+
+@dataclass(frozen=True)
+class Reply:
+    text: str
+    cut_off: bool  # stopped by the room it was given, or by the model's context filling up
+    tokens: int  # as the server counted them; 0 when it didn't say
+
+
+async def _ask(client: httpx2.AsyncClient, messages: list[dict], room: int) -> Reply:
     body = {
         "messages": messages,
         "temperature": 0,
-        "max_tokens": CLEAN_TOKENS,
+        "max_tokens": room,
         "stream": False,
         "response_format": {
             "type": "json_schema",
@@ -347,8 +368,13 @@ async def _ask(client: httpx2.AsyncClient, messages: list[dict]) -> tuple[str, b
     if response.status_code != 200:
         raise CleanFailed(f"The chat model answered {response.status_code}.")
     try:
-        choice = response.json()["choices"][0]
-        return choice["message"].get("content") or "", choice.get("finish_reason") == "length"
+        answer = response.json()
+        choice = answer["choices"][0]
+        return Reply(
+            text=choice["message"].get("content") or "",
+            cut_off=choice.get("finish_reason") == "length",
+            tokens=int((answer.get("usage") or {}).get("completion_tokens") or 0),
+        )
     except (ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
         raise CleanFailed("The chat model's reply wasn't readable.") from None
 

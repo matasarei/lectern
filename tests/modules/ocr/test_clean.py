@@ -21,7 +21,10 @@ GOOD = {
 
 
 class CutOff(str):
-    """A reply the model ran out of tokens for: it stops mid-JSON."""
+    """A reply the model ran out of tokens for: it stops mid-JSON. `tokens`: how many the
+    server says it wrote, when it says."""
+
+    tokens = 0
 
 
 def _client(*replies: str | int, seen: list | None = None) -> httpx2.AsyncClient:
@@ -36,7 +39,10 @@ def _client(*replies: str | int, seen: list | None = None) -> httpx2.AsyncClient
             return httpx2.Response(reply)
         cut_off = isinstance(reply, CutOff)
         choice = {"message": {"content": reply}, "finish_reason": "length" if cut_off else "stop"}
-        return httpx2.Response(200, json={"choices": [choice]})
+        answer: dict = {"choices": [choice]}
+        if cut_off and reply.tokens:
+            answer["usage"] = {"completion_tokens": reply.tokens}
+        return httpx2.Response(200, json=answer)
 
     return httpx2.AsyncClient(base_url="http://main", transport=httpx2.MockTransport(handler))
 
@@ -367,3 +373,35 @@ def test_equal_lines_at_the_end_of_a_reading_that_wasnt_cut_off_are_the_pages_ow
 
     assert f"<page>\n{ledger}\n</page>" in seen[0]["messages"][1]["content"]  # all 25 rows
     assert not [f for f in page.fixes if "repeated" in f.why]
+
+
+@pytest.mark.parametrize(
+    ("chars", "room"),
+    [
+        (30, 3072),  # a short page still gets this much: small blocks, doubts and fixes add up
+        (2500, 3072),
+        (6000, 6512),  # a dense page: about a token for each of its characters, and some over
+        (20000, 8192),  # never more than the smallest context there is
+    ],
+)
+def test_a_reply_gets_room_for_the_page_it_cleans(chars: int, room: int):
+    """A 6,000-character page was cut off at 3,072 tokens, whatever the model: it needs
+    between 3,200 and 4,700."""
+    line = "Орендна плата становить 250,00 грн на місяць. "
+    raw = (line * (chars // len(line) + 1))[:chars]
+    seen: list[dict] = []
+    _clean(_client(json.dumps(GOOD), seen=seen), raw=raw)
+
+    assert seen[0]["max_tokens"] == room
+
+
+def test_a_reply_cut_off_by_the_models_context_says_how_far_it_got():
+    """On a small context the server stops before the room asked for is used: the message
+    gives what was written, not a limit the reply never reached."""
+    cut = CutOff(json.dumps(GOOD)[:60])
+    cut.tokens = 1388
+    with pytest.raises(CleanFailed, match="didn't fit") as failed:
+        _clean(_client(cut))
+
+    assert "1388 tokens" in str(failed.value)
+    assert "3072" not in str(failed.value)
