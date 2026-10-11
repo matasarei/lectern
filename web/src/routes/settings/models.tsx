@@ -160,9 +160,8 @@ export function ModelsPage() {
                   pending: choose.isPending,
                   onChoose: (modelId) => choose.mutate({ role, modelId }),
                 };
-                // With MLX switched on, a model's MLX build is listed under it. The runtime
-                // uses the build once it's on disk, and the model until then. Not for
-                // cleanup, which a build can't do.
+                // With MLX switched on, a model has its MLX build beside it. Not for cleanup,
+                // which a build can't do.
                 const build =
                   mlxOn && role !== "clean"
                     ? models.data.models.find((m) => m.replaces === model.id)
@@ -194,7 +193,7 @@ export function ModelsPage() {
                     />
                   );
                 }
-                if ((live[build.id] ?? build.download).status === "done") {
+                if (runsOnItsBuild(model, build, live)) {
                   // The build is what runs: the role's one row is the build's. The usual
                   // file isn't offered here; what still needs one (cleanup) has its own row.
                   return (
@@ -209,6 +208,8 @@ export function ModelsPage() {
                     />
                   );
                 }
+                // The usual file, on disk, runs until the build is: both rows, the build's
+                // with its Download.
                 return (
                   <Fragment key={role}>
                     <RoleRow
@@ -249,16 +250,23 @@ export function ModelsPage() {
   );
 }
 
+type Downloads = Record<string, CatalogModel["download"]>;
+
+/** With MLX on, a model's MLX build is the one its role runs on, as the runtime decides it:
+ * always, except while the usual file is on disk and the build isn't yet (the file runs
+ * until then). With neither on disk the build is the one to get: MLX was asked for. */
+function runsOnItsBuild(model: CatalogModel, build: CatalogModel, live: Downloads): boolean {
+  const onDisk = (m: CatalogModel) => (live[m.id] ?? m.download).status === "done";
+  return onDisk(build) || !onDisk(model);
+}
+
 /** Cleanup uses the copy of the model the chat itself runs on: the chat's own model, with
  * the chat on llama.cpp (on its MLX build the chat's copy can't clean, so cleanup loads one). */
-function cleansWithTheChats(
-  list: ModelsResponse,
-  mlxOn: boolean,
-  live: Record<string, CatalogModel["download"]>,
-): boolean {
+function cleansWithTheChats(list: ModelsResponse, mlxOn: boolean, live: Downloads): boolean {
   if (list.chosen.clean !== list.chosen.main) return false;
+  const chat = list.models.find((m) => m.id === list.chosen.main);
   const build = list.models.find((m) => m.replaces === list.chosen.main);
-  const buildInUse = mlxOn && build && (live[build.id] ?? build.download).status === "done";
+  const buildInUse = mlxOn && chat && build && runsOnItsBuild(chat, build, live);
   return !buildInUse;
 }
 
