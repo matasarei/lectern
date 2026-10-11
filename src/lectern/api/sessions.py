@@ -11,16 +11,18 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, WebSocket
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import HTTPConnection
 
 from lectern.agent import state as pins
 from lectern.agent.state import load as chat_state_of
 from lectern.agent.turns import Busy, TurnManager
 from lectern.api.projects import CurrentUser, open_project, store
 from lectern.api.sse import event_response, pump
+from lectern.api.ws import refuse_as, socket_events
 from lectern.core.auth import User
 from lectern.projects.store import NEW_CHAT, Project, clean_name
 from lectern.projects.tables import ArtifactRow, ConfirmationRow, MessageRow, SessionRow, iso
@@ -30,11 +32,13 @@ MESSAGE_LIMIT = 100_000
 ATTACH_LIMIT = 20
 
 
-def turns(request: Request) -> TurnManager:
+def turns(request: HTTPConnection) -> TurnManager:
     return request.app.state.turns
 
 
-def open_session(request: Request, project: Project, session_id: int, user: User) -> SessionRow:
+def open_session(
+    request: HTTPConnection, project: Project, session_id: int, user: User
+) -> SessionRow:
     with store(request).db(project)() as session:
         row = session.get(SessionRow, session_id)
     if row is None or row.owner_id != user.id:
@@ -42,7 +46,9 @@ def open_session(request: Request, project: Project, session_id: int, user: User
     return row
 
 
-async def open_chat(request: Request, project_id: int, session_id: int, user: User) -> Project:
+async def open_chat(
+    request: HTTPConnection, project_id: int, session_id: int, user: User
+) -> Project:
     """The project and chat lookups for async routes, in a worker thread: they read SQLite,
     and a project's first open also migrates its database and empties old trash."""
 
@@ -205,6 +211,22 @@ async def events(project_id: int, session_id: int, request: Request, user: Curre
     return event_response(stream())
 
 
+@router.websocket("/projects/{project_id}/sessions/{session_id}/events")
+async def events_socket(
+    project_id: int, session_id: int, websocket: WebSocket, user: CurrentUser
+) -> None:
+    """The same events for the page, which follows them on a socket (see `lectern.api.ws`)."""
+    try:
+        project = await open_chat(websocket, project_id, session_id, user)
+    except HTTPException as gone:
+        await refuse_as(websocket, gone)
+        return
+    channel = turns(websocket).channel((project.id, session_id))
+    await turns(websocket).resume_follow_ups(project, session_id)  # as the HTTP stream does
+    async with channel.listen() as (so_far, queue):
+        await socket_events(websocket, queue, [*so_far, {"type": "replayed", "seq": 0}])
+
+
 @router.get("/projects/{project_id}/events")
 async def project_events(project_id: int, request: Request, user: CurrentUser):  # noqa: ANN201
     """The tabs this project's chats open, for the project page: it shows one chat at a time,
@@ -219,6 +241,19 @@ async def project_events(project_id: int, request: Request, user: CurrentUser): 
                 yield chunk
 
     return event_response(stream())
+
+
+@router.websocket("/projects/{project_id}/events")
+async def project_events_socket(project_id: int, websocket: WebSocket, user: CurrentUser) -> None:
+    """The same events for the page, which follows them on a socket (see `lectern.api.ws`)."""
+    try:
+        project = await run_in_threadpool(open_project, websocket, project_id, user)
+    except HTTPException as gone:
+        await refuse_as(websocket, gone)
+        return
+    channel = turns(websocket).project_channel(project.id)
+    async with channel.listen() as (_so_far, queue):
+        await socket_events(websocket, queue, [{"type": "replayed", "seq": 0}])
 
 
 @router.post("/projects/{project_id}/sessions/{session_id}/confirmations/{confirmation_id}")

@@ -17,14 +17,15 @@ import contextlib
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import WebSocket
+from fastapi import HTTPException, WebSocket
 
 from lectern.api.sse import follow
 from lectern.core.security import WS_SUBPROTOCOL
 from lectern.downloads.manager import EventHub
 
 # Close codes 4000-4999 are an application's own. Ours: 4000 + the HTTP status it stands for.
-NOT_FOUND = 4404
+APP_CODES = 4000
+NOT_FOUND = APP_CODES + 404
 GOING_AWAY = 1001
 REASON_BYTES = 123  # the most a close frame carries
 
@@ -67,6 +68,11 @@ async def refuse(websocket: WebSocket, code: int, reason: str) -> None:
     await websocket.accept(subprotocol=WS_SUBPROTOCOL)
     fits = reason.encode()[:REASON_BYTES].decode(errors="ignore")
     await websocket.close(code=code, reason=fits)
+
+
+async def refuse_as(websocket: WebSocket, error: HTTPException) -> None:
+    """Refuse with what an HTTP route would have answered: a 404 closes with 4404."""
+    await refuse(websocket, APP_CODES + error.status_code, str(error.detail))
 
 
 async def _send(websocket: WebSocket, events: AsyncIterator[dict | None]) -> None:

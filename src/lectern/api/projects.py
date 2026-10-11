@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import HTTPConnection
 
 from lectern.core.auth import User, current_user
 from lectern.projects import files, search
@@ -26,11 +27,11 @@ router = APIRouter()
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
-def store(request: Request) -> ProjectStore:
+def store(request: HTTPConnection) -> ProjectStore:
     return request.app.state.projects
 
 
-def open_project(request: Request, project_id: int, user: User) -> Project:
+def open_project(request: HTTPConnection, project_id: int, user: User) -> Project:
     try:
         return store(request).get(user, project_id)
     except ProjectNotFound:

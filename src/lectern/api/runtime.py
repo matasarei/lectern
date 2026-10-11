@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import HTTPConnection
 
 from lectern.api.sse import hub_stream
+from lectern.api.ws import hub_socket
 from lectern.core import settings
 from lectern.runners import mlx
 from lectern.runtime.supervisor import ModelRuntime
@@ -17,7 +19,7 @@ from lectern.runtime.supervisor import ModelRuntime
 router = APIRouter()
 
 
-def _runtime(request: Request) -> ModelRuntime:
+def _runtime(request: HTTPConnection) -> ModelRuntime:
     return request.app.state.runtime
 
 
@@ -33,6 +35,13 @@ async def get_runtime(request: Request) -> dict:
 async def runtime_events(request: Request) -> StreamingResponse:
     runtime = _runtime(request)
     return hub_stream(request, runtime.events, snapshot={"type": "state", **runtime.state()})
+
+
+@router.websocket("/runtime/events")
+async def runtime_events_socket(websocket: WebSocket) -> None:
+    """The same events for the page, which follows them on a socket (see `lectern.api.ws`)."""
+    runtime = _runtime(websocket)
+    await hub_socket(websocket, runtime.events, snapshot={"type": "state", **runtime.state()})
 
 
 class Unload(BaseModel):
