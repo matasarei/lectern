@@ -168,6 +168,24 @@ def test_with_the_chat_on_an_mlx_build_a_small_model_cleans(api, monkeypatch):
     assert used_by["qwen3.5-9b-mlx"] == ["main"]
 
 
+def test_with_mlx_on_and_neither_file_on_disk_cleanup_is_planned_for_the_build(api, monkeypatch):
+    client, headers, app = api
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+    monkeypatch.setattr("lectern.runners.mlx.mlx_available", lambda: True)
+    settings.put(app.state.sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
+    _choose(client, headers, "main", "qwen3.5-9b")
+
+    # MLX was asked for and nothing is there yet: the build is what the chat will run on,
+    # so the small model is the one to clean with, not the chat model's own 5.7 GB file.
+    body = client.get("/api/models", headers=headers).json()
+    assert (body["chosen"]["main"], body["chosen"]["clean"]) == ("qwen3.5-9b", "qwen3.5-4b")
+
+    # The usual file already on disk stands in until the build is: it cleans too.
+    _downloaded(app, "qwen3.5-9b")
+    body = client.get("/api/models", headers=headers).json()
+    assert body["chosen"]["clean"] == "qwen3.5-9b"
+
+
 def test_a_model_chosen_for_cleanup_is_saved_and_the_automatic_one_stores_no_choice(api):
     client, headers, app = api
 

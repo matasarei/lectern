@@ -190,6 +190,23 @@ def test_until_the_mlx_build_is_downloaded_the_gguf_runs(mac, monkeypatch):
     assert (choice.model_id, choice.format) == ("qwen3.5-35b-a3b", "gguf")
 
 
+def test_with_mlx_on_and_neither_file_downloaded_the_build_is_the_one_asked_for(mac, monkeypatch):
+    runtime, switch = mac
+    switch(True)
+    # The usual file only stands in while it is there. With nothing on disk MLX was asked
+    # for, so the build is what's missing, and cleanup is planned for the chat on its build.
+    monkeypatch.setattr(DownloadManager, "is_downloaded", lambda self, entry: False)
+    with pytest.raises(NotAvailable, match=r"Qwen3.5 35B-A3B \(MLX\) isn't downloaded yet"):
+        runtime.resolve("main")
+    assert runtime.cleanup_default() == "qwen3.5-4b"
+    assert runtime.cleanup_key() == "main@qwen3.5-4b"
+    assert wiring.cleanup_model(runtime).id == "qwen3.5-4b"
+    switch(False)
+    with pytest.raises(NotAvailable, match=r"Qwen3.5 35B-A3B isn't downloaded yet"):
+        runtime.resolve("main")
+    assert runtime.cleanup_key() == "main"
+
+
 @pytest.mark.parametrize("missing", ["mlx_available", "mlx_supported"])
 def test_without_mlx_on_this_machine_the_switch_changes_nothing(mac, monkeypatch, missing):
     runtime, switch = mac

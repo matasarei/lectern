@@ -189,8 +189,9 @@ the chat, the scan says what it downloads first; started from a file's own butto
 you which model to download in Models & memory.
 
 You can change your mind later in **Models & memory** → "Use MLX for MLX models". The chat
-model then shows an MLX build under it: download that, and the chat runs on it. Until it's
-downloaded nothing changes.
+model then shows its MLX build: download that, and the chat runs on it. A chat model already
+on disk goes on running until the build is there; with neither on disk, the build is the one
+Models & memory offers.
 
 What it gives and what it costs, measured with the 4B chat model on an M4 Max:
 

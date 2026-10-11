@@ -309,6 +309,57 @@ describe("Models & memory", () => {
     expect(chosen.closest("tr")?.textContent).toContain("Q4_K_M");
   });
 
+  it("with MLX on and neither file on disk, the chat's one row is its MLX build's", async () => {
+    withMlxBuild("none", true);
+    const list = overrides["/api/models"] as { models: { id: string }[] };
+    overrides["/api/models"] = {
+      ...list,
+      models: list.models.map((m) =>
+        m.id === "qwen3.5-9b" ? { ...m, download: download("qwen3.5-9b", "none") } : m,
+      ),
+    };
+    overrides["/api/runtime"] = { ...(RESPONSES["/api/runtime"] as object), residents: [] };
+    renderPage();
+
+    // MLX is what was asked for: the build is the one to download, not the usual file.
+    const row = (await screen.findByTestId("status-main")).closest("tr")!;
+    await waitFor(() => expect(row.textContent).toContain("runs on its MLX build · 4bit"));
+    expect(screen.getByTestId("status-main").textContent).toBe("Not downloaded");
+    expect(document.querySelectorAll("tr[data-role=main]")).toHaveLength(1);
+    expect(screen.queryByTestId("chosen-main")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download Qwen3.5 9B" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Download Qwen3.5 9B (MLX)" }));
+    await waitFor(() =>
+      expect(posts).toEqual([
+        { url: "/api/models/qwen3.5-9b-mlx/download", body: { accept_licence: false } },
+      ]),
+    );
+  });
+
+  it("with MLX on and neither file on disk, cleanup's model isn't the chat's copy", async () => {
+    withMlxBuild("none", true);
+    const list = overrides["/api/models"] as {
+      models: { id: string }[]; defaults: object; chosen: object;
+    };
+    // As the server answers then: cleanup named for the chat's own model by choice.
+    overrides["/api/models"] = {
+      ...list,
+      defaults: { ...list.defaults, clean: "qwen3.5-9b" },
+      chosen: { ...list.chosen, clean: "qwen3.5-9b" },
+      models: list.models.map((m) =>
+        m.id === "qwen3.5-9b" ? { ...m, download: download("qwen3.5-9b", "none") } : m,
+      ),
+    };
+    overrides["/api/runtime"] = { ...(RESPONSES["/api/runtime"] as object), residents: [] };
+    renderPage();
+
+    const row = (await screen.findByTestId("status-clean")).closest("tr")!;
+    await screen.findByText(/runs on its MLX build/);
+    // The chat will run on its build, which can't clean: this is a download of its own.
+    expect(row.textContent).not.toContain("The chat's own model");
+    expect(screen.getByRole("button", { name: "Download Qwen3.5 9B" }).closest("tr")).toBe(row);
+  });
+
   it("shows the MLX build as the chat's model once it's on disk: one row, the build's facts", async () => {
     withMlxBuild("done", true);
     renderPage();
@@ -610,8 +661,10 @@ describe("Models & memory", () => {
     };
     renderPage();
 
-    const buildRow = (await screen.findByTestId("status-main-mlx")).closest("tr");
-    expect(buildRow?.textContent).toContain("Qwen3.5 4B (MLX)");
+    // Neither file of the 4B is on disk: its build is the chat's row, and the one to get.
+    const get = await screen.findByRole("button", { name: "Download Qwen3.5 4B (MLX)" });
+    expect(get.closest("tr")?.getAttribute("data-role")).toBe("main");
+    expect(screen.queryByRole("button", { name: /Qwen3.5 9B \(MLX\)/ })).toBeNull();
     expect(screen.queryByText(/Qwen3.5 9B \(MLX\)/)).toBeNull();
     // A build isn't something to choose: it comes with its model.
     const select = screen.getByLabelText("Model for main") as HTMLSelectElement;

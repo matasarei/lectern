@@ -175,7 +175,7 @@
     },
     "mlx": "Use MLX for MLX models (Apple Silicon)",
     "mlxMissing": "MLX isn't installed with this Lectern, so every model runs on llama.cpp. The Mac installer adds it; from a checkout, run `uv sync --extra mlx` and start Lectern again.",
-    "mlxWhy": "MLX is Apple's own engine and can be faster on a Mac. Switched on, a model that has an MLX build shows it under Models by role: once downloaded, the build runs in place of the usual model. On MLX the chat makes more mistakes when it uses its tools. Scanned pages are still read and cleaned up on llama.cpp: cleaning one loads the model on the clean row beside the chat's."
+    "mlxWhy": "MLX is Apple's own engine and can be faster on a Mac. Switched on, a model that has an MLX build runs on it: download the build under Models by role. A usual model already on disk goes on running until then. On MLX the chat makes more mistakes when it uses its tools. Scanned pages are still read and cleaned up on llama.cpp: cleaning one loads the model on the clean row beside the chat's."
   },
   "projects": {
     "title": "Projects",
