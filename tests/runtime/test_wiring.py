@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from lectern.catalog import catalog
 from lectern.core import settings
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.downloads.manager import DownloadManager
@@ -353,6 +354,18 @@ def test_a_model_chosen_for_cleanup_cleans_with_the_chat_on_mlx(card, monkeypatc
     # The chat's own model, but not the copy the chat runs on: that one is the MLX build.
     assert runtime.cleanup_key() == "main@qwen3.5-9b"
     assert runtime.cleanup_default() == "qwen3.5-4b"
+
+
+def test_without_a_chat_model_in_the_catalog_nothing_is_named_for_cleanup(card, monkeypatch):
+    runtime, _ = card
+    real = catalog.load()
+    no_chat = [m for m in real.models if "main" not in m.roles]
+    readers = real.model_copy(update={"models": no_chat})
+    monkeypatch.setattr(catalog, "load", lambda: readers)
+
+    assert runtime.cleanup_default() is None
+    assert runtime.cleanup_key() == "main"  # leasing it says there's no chat model
+    assert wiring.cleanup_model(runtime) is None
 
 
 @pytest.mark.parametrize(

@@ -173,25 +173,31 @@ def build_runtime(
             return build
         return None
 
-    def cleanup_default() -> str:
+    def cleanup_default() -> str | None:
         """The model that cleans up scanned pages when none is chosen for it. The chat's own,
         which is already loaded. Where the chat runs on its MLX build that copy can't clean
         (MLX's server can't hold a model to a JSON schema), and the chat model's GGUF beside
         its build would be the largest download there is: the minimum tier's chat model is
-        used, the one cleanup was tuned and timed on."""
-        _, chat = pick("main", tier, chosen())
+        used, the one cleanup was tuned and timed on. None: no chat model to clean with."""
+        try:
+            _, chat = pick("main", tier, chosen())
+        except NotAvailable:
+            return None
         if mlx_build_for("main", chat) is None:
             return chat.id
-        return catalog.load().defaults_for(Tier.MINIMUM)["main"].id
+        return catalog.load().defaults_for(Tier.MINIMUM).get("main", chat).id
 
     def cleanup_key() -> str:
         """The lease cleanup asks for: "main" when its model is the copy the chat runs on,
         otherwise that model by name, which loads beside the chat's."""
+        automatic = cleanup_default()
+        if automatic is None:
+            return "main"  # leased, it says what the chat would: there's no chat model
         _, chat = pick("main", tier, chosen())
         wanted = chosen().get(settings.CLEANUP)
         # A choice the catalog no longer offers for cleanup is as good as none.
         usable = wanted in {m.id for m in cleanup_choices()}
-        model_id = wanted if usable else cleanup_default()
+        model_id = wanted if usable else automatic
         shares_the_chats = model_id == chat.id and mlx_build_for("main", chat) is None
         return "main" if shares_the_chats else f"main@{model_id}"
 
