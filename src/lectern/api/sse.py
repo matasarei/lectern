@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from fastapi import Request
 from fastapi.responses import StreamingResponse
@@ -41,6 +41,38 @@ def event_response(body: AsyncIterator[bytes]) -> StreamingResponse:
     )
 
 
+async def follow(
+    queue: asyncio.Queue[dict],
+    first: list[dict],
+    stopping: asyncio.Event,
+    gone: Callable[[], Awaitable[bool]],
+) -> AsyncIterator[dict | None]:
+    """What a listener is sent, whatever it is sent over: `first`, then whatever arrives on
+    `queue`, and None for every KEEPALIVE_SECONDS in which nothing did. Ends when the app
+    starts shutting down or `gone()` says the listener went away."""
+    for event in first:
+        yield event
+    while not stopping.is_set() and not await gone():
+        next_event = asyncio.ensure_future(queue.get())
+        stop = asyncio.ensure_future(stopping.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {next_event, stop},
+                timeout=KEEPALIVE_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            # Also when the listener is dropped mid-wait: a wait left pending is reported
+            # as "Task was destroyed but it is pending!" when it is collected.
+            for task in (next_event, stop):
+                if not task.done():
+                    task.cancel()
+        if next_event in done:
+            yield next_event.result()
+        elif stop not in done:
+            yield None
+
+
 async def pump(
     request: Request, queue: asyncio.Queue[dict], first: list[dict]
 ) -> AsyncIterator[bytes]:
@@ -48,20 +80,5 @@ async def pump(
     app starts shutting down, with a keep-alive comment every KEEPALIVE_SECONDS."""
     stopping: asyncio.Event = request.app.state.shutting_down
     yield b": connected\n\n"
-    for event in first:
-        yield encode(event)
-    while not stopping.is_set() and not await request.is_disconnected():
-        next_event = asyncio.ensure_future(queue.get())
-        stop = asyncio.ensure_future(stopping.wait())
-        done, _ = await asyncio.wait(
-            {next_event, stop},
-            timeout=KEEPALIVE_SECONDS,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in (next_event, stop):
-            if task not in done:
-                task.cancel()
-        if next_event in done:
-            yield encode(next_event.result())
-        elif stop not in done:
-            yield b": keepalive\n\n"
+    async for event in follow(queue, first, stopping, request.is_disconnected):
+        yield b": keepalive\n\n" if event is None else encode(event)
