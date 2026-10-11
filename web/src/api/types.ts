@@ -99,16 +99,35 @@ export interface ModelsResponse {
   unlisted: { name: string; bytes: number }[];
 }
 
-export interface FirstRun {
-  step: "hardware" | "download" | "done";
-  chat_model: {
+/** A model the chat can be given, as first-run lists it. */
+export interface FirstRunModel {
+  id: string;
+  title: string;
+  quant: string;
+  size: number;
+  licence: string;
+  /** The default for this computer's hardware. */
+  recommended: boolean;
+  /** Listed for this computer's tier; one that isn't may be slow or not load. */
+  suits_tier: boolean;
+  download: DownloadState;
+  /** The same model in MLX's format: it runs in the model's place with MLX switched on. */
+  mlx_build: {
     id: string;
     title: string;
-    quant: string;
     size: number;
     licence: string;
     download: DownloadState;
-  };
+  } | null;
+}
+
+export interface FirstRun {
+  step: "hardware" | "download" | "done";
+  /** The model the chat uses: the recommended one unless another was chosen. */
+  chat_model: FirstRunModel;
+  chat_models: FirstRunModel[];
+  /** MLX on this computer: an Apple Silicon Mac, installed, and switched on. */
+  mlx: { supported: boolean; available: boolean; enabled: boolean };
   /** The llama.cpp build for this machine; null where there's none to download. */
   engine: EngineState | null;
   can_finish: boolean;

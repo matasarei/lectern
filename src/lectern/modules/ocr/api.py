@@ -30,6 +30,7 @@ from lectern.modules.ocr.jobs import NotNow, OcrJobs, page_dict
 from lectern.modules.ocr.review import match_decisions
 from lectern.projects.store import Project
 from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, iso, now
+from lectern.runtime.wiring import cleanup_model
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -126,10 +127,24 @@ def _ocr_row(request: Request, project: Project, session_id: int) -> OcrSessionR
 # --- starting and reading a session --------------------------------------------------------
 
 
+def _refuse_without_cleanup_model(request: Request) -> None:
+    """On a Mac set up with MLX the usual chat model isn't on disk, and cleanup needs it. A
+    chat's ocr_start downloads it (its card says so); here there's no card to ask on, so the
+    session isn't started: it would read every page and then stop at the first cleanup."""
+    entry = cleanup_model(request.app.state.runtime)
+    if entry is not None and not request.app.state.downloads.is_downloaded(entry):
+        raise HTTPException(
+            409,
+            f"Cleaning up scanned pages needs {entry.title} ({entry.size / 1e9:.1f} GB): the "
+            "chat's MLX model can't do it. Download it in Models & memory, then start again.",
+        )
+
+
 @router.post("/projects/{project_id}/ocr", status_code=201)
 async def new_ocr(project_id: int, body: NewOcr, request: Request, user: CurrentUser) -> dict:
     project = await run_in_threadpool(open_project, request, project_id, user)
     db = await run_in_threadpool(store(request).db, project)
+    await run_in_threadpool(_refuse_without_cleanup_model, request)
     try:
         row, _ = await run_in_threadpool(
             lambda: ocr_store.create_session(

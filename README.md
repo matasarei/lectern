@@ -53,7 +53,8 @@ the installer brings its own.
    ```sh
    ~/.lectern/bin/lectern-url
    ```
-   The first run checks the hardware and downloads the chat model.
+   The first run checks the hardware and downloads the chat model: the one recommended for
+   the computer, or another you pick from its list.
 
 **Update:** `cd ~/.lectern/src && git pull && ./install.sh` (or run a newer package's
 `./install.sh`). Your data and settings are kept, and if the install fails, the running
@@ -160,7 +161,8 @@ its own.
    | Shut Down Lectern | stops Lectern and every model it has loaded, then closes the app |
 
    Opening Lectern.app again (Finder, Spotlight) opens it in the browser too. The first run
-   checks the hardware and downloads the chat model.
+   checks the hardware, lets you pick the chat model and the engine it runs on (llama.cpp
+   or MLX, below), and downloads them.
 
 **Update:** `cd ~/.lectern/src && git pull && ./install.sh`. An open app is quit, replaced and
 opened again; one that wasn't open is replaced and left closed. Your data and settings are
@@ -180,9 +182,15 @@ models a checkout already downloaded.
 ### MLX, if you want it
 
 Models run on llama.cpp (Metal) by default, on a Mac as everywhere. The installer also adds
-MLX, Apple's own engine, which you can switch on in **Models & memory** → "Use MLX for MLX
-models". The chat model then shows an MLX build under it: download that, and the chat runs
-on it. Until it's downloaded nothing changes.
+MLX, Apple's own engine, and the first run offers the two side by side, llama.cpp selected.
+Pick MLX there and only the chat model's MLX build is downloaded: llama.cpp and the usual
+chat model come the first time you scan a page. Asked for in the chat, the scan says what it
+downloads first; started from a file's own button, it tells you which model to download in
+Models & memory.
+
+You can change your mind later in **Models & memory** → "Use MLX for MLX models". The chat
+model then shows an MLX build under it: download that, and the chat runs on it. Until it's
+downloaded nothing changes.
 
 What it gives and what it costs, measured with the 4B chat model on an M4 Max:
 
@@ -200,8 +208,9 @@ does llama.cpp's: a web page can't use the model, and neither can another user o
 ## Models
 
 Lectern uses a model for each job: one for the chat, two for reading scanned pages (print and
-handwriting), one for writing scripts. It picks them from the computer it finds itself on, and
-everything about them is on the **Models & memory** page.
+handwriting), one for writing scripts. It picks them from the computer it finds itself on. The
+first run lets you pick the chat model; everything else about them is on the **Models &
+memory** page.
 
 - **Choosing.** Under "Models by role" each role has a list of the models it can use. The one
   marked *recommended* is the default for this computer's hardware. A model marked as more
