@@ -22,7 +22,7 @@ from lectern.hardware.tiers import effective_tier
 from lectern.projects.tables import iso
 from lectern.runners import mlx
 from lectern.runtime.supervisor import ModelInUse
-from lectern.runtime.wiring import pick
+from lectern.runtime.wiring import choices, cleans_pages, pick
 
 router = APIRouter()
 
@@ -37,25 +37,39 @@ def list_models(request: Request) -> dict:
     tier = effective_tier(probe())
     downloads = _manager(request)
     recommended = cat.defaults_for(tier)
-    chosen = request.app.state.runtime.chosen_models()
+    runtime = request.app.state.runtime
+    chosen = runtime.chosen_models()
     uses = {role: pick(role, tier, chosen)[1].id for role in recommended}
+    defaults = {role: entry.id for role, entry in recommended.items()}
+    # Cleanup of scanned pages isn't a catalog role, and its default isn't a tier's: the
+    # runtime says which chat model cleans when none is chosen for it.
+    if (cleans_by_default := runtime.cleanup_default()) is not None:
+        defaults[settings.CLEANUP] = cleans_by_default
+        uses[settings.CLEANUP] = cleans_pages(runtime).id
     runtime_settings = settings.get(
         request.app.state.sessions, settings.RUNTIME_KEY, settings.RUNTIME_DEFAULTS
     )
     mlx_on = bool(runtime_settings["mlx_enabled"]) and mlx.mlx_available()
 
     def used_by(m: catalog.CatalogEntry) -> list[str]:
-        """The roles that use the model now. An MLX build is used by the roles of the model
-        it stands in for, while MLX is on."""
+        """The roles that use the model now, cleanup of scanned pages among them. An MLX
+        build is used by the roles of the model it stands in for, while MLX is on; never by
+        cleanup, which it can't do."""
         stands_for = m.replaces if mlx_on else None
-        return [role for role, model_id in uses.items() if model_id in (m.id, stands_for)]
+        return [
+            role
+            for role, model_id in uses.items()
+            if model_id == m.id or (model_id == stands_for and role != settings.CLEANUP)
+        ]
 
     return {
         "tier": tier.value,
         # The model recommended for each role on this computer, and the one the role uses:
         # the same unless another was chosen (PUT /models/roles/{role}).
-        "defaults": {role: entry.id for role, entry in recommended.items()},
+        "defaults": defaults,
         "chosen": uses,
+        # What each can be given (PUT /models/roles/{role}), as catalog ids.
+        "choices": {role: [m.id for m in choices(role)] for role in uses},
         "models": [
             {
                 "id": m.id,
@@ -121,16 +135,27 @@ async def set_role_model(role: str, body: RoleModel, request: Request) -> dict:
         entry = cat.get(model_id)
         if entry is None:
             raise HTTPException(404, f"No model {model_id!r} in the catalog.")
+        cleanup = role == settings.CLEANUP
+        if entry.replaces is not None and cleanup:
+            raise HTTPException(
+                409,
+                f"{entry.title} is an MLX build, which can't be held to the shape cleanup "
+                f"needs. Choose {entry.replaces}.",
+            )
         if entry.replaces is not None:
             raise HTTPException(
                 409,
                 f"{entry.title} is an MLX build. Choose {entry.replaces} and switch MLX on: "
                 "the build is used in its place.",
             )
-        if entry not in cat.choices_for(role):
-            raise HTTPException(409, f"{entry.title} can't be used for the {role!r} role.")
-        tier = await run_in_threadpool(lambda: effective_tier(probe()))
-        if cat.defaults_for(tier).get(role) is entry:
+        if entry not in choices(role):
+            raise HTTPException(
+                409,
+                f"{entry.title} can't clean up scanned pages: a chat model does that."
+                if cleanup
+                else f"{entry.title} can't be used for the {role!r} role.",
+            )
+        if model_id == await run_in_threadpool(_recommended, request, role):
             model_id = None  # the recommended one: the role follows the recommendation again
     before = await run_in_threadpool(
         settings.update,
@@ -141,9 +166,20 @@ async def set_role_model(role: str, body: RoleModel, request: Request) -> dict:
     )
     if before[role] != model_id:
         # The role's idle model goes now and the chosen one loads when the role is next used;
-        # a model a reply is being written with changes over with the next turn.
-        await request.app.state.runtime.unload_between_replies(role)
+        # a model a reply is being written with changes over with the next turn. Cleanup's
+        # copies are leased as the chat role's ("main", "main@<model>"): the chat's idle
+        # model goes with them, and loads again with the next reply.
+        leased_as = "main" if role == settings.CLEANUP else role
+        await request.app.state.runtime.unload_between_replies(leased_as)
     return await run_in_threadpool(list_models, request)
+
+
+def _recommended(request: Request, role: str) -> str | None:
+    """The catalog id of the model the role, or cleanup, uses when none is chosen for it."""
+    if role == settings.CLEANUP:
+        return request.app.state.runtime.cleanup_default()
+    entry = catalog.load().defaults_for(effective_tier(probe())).get(role)
+    return entry.id if entry is not None else None
 
 
 class DownloadRequest(BaseModel):

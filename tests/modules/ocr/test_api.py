@@ -135,7 +135,7 @@ def test_start_now_lets_the_job_skip_the_wait_for_the_chat(api, monkeypatch):
 
 def test_a_chat_on_mlx_without_its_usual_model_starts_no_session(api):
     client, headers, app, project, ids, _ = api
-    app.state.runtime.schema_key = lambda role: f"{role}@qwen3.5-4b"  # cleanup asks by name
+    app.state.runtime.cleanup_key = lambda: "main@qwen3.5-4b"  # cleanup asks by name
     url = f"/api/projects/{project.id}/ocr"
 
     refused = client.post(url, json={"artifact_id": ids["lease-scan.pdf"]}, headers=headers)

@@ -114,7 +114,7 @@ export function FirstRunPage() {
   const run = firstRun.data;
   const model = run.chat_model;
   // With MLX picked the chat runs on the model's MLX build, and that is all setup fetches:
-  // llama.cpp and the usual model come with whatever first needs them (a scanned page).
+  // llama.cpp and the model that cleans scanned pages come with the first scan.
   const build = run.mlx.enabled ? model.mlx_build : null;
   const target = build ?? model;
   const state = live[target.id] ?? target.download;

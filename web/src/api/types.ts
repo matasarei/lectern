@@ -1,5 +1,8 @@
 export type Tier = "below_minimum" | "minimum" | "recommended" | "comfortable";
 export type Role = "main" | "ocr" | "ocr.hand" | "code";
+/** What a model can be chosen for in Models & memory: a role, or cleanup of scanned pages
+ * ("clean"), which a chat model does and which is leased as the chat role's. */
+export type ChoiceRole = Role | "clean";
 
 export interface Gpu {
   vendor: "nvidia" | "apple" | "amd" | "intel";
@@ -70,7 +73,7 @@ export interface CatalogModel {
    * that weren't downloaded through Lectern. */
   installed: { revision: string | null; at: string | null; bytes: number } | null;
   /** The roles that use it now. */
-  used_by: Role[];
+  used_by: ChoiceRole[];
   /** The catalog pins a newer revision than the one on disk. */
   update_available: boolean;
   /** That update, while it runs or after it failed. */
@@ -91,9 +94,11 @@ export interface UpdateState {
 export interface ModelsResponse {
   tier: Tier;
   /** The model recommended for each role on this computer. It follows the hardware. */
-  defaults: Partial<Record<Role, string>>;
+  defaults: Partial<Record<ChoiceRole, string>>;
   /** The model each role uses: the recommended one, unless another was chosen. */
-  chosen: Partial<Record<Role, string>>;
+  chosen: Partial<Record<ChoiceRole, string>>;
+  /** The models each can be given, as catalog ids. */
+  choices: Partial<Record<ChoiceRole, string[]>>;
   models: CatalogModel[];
   /** Folders in the models directory that no catalog model owns. */
   unlisted: { name: string; bytes: number }[];

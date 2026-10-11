@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { apiFetch, ApiError, apiPost } from "../../api/client";
 import type {
   CatalogModel,
+  ChoiceRole,
   ModelsResponse,
   Resident,
   Role,
@@ -28,7 +29,9 @@ import { useRuntime } from "../../hooks/useRuntime";
 import { formatCountdown, modelWaitText, useCountdown } from "../../status";
 import { UPDATE_POLL_MS } from "./polling";
 
-const ROLES: Role[] = ["main", "ocr", "ocr.hand", "code"];
+// The rows of "Models by role": the roles, and cleanup of scanned pages after the chat,
+// whose models it shares.
+const CHOICES: ChoiceRole[] = ["main", "clean", "ocr", "ocr.hand", "code"];
 const ROLE_COLOURS: Record<Role, string> = {
   main: "bg-accent",
   ocr: "bg-amber-600",
@@ -64,7 +67,7 @@ export function ModelsPage() {
   const queryClient = useQueryClient();
   // The answer is the list again, with the role on the chosen model.
   const choose = useMutation({
-    mutationFn: ({ role, modelId }: { role: Role; modelId: string | null }) =>
+    mutationFn: ({ role, modelId }: { role: ChoiceRole; modelId: string | null }) =>
       apiFetch<ModelsResponse>(`/api/models/roles/${encodeURIComponent(role)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -86,8 +89,12 @@ export function ModelsPage() {
   }
 
   const byId = new Map(models.data.models.map((m) => [m.id, m]));
-  const loaded = (role: Role, modelId: string) =>
-    runtime.data?.residents.find((r) => roleOf(r) === role && r.model_id === modelId);
+  // Cleanup's copy is leased as the chat role's: "main" when it is the chat's own loaded
+  // model, "main@<model>" when it has one to itself.
+  const loaded = (role: ChoiceRole, modelId: string) =>
+    runtime.data?.residents.find(
+      (r) => roleOf(r) === (role === "clean" ? "main" : role) && r.model_id === modelId,
+    );
 
   return (
     <Page>
@@ -138,7 +145,7 @@ export function ModelsPage() {
               </tr>
             </thead>
             <tbody>
-              {ROLES.map((role) => {
+              {CHOICES.map((role) => {
                 // The role's model: the one recommended for this computer, unless another
                 // was chosen here.
                 const id = models.data.chosen[role];
@@ -146,17 +153,33 @@ export function ModelsPage() {
                 if (!model) return null;
                 const recommendedId = models.data.defaults[role];
                 const choice: RoleChoice = {
-                  // An MLX build isn't offered: it comes with its model.
-                  options: models.data.models.filter((m) => m.roles.includes(role) && !m.replaces),
+                  // What the server says it can be given. An MLX build never is: it comes
+                  // with its model, and can't clean pages.
+                  options: (models.data.choices[role] ?? []).flatMap((option) => byId.get(option) ?? []),
                   recommended: recommendedId ? byId.get(recommendedId) : undefined,
                   pending: choose.isPending,
                   onChoose: (modelId) => choose.mutate({ role, modelId }),
                 };
                 // With MLX switched on, a model's MLX build is listed under it. The runtime
-                // uses the build once it's on disk, and the model until then.
-                const build = mlxOn
-                  ? models.data.models.find((m) => m.replaces === model.id)
-                  : undefined;
+                // uses the build once it's on disk, and the model until then. Not for
+                // cleanup, which a build can't do.
+                const build =
+                  mlxOn && role !== "clean"
+                    ? models.data.models.find((m) => m.replaces === model.id)
+                    : undefined;
+                if (role === "clean") {
+                  return (
+                    <RoleRow
+                      key={role}
+                      role={role}
+                      model={model}
+                      choice={choice}
+                      resident={loaded(role, model.id)}
+                      live={live[model.id]}
+                      sharesTheChats={cleansWithTheChats(models.data, mlxOn, live)}
+                    />
+                  );
+                }
                 if (!build) {
                   return (
                     <RoleRow
@@ -171,7 +194,21 @@ export function ModelsPage() {
                     />
                   );
                 }
-                const buildOnDisk = (live[build.id] ?? build.download).status === "done";
+                if ((live[build.id] ?? build.download).status === "done") {
+                  // The build is what runs: the role's one row is the build's. The usual
+                  // file isn't offered here; what still needs one (cleanup) has its own row.
+                  return (
+                    <RoleRow
+                      key={role}
+                      role={role}
+                      model={model}
+                      choice={choice}
+                      runsOn={build}
+                      resident={loaded(role, build.id)}
+                      live={live[build.id]}
+                    />
+                  );
+                }
                 return (
                   <Fragment key={role}>
                     <RoleRow
@@ -180,7 +217,7 @@ export function ModelsPage() {
                       choice={choice}
                       resident={loaded(role, model.id)}
                       live={live[model.id]}
-                      chosen={!buildOnDisk}
+                      chosen
                     />
                     <RoleRow
                       role={role}
@@ -188,7 +225,6 @@ export function ModelsPage() {
                       mlxBuild
                       resident={loaded(role, build.id)}
                       live={live[build.id]}
-                      chosen={buildOnDisk}
                     />
                   </Fragment>
                 );
@@ -213,6 +249,19 @@ export function ModelsPage() {
   );
 }
 
+/** Cleanup uses the copy of the model the chat itself runs on: the chat's own model, with
+ * the chat on llama.cpp (on its MLX build the chat's copy can't clean, so cleanup loads one). */
+function cleansWithTheChats(
+  list: ModelsResponse,
+  mlxOn: boolean,
+  live: Record<string, CatalogModel["download"]>,
+): boolean {
+  if (list.chosen.clean !== list.chosen.main) return false;
+  const build = list.models.find((m) => m.replaces === list.chosen.main);
+  const buildInUse = mlxOn && build && (live[build.id] ?? build.download).status === "done";
+  return !buildInUse;
+}
+
 /** Choosing a role's model: what it can be given, which one is recommended for this
  * computer, and how to change it (null: back to the recommended one). */
 interface RoleChoice {
@@ -230,8 +279,10 @@ function RoleRow({
   live,
   mlxBuild = false,
   chosen = false,
+  runsOn,
+  sharesTheChats = false,
 }: {
-  role: Role;
+  role: ChoiceRole;
   model: CatalogModel;
   /** On a role's own row; an MLX build's row has nothing to choose. */
   choice?: RoleChoice;
@@ -239,19 +290,29 @@ function RoleRow({
   live?: CatalogModel["download"];
   /** The row of a model's MLX build, under the model's own. */
   mlxBuild?: boolean;
-  /** Of a model and its MLX build, the one the runtime uses. */
+  /** Of a model and its MLX build not yet on disk, the one the runtime uses: the model. */
   chosen?: boolean;
+  /** The model's MLX build, when that is what the role runs on: the row's size, licence,
+   * status and `resident`/`live` are the build's, under the model's name and choice. */
+  runsOn?: CatalogModel;
+  /** Cleanup's row: its model is the copy the chat runs on, so nothing more is loaded. */
+  sharesTheChats?: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const state = live ?? model.download;
+  // What the row's facts are about: the model, or the MLX build the role runs on.
+  const shown = runsOn ?? model;
+  const state = live ?? shown.download;
   // Shown for what isn't on disk and isn't on its way: "none", a stopped or paused download.
-  const canStart = !resident && ["none", "failed", "paused"].includes(state.status);
+  // Not on cleanup's row for the chat's own copy: the chat's row, just above, has it.
+  const canStart =
+    !resident && !sharesTheChats && ["none", "failed", "paused"].includes(state.status);
   const start = useMutation({
     mutationFn: () =>
-      apiPost(`/api/models/${model.id}/download`, { accept_licence: model.licence_notice }),
+      apiPost(`/api/models/${shown.id}/download`, { accept_licence: shown.licence_notice }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["models"] }),
   });
+  const detail = runsOn ? t("modelsPage.runsOnBuild", { quant: runsOn.quant }) : model.quant;
   return (
     <tr className="border-t border-line align-top" data-role={role}>
       <td className="py-2 pr-4 font-mono text-xs">
@@ -278,17 +339,21 @@ function RoleRow({
                       : option.suits_tier
                         ? "modelsPage.option"
                         : "modelsPage.optionTooBig",
-                    { title: option.title, size: formatBytes(option.size) },
+                    {
+                      title: option.title,
+                      // Of the model in use, what runs: its MLX build's, as the Size column.
+                      size: formatBytes(option.id === model.id ? shown.size : option.size),
+                    },
                   )}
                 </option>
               ))}
             </select>
-            <span className="text-muted">{model.quant}</span>
+            <span className="text-muted">{detail}</span>
           </>
         ) : (
           <>
             {model.title}
-            <span className="text-muted"> · {model.quant}</span>
+            <span className="text-muted"> · {detail}</span>
           </>
         )}
         {model.id === choice?.recommended?.id && (
@@ -296,6 +361,10 @@ function RoleRow({
         )}
         {choice && !model.suits_tier && (
           <span className="block text-muted">{t("modelsPage.tooBigWhy")}</span>
+        )}
+        {role === "clean" && <span className="block text-muted">{t("modelsPage.cleanWhat")}</span>}
+        {sharesTheChats && (
+          <span className="block text-muted">{t("modelsPage.cleanShares")}</span>
         )}
         {choice?.recommended && choice.recommended.id !== model.id && (
           <span className="block text-muted">
@@ -314,8 +383,8 @@ function RoleRow({
           </span>
         )}
       </td>
-      <td className="py-2 pr-4 tabular-nums">{formatBytes(model.size)}</td>
-      <td className="py-2 pr-4">{model.licence}</td>
+      <td className="py-2 pr-4 tabular-nums">{formatBytes(shown.size)}</td>
+      <td className="py-2 pr-4">{shown.licence}</td>
       <td className="py-2">
         <span data-testid={mlxBuild ? `status-${role}-mlx` : `status-${role}`}>
           {resident ? (
@@ -345,16 +414,16 @@ function RoleRow({
             className="btn-secondary mt-1 block w-fit"
             disabled={start.isPending}
             aria-label={
-              model.licence_notice
+              shown.licence_notice
                 ? t("modelsPage.acceptAndDownloadModel", {
-                    licence: model.licence,
-                    title: model.title,
+                    licence: shown.licence,
+                    title: shown.title,
                   })
-                : t("modelsPage.downloadModel", { title: model.title })
+                : t("modelsPage.downloadModel", { title: shown.title })
             }
             onClick={() => start.mutate()}
           >
-            {model.licence_notice
+            {shown.licence_notice
               ? t("modelsPage.acceptAndDownload")
               : state.bytes_done > 0
                 ? t("modelsPage.resume")

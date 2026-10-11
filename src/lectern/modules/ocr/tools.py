@@ -67,8 +67,9 @@ def _ocr_model(ctx: ToolContext) -> CatalogEntry | None:
 
 
 def _cleanup_model(ctx: ToolContext) -> CatalogEntry | None:
-    """The usual chat model, where the chat runs on its MLX build and cleanup can't: on a
-    Mac set up with MLX it isn't on disk until the first scan."""
+    """The model that cleans pages, when it isn't the copy the chat runs on: one chosen for
+    cleanup, or a small one where the chat runs on its MLX build. On a Mac set up with MLX
+    it isn't on disk until the first scan."""
     if ctx.runtime is None:
         return None
     return cleanup_model(ctx.runtime)
@@ -108,7 +109,7 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
         also = "also " if entry is not None and not model_download.on_disk(ctx, entry) else ""
         question += (
             f" It {also}downloads {cleanup.title} ({cleanup.size / 1e9:.1f} GB, "
-            f"{cleanup.licence}) to clean up the pages: the chat's MLX model can't."
+            f"{cleanup.licence}) to clean up the pages."
         )
     if params.then_export:
         question += f" When it finishes: export to {params.then_export.upper()}."

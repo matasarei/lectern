@@ -7,7 +7,7 @@ only loads the model); everything else on first use.
 
 The chat model is the recommended one unless another is chosen from the list here. On a Mac
 with MLX switched on, the model's MLX build is all the first chat needs: setup finishes on it,
-and llama.cpp and the usual model are fetched by whatever first needs them.
+and llama.cpp and the model that cleans scanned pages are fetched by the first scan.
 """
 
 from __future__ import annotations

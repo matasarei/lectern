@@ -116,10 +116,13 @@ class ModelRuntime:
         # loading. Shown in the chat, the OCR tab and Models & memory.
         self.activity: dict | None = None
         self.engine: Any = None  # wiring.Engine: the llama.cpp build, for first-run to fetch
-        # The key to lease a role by for work whose answer is held to a JSON schema (OCR
-        # cleanup): the role itself, unless wiring knows better. On a Mac with MLX on, the
-        # role's model is an MLX build, whose server can't do that; wiring then names the GGUF.
-        self.schema_key: Callable[[str], str] = lambda role: role
+        # The key OCR cleanup leases by, whose answer is held to a JSON schema: the chat's own
+        # model, unless wiring knows better. A model can be chosen for cleanup, and on a Mac
+        # with MLX on the chat's model is an MLX build, whose server can't do that; wiring
+        # then names a GGUF model. And the model cleanup uses when none is chosen for it (a
+        # catalog id; None here, where there's no catalog to pick from).
+        self.cleanup_key: Callable[[], str] = lambda: "main"
+        self.cleanup_default: Callable[[], str | None] = lambda: None
         # The model chosen for each role in Models & memory (role → catalog id); wiring reads
         # it from the settings. Nothing chosen: every role gets the one recommended here.
         self.chosen_models: Callable[[], Mapping[str, str | None]] = dict

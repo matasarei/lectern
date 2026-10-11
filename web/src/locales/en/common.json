@@ -78,7 +78,7 @@
     "engineLlama": "llama.cpp",
     "engineLlamaWhy": "Runs every model. The chat is most reliable on it when it uses its tools.",
     "engineMlx": "MLX",
-    "engineMlxWhy": "Apple's own engine: faster replies, more mistakes when the chat uses its tools. Scanned pages still need llama.cpp and the usual model, which are downloaded the first time you scan.",
+    "engineMlxWhy": "Apple's own engine: faster replies, more mistakes when the chat uses its tools. Scanned pages still need llama.cpp and a small model to clean them up, both downloaded the first time you scan.",
     "engineName": "llama.cpp ({{variant}}), runs the models",
     "engineRetry": "Try the engine again",
     "finish": "Finish setup",
@@ -102,6 +102,9 @@
     "downloadModel": "Download {{title}}",
     "acceptAndDownloadModel": "Accept the {{licence}} licence and download {{title}}",
     "mlxBuild": "MLX build",
+    "runsOnBuild": "runs on its MLX build · {{quant}}",
+    "cleanWhat": "Cleans up scanned pages.",
+    "cleanShares": "The chat's own model: nothing more is loaded for it.",
     "chosen": "used for this role",
     "modelFor": "Model for {{role}}",
     "option": "{{title}} · {{size}}",
@@ -172,7 +175,7 @@
     },
     "mlx": "Use MLX for MLX models (Apple Silicon)",
     "mlxMissing": "MLX isn't installed with this Lectern, so every model runs on llama.cpp. The Mac installer adds it; from a checkout, run `uv sync --extra mlx` and start Lectern again.",
-    "mlxWhy": "MLX is Apple's own engine and can be faster on a Mac. Switched on, a model that has an MLX build shows it under Models by role: once downloaded, the build runs in place of the usual model. On MLX the chat makes more mistakes when it uses its tools. Scanned pages are still read and cleaned up by the usual models, so cleaning one loads the usual chat model as well."
+    "mlxWhy": "MLX is Apple's own engine and can be faster on a Mac. Switched on, a model that has an MLX build shows it under Models by role: once downloaded, the build runs in place of the usual model. On MLX the chat makes more mistakes when it uses its tools. Scanned pages are still read and cleaned up on llama.cpp: cleaning one loads the model on the clean row beside the chat's."
   },
   "projects": {
     "title": "Projects",
