@@ -1060,7 +1060,7 @@ sequenceDiagram
     </div>
     <pre class="mermaid">
 flowchart TB
-  UI["Web UI · React"] -- "REST + SSE" --> API["FastAPI core"]
+  UI["Web UI · React"] -- "REST + WebSockets" --> API["FastAPI core"]
   API --> REG["Module registry"]
   REG --> CHAT["Chat module"]
   REG --> OCR["OCR module"]
@@ -1120,7 +1120,7 @@ export default defineModule({
     <tr><td>Backend</td><td>Python 3.12+, FastAPI, Uvicorn, Pydantic v2</td><td class="why">The PDF tools, Hugging Face downloads and the MLX runners are all Python, and async streaming is built in. <span class="tag">answered</span></td></tr>
     <tr><td>Licence</td><td>Apache-2.0</td><td class="why">Permissive, with a patent grant, and it matches the default models and most dependencies. <span class="tag">answered</span></td></tr>
     <tr><td>Storage</td><td>A real folder per project with <code>.lectern/project.sqlite</code> (WAL) via SQLAlchemy 2 + Alembic; one app database for settings and the catalog</td><td class="why">Projects can be opened, backed up and copied as folders. The index holds links, transcripts, jobs and FTS5 search. <span class="tag">answered</span></td></tr>
-    <tr><td>Jobs</td><td>In-process asyncio worker, jobs stored in a SQLite table, progress over SSE</td><td class="why">No Redis or Celery needed for one machine. Jobs survive a restart.</td></tr>
+    <tr><td>Jobs</td><td>In-process asyncio worker, jobs stored in a SQLite table, progress over a WebSocket</td><td class="why">No Redis or Celery needed for one machine. Jobs survive a restart.</td></tr>
     <tr><td>Runners</td><td><code>llama-server</code> from llama.cpp on every OS (CUDA, Vulkan, Metal, CPU builds); <code>mlx-lm</code> and <code>mlx-vlm</code> on macOS</td><td class="why">Native runners with no Ollama layer in between. llama.cpp is the only one that splits a model between a small GPU and RAM. All speak the OpenAI-compatible HTTP API.</td></tr>
     <tr><td>Model library</td><td><code>huggingface_hub</code> downloads + a catalog file (role, runner, format, measured size)</td><td class="why">Models are picked by role, and the sizes feed the memory budget.</td></tr>
     <tr><td>PDF & images</td><td><code>pypdfium2</code>, Pillow; OpenCV optional for straightening scans</td><td class="why">pypdfium2 has a permissive licence. PyMuPDF is AGPL, so it's avoided.</td></tr>
