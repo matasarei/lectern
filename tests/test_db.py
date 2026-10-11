@@ -67,3 +67,65 @@ def test_downloads_made_before_revisions_were_recorded_get_the_pin_of_that_time(
         "qwen3.5-4b": None,
         "made-up-model": None,
     }
+
+
+def test_accounts_are_added_to_an_install_that_had_one_local_user(tmp_path):
+    """0004: the local user becomes the admin, with no password yet, and keeps its projects."""
+    import sqlalchemy as sa
+    from sqlalchemy import text
+
+    from lectern.core.db import migrate
+
+    engine = make_engine(tmp_path / "app.sqlite")
+    _upgrade(engine, "0003")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO projects (owner_id, name, root_kind, root_path, created_at)"
+                " VALUES (1, 'Lease', 'managed', '/p/lease', '2026-10-01 00:00:00')"
+            )
+        )
+
+    migrate(engine)
+    migrate(engine)  # and again: nothing more to do
+
+    with engine.connect() as connection:
+        user = connection.execute(text("SELECT * FROM users")).mappings().one()
+        owners = connection.execute(text("SELECT owner_id, name FROM projects")).all()
+        tables = sa.inspect(connection).get_table_names()
+    assert (user["id"], user["name"], user["role"]) == (1, "local", "admin")
+    assert (user["login"], user["password_hash"], user["locked_until"]) == (None, None, None)
+    assert (user["disabled"], user["failed_logins"]) == (0, 0)
+    assert owners == [(1, "Lease")]
+    assert "logins" in tables
+    engine.dispose()
+
+
+def test_the_accounts_tables_refuse_what_cant_be(tmp_path):
+    import sqlalchemy as sa
+    from sqlalchemy import text
+
+    from lectern.core.db import migrate
+
+    engine = make_engine(tmp_path / "app.sqlite")
+    migrate(engine)
+    add = text(
+        "INSERT INTO users (name, login, role, disabled, failed_logins, created_at)"
+        " VALUES (:name, :login, :role, 0, 0, '2026-10-11 00:00:00')"
+    )
+    with engine.begin() as connection:
+        connection.execute(add, {"name": "olena", "login": "olena", "role": "member"})
+    for clash in (
+        {"name": "olena2", "login": "olena", "role": "member"},  # a sign-in name taken
+        {"name": "boss", "login": "boss", "role": "owner"},  # no such role
+    ):
+        with pytest.raises(sa.exc.IntegrityError), engine.begin() as connection:
+            connection.execute(add, clash)
+    with pytest.raises(sa.exc.IntegrityError), engine.begin() as connection:
+        connection.execute(  # a login for a user that doesn't exist
+            text(
+                "INSERT INTO logins (id_hash, user_id, token, created_at, last_seen_at,"
+                " expires_at) VALUES ('h', 99, 't', '2026-10-11', '2026-10-11', '2026-11-10')"
+            )
+        )
+    engine.dispose()

@@ -1,14 +1,24 @@
 """Tables in the app database (settings, users, the project registry, downloads).
 
-Anything a person owns carries `owner_id`, so login can be added after the MVP without
-changing these tables. In the MVP there is exactly one user, `local`.
+Anything a person owns carries `owner_id`. An install starts with one user, `local`, and
+nobody signs in; `lectern user init` gives it a sign-in name and a password, and from then on
+there are accounts (see `lectern.core.accounts`).
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 LOCAL_USER_ID = 1
@@ -25,10 +35,36 @@ class Base(DeclarativeBase):
 
 class UserRow(Base):
     __tablename__ = "users"
+    __table_args__ = (CheckConstraint("role IN ('admin', 'member')", name="role"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # The folder the user's projects are under (users/<name>/projects): never changed.
     name: Mapped[str] = mapped_column(String(64), unique=True)
+    # What the person types to sign in, in lower case. None: no account yet (the local user
+    # of an install where nobody signs in).
+    login: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Wrong passwords in a row, and until when the next try must wait.
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class LoginRow(Base):
+    """A browser signed in. The cookie holds an id; this holds its SHA-256, so the table
+    gives nobody a way in. `token` is what that browser sends in a header with every request
+    (the per-install token's place)."""
+
+    __tablename__ = "logins"
+
+    id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class SettingRow(Base):
