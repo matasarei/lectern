@@ -280,7 +280,7 @@ def test_on_mlx_the_card_says_it_downloads_the_usual_chat_model_as_well(ctx):
     assert "It downloads PaddleOCR-VL 1.6 first" in question
     assert (
         f"It also downloads {chat.title} ({chat.size / 1e9:.1f} GB, {chat.licence}) to clean "
-        "up the pages: the chat's MLX model can't."
+        "up the pages."
     ) in question
 
 
@@ -291,7 +291,8 @@ def test_on_mlx_with_the_ocr_model_there_the_card_names_only_the_chat_model(ctx)
 
     assert "PaddleOCR" not in question and "also" not in question
     size = f"{chat.size / 1e9:.1f} GB"
-    assert f"It downloads {chat.title} ({size}, {chat.licence}) to clean" in question
+    assert f"It downloads {chat.title} ({size}, {chat.licence}) to clean up the pages." in question
+    assert "MLX" not in question  # a model chosen for cleanup is fetched the same way
     assert question.endswith("When it finishes: export to ODT.")
 
 

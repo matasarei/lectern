@@ -183,10 +183,10 @@ models a checkout already downloaded.
 
 Models run on llama.cpp (Metal) by default, on a Mac as everywhere. The installer also adds
 MLX, Apple's own engine, and the first run offers the two side by side, llama.cpp selected.
-Pick MLX there and only the chat model's MLX build is downloaded: llama.cpp and the usual
-chat model come the first time you scan a page. Asked for in the chat, the scan says what it
-downloads first; started from a file's own button, it tells you which model to download in
-Models & memory.
+Pick MLX there and only the chat model's MLX build is downloaded: llama.cpp and a small
+model that cleans the pages up (2.7 GB) come the first time you scan a page. Asked for in
+the chat, the scan says what it downloads first; started from a file's own button, it tells
+you which model to download in Models & memory.
 
 You can change your mind later in **Models & memory** → "Use MLX for MLX models". The chat
 model then shows an MLX build under it: download that, and the chat runs on it. Until it's
@@ -197,8 +197,9 @@ What it gives and what it costs, measured with the 4B chat model on an M4 Max:
 - **Faster replies:** about 124 tokens a second against 105.
 - **More mistakes with tools:** MLX can't hold the model to the exact shape a tool expects,
   so the chat gets a tool call wrong more often and has to be told.
-- **Scanned pages are cleaned by the usual chat model,** for the same reason. So while an OCR
-  session is cleaned, both chat models are in memory.
+- **Scanned pages are cleaned by a model on llama.cpp,** for the same reason: the 4B chat
+  model, unless you choose another on the `clean` row of "Models by role". While an OCR
+  session is cleaned, it is in memory beside the chat's model.
 - **Long conversations count their size by estimate,** not exactly, so old messages may be
   summarised a little early or late.
 
@@ -217,7 +218,9 @@ memory** page.
   than this computer is meant for can still be chosen: it may be slow, run with a small
   context, or not load. A change takes effect with the next reply, without a restart. After
   a change of hardware (a new video card) the *recommended* mark moves, and a role goes on
-  using the model it already has until you switch.
+  using the model it already has until you switch. Cleaning up scanned pages has a row of
+  its own (`clean`): the chat's own model does it unless you pick another, or the chat runs
+  on MLX.
 - **What's installed.** "Installed models" lists what's on disk: each model's version (the
   Hugging Face revision it was downloaded at), its size and the roles using it. **Remove**
   deletes a model after asking; one that's in use isn't removed. A role whose model was
