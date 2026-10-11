@@ -9,8 +9,8 @@ import type { RuntimeState } from "../api/types";
 export const REFRESH_DEBOUNCE_MS = 250;
 
 /** One runtime event stream for the whole page, however many components read the runtime
- * (the header, the chat, the OCR tab, Models & memory): over HTTP/1.1 a browser allows six
- * connections per host, and a stream per reader would use them up. It opens with the first
+ * (the header, the chat, the OCR tab, Models & memory): one socket and one listener on the
+ * server, and one refetch per event, not one of each per reader. It opens with the first
  * reader and closes with the last. */
 const shared = {
   readers: new Map<QueryClient, number>(),

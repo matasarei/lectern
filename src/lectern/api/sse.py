@@ -1,4 +1,9 @@
-"""Server-sent events read with fetch() (EventSource can't send the token header).
+"""The server's event streams as HTTP responses (server-sent events), and the loop every
+stream runs whatever it is sent over (`follow`).
+
+The page follows the same events on WebSockets (`lectern.api.ws`): held open as responses,
+its streams used up the six connections a browser allows to one host. These routes stay for
+what reads a stream without a browser: `lectern dev agent-check`, and the tests.
 
 Every stream also ends when the app starts shutting down (`app.state.shutting_down`, set by
 `lectern serve` on Ctrl+C). Uvicorn waits for open connections before it runs the app's
