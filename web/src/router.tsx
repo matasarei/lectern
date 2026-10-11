@@ -14,6 +14,7 @@ import { PasswordPage, SignedIn } from "./routes/login";
 import { ProjectPage } from "./routes/project";
 import { ProjectsPage } from "./routes/projects";
 import { ModelsPage } from "./routes/settings/models";
+import { UsersPage } from "./routes/settings/users";
 
 function Shell() {
   return (
@@ -54,6 +55,11 @@ const modelsRoute = createRoute({
   component: ModelsPage,
 });
 
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/users",
+  component: UsersPage,
+});
 const passwordRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/password",
@@ -76,6 +82,7 @@ export const routeTree = rootRoute.addChildren([
   firstRunRoute,
   modelsRoute,
   passwordRoute,
+  usersRoute,
   projectsRoute,
   projectRoute,
 ]);

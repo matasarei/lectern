@@ -4,7 +4,7 @@ import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ApiError, apiPost, getToken, setToken } from "../api/client";
-import { signedIn, signedOut, useSession, type Who } from "../api/session";
+import { signedIn, signedOut, useIsAdmin, useSession, type Who } from "../api/session";
 import { ErrorNote } from "../components";
 
 const FIELD = "rounded-md border border-line bg-surface px-3 py-1.5";
@@ -85,11 +85,15 @@ function SignInPage() {
   );
 }
 
-/** Who is signed in, with Change password and Sign out. Nothing where nobody signs in. */
+const LINK = "font-semibold text-accent hover:underline";
+
+/** Who is signed in, with Change password and Sign out, and Users for an admin. Nothing
+ * where nobody signs in. */
 export function AccountBar() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const session = useSession();
+  const admin = useIsAdmin();
   // Signed out here only once the server has ended the login: the cookie is its to remove,
   // and with it left a reload would bring the person back for whoever sits down next.
   const signOut = useMutation({
@@ -101,21 +105,32 @@ export function AccountBar() {
   });
   if (!session.accounts || !session.user) return null;
   const { login } = session.user;
-  if (login === null) return <p className="text-sm text-muted">{t("account.thisComputer")}</p>;
+  const users = admin && (
+    <Link to="/settings/users" className={LINK}>
+      {t("account.users")}
+    </Link>
+  );
   return (
     <div className="grid gap-2">
       <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
-        <span>{t("account.signedInAs", { name: login })}</span>
-        <Link to="/settings/password" className="font-semibold text-accent hover:underline">
-          {t("account.changePassword")}
-        </Link>
-        <button
-          className="font-semibold text-accent hover:underline"
-          disabled={signOut.isPending}
-          onClick={() => signOut.mutate()}
-        >
-          {t("account.signOut")}
-        </button>
+        {login === null ? (
+          // The computer's own link: no account behind it, so nothing to sign out of.
+          <>
+            <span>{t("account.thisComputer")}</span>
+            {users}
+          </>
+        ) : (
+          <>
+            <span>{t("account.signedInAs", { name: login })}</span>
+            {users}
+            <Link to="/settings/password" className={LINK}>
+              {t("account.changePassword")}
+            </Link>
+            <button className={LINK} disabled={signOut.isPending} onClick={() => signOut.mutate()}>
+              {t("account.signOut")}
+            </button>
+          </>
+        )}
       </p>
       {signOut.error && <ErrorNote message={t("account.signOutFailed")} />}
     </div>

@@ -225,11 +225,25 @@ describe("The account line", () => {
     expect(getToken()).toBe("t1");
   });
 
+  it("leads an admin to Users, and nobody else", () => {
+    setSession({ accounts: true, user: { login: "yevhen", role: "admin" } });
+    const { unmount } = show(<AccountBar />);
+    expect(screen.getByRole("link", { name: "Users" }).getAttribute("href")).toBe(
+      "/settings/users",
+    );
+    unmount();
+
+    setSession({ accounts: true, user: OLENA });
+    show(<AccountBar />);
+    expect(screen.queryByRole("link", { name: "Users" })).toBeNull();
+  });
+
   it("says the page was opened with the computer's link, which has no password", () => {
     setSession({ accounts: true, user: { login: null, role: "admin" } });
     show(<AccountBar />);
 
     expect(screen.getByText(/this computer's link/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Users" })).toBeTruthy(); // the link is the admin's
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Change password" })).toBeNull();
   });

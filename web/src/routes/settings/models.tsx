@@ -4,6 +4,7 @@ import { Fragment, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, ApiError, apiPost } from "../../api/client";
+import { useIsAdmin } from "../../api/session";
 import type {
   CatalogModel,
   ChoiceRole,
@@ -44,9 +45,11 @@ const ROLE_COLOURS: Record<Role, string> = {
 const roleOf = (resident: Resident) => resident.role.split("@")[0] as Role;
 
 /** Models & memory: the machine, live memory use, the model for each role, and how the
- * runtime shares the GPU. */
+ * runtime shares the GPU. Someone who isn't an admin sees it all and can change none of it:
+ * no lists to choose from, no Download, Update or Remove, no settings. */
 export function ModelsPage() {
   const { t } = useTranslation();
+  const admin = useIsAdmin();
   const live = useDownloadEvents();
   const runtime = useRuntime();
   const system = useQuery({
@@ -152,14 +155,19 @@ export function ModelsPage() {
                 const model = id ? byId.get(id) : undefined;
                 if (!model) return null;
                 const recommendedId = models.data.defaults[role];
-                const choice: RoleChoice = {
-                  // What the server says it can be given. An MLX build never is: it comes
-                  // with its model, and can't clean pages.
-                  options: (models.data.choices[role] ?? []).flatMap((option) => byId.get(option) ?? []),
-                  recommended: recommendedId ? byId.get(recommendedId) : undefined,
-                  pending: choose.isPending,
-                  onChoose: (modelId) => choose.mutate({ role, modelId }),
-                };
+                // Nothing to choose for someone who isn't an admin: the row names the model.
+                const choice: RoleChoice | undefined = admin
+                  ? {
+                      // What the server says it can be given. An MLX build never is: it
+                      // comes with its model, and can't clean pages.
+                      options: (models.data.choices[role] ?? []).flatMap(
+                        (option) => byId.get(option) ?? [],
+                      ),
+                      recommended: recommendedId ? byId.get(recommendedId) : undefined,
+                      pending: choose.isPending,
+                      onChoose: (modelId) => choose.mutate({ role, modelId }),
+                    }
+                  : undefined;
                 // With MLX switched on, a model has its MLX build beside it. Not for cleanup,
                 // which a build can't do.
                 const build =
@@ -240,12 +248,14 @@ export function ModelsPage() {
             }
           />
         )}
-        <p className="text-sm text-muted">{t("modelsPage.onFirstUse")}</p>
+        <p className="text-sm text-muted">
+          {t(admin ? "modelsPage.onFirstUse" : "modelsPage.adminOnly")}
+        </p>
       </Card>
 
       <InstalledCard models={models.data} />
 
-      <SettingsCard />
+      {admin && <SettingsCard />}
     </Page>
   );
 }
@@ -307,6 +317,7 @@ function RoleRow({
   sharesTheChats?: boolean;
 }) {
   const { t } = useTranslation();
+  const admin = useIsAdmin();
   const queryClient = useQueryClient();
   // What the row's facts are about: the model, or the MLX build the role runs on.
   const shown = runsOn ?? model;
@@ -314,7 +325,7 @@ function RoleRow({
   // Shown for what isn't on disk and isn't on its way: "none", a stopped or paused download.
   // Not on cleanup's row for the chat's own copy: the chat's row, just above, has it.
   const canStart =
-    !resident && !sharesTheChats && ["none", "failed", "paused"].includes(state.status);
+    admin && !resident && !sharesTheChats && ["none", "failed", "paused"].includes(state.status);
   const start = useMutation({
     mutationFn: () =>
       apiPost(`/api/models/${shown.id}/download`, { accept_licence: shown.licence_notice }),
@@ -452,6 +463,7 @@ function RoleRow({
  * with its version, its size and Remove. Nothing on disk: no card. */
 function InstalledCard({ models }: { models: ModelsResponse }) {
   const { t } = useTranslation();
+  const admin = useIsAdmin();
   const queryClient = useQueryClient();
   // The one Remove was pressed for: it's asked about in place before anything is deleted.
   const [asking, setAsking] = useState<string | null>(null);
@@ -525,7 +537,7 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
             </span>
             <span className="flex items-center gap-3">
               <span className="tabular-nums">{formatBytes(row.bytes)}</span>
-              {row.canUpdate && (
+              {admin && row.canUpdate && (
                 <button
                   className="btn-secondary"
                   aria-label={t("modelsPage.updateModel", { title: row.title })}
@@ -535,7 +547,7 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
                   {t("modelsPage.update")}
                 </button>
               )}
-              {asking !== row.name && (
+              {admin && asking !== row.name && (
                 <button
                   className="btn-secondary"
                   aria-label={t("modelsPage.removeModel", { title: row.title })}
@@ -601,7 +613,7 @@ function InstalledCard({ models }: { models: ModelsResponse }) {
           message={update.error instanceof ApiError ? update.error.detail : t("common.loadFailed")}
         />
       )}
-      <p className="text-sm text-muted">{t("modelsPage.installedWhy")}</p>
+      {admin && <p className="text-sm text-muted">{t("modelsPage.installedWhy")}</p>}
     </Card>
   );
 }
