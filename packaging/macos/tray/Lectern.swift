@@ -91,6 +91,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         statusItem.menu = menu
+        redrawIconWhenTheScreenChanges()
         quitOnSIGTERM()
 
         // Opened by hand, the browser follows once Lectern answers. Not when the installer
@@ -455,6 +456,26 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         let quit = { sender.reply(toApplicationShouldTerminate: true) }
         if state == .stopping { afterStop = quit } else { stop(then: quit) }
         return .terminateLater
+    }
+
+    // The icon has come out at the wrong scale after the screen changed under it: the external
+    // monitor (1x) unplugged, the built-in Retina display (2x) taking over. The app set its
+    // icon only when Lectern's state changed, so nothing drew it again for the new screen.
+    // Now the symbol's size is the button's own setting, which it keeps however often it
+    // redraws, and the icon is set afresh when the screens change or the item's window moves
+    // to a screen of another scale.
+    private func redrawIconWhenTheScreenChanges() {
+        statusItem.button?.symbolConfiguration = Self.menuBarSymbol
+        let center = NotificationCenter.default
+        for name in [
+            NSApplication.didChangeScreenParametersNotification,
+            NSWindow.didChangeBackingPropertiesNotification,  // any window: the item's is the only one
+        ] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.refresh()
+                self?.statusItem.button?.needsDisplay = true
+            }
+        }
     }
 
     private func refresh() {
