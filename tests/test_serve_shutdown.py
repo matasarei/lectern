@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import signal
 import socket
@@ -28,10 +29,68 @@ def test_server_config_gives_up_on_stuck_connections(paths):
     assert config.timeout_graceful_shutdown == SHUTDOWN_GRACE_SECONDS
 
 
+def _exactly(conn: socket.socket, count: int) -> bytes:
+    data = b""
+    while len(data) < count:
+        piece = conn.recv(count - len(data))
+        if not piece:
+            raise ConnectionError("the server closed the connection")
+        data += piece
+    return data
+
+
+def _hold_socket(port: int, token: str, path: str, connected: threading.Barrier) -> None:
+    """Open a WebSocket as a browser does and keep it until the server closes it, answering
+    its close as a browser does. Written out by hand: no WebSocket client is a dependency."""
+    key = base64.b64encode(os.urandom(16)).decode()
+    with socket.create_connection(("127.0.0.1", port), timeout=30) as conn:
+        conn.sendall(
+            (
+                f"GET {path} HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{port}\r\n"
+                f"Origin: http://127.0.0.1:{port}\r\n"
+                "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
+                f"Sec-WebSocket-Protocol: lectern.v1, lectern.token.{token}\r\n\r\n"
+            ).encode()
+        )
+        answer = b""
+        while b"\r\n\r\n" not in answer:
+            answer += _exactly(conn, 1)
+        assert answer.startswith(b"HTTP/1.1 101"), answer
+        connected.wait()
+        while True:  # frames from the server (never masked), until its close
+            first, second = _exactly(conn, 2)
+            length = second & 0x7F
+            if length == 126:
+                length = int.from_bytes(_exactly(conn, 2), "big")
+            elif length == 127:
+                length = int.from_bytes(_exactly(conn, 8), "big")
+            _exactly(conn, length)
+            if first & 0x0F == 0x8:
+                conn.sendall(bytes([0x88, 0x80, 0, 0, 0, 0]))  # close, masked, no payload
+                return
+
+
+def _hold_stream(port: int, token: str, path: str, connected: threading.Barrier) -> None:
+    base = f"http://127.0.0.1:{port}"
+    with (
+        httpx2.Client(base_url=base, headers={"X-Lectern-Token": token}, timeout=30) as c,
+        c.stream("GET", path) as stream,
+    ):
+        lines = stream.iter_lines()
+        next(lines)  # ": connected"
+        connected.wait()
+        for _ in lines:  # until the server ends the stream
+            pass
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="sends SIGINT to a child process")
-def test_ctrl_c_exits_while_the_page_holds_event_streams(tmp_path):
+@pytest.mark.parametrize("hold", [_hold_socket, _hold_stream], ids=["sockets", "http streams"])
+def test_ctrl_c_exits_while_the_page_holds_event_streams(tmp_path, hold):
     """The browser tab `lectern serve` opens keeps /api/runtime/events and /api/models/events
-    open. Ctrl+C must still end the process, promptly and without a traceback."""
+    open: as sockets, which is what the page follows, or as HTTP streams. Ctrl+C must still
+    end the process, promptly and without a traceback."""
     home = tmp_path / "home"
     port = _free_port()
     env = {**os.environ, "LECTERN_HOME": str(home)}
@@ -52,20 +111,8 @@ def test_ctrl_c_exits_while_the_page_holds_event_streams(tmp_path):
                 time.sleep(0.1)
         token = (home / "token").read_text()
         connected = threading.Barrier(3)
-
-        def hold(path: str) -> None:
-            with (
-                httpx2.Client(base_url=base, headers={"X-Lectern-Token": token}, timeout=30) as c,
-                c.stream("GET", path) as stream,
-            ):
-                lines = stream.iter_lines()
-                next(lines)  # ": connected"
-                connected.wait()
-                for _ in lines:  # until the server ends the stream
-                    pass
-
         holders = [
-            threading.Thread(target=hold, args=(p,), daemon=True)
+            threading.Thread(target=hold, args=(port, token, p, connected), daemon=True)
             for p in ("/api/runtime/events", "/api/models/events")
         ]
         for h in holders:
