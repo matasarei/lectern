@@ -41,3 +41,8 @@ def test_lines_a_page_really_repeats_are_left_alone():
 def test_blank_lines_at_the_end_arent_a_loop():
     padded = HEAD + "\n" * 40
     assert cut_trailing_loop(padded) == (padded, "", 0)
+
+
+def test_a_run_counts_as_a_loop_from_twenty_lines_beyond_the_first():
+    assert cut_trailing_loop("Total" + "\nRed" * 20) == ("Total" + "\nRed" * 20, "", 0)
+    assert cut_trailing_loop("Total" + "\nRed" * 21) == ("Total\nRed", "Red", 20)
