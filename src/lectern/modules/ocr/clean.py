@@ -204,7 +204,7 @@ async def clean_page(
                 raise CleanFailed(
                     f"The cleaned page didn't fit in the chat model's reply ({CLEAN_TOKENS} "
                     "tokens): the page has more text than one cleanup can return. If its "
-                    "reading repeats itself, read the page again."
+                    "reading repeats itself, read it again with Re-run page."
                 ) from None
             problem = _what_was_wrong(exc)
             if attempt == 0:
@@ -237,8 +237,8 @@ def _say_loop_left_out(page: CleanedPage, repeated: str, more: int) -> CleanedPa
         return page
     why = (
         f"Left out: the OCR model repeated this {more} more times, to the end of its reading. "
-        "Anything on the page after it wasn't read: read the page again, with another model "
-        "if it repeats."
+        "Anything on the page after it wasn't read: read it again with Re-run page, with "
+        "another model if it repeats."
     )
     fix = CleanFix(before=repeated[:120], after="", why=why[:WHY_CHARS])
     return page.model_copy(update={"fixes": [*page.fixes, fix]})
