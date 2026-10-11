@@ -244,3 +244,54 @@ def test_no_password_or_id_is_sent_back(app):
     listed = admin.get("/api/users").text
     assert "argon2" not in listed and "password" not in listed
     assert admin.cookies["__Host-lectern"] not in signed.text
+
+
+# --- how many sign-ins are checked at once --------------------------------------------------------
+
+
+def test_only_a_few_sign_ins_are_checked_at_once_and_a_crowd_is_turned_away():
+    """Checking a password takes 64 MiB. Anyone can reach the sign-in route, so without a
+    limit forty requests at once would take 2.5 GB and every worker thread."""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from lectern.api.accounts import SignInGate
+
+    async def crowd() -> tuple[list[int], int, list[int]]:
+        gate = SignInGate(at_once=2, waiting=3)
+        release = asyncio.Event()
+        checking: list[int] = []
+
+        async def one(n: int) -> None:
+            async with gate.turn():
+                checking.append(n)
+                await release.wait()
+
+        people = [asyncio.create_task(one(n)) for n in range(5)]
+        for _ in range(3):
+            await asyncio.sleep(0)  # let them reach the gate
+        at_once = list(checking)  # two are in; three wait their turn
+        with pytest.raises(HTTPException) as turned_away:
+            async with gate.turn():  # a sixth, while five are at the gate
+                pass
+        release.set()
+        await asyncio.gather(*people)
+        async with gate.turn():  # and afterwards there is room again
+            pass
+        return at_once, turned_away.value.status_code, checking
+
+    at_once, status, everyone = asyncio.run(crowd())
+    assert at_once == [0, 1]
+    assert status == 429
+    assert sorted(everyone) == [0, 1, 2, 3, 4]  # those who waited got their turn
+
+
+def test_the_sign_in_route_goes_through_the_gate(app):
+    from lectern.api.accounts import SignInGate
+
+    app.state.sign_in_gate = SignInGate(at_once=1, waiting=-1)  # no room at all
+    answer = _browser(app).post("/api/login", json={"login": "olena", "password": PASSWORD})
+    assert answer.status_code == 429
+    assert "Too many sign-ins at once" in answer.json()["detail"]
+    assert answer.headers["retry-after"] == "5" and "set-cookie" not in answer.headers

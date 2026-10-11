@@ -16,6 +16,7 @@ from lectern.agent.core_tools import CORE_TOOLS
 from lectern.agent.export_tools import export_tools
 from lectern.agent.turns import TurnManager
 from lectern.api import api_router, open_api_router
+from lectern.api.accounts import SignInGate
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
 from lectern.core.accounts import Logins
@@ -127,5 +128,6 @@ def create_app(
         local_user=LOCAL_USER,
     )
     app.state.public = public  # for the login cookie's name on each address
+    app.state.sign_in_gate = SignInGate()
     app.state.public_urls = [u.origin for u in public]
     return app

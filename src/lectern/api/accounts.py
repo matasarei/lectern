@@ -12,6 +12,9 @@ There is no sign-up: an admin adds people, here or with `lectern user add`.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -29,6 +32,31 @@ router = APIRouter()
 open_router = APIRouter()
 
 NO_STORE = {"Cache-Control": "no-store"}  # an answer holding a token is never kept
+
+
+class SignInGate:
+    """How many sign-ins are checked at once. Checking a password takes 64 MiB and a worker
+    thread, and anyone who reaches Lectern can ask: `at_once` are checked, `waiting` more
+    wait their turn (on the event loop, which costs nothing), and the rest are told to come
+    back. A family never notices; a flood can't take the memory or the threads."""
+
+    def __init__(self, at_once: int = 2, waiting: int = 8) -> None:
+        self._checking = asyncio.Semaphore(at_once)
+        self._room = at_once + waiting
+        self._here = 0
+
+    @contextlib.asynccontextmanager
+    async def turn(self) -> AsyncIterator[None]:
+        if self._here >= self._room:
+            raise HTTPException(
+                429, "Too many sign-ins at once. Try again in a moment.", {"Retry-After": "5"}
+            )
+        self._here += 1
+        try:
+            async with self._checking:
+                yield
+        finally:
+            self._here -= 1
 
 
 class SignIn(BaseModel):
@@ -102,15 +130,19 @@ def whoami(request: Request, response: Response) -> dict:
 
 
 @open_router.post("/login")
-def sign_in(body: SignIn, request: Request, response: Response) -> dict:
+async def sign_in(body: SignIn, request: Request, response: Response) -> dict:
     sessions = request.app.state.sessions
-    if not accounts.accounts_on(sessions):
+    if not await run_in_threadpool(accounts.accounts_on, sessions):
         raise HTTPException(409, "Nobody signs in here: accounts aren't set up.")
-    try:
-        user = accounts.sign_in(sessions, body.login, body.password, _now())
-    except accounts.SignInRefused as refused:
-        raise HTTPException(401, str(refused)) from None
-    return {"user": _who(user), "token": _open_login(request, response, user)}
+    async with request.app.state.sign_in_gate.turn():
+        try:
+            user = await run_in_threadpool(
+                accounts.sign_in, sessions, body.login, body.password, _now()
+            )
+        except accounts.SignInRefused as refused:
+            raise HTTPException(401, str(refused)) from None
+    token = await run_in_threadpool(_open_login, request, response, user)
+    return {"user": _who(user), "token": token}
 
 
 @router.post("/logout")
