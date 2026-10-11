@@ -200,7 +200,7 @@ async def clean_page(
                     "tokens): the page has more text than one cleanup can return. If its "
                     "reading repeats itself, read the page again."
                 ) from None
-            problem = str(exc).splitlines()[0]
+            problem = _what_was_wrong(exc)
             if attempt == 0:
                 messages += [
                     {"role": "assistant", "content": reply},
@@ -211,6 +211,17 @@ async def clean_page(
                     },  # fmt: skip
                 ]
     raise CleanFailed(f"The chat model's cleanup wasn't valid, twice ({problem}).")
+
+
+def _what_was_wrong(error: ValidationError | ValueError) -> str:
+    """What didn't fit, for the model asked again and for the person: where in the reply and
+    why. Not the validator's own first line, which is only a count of errors."""
+    if not isinstance(error, ValidationError):
+        return str(error).splitlines()[0]
+    first, *others = error.errors()
+    where = ".".join(str(part) for part in first["loc"])
+    said = f"{where}: {first['msg']}" if where else first["msg"]
+    return f"{said} (and {len(others)} more)" if others else said
 
 
 def _say_loop_left_out(page: CleanedPage, repeated: str, more: int) -> CleanedPage:

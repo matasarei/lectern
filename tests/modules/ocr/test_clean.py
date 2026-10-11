@@ -326,3 +326,29 @@ def test_a_reply_cut_off_at_the_token_limit_fails_at_once_and_says_so():
 def test_a_reply_that_just_fits_is_taken_whatever_the_finish_reason_says():
     page = _clean(_client(CutOff(json.dumps(GOOD))))
     assert len(page.blocks) == 4
+
+
+@pytest.mark.parametrize(
+    ("bad", "problem"),
+    [
+        ("{not json", "Invalid JSON: key must be a string"),
+        (
+            json.dumps({"blocks": [{"type": "poem", "text": "x"}], "doubts": [], "fixes": []}),
+            "blocks.0.type: Input should be 'heading', 'paragraph'",
+        ),
+        (
+            json.dumps({"blocks": [], "doubts": [{"block": -1, "raw": ""}], "fixes": []}),
+            "doubts.0.block: Input should be greater than or equal to 0 (and 1 more)",
+        ),
+    ],
+)
+def test_the_model_and_the_person_are_told_what_was_wrong_with_a_reply(bad: str, problem: str):
+    """Not "1 validation error for CleanedPage", which tells the model nothing to fix and
+    the person nothing at all."""
+    seen: list[dict] = []
+    with pytest.raises(CleanFailed) as failed:
+        _clean(_client(bad, bad, seen=seen))
+
+    assert problem in seen[1]["messages"][-1]["content"]  # the model, asked again
+    assert problem in str(failed.value)  # the person, on the failed page
+    assert "validation error" not in str(failed.value)
