@@ -29,6 +29,8 @@ CLEAN_TOKENS_PER_CHAR = 1  # of the page, for a longer one
 CLEAN_TOKENS_OVER = 512  # and this much over, for its doubts and fixes
 CLEAN_TOKENS_MOST = 8192  # at most: the smallest context a chat model gets (4 GB tier)
 EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross the break
+# How long a reply of CLEAN_TOKENS is waited for: about 5 tokens a second, half what the
+# 4 GB tier is asked to reach. A reply given more room is given longer, at the same speed.
 CLEAN_TIMEOUT = 600.0
 CONFIRMED_LIMIT = 30  # readings the person confirmed, newest first, given to a later cleanup
 WHY_CHARS = 300  # a fix's reason; a small model has written its whole reasoning there
@@ -361,8 +363,13 @@ async def _ask(client: httpx2.AsyncClient, messages: list[dict], room: int) -> R
         },
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    wait = CLEAN_TIMEOUT * room / CLEAN_TOKENS
     try:
-        response = await client.post("/v1/chat/completions", json=body, timeout=CLEAN_TIMEOUT)
+        response = await client.post("/v1/chat/completions", json=body, timeout=wait)
+    except httpx2.TimeoutException:
+        raise CleanFailed(
+            f"The chat model took too long to clean the page (over {round(wait / 60)} minutes)."
+        ) from None
     except httpx2.HTTPError as exc:
         raise CleanFailed(f"The chat model couldn't be reached ({exc}).") from None
     if response.status_code != 200:

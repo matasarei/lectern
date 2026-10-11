@@ -27,14 +27,21 @@ class CutOff(str):
     tokens = 0
 
 
-def _client(*replies: str | int, seen: list | None = None) -> httpx2.AsyncClient:
+def _client(
+    *replies: str | int | Exception, seen: list | None = None, waits: list | None = None
+) -> httpx2.AsyncClient:
+    """`seen` collects each request's body; `waits`, how long each is given to answer."""
     queue = list(replies)
 
     async def handler(request: httpx2.Request) -> httpx2.Response:
         await asyncio.sleep(0)
         if seen is not None:
             seen.append(json.loads(request.content))
+        if waits is not None:
+            waits.append(request.extensions["timeout"]["read"])
         reply = queue.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
         if isinstance(reply, int):
             return httpx2.Response(reply)
         cut_off = isinstance(reply, CutOff)
@@ -405,3 +412,28 @@ def test_a_reply_cut_off_by_the_models_context_says_how_far_it_got():
 
     assert "1388 tokens" in str(failed.value)
     assert "3072" not in str(failed.value)
+
+
+@pytest.mark.parametrize(("chars", "seconds"), [(30, 600), (6000, 1272), (20000, 1600)])
+def test_a_reply_with_more_room_is_given_longer_to_arrive(chars: int, seconds: int):
+    """At the speed 3,072 tokens were given 600 seconds for. Left at 600, a dense page on a
+    slow card (4,681 tokens at 7 a second: 669 s) would be given up on while still writing."""
+    line = "Орендна плата становить 250,00 грн на місяць. "
+    waits: list[float] = []
+    _clean(_client(json.dumps(GOOD), waits=waits), raw=(line * 500)[:chars])
+
+    assert waits == [pytest.approx(seconds, abs=1)]
+
+
+def test_a_reply_that_takes_too_long_says_so():
+    """Not "couldn't be reached": the model was there, and still writing."""
+    with pytest.raises(CleanFailed, match="took too long") as failed:
+        _clean(_client(httpx2.ReadTimeout("timed out")))
+
+    assert "10 minutes" in str(failed.value)
+    assert "couldn't be reached" not in str(failed.value)
+
+
+def test_a_model_that_isnt_there_still_says_it_couldnt_be_reached():
+    with pytest.raises(CleanFailed, match="couldn't be reached"):
+        _clean(_client(httpx2.ConnectError("refused")))
