@@ -320,6 +320,29 @@ describe("Models & memory", () => {
     expect(document.querySelectorAll("tr[data-role=main]")).toHaveLength(1);
   });
 
+  it("gives the build's size in the list for the model that runs on it", async () => {
+    withMlxBuild("done", true);
+    const list = overrides["/api/models"] as { models: { id: string }[] };
+    overrides["/api/models"] = {
+      ...list,
+      models: [
+        model("qwen3.5-4b", "Qwen3.5 4B", ["main"], "none"),
+        ...list.models.map((m) => (m.id === "qwen3.5-9b-mlx" ? { ...m, size: 3 * 10 ** 9 } : m)),
+      ],
+    };
+    renderPage();
+
+    const select = (await screen.findByLabelText("Model for main")) as HTMLSelectElement;
+    const row = select.closest("tr")!;
+    await waitFor(() => expect(row.textContent).toContain("runs on its MLX build"));
+    // The Size column is the build's; the entry of the model in use agrees with it.
+    expect([...select.options].map((o) => o.text)).toEqual([
+      "Qwen3.5 4B · 2 GB",
+      "Qwen3.5 9B · 3 GB · recommended",
+    ]);
+    expect(row.children[2].textContent).toBe("3 GB");
+  });
+
   it("offers no download of the usual file on the chat's row while its MLX build runs", async () => {
     withMlxBuild("done", true);
     const list = overrides["/api/models"] as { models: { id: string }[] };

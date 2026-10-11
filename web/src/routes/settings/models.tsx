@@ -337,7 +337,11 @@ function RoleRow({
                       : option.suits_tier
                         ? "modelsPage.option"
                         : "modelsPage.optionTooBig",
-                    { title: option.title, size: formatBytes(option.size) },
+                    {
+                      title: option.title,
+                      // Of the model in use, what runs: its MLX build's, as the Size column.
+                      size: formatBytes(option.id === model.id ? shown.size : option.size),
+                    },
                   )}
                 </option>
               ))}
