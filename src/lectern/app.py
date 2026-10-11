@@ -75,7 +75,14 @@ def create_app(
         app.state.projects.dispose()
 
     app = FastAPI(
-        title="Lectern", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan
+        title="Lectern",
+        version=__version__,
+        # No description of the API is served: it would sit outside /api, open to anyone
+        # who reaches the host, and the page doesn't use it.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
     )
     app.state.paths = paths
     app.state.shutting_down = asyncio.Event()  # set by `lectern serve` on Ctrl+C

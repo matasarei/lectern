@@ -80,6 +80,15 @@ def test_every_response_has_csp(client, path):
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
+@pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
+def test_the_api_isnt_described_to_whoever_asks(client, path):
+    """FastAPI serves a description of every route by default, outside /api and so to anyone
+    who reaches the host. The page doesn't use it."""
+    response = client.get(path)
+    assert "openapi" not in response.text and "paths" not in response.text
+    assert response.headers["content-type"].startswith("text/html")  # the page itself
+
+
 def test_rejections_also_have_csp(client):
     response = client.get("/health", headers={"Host": "evil.example"})
     assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
