@@ -85,6 +85,40 @@ def test_a_refusal_is_a_close_the_page_can_read(served):
     assert (closed.value.code, closed.value.reason) == (4404, "No such chat.")
 
 
+class _Socket:
+    """A socket whose browser stays: nothing arrives on it. `send` is what sending does."""
+
+    def __init__(self, send=None) -> None:  # noqa: ANN001
+        self.app = SimpleNamespace(state=SimpleNamespace(shutting_down=asyncio.Event()))
+        self.closed_with: int | None = None
+        self.reason: str | None = None
+        self._send = send
+
+    async def accept(self, subprotocol: str | None = None) -> None:
+        pass
+
+    async def send_text(self, text: str) -> None:
+        if self._send is not None:
+            self._send(text)
+
+    async def receive(self) -> dict:
+        await asyncio.Event().wait()  # never: the browser is still there
+        raise AssertionError
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        self.closed_with = code
+        self.reason = reason
+
+
+def test_a_refusals_reason_is_cut_to_what_a_close_frame_carries():
+    """123 bytes at most, and never half a character."""
+    socket = _Socket()
+    asyncio.run(ws.refuse(socket, ws.NOT_FOUND, "Немає такого проєкту. " * 10))
+    assert socket.closed_with == 4404
+    assert len(socket.reason.encode()) <= 123
+    assert socket.reason.startswith("Немає такого проєкту. Немає") and "\ufffd" not in socket.reason
+
+
 # --- the app's five streams, each at the path of its HTTP stream -------------------------------
 
 BASE = "http://127.0.0.1:8765"
@@ -177,29 +211,6 @@ def test_an_events_socket_without_the_token_is_refused_before_it_opens(api, path
 
 
 # --- what a failed send means -------------------------------------------------------------------
-
-
-class _Socket:
-    """A socket whose browser stays: nothing arrives on it. `send` is what sending does."""
-
-    def __init__(self, send=None) -> None:  # noqa: ANN001
-        self.app = SimpleNamespace(state=SimpleNamespace(shutting_down=asyncio.Event()))
-        self.closed_with: int | None = None
-        self._send = send
-
-    async def accept(self, subprotocol: str | None = None) -> None:
-        pass
-
-    async def send_text(self, text: str) -> None:
-        if self._send is not None:
-            self._send(text)
-
-    async def receive(self) -> dict:
-        await asyncio.Event().wait()  # never: the browser is still there
-        raise AssertionError
-
-    async def close(self, code: int = 1000, reason: str | None = None) -> None:
-        self.closed_with = code
 
 
 def test_an_error_while_sending_isnt_swallowed():
