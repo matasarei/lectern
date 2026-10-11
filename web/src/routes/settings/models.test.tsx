@@ -530,6 +530,20 @@ describe("Models & memory", () => {
     expect(row.textContent).toContain("Cleans up scanned pages.");
   });
 
+  it("offers one download of a model the chat and cleanup share: on the chat's row", async () => {
+    withCleanup("qwen3.5-4b", "qwen3.5-4b");
+    overrides["/api/runtime"] = { ...(RESPONSES["/api/runtime"] as object), residents: [] };
+    renderPage();
+
+    const row = await cleanRow();
+    expect(row.textContent).toContain("The chat's own model");
+    expect(screen.getByTestId("status-clean").textContent).toBe("Not downloaded");
+    const buttons = screen.getAllByRole("button", { name: "Download Qwen3.5 4B" });
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].closest("tr")?.getAttribute("data-role")).toBe("main");
+    expect(row.querySelector("button")).toBeNull();
+  });
+
   it("has no cleanup row when the server names no model for it", async () => {
     renderPage();
 

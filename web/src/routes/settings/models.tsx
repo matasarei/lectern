@@ -304,7 +304,9 @@ function RoleRow({
   const shown = runsOn ?? model;
   const state = live ?? shown.download;
   // Shown for what isn't on disk and isn't on its way: "none", a stopped or paused download.
-  const canStart = !resident && ["none", "failed", "paused"].includes(state.status);
+  // Not on cleanup's row for the chat's own copy: the chat's row, just above, has it.
+  const canStart =
+    !resident && !sharesTheChats && ["none", "failed", "paused"].includes(state.status);
   const start = useMutation({
     mutationFn: () =>
       apiPost(`/api/models/${shown.id}/download`, { accept_licence: shown.licence_notice }),
