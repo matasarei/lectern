@@ -20,6 +20,10 @@ GOOD = {
 }
 
 
+class CutOff(str):
+    """A reply the model ran out of tokens for: it stops mid-JSON."""
+
+
 def _client(*replies: str | int, seen: list | None = None) -> httpx2.AsyncClient:
     queue = list(replies)
 
@@ -30,7 +34,8 @@ def _client(*replies: str | int, seen: list | None = None) -> httpx2.AsyncClient
         reply = queue.pop(0)
         if isinstance(reply, int):
             return httpx2.Response(reply)
-        choice = {"message": {"content": reply}, "finish_reason": "stop"}
+        cut_off = isinstance(reply, CutOff)
+        choice = {"message": {"content": reply}, "finish_reason": "length" if cut_off else "stop"}
         return httpx2.Response(200, json={"choices": [choice]})
 
     return httpx2.AsyncClient(base_url="http://main", transport=httpx2.MockTransport(handler))
@@ -303,3 +308,21 @@ def test_a_reading_that_ran_away_is_cleaned_without_its_loop_and_says_what_was_l
     (fix,) = page.fixes
     assert (fix.before, fix.after) == ("Red", "")
     assert "repeated this 3450 more times" in fix.why
+
+
+def test_a_reply_cut_off_at_the_token_limit_fails_at_once_and_says_so():
+    """Asking again can't help: the same page gets the same room. (It cost a second run of
+    the model, minutes on a larger one, to fail the same way.)"""
+    seen: list[dict] = []
+    cut = CutOff(json.dumps(GOOD)[:60])
+    with pytest.raises(CleanFailed, match="didn't fit") as failed:
+        _clean(_client(cut, json.dumps(GOOD), seen=seen))
+
+    assert len(seen) == 1  # not asked again
+    assert "wasn't valid" not in str(failed.value)
+    assert str(seen[0]["max_tokens"]) in str(failed.value)  # the limit it ran into
+
+
+def test_a_reply_that_just_fits_is_taken_whatever_the_finish_reason_says():
+    page = _clean(_client(CutOff(json.dumps(GOOD))))
+    assert len(page.blocks) == 4
