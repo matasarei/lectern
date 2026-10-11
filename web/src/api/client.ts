@@ -6,11 +6,16 @@
  * as the X-Lectern-Token header over HTTP, and as the `lectern.token.<token>` subprotocol on
  * WebSockets (browsers can't set headers there). The server's event streams are followed on
  * WebSockets (`followEvents`).
+ *
+ * Where people sign in, the token is the login's own instead: it comes with the answer to
+ * signing in, or to asking who this browser is (`./session`), and is kept the same way.
  */
 
 const STORAGE_KEY = "lectern.token";
 const TOKEN_HEADER = "X-Lectern-Token";
 const WS_SUBPROTOCOL = "lectern.v1";
+/** Signing in, and asking who this browser is. A 401 here is an answer, not a login lost. */
+const SIGNING_IN = "/api/login";
 
 export class ApiError extends Error {
   constructor(
@@ -39,6 +44,23 @@ export function getToken(win: Window = window): string | null {
   return win.sessionStorage.getItem(STORAGE_KEY);
 }
 
+export function setToken(token: string | null, win: Window = window): void {
+  if (token === null) win.sessionStorage.removeItem(STORAGE_KEY);
+  else win.sessionStorage.setItem(STORAGE_KEY, token);
+}
+
+let notSignedIn: () => void = () => {};
+
+/** Have `listener` told whenever the server answers 401: the login ended, or the token is
+ * wrong. One listener: whoever keeps track of the sign-in (`./session`). */
+export function onNotSignedIn(listener: () => void): void {
+  notSignedIn = listener;
+}
+
+function refused(path: string, response: Response): void {
+  if (response.status === 401 && path !== SIGNING_IN) notSignedIn();
+}
+
 function withToken(init: RequestInit = {}): RequestInit {
   const headers = new Headers(init.headers);
   const token = getToken();
@@ -49,6 +71,7 @@ function withToken(init: RequestInit = {}): RequestInit {
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, withToken(init));
   if (!response.ok) {
+    refused(path, response);
     let detail = response.statusText;
     try {
       const body = (await response.json()) as { detail?: unknown };
@@ -64,7 +87,10 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 /** A raw response (for file contents), with the token, throwing ApiError when not OK. */
 export async function apiRaw(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, withToken(init));
-  if (!response.ok) throw new ApiError(response.status, response.statusText);
+  if (!response.ok) {
+    refused(path, response);
+    throw new ApiError(response.status, response.statusText);
+  }
   return response;
 }
 
