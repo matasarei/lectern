@@ -163,15 +163,18 @@ def build_runtime(
         return bool(switched_on) and mlx.mlx_available()
 
     def mlx_build_for(key: str, entry: catalog.CatalogEntry) -> catalog.CatalogEntry | None:
-        """The MLX build that runs in place of a role's model: on a Mac with MLX switched on,
-        once the build is downloaded. Until then the GGUF runs, so the switch alone breaks
-        nothing. A key that names a model ("main@qwen3.5-4b") gets that model, never a build."""
+        """The MLX build that runs in place of a role's model, on a Mac with MLX switched on.
+        A GGUF already on disk goes on running until the build is downloaded, so the switch
+        alone breaks nothing. With neither on disk the build is the one to get: MLX is what
+        was asked for. A key that names a model ("main@qwen3.5-4b") gets that model, never a
+        build."""
         if "@" in key:
             return None
         build = catalog.load().mlx_build_of(entry)
-        if build is not None and mlx_is_on() and downloads.is_downloaded(build):
-            return build
-        return None
+        if build is None or not mlx_is_on():
+            return None
+        stands_in = downloads.is_downloaded(entry) and not downloads.is_downloaded(build)
+        return None if stands_in else build
 
     def cleanup_default() -> str | None:
         """The model that cleans up scanned pages when none is chosen for it. The chat's own,
