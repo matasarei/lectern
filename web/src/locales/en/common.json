@@ -102,6 +102,7 @@
     "downloadModel": "Download {{title}}",
     "acceptAndDownloadModel": "Accept the {{licence}} licence and download {{title}}",
     "mlxBuild": "MLX build",
+    "cleanShares": "The chat's own model: nothing more is loaded for it.",
     "chosen": "used for this role",
     "modelFor": "Model for {{role}}",
     "option": "{{title}} · {{size}}",

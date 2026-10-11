@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { apiFetch, ApiError, apiPost } from "../../api/client";
 import type {
   CatalogModel,
+  ChoiceRole,
   ModelsResponse,
   Resident,
   Role,
@@ -28,7 +29,9 @@ import { useRuntime } from "../../hooks/useRuntime";
 import { formatCountdown, modelWaitText, useCountdown } from "../../status";
 import { UPDATE_POLL_MS } from "./polling";
 
-const ROLES: Role[] = ["main", "ocr", "ocr.hand", "code"];
+// The rows of "Models by role": the roles, and cleanup of scanned pages after the chat,
+// whose models it shares.
+const CHOICES: ChoiceRole[] = ["main", "clean", "ocr", "ocr.hand", "code"];
 const ROLE_COLOURS: Record<Role, string> = {
   main: "bg-accent",
   ocr: "bg-amber-600",
@@ -64,7 +67,7 @@ export function ModelsPage() {
   const queryClient = useQueryClient();
   // The answer is the list again, with the role on the chosen model.
   const choose = useMutation({
-    mutationFn: ({ role, modelId }: { role: Role; modelId: string | null }) =>
+    mutationFn: ({ role, modelId }: { role: ChoiceRole; modelId: string | null }) =>
       apiFetch<ModelsResponse>(`/api/models/roles/${encodeURIComponent(role)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -86,8 +89,12 @@ export function ModelsPage() {
   }
 
   const byId = new Map(models.data.models.map((m) => [m.id, m]));
-  const loaded = (role: Role, modelId: string) =>
-    runtime.data?.residents.find((r) => roleOf(r) === role && r.model_id === modelId);
+  // Cleanup's copy is leased as the chat role's: "main" when it is the chat's own loaded
+  // model, "main@<model>" when it has one to itself.
+  const loaded = (role: ChoiceRole, modelId: string) =>
+    runtime.data?.residents.find(
+      (r) => roleOf(r) === (role === "clean" ? "main" : role) && r.model_id === modelId,
+    );
 
   return (
     <Page>
@@ -138,7 +145,7 @@ export function ModelsPage() {
               </tr>
             </thead>
             <tbody>
-              {ROLES.map((role) => {
+              {CHOICES.map((role) => {
                 // The role's model: the one recommended for this computer, unless another
                 // was chosen here.
                 const id = models.data.chosen[role];
@@ -146,17 +153,33 @@ export function ModelsPage() {
                 if (!model) return null;
                 const recommendedId = models.data.defaults[role];
                 const choice: RoleChoice = {
-                  // An MLX build isn't offered: it comes with its model.
-                  options: models.data.models.filter((m) => m.roles.includes(role) && !m.replaces),
+                  // What the server says it can be given. An MLX build never is: it comes
+                  // with its model, and can't clean pages.
+                  options: (models.data.choices[role] ?? []).flatMap((option) => byId.get(option) ?? []),
                   recommended: recommendedId ? byId.get(recommendedId) : undefined,
                   pending: choose.isPending,
                   onChoose: (modelId) => choose.mutate({ role, modelId }),
                 };
                 // With MLX switched on, a model's MLX build is listed under it. The runtime
-                // uses the build once it's on disk, and the model until then.
-                const build = mlxOn
-                  ? models.data.models.find((m) => m.replaces === model.id)
-                  : undefined;
+                // uses the build once it's on disk, and the model until then. Not for
+                // cleanup, which a build can't do.
+                const build =
+                  mlxOn && role !== "clean"
+                    ? models.data.models.find((m) => m.replaces === model.id)
+                    : undefined;
+                if (role === "clean") {
+                  return (
+                    <RoleRow
+                      key={role}
+                      role={role}
+                      model={model}
+                      choice={choice}
+                      resident={loaded(role, model.id)}
+                      live={live[model.id]}
+                      sharesTheChats={cleansWithTheChats(models.data, mlxOn, live)}
+                    />
+                  );
+                }
                 if (!build) {
                   return (
                     <RoleRow
@@ -213,6 +236,19 @@ export function ModelsPage() {
   );
 }
 
+/** Cleanup uses the copy of the model the chat itself runs on: the chat's own model, with
+ * the chat on llama.cpp (on its MLX build the chat's copy can't clean, so cleanup loads one). */
+function cleansWithTheChats(
+  list: ModelsResponse,
+  mlxOn: boolean,
+  live: Record<string, CatalogModel["download"]>,
+): boolean {
+  if (list.chosen.clean !== list.chosen.main) return false;
+  const build = list.models.find((m) => m.replaces === list.chosen.main);
+  const buildInUse = mlxOn && build && (live[build.id] ?? build.download).status === "done";
+  return !buildInUse;
+}
+
 /** Choosing a role's model: what it can be given, which one is recommended for this
  * computer, and how to change it (null: back to the recommended one). */
 interface RoleChoice {
@@ -230,8 +266,9 @@ function RoleRow({
   live,
   mlxBuild = false,
   chosen = false,
+  sharesTheChats = false,
 }: {
-  role: Role;
+  role: ChoiceRole;
   model: CatalogModel;
   /** On a role's own row; an MLX build's row has nothing to choose. */
   choice?: RoleChoice;
@@ -241,6 +278,8 @@ function RoleRow({
   mlxBuild?: boolean;
   /** Of a model and its MLX build, the one the runtime uses. */
   chosen?: boolean;
+  /** Cleanup's row: its model is the copy the chat runs on, so nothing more is loaded. */
+  sharesTheChats?: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -296,6 +335,9 @@ function RoleRow({
         )}
         {choice && !model.suits_tier && (
           <span className="block text-muted">{t("modelsPage.tooBigWhy")}</span>
+        )}
+        {sharesTheChats && (
+          <span className="block text-muted">{t("modelsPage.cleanShares")}</span>
         )}
         {choice?.recommended && choice.recommended.id !== model.id && (
           <span className="block text-muted">
