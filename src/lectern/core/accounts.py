@@ -216,9 +216,15 @@ def _let_in(row: UserRow | None, password: str, now: datetime) -> User | None:
 
 def open_login(sessions: Sessions, user_id: int, now: datetime) -> tuple[str, str]:
     """A new login for the user: the id for the browser's cookie, and the token it sends in a
-    header with every request. Each is 256 random bits."""
+    header with every request. Each is 256 random bits.
+
+    Logins past their time are removed here: one whose browser never comes back is never
+    looked up, so `find_login` would leave it in the table for good."""
     login_id, token = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     with sessions.begin() as session:
+        for row in session.scalars(select(LoginRow)):
+            if _past_its_time(row, now):
+                session.delete(row)
         session.add(
             LoginRow(
                 id_hash=_fingerprint(login_id),
@@ -242,7 +248,7 @@ def find_login(sessions: Sessions, login_id: str, now: datetime) -> tuple[User, 
         row = session.get(LoginRow, _fingerprint(login_id))
         if row is None:
             return None
-        if now >= _utc(row.expires_at) or now - _utc(row.last_seen_at) > LOGIN_IDLE:
+        if _past_its_time(row, now):
             session.delete(row)
             return None
         user = session.get(UserRow, row.user_id)
@@ -308,6 +314,10 @@ def _admins_able_to_sign_in(session: Session, *, but: int) -> int:
             UserRow.id != but,
         )
     )
+
+
+def _past_its_time(row: LoginRow, now: datetime) -> bool:
+    return now >= _utc(row.expires_at) or now - _utc(row.last_seen_at) > LOGIN_IDLE
 
 
 def _end_logins_of(session: Session, user_id: int) -> None:

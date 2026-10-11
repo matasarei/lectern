@@ -213,6 +213,25 @@ def test_a_login_ends_after_a_week_unused_or_thirty_days_in_all(family):
     assert accounts.find_login(family, unused, NOON + 7 * day + timedelta(seconds=1)) is None
 
 
+def test_logins_nobody_came_back_to_are_removed_when_somebody_signs_in(family):
+    olena = accounts.sign_in(family, "olena", PASSWORD, NOON)
+    yevhen = accounts.sign_in(family, "yevhen", PASSWORD, NOON)
+    day = timedelta(days=1)
+    accounts.open_login(family, olena.id, NOON)  # a browser that never comes back
+    his, _ = accounts.open_login(family, yevhen.id, NOON)
+    assert accounts.find_login(family, his, NOON + 6 * day) is not None
+
+    accounts.open_login(family, olena.id, NOON + 8 * day)
+    with family() as session:
+        assert session.query(LoginRow).count() == 2  # his, in use, and her new one
+
+    for used_on in (12, 18, 24, 29):
+        assert accounts.find_login(family, his, NOON + used_on * day) is not None
+    accounts.open_login(family, olena.id, NOON + 31 * day)  # his is past its thirty days
+    with family() as session:
+        assert [row.user_id for row in session.query(LoginRow)] == [olena.id]
+
+
 def test_a_new_password_or_a_disabled_account_ends_that_persons_logins(family):
     olena = accounts.sign_in(family, "olena", PASSWORD, NOON)
     yevhen = accounts.sign_in(family, "yevhen", PASSWORD, NOON)
