@@ -20,6 +20,10 @@ GOOD = {
 }
 
 
+class CutOff(str):
+    """A reply the model ran out of tokens for: it stops mid-JSON."""
+
+
 def _client(*replies: str | int, seen: list | None = None) -> httpx2.AsyncClient:
     queue = list(replies)
 
@@ -30,7 +34,8 @@ def _client(*replies: str | int, seen: list | None = None) -> httpx2.AsyncClient
         reply = queue.pop(0)
         if isinstance(reply, int):
             return httpx2.Response(reply)
-        choice = {"message": {"content": reply}, "finish_reason": "stop"}
+        cut_off = isinstance(reply, CutOff)
+        choice = {"message": {"content": reply}, "finish_reason": "length" if cut_off else "stop"}
         return httpx2.Response(200, json={"choices": [choice]})
 
     return httpx2.AsyncClient(base_url="http://main", transport=httpx2.MockTransport(handler))
@@ -280,3 +285,85 @@ def test_the_persons_confirmed_readings_go_into_the_message_newest_first_and_cap
     assert "«0?» is «0»" in message and f"«{CONFIRMED_LIMIT}?»" not in message
     assert message.index("Readings the person") < message.index("<page>")
     assert "Readings the person" not in page_message(3, "text", "", "", "")
+
+
+def test_a_reading_that_ran_away_is_cleaned_without_its_loop_and_says_what_was_left_out():
+    """PaddleOCR-VL read a scanner test page as its first lines and then "Red" 3,451 times.
+    Given all of it, the model's reply never fitted, and the page failed twice."""
+    head = "Tone Gradient Strips\nRed\nDark\n4"
+    cleaned = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "Tone Gradient Strips"},
+            {"type": "list", "text": "Red\nDark\n4\nRed"},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    seen: list[dict] = []
+    page = _clean(
+        _client(json.dumps(cleaned), seen=seen), raw=head + "\nRed" * 3451, reading_cut_off=True
+    )
+
+    sent = seen[0]["messages"][1]["content"]
+    assert f"<page>\n{head}\nRed\n</page>" in sent  # the loop's first line, not its 3,450 others
+    assert [b.type for b in page.blocks] == ["heading", "list"]  # nothing "put back" from the loop
+    (fix,) = page.fixes
+    assert (fix.before, fix.after) == ("Red", "")
+    assert "repeated this 3450 more times" in fix.why
+
+
+def test_a_reply_cut_off_at_the_token_limit_fails_at_once_and_says_so():
+    """Asking again can't help: the same page gets the same room. (It cost a second run of
+    the model, minutes on a larger one, to fail the same way.)"""
+    seen: list[dict] = []
+    cut = CutOff(json.dumps(GOOD)[:60])
+    with pytest.raises(CleanFailed, match="didn't fit") as failed:
+        _clean(_client(cut, json.dumps(GOOD), seen=seen))
+
+    assert len(seen) == 1  # not asked again
+    assert "wasn't valid" not in str(failed.value)
+    assert str(seen[0]["max_tokens"]) in str(failed.value)  # the limit it ran into
+
+
+def test_a_reply_that_just_fits_is_taken_whatever_the_finish_reason_says():
+    page = _clean(_client(CutOff(json.dumps(GOOD))))
+    assert len(page.blocks) == 4
+
+
+@pytest.mark.parametrize(
+    ("bad", "problem"),
+    [
+        ("{not json", "Invalid JSON: key must be a string"),
+        (
+            json.dumps({"blocks": [{"type": "poem", "text": "x"}], "doubts": [], "fixes": []}),
+            "blocks.0.type: Input should be 'heading', 'paragraph'",
+        ),
+        (
+            json.dumps({"blocks": [], "doubts": [{"block": -1, "raw": ""}], "fixes": []}),
+            "doubts.0.block: Input should be greater than or equal to 0 (and 1 more)",
+        ),
+    ],
+)
+def test_the_model_and_the_person_are_told_what_was_wrong_with_a_reply(bad: str, problem: str):
+    """Not "1 validation error for CleanedPage", which tells the model nothing to fix and
+    the person nothing at all."""
+    seen: list[dict] = []
+    with pytest.raises(CleanFailed) as failed:
+        _clean(_client(bad, bad, seen=seen))
+
+    assert problem in seen[1]["messages"][-1]["content"]  # the model, asked again
+    assert problem in str(failed.value)  # the person, on the failed page
+    assert "validation error" not in str(failed.value)
+
+
+def test_equal_lines_at_the_end_of_a_reading_that_wasnt_cut_off_are_the_pages_own():
+    """A ledger's empty rows, a form's dotted lines: the OCR model finished the page, so
+    nothing ran away. Cut, the page would lose them and say the model had repeated itself."""
+    ledger = "| Date | Item | Sum |\n| 1 May | Rent | 250 |" + "\n| | | |" * 25
+    cleaned = {"blocks": [{"type": "table", "rows": [["Date", "Item", "Sum"]]}],
+               "doubts": [], "fixes": []}  # fmt: skip
+    seen: list[dict] = []
+    page = _clean(_client(json.dumps(cleaned), seen=seen), raw=ledger)
+
+    assert f"<page>\n{ledger}\n</page>" in seen[0]["messages"][1]["content"]  # all 25 rows
+    assert not [f for f in page.fixes if "repeated" in f.why]

@@ -430,6 +430,7 @@ class OcrJobs:
                         before=before,
                         after=after,
                         confirmed=[(d.raw, d.value) for d in decided],
+                        reading_cut_off=page.cut_off,
                     ),
                     on_leased=cleaning,
                 )

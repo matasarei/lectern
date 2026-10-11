@@ -4,8 +4,9 @@ The main model gets the page's raw OCR text (unsure words marked ⟨word?⟩), t
 and the edges of the pages either side, and answers in JSON that follows a schema: the page's
 blocks, every fix it made with the reason, and the doubts it has, each with candidate readings.
 llama-server turns the schema into a grammar; a reply that still doesn't fit it is asked for once
-more before the page is marked failed. A doubt the model put in the wrong block is moved, not
-failed.
+more before the page is marked failed (one cut off at the token limit isn't: the same page would
+be cut off again). A doubt the model put in the wrong block is moved, not failed. A reading that
+ran away at its end is cleaned without the loop.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from typing import Literal
 
 import httpx2
 from pydantic import BaseModel, Field, ValidationError
+
+from lectern.modules.ocr.text import cut_trailing_loop
 
 CLEAN_TOKENS = 3072  # a page's blocks; a dense page is ~1.5k tokens of text
 EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross the break
@@ -171,21 +174,39 @@ async def clean_page(
     before: str = "",
     after: str = "",
     confirmed: list[tuple[str, str]] = (),
+    reading_cut_off: bool = False,
 ) -> CleanedPage:
-    """`confirmed` is the person's decisions so far, (raw, value), newest first."""
+    """`confirmed` is the person's decisions so far, (raw, value), newest first.
+    `reading_cut_off`: the OCR model ran out of room before it finished the page."""
+    # A reading that ran away at its end ("Red" 3,451 times) is cleaned without the loop: the
+    # reply to all of it never fits in CLEAN_TOKENS, and the page's real lines went with it.
+    # Only a reading that was cut off: equal lines at the end of one the model finished (a
+    # ledger's empty rows) are the page's own.
+    repeated, more = "", 0
+    if reading_cut_off:
+        raw, repeated, more = cut_trailing_loop(raw)
     messages = [
         {"role": "system", "content": CLEAN_PROMPT},
         {"role": "user", "content": page_message(number, raw, note, before, after, confirmed)},
     ]
     problem = ""
     for attempt in range(2):
-        reply = await _ask(client, messages)
+        reply, cut_off = await _ask(client, messages)
         try:
             page = CleanedPage.model_validate_json(reply)
             page = keep_this_page(_place_doubts(_tidy_fixes(page)), raw, before + "\n" + after)
-            return restore_missing_lines(restore_lookalikes(page, raw), raw)
+            page = restore_missing_lines(restore_lookalikes(page, raw), raw)
+            return _say_loop_left_out(page, repeated, more)
         except (ValidationError, ValueError) as exc:
-            problem = str(exc).splitlines()[0]
+            if cut_off:
+                # Asking again gives the same page the same room: it would fail the same way,
+                # a second run of the model later.
+                raise CleanFailed(
+                    f"The cleaned page didn't fit in the chat model's reply ({CLEAN_TOKENS} "
+                    "tokens): the page has more text than one cleanup can return. If its "
+                    "reading repeats itself, read it again with Re-run page."
+                ) from None
+            problem = _what_was_wrong(exc)
             if attempt == 0:
                 messages += [
                     {"role": "assistant", "content": reply},
@@ -196,6 +217,31 @@ async def clean_page(
                     },  # fmt: skip
                 ]
     raise CleanFailed(f"The chat model's cleanup wasn't valid, twice ({problem}).")
+
+
+def _what_was_wrong(error: ValidationError | ValueError) -> str:
+    """What didn't fit, for the model asked again and for the person: where in the reply and
+    why. Not the validator's own first line, which is only a count of errors."""
+    if not isinstance(error, ValidationError):
+        return str(error).splitlines()[0]
+    first, *others = error.errors()
+    where = ".".join(str(part) for part in first["loc"])
+    said = f"{where}: {first['msg']}" if where else first["msg"]
+    return f"{said} (and {len(others)} more)" if others else said
+
+
+def _say_loop_left_out(page: CleanedPage, repeated: str, more: int) -> CleanedPage:
+    """The loop cut from the reading before cleanup, listed as a fix: nothing is left out
+    silently, and the person learns the rest of the page was never read."""
+    if not more:
+        return page
+    why = (
+        f"Left out: the OCR model repeated this {more} more times, to the end of its reading. "
+        "Anything on the page after it wasn't read: read it again with Re-run page, with "
+        "another model if it repeats."
+    )
+    fix = CleanFix(before=repeated[:120], after="", why=why[:WHY_CHARS])
+    return page.model_copy(update={"fixes": [*page.fixes, fix]})
 
 
 WORDS = re.compile(r"\w{3,}")
@@ -281,7 +327,8 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
     return CleanedPage(blocks=page.blocks, doubts=doubts, fixes=fixes)
 
 
-async def _ask(client: httpx2.AsyncClient, messages: list[dict]) -> str:
+async def _ask(client: httpx2.AsyncClient, messages: list[dict]) -> tuple[str, bool]:
+    """The model's reply, and whether it was cut off at CLEAN_TOKENS."""
     body = {
         "messages": messages,
         "temperature": 0,
@@ -300,7 +347,8 @@ async def _ask(client: httpx2.AsyncClient, messages: list[dict]) -> str:
     if response.status_code != 200:
         raise CleanFailed(f"The chat model answered {response.status_code}.")
     try:
-        return response.json()["choices"][0]["message"].get("content") or ""
+        choice = response.json()["choices"][0]
+        return choice["message"].get("content") or "", choice.get("finish_reason") == "length"
     except (ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
         raise CleanFailed("The chat model's reply wasn't readable.") from None
 
