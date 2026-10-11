@@ -58,7 +58,10 @@ def cut_trailing_loop(text: str) -> tuple[str, str, int]:
     total = len(lines)
     for unit in range(1, min(LOOP_UNIT, total // LOOP_ROUNDS) + 1):
         start = total - unit  # where the tail that repeats every `unit` lines begins
-        while start > 0 and _repeats(lines[start - 1], lines[start - 1 + unit], total, start, unit):
+        while start > 0:
+            later = start - 1 + unit
+            if not _repeats(lines[start - 1], lines[later], is_last=later == total - 1):
+                break
             start -= 1
         again = total - start - unit  # lines of it beyond the first time
         if again >= (LOOP_ROUNDS - 1) * unit and again >= LOOP_LINES:
@@ -67,7 +70,6 @@ def cut_trailing_loop(text: str) -> tuple[str, str, int]:
     return text, "", 0
 
 
-def _repeats(line: str, later: str, total: int, start: int, unit: int) -> bool:
+def _repeats(line: str, later: str, *, is_last: bool) -> bool:
     """`later` is `line` said again; the text's very last line may be the start of it only."""
-    is_last = start - 1 + unit == total - 1
     return line == later or (is_last and bool(later) and line.startswith(later))
