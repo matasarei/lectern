@@ -17,6 +17,8 @@ from typing import Literal
 import httpx2
 from pydantic import BaseModel, Field, ValidationError
 
+from lectern.modules.ocr.text import cut_trailing_loop
+
 CLEAN_TOKENS = 3072  # a page's blocks; a dense page is ~1.5k tokens of text
 EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross the break
 CLEAN_TIMEOUT = 600.0
@@ -173,6 +175,9 @@ async def clean_page(
     confirmed: list[tuple[str, str]] = (),
 ) -> CleanedPage:
     """`confirmed` is the person's decisions so far, (raw, value), newest first."""
+    # A reading that ran away at its end ("Red" 3,451 times) is cleaned without the loop: the
+    # reply to all of it never fits in CLEAN_TOKENS, and the page's real lines went with it.
+    raw, repeated, more = cut_trailing_loop(raw)
     messages = [
         {"role": "system", "content": CLEAN_PROMPT},
         {"role": "user", "content": page_message(number, raw, note, before, after, confirmed)},
@@ -183,7 +188,8 @@ async def clean_page(
         try:
             page = CleanedPage.model_validate_json(reply)
             page = keep_this_page(_place_doubts(_tidy_fixes(page)), raw, before + "\n" + after)
-            return restore_missing_lines(restore_lookalikes(page, raw), raw)
+            page = restore_missing_lines(restore_lookalikes(page, raw), raw)
+            return _say_loop_left_out(page, repeated, more)
         except (ValidationError, ValueError) as exc:
             problem = str(exc).splitlines()[0]
             if attempt == 0:
@@ -196,6 +202,20 @@ async def clean_page(
                     },  # fmt: skip
                 ]
     raise CleanFailed(f"The chat model's cleanup wasn't valid, twice ({problem}).")
+
+
+def _say_loop_left_out(page: CleanedPage, repeated: str, more: int) -> CleanedPage:
+    """The loop cut from the reading before cleanup, listed as a fix: nothing is left out
+    silently, and the person learns the rest of the page was never read."""
+    if not more:
+        return page
+    why = (
+        f"Left out: the OCR model repeated this {more} more times, to the end of its reading. "
+        "Anything on the page after it wasn't read: read the page again, with another model "
+        "if it repeats."
+    )
+    fix = CleanFix(before=repeated[:120], after="", why=why[:WHY_CHARS])
+    return page.model_copy(update={"fixes": [*page.fixes, fix]})
 
 
 WORDS = re.compile(r"\w{3,}")

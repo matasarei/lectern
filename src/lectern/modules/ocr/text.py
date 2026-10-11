@@ -39,3 +39,35 @@ def looped(text: str) -> bool:
             return True
         seen.add(window)
     return False
+
+
+LOOP_ROUNDS = 3  # the same lines, said at least this many times running, to the end of the text…
+LOOP_LINES = 20  # …with at least this many lines of it beyond the first time
+LOOP_UNIT = 60  # the longest run of lines looked for as the thing repeated
+
+
+def cut_trailing_loop(text: str) -> tuple[str, str, int]:
+    """A reading that ran away: the model got stuck on a line, or a run of lines, and said it
+    until it ran out of room ("Red" 3,451 times at the end of a scanner test page). Returns
+    the text cut after the first time, the lines that were repeated, and how many more times
+    they came (the last one may be cut short); or the text as it is, "" and 0.
+
+    Only at the end, and only a long run: a page's own repeats (six blank signature lines, a
+    table's equal rows) are short, and a model that escapes a loop goes on to other text."""
+    lines = text.rstrip().splitlines()
+    total = len(lines)
+    for unit in range(1, min(LOOP_UNIT, total // LOOP_ROUNDS) + 1):
+        start = total - unit  # where the tail that repeats every `unit` lines begins
+        while start > 0 and _repeats(lines[start - 1], lines[start - 1 + unit], total, start, unit):
+            start -= 1
+        again = total - start - unit  # lines of it beyond the first time
+        if again >= (LOOP_ROUNDS - 1) * unit and again >= LOOP_LINES:
+            first = lines[start : start + unit]
+            return "\n".join(lines[: start + unit]), "\n".join(first), -(-again // unit)
+    return text, "", 0
+
+
+def _repeats(line: str, later: str, total: int, start: int, unit: int) -> bool:
+    """`later` is `line` said again; the text's very last line may be the start of it only."""
+    is_last = start - 1 + unit == total - 1
+    return line == later or (is_last and bool(later) and line.startswith(later))

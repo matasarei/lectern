@@ -280,3 +280,26 @@ def test_the_persons_confirmed_readings_go_into_the_message_newest_first_and_cap
     assert "«0?» is «0»" in message and f"«{CONFIRMED_LIMIT}?»" not in message
     assert message.index("Readings the person") < message.index("<page>")
     assert "Readings the person" not in page_message(3, "text", "", "", "")
+
+
+def test_a_reading_that_ran_away_is_cleaned_without_its_loop_and_says_what_was_left_out():
+    """PaddleOCR-VL read a scanner test page as its first lines and then "Red" 3,451 times.
+    Given all of it, the model's reply never fitted, and the page failed twice."""
+    head = "Tone Gradient Strips\nRed\nDark\n4"
+    cleaned = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "Tone Gradient Strips"},
+            {"type": "list", "text": "Red\nDark\n4\nRed"},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    seen: list[dict] = []
+    page = _clean(_client(json.dumps(cleaned), seen=seen), raw=head + "\nRed" * 3451)
+
+    sent = seen[0]["messages"][1]["content"]
+    assert f"<page>\n{head}\nRed\n</page>" in sent  # the loop's first line, not its 3,450 others
+    assert [b.type for b in page.blocks] == ["heading", "list"]  # nothing "put back" from the loop
+    (fix,) = page.fixes
+    assert (fix.before, fix.after) == ("Red", "")
+    assert "repeated this 3450 more times" in fix.why
