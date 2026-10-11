@@ -28,12 +28,16 @@ def guarded(paths):
     return app, TestClient(app, base_url=BASE), {"X-Lectern-Token": app.state.token}
 
 
+# The one path that can't ask for a user first: it is how someone becomes one.
+OPEN_TO_ALL = {"/api/login"}
+
+
 def test_every_api_http_route_requires_current_user(guarded):
     app, client, headers = guarded
     operations = [
         (path, method)
         for path, item in app.openapi()["paths"].items()
-        if path.startswith("/api/")
+        if path.startswith("/api/") and path not in OPEN_TO_ALL
         for method in item
     ]
     for path, method in operations:
@@ -160,7 +164,12 @@ EVERYBODYS = [
     "/api/first-run",
 ]
 # Install-wide routes that change something and are a member's too.
-A_MEMBERS_TOO = {("post", "/api/chat"), ("post", "/api/login")}
+A_MEMBERS_TOO = {
+    ("post", "/api/chat"),
+    ("post", "/api/login"),
+    ("post", "/api/logout"),
+    ("post", "/api/password"),
+}
 
 
 @pytest.fixture

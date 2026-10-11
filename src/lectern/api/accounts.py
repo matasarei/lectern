@@ -1,0 +1,195 @@
+"""/api/login, /api/logout, /api/password and /api/users: signing in and out, one's own
+password, and the admin's accounts.
+
+`/api/login` is the one path a browser that isn't signed in can reach (the guard lets it
+through; see `lectern.core.security`). Signing in sets the cookie that names the login, and
+answers with the token the page then sends in a header with every request. A new tab, which
+has the cookie but not the token, asks for it with `GET /api/login`: another site can make a
+browser send that request, but can't read the answer.
+
+There is no sign-up: an admin adds people, here or with `lectern user add`.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+
+from lectern.core import accounts
+from lectern.core.auth import User, current_user, require_admin
+from lectern.core.passwords import MAX_LENGTH, WeakPassword
+from lectern.core.security import login_cookie
+
+router = APIRouter()
+# The two routes someone who isn't signed in can reach. Mounted apart from the rest of /api,
+# which asks for a user before anything else (`lectern.api.open_api_router`).
+open_router = APIRouter()
+
+NO_STORE = {"Cache-Control": "no-store"}  # an answer holding a token is never kept
+
+
+class SignIn(BaseModel):
+    login: str = Field(max_length=64)
+    password: str = Field(max_length=MAX_LENGTH)
+
+
+class PasswordChange(BaseModel):
+    current: str = Field(max_length=MAX_LENGTH)
+    new: str = Field(max_length=MAX_LENGTH)
+
+
+class NewUser(BaseModel):
+    login: str = Field(max_length=64)
+    password: str = Field(max_length=MAX_LENGTH)
+    admin: bool = False
+
+
+class NewPassword(BaseModel):
+    password: str = Field(max_length=MAX_LENGTH)
+
+
+class Disabled(BaseModel):
+    disabled: bool
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _cookie(request: Request) -> tuple[str, bool]:
+    """The login cookie's name on the address this request came to, and whether Secure."""
+    return login_cookie(request.headers.get("host", "").lower(), request.app.state.public)
+
+
+def _who(user: User) -> dict:
+    return {"login": user.login, "role": user.role}
+
+
+def _open_login(request: Request, response: Response, user: User) -> str:
+    """Sign this browser in as `user`: a new login, its id in the cookie. Returns its token.
+    The login the browser had, if any, ends: an id is never kept across a sign-in."""
+    sessions = request.app.state.sessions
+    name, secure = _cookie(request)
+    if had := request.cookies.get(name):
+        accounts.end_login(sessions, had)
+    login_id, token = accounts.open_login(sessions, user.id, _now())
+    response.set_cookie(
+        name,
+        login_id,
+        max_age=int(accounts.LOGIN_LIFE.total_seconds()),
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="lax",
+    )
+    response.headers.update(NO_STORE)
+    return token
+
+
+@open_router.get("/login")
+def whoami(request: Request, response: Response) -> dict:
+    """Whether people sign in here, who this browser is signed in as, and its token."""
+    response.headers.update(NO_STORE)
+    user: User | None = request.state.user
+    return {
+        "accounts": accounts.accounts_on(request.app.state.sessions),
+        "user": _who(user) if user is not None else None,
+        "token": request.state.login_token,
+    }
+
+
+@open_router.post("/login")
+def sign_in(body: SignIn, request: Request, response: Response) -> dict:
+    sessions = request.app.state.sessions
+    if not accounts.accounts_on(sessions):
+        raise HTTPException(409, "Nobody signs in here: accounts aren't set up.")
+    try:
+        user = accounts.sign_in(sessions, body.login, body.password, _now())
+    except accounts.SignInRefused as refused:
+        raise HTTPException(401, str(refused)) from None
+    return {"user": _who(user), "token": _open_login(request, response, user)}
+
+
+@router.post("/logout")
+def sign_out(request: Request, response: Response) -> dict:
+    name, secure = _cookie(request)
+    if login_id := request.cookies.get(name):
+        accounts.end_login(request.app.state.sessions, login_id)
+    response.delete_cookie(name, path="/", secure=secure, httponly=True, samesite="lax")
+    return {"signed_out": True}
+
+
+@router.post("/password")
+def change_password(
+    body: PasswordChange,
+    request: Request,
+    response: Response,
+    user: User = Depends(current_user),  # noqa: B008 (FastAPI's way)
+) -> dict:
+    """One's own password. It ends every login of theirs; this browser gets a new one."""
+    sessions = request.app.state.sessions
+    if user.login is None:
+        raise HTTPException(409, "This is the computer's own link, not an account.")
+    try:
+        accounts.sign_in(sessions, user.login, body.current, _now())
+    except accounts.SignInRefused:
+        raise HTTPException(403, "The current password is wrong.") from None
+    try:
+        accounts.set_password(sessions, user.login, body.new)
+    except WeakPassword as weak:
+        raise HTTPException(400, str(weak)) from None
+    return {"token": _open_login(request, response, user)}
+
+
+# --- the admin's ---------------------------------------------------------------------------
+
+admin = APIRouter(dependencies=[Depends(require_admin)])
+
+
+@admin.get("/users")
+def list_users(request: Request) -> list[dict]:
+    return accounts.describe(request.app.state.sessions)
+
+
+@admin.post("/users", status_code=201)
+async def add_user(body: NewUser, request: Request) -> dict:
+    sessions = request.app.state.sessions
+    try:
+        user = await run_in_threadpool(
+            accounts.add_user, sessions, body.login, body.password, admin=body.admin
+        )
+    except (accounts.BadName, WeakPassword) as bad:
+        raise HTTPException(400, str(bad)) from None
+    except accounts.NameTaken as taken:
+        raise HTTPException(409, str(taken)) from None
+    return accounts.describe(sessions, user.login)[0]
+
+
+@admin.post("/users/{login}/password")
+def reset_password(login: str, body: NewPassword, request: Request) -> dict:
+    """A new password for someone who forgot theirs. It signs them out everywhere."""
+    try:
+        accounts.set_password(request.app.state.sessions, login, body.password)
+    except accounts.NoSuchUser as missing:
+        raise HTTPException(404, str(missing)) from None
+    except WeakPassword as weak:
+        raise HTTPException(400, str(weak)) from None
+    return {"login": login.strip().lower()}
+
+
+@admin.post("/users/{login}/disabled")
+def set_disabled(login: str, body: Disabled, request: Request) -> dict:
+    sessions = request.app.state.sessions
+    try:
+        accounts.set_disabled(sessions, login, body.disabled)
+    except accounts.NoSuchUser as missing:
+        raise HTTPException(404, str(missing)) from None
+    except accounts.LastAdmin as last:
+        raise HTTPException(409, str(last)) from None
+    return accounts.describe(sessions, login)[0]
+
+
+router.include_router(admin)

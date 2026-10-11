@@ -15,7 +15,7 @@ from lectern import __version__
 from lectern.agent.core_tools import CORE_TOOLS
 from lectern.agent.export_tools import export_tools
 from lectern.agent.turns import TurnManager
-from lectern.api import api_router
+from lectern.api import api_router, open_api_router
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
 from lectern.core.accounts import Logins
@@ -115,6 +115,7 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    app.include_router(open_api_router())
     app.include_router(api_router(module_routers(modules), dev=dev))
     mount_web(app, web_dist)  # last: it answers every path the API didn't
     app.add_middleware(

@@ -135,6 +135,19 @@ def list_users(sessions: Sessions) -> list[User]:
         return [_user(row) for row in rows]
 
 
+def describe(sessions: Sessions, login: str | None = None) -> list[dict]:
+    """The accounts as the Users page shows them (one, or all in the order they were added):
+    never a hash."""
+    with sessions() as session:
+        query = select(UserRow).where(UserRow.login.is_not(None)).order_by(UserRow.id)
+        if login is not None:
+            query = query.where(UserRow.login == login.strip().lower())
+        return [
+            {"login": row.login, "role": row.role, "disabled": row.disabled}
+            for row in session.scalars(query)
+        ]
+
+
 def set_password(sessions: Sessions, login: str, password: str) -> None:
     """A new password ends every login of that person, and any wait they were in."""
     with sessions.begin() as session:

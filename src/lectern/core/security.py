@@ -176,6 +176,15 @@ class Logins(Protocol):
         """The user that login is, and its token."""
 
 
+@dataclass(frozen=True)
+class Asker:
+    """Who a request turned out to be from."""
+
+    user: Any  # None: nobody
+    token: str | None  # their login's token; None for the per-install link's holder
+    accounts: bool  # whether people sign in here at all
+
+
 class LocalGuard:
     """ASGI middleware applying the host, origin and token checks, and the CSP. Whoever a
     request to /api turns out to be is left in the connection's state (`state.user`)."""
@@ -225,34 +234,35 @@ class LocalGuard:
         if scope["path"].startswith("/api/"):
             signing_in = scope["path"] == SIGNING_IN
             offered = _header(scope, TOKEN_HEADER.encode())
-            user, accounts = await self._who(scope, offered, cookie_is_enough=signing_in)
-            if user is None and not (accounts and signing_in):
-                detail = "Not signed in" if accounts else "Missing or wrong token"
+            who = await self._who(scope, offered, cookie_is_enough=signing_in)
+            if who.user is None and not (who.accounts and signing_in):
+                detail = "Not signed in" if who.accounts else "Missing or wrong token"
                 await _plain_error(send_with_headers, 401, detail)
                 return
-            scope.setdefault("state", {})["user"] = user
+            scope.setdefault("state", {}).update(user=who.user, login_token=who.token)
         await self.app(scope, receive, send_with_headers)
 
     async def _who(
         self, scope: Scope, offered: str | None, *, cookie_is_enough: bool = False
-    ) -> tuple[Any, bool]:
-        """Who the request is from (None: nobody), and whether accounts are on.
-        `cookie_is_enough`: for the one request that hands a signed-in browser its token."""
+    ) -> Asker:
+        """Who the request is from. `cookie_is_enough`: for the one request that hands a
+        signed-in browser its token."""
         if self.logins is None or not await asyncio.to_thread(self.logins.accounts_on):
-            return (self.local_user if _tokens_match(offered, self.token) else None), False
+            user = self.local_user if _tokens_match(offered, self.token) else None
+            return Asker(user, None, accounts=False)
         name, _secure = login_cookie(_host(scope), self.public)
         login_id = _cookie(scope, name)
         if login_id:
             found = await asyncio.to_thread(self.logins.find, login_id)
             if found is not None and (cookie_is_enough or _tokens_match(offered, found[1])):
-                return found[0], True
+                return Asker(found[0], found[1], accounts=True)
         # The link: from this computer only. The Host header alone doesn't say so (anyone
         # reaching the port can send `Host: 127.0.0.1`), so the connection must be local too.
         client = scope.get("client") or ("", 0)
         here = _host(scope) in self.local_hosts and client[0] in THIS_COMPUTER
         if here and _tokens_match(offered, self.token):
-            return self.local_user, True
-        return None, True
+            return Asker(self.local_user, None, accounts=True)
+        return Asker(None, None, accounts=True)
 
     async def _websocket(self, scope: Scope, receive: Receive, send: Send) -> None:
         token = next(
@@ -265,7 +275,7 @@ class LocalGuard:
         )
         user = None
         if _host(scope) in self.hosts and _header(scope, b"origin") in self.origins:
-            user, _accounts = await self._who(scope, token)
+            user = (await self._who(scope, token)).user
         if user is None:
             # Closing before accepting makes the server answer the upgrade with 403.
             await receive()
