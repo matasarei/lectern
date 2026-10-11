@@ -17,7 +17,7 @@ import contextlib
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import HTTPException, WebSocket
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
 from lectern.api.sse import follow
 from lectern.core.security import WS_SUBPROTOCOL
@@ -56,9 +56,14 @@ async def socket_events(
         # out of this block: one more arriving here must not take its place.
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.gather(closed, sending, return_exceptions=True)
-    # The events ran out with the browser still there: the app is shutting down. (A send
-    # that failed means the browser is gone, and there is nobody to tell.)
-    if ran_out and sending.exception() is None:
+    failure = None if sending.cancelled() else sending.exception()
+    if isinstance(failure, WebSocketDisconnect):
+        return  # the send found the browser gone: nobody to tell
+    if failure is not None:
+        # A bug (an event that can't be sent). Raised so it is logged, as on an HTTP stream:
+        # dropped here, the page would reopen the socket into the same event without a word.
+        raise failure
+    if ran_out:  # the events ran out with the browser still there: the app is shutting down
         await websocket.close(code=GOING_AWAY)
 
 

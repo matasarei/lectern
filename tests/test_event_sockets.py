@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, WebSocket
@@ -173,3 +174,47 @@ def test_an_events_socket_without_the_token_is_refused_before_it_opens(api, path
     with pytest.raises(WebSocketDisconnect) as refused, follow(path.format(pid=pid), token=None):
         pass
     assert refused.value.code == 1008
+
+
+# --- what a failed send means -------------------------------------------------------------------
+
+
+class _Socket:
+    """A socket whose browser stays: nothing arrives on it. `send` is what sending does."""
+
+    def __init__(self, send=None) -> None:  # noqa: ANN001
+        self.app = SimpleNamespace(state=SimpleNamespace(shutting_down=asyncio.Event()))
+        self.closed_with: int | None = None
+        self._send = send
+
+    async def accept(self, subprotocol: str | None = None) -> None:
+        pass
+
+    async def send_text(self, text: str) -> None:
+        if self._send is not None:
+            self._send(text)
+
+    async def receive(self) -> dict:
+        await asyncio.Event().wait()  # never: the browser is still there
+        raise AssertionError
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        self.closed_with = code
+
+
+def test_an_error_while_sending_isnt_swallowed():
+    """Something that can't be sent (a bug: an event that isn't JSON) must reach the server's
+    log, as it does on an HTTP stream. Dropped silently, the page reopens the socket every
+    second into the same event, and nothing anywhere says why."""
+    socket = _Socket()
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        asyncio.run(ws.socket_events(socket, asyncio.Queue(), [{"broken": object()}]))
+
+
+def test_a_send_that_finds_the_browser_gone_ends_the_stream_quietly():
+    def gone(text: str) -> None:
+        raise WebSocketDisconnect(code=1006)
+
+    socket = _Socket(send=gone)
+    asyncio.run(ws.socket_events(socket, asyncio.Queue(), [{"n": 1}]))
+    assert socket.closed_with is None  # nobody to tell
