@@ -18,6 +18,8 @@ from lectern.agent.turns import TurnManager
 from lectern.api import api_router
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
+from lectern.core.accounts import Logins
+from lectern.core.auth import LOCAL_USER
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.security import LocalGuard, load_or_create_token, parse_public_urls
 from lectern.downloads.manager import DownloadManager
@@ -115,6 +117,14 @@ def create_app(
 
     app.include_router(api_router(module_routers(modules), dev=dev))
     mount_web(app, web_dist)  # last: it answers every path the API didn't
-    app.add_middleware(LocalGuard, port=port, token=app.state.token, public=public)
+    app.add_middleware(
+        LocalGuard,
+        port=port,
+        token=app.state.token,
+        public=public,
+        logins=Logins(app.state.sessions),
+        local_user=LOCAL_USER,
+    )
+    app.state.public = public  # for the login cookie's name on each address
     app.state.public_urls = [u.origin for u in public]
     return app

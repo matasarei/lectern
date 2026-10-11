@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from fastapi import HTTPException
 from starlette.requests import HTTPConnection
 
 from lectern.core.tables import LOCAL_USER_ID, LOCAL_USER_NAME
@@ -29,6 +30,10 @@ LOCAL_USER = User(id=LOCAL_USER_ID, name=LOCAL_USER_NAME)
 
 
 def current_user(connection: HTTPConnection) -> User:
-    """FastAPI dependency for HTTP and WebSocket routes alike."""
-    del connection  # the MVP has one user; after login this reads the session
-    return LOCAL_USER
+    """FastAPI dependency for HTTP and WebSocket routes alike: whoever the guard
+    (`lectern.core.security.LocalGuard`) found the request to be from. Nobody: refused, so a
+    route the guard somehow didn't cover is closed, not open."""
+    user = getattr(connection.state, "user", None)
+    if user is None:
+        raise HTTPException(401, "Not signed in")
+    return user

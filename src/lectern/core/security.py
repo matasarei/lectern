@@ -9,14 +9,21 @@ still send requests there. This middleware makes sure only Lectern's own page ca
 - Origin check: HTTP requests that change something, and every WebSocket upgrade, must come
   from Lectern's own origin. Browsers don't apply same-origin rules to WebSockets, so there
   the Origin header is required, not just checked when present.
-- Token check: every /api request carries the per-install token, in the X-Lectern-Token
-  header (HTTP) or as the `lectern.token.<token>` subprotocol (WebSocket, where browsers
-  can't set headers).
+- Token check: every /api request carries a token, in the X-Lectern-Token header (HTTP) or
+  as the `lectern.token.<token>` subprotocol (WebSocket, where browsers can't set headers).
 - Every HTTP response gets a strict Content-Security-Policy.
+
+Whose token: until anyone can sign in (`lectern user init`), the per-install one, which the
+link `lectern url` prints carries, and whoever has it is the local user. Once there are
+accounts, a browser is signed in by a cookie that names a login, and the token is that
+login's: the cookie alone is what another site could make a browser send, so it is never
+enough (this is the request-forgery defence). The per-install token then opens Lectern from
+this computer only, as the admin.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import os
@@ -25,7 +32,7 @@ import sys
 from collections.abc import Awaitable, Callable, Iterable, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 Scope = MutableMapping[str, Any]
@@ -38,6 +45,14 @@ TOKEN_HEADER = "x-lectern-token"  # noqa: S105 (a header name, not a secret)
 WS_TOKEN_PREFIX = "lectern.token."  # noqa: S105 (a subprotocol prefix, not a secret)
 WS_SUBPROTOCOL = "lectern.v1"
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# The cookie that names a login. Over https it is bound to the host (the `__Host-` prefix: a
+# browser accepts it only with Secure, no Domain and Path=/, so a sibling site or a plain-http
+# page can't plant one).
+LOGIN_COOKIE = "lectern"
+HOST_BOUND = "__Host-"
+# Reachable by a browser that isn't signed in: signing in, and asking whether it is.
+SIGNING_IN = "/api/login"
+THIS_COMPUTER = frozenset({"127.0.0.1", "::1"})
 
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
@@ -135,17 +150,54 @@ def _tokens_match(given: str | None, expected: str) -> bool:
     return given is not None and hmac.compare_digest(given.encode(), expected.encode())
 
 
+def _cookie(scope: Scope, name: str) -> str | None:
+    """The value of the cookie `name`, if the request carries it."""
+    for part in (_header(scope, b"cookie") or "").split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name and value:
+            return value
+    return None
+
+
+def login_cookie(host: str | None, public: Iterable[PublicUrl]) -> tuple[str, bool]:
+    """The name of the login cookie for a request to `host`, and whether it is Secure:
+    host-bound where Lectern is reached over https, plain otherwise."""
+    secure = any(u.host == host and u.origin.startswith("https://") for u in public)
+    return (HOST_BOUND + LOGIN_COOKIE if secure else LOGIN_COOKIE), secure
+
+
+class Logins(Protocol):
+    """What the guard asks about accounts (`lectern.core.accounts.Logins`). Both read the
+    database, so the guard calls them in a worker thread."""
+
+    def accounts_on(self) -> bool: ...
+
+    def find(self, login_id: str) -> tuple[Any, str] | None:
+        """The user that login is, and its token."""
+
+
 class LocalGuard:
-    """ASGI middleware applying the host, origin and token checks, and the CSP."""
+    """ASGI middleware applying the host, origin and token checks, and the CSP. Whoever a
+    request to /api turns out to be is left in the connection's state (`state.user`)."""
 
     def __init__(
-        self, app: ASGIApp, *, port: int, token: str, public: Iterable[PublicUrl] = ()
+        self,
+        app: ASGIApp,
+        *,
+        port: int,
+        token: str,
+        public: Iterable[PublicUrl] = (),
+        logins: Logins | None = None,
+        local_user: Any = None,
     ) -> None:
         self.app = app
-        public = list(public)
-        self.hosts = allowed_hosts(port, public)
-        self.origins = allowed_origins(port, public)
+        self.public = list(public)
+        self.local_hosts = allowed_hosts(port)
+        self.hosts = allowed_hosts(port, self.public)
+        self.origins = allowed_origins(port, self.public)
         self.token = token
+        self.logins = logins
+        self.local_user = local_user  # who the per-install token's holder is
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         kind = scope["type"]
@@ -170,12 +222,37 @@ class LocalGuard:
         if scope["method"] in MUTATING_METHODS and foreign_origin:
             await _plain_error(send_with_headers, 403, "Origin not allowed")
             return
-        if scope["path"].startswith("/api/") and not _tokens_match(
-            _header(scope, TOKEN_HEADER.encode()), self.token
-        ):
-            await _plain_error(send_with_headers, 401, "Missing or wrong token")
-            return
+        if scope["path"].startswith("/api/"):
+            signing_in = scope["path"] == SIGNING_IN
+            offered = _header(scope, TOKEN_HEADER.encode())
+            user, accounts = await self._who(scope, offered, cookie_is_enough=signing_in)
+            if user is None and not (accounts and signing_in):
+                detail = "Not signed in" if accounts else "Missing or wrong token"
+                await _plain_error(send_with_headers, 401, detail)
+                return
+            scope.setdefault("state", {})["user"] = user
         await self.app(scope, receive, send_with_headers)
+
+    async def _who(
+        self, scope: Scope, offered: str | None, *, cookie_is_enough: bool = False
+    ) -> tuple[Any, bool]:
+        """Who the request is from (None: nobody), and whether accounts are on.
+        `cookie_is_enough`: for the one request that hands a signed-in browser its token."""
+        if self.logins is None or not await asyncio.to_thread(self.logins.accounts_on):
+            return (self.local_user if _tokens_match(offered, self.token) else None), False
+        name, _secure = login_cookie(_host(scope), self.public)
+        login_id = _cookie(scope, name)
+        if login_id:
+            found = await asyncio.to_thread(self.logins.find, login_id)
+            if found is not None and (cookie_is_enough or _tokens_match(offered, found[1])):
+                return found[0], True
+        # The link: from this computer only. The Host header alone doesn't say so (anyone
+        # reaching the port can send `Host: 127.0.0.1`), so the connection must be local too.
+        client = scope.get("client") or ("", 0)
+        here = _host(scope) in self.local_hosts and client[0] in THIS_COMPUTER
+        if here and _tokens_match(offered, self.token):
+            return self.local_user, True
+        return None, True
 
     async def _websocket(self, scope: Scope, receive: Receive, send: Send) -> None:
         token = next(
@@ -186,16 +263,15 @@ class LocalGuard:
             ),
             None,
         )
-        allowed = (
-            _host(scope) in self.hosts
-            and _header(scope, b"origin") in self.origins
-            and _tokens_match(token, self.token)
-        )
-        if not allowed:
+        user = None
+        if _host(scope) in self.hosts and _header(scope, b"origin") in self.origins:
+            user, _accounts = await self._who(scope, token)
+        if user is None:
             # Closing before accepting makes the server answer the upgrade with 403.
             await receive()
             await send({"type": "websocket.close", "code": 1008})
             return
+        scope.setdefault("state", {})["user"] = user
         await self.app(scope, receive, send)
 
 

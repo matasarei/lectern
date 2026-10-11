@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -238,6 +239,22 @@ def end_login(sessions: Sessions, login_id: str) -> None:
         row = session.get(LoginRow, _fingerprint(login_id))
         if row is not None:
             session.delete(row)
+
+
+class Logins:
+    """What the guard on every request asks (`lectern.core.security.Logins`), with the clock
+    it runs by."""
+
+    def __init__(
+        self, sessions: Sessions, clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    ):
+        self.sessions, self.clock = sessions, clock
+
+    def accounts_on(self) -> bool:
+        return accounts_on(self.sessions)
+
+    def find(self, login_id: str) -> tuple[User, str] | None:
+        return find_login(self.sessions, login_id, self.clock())
 
 
 # --- inside ---------------------------------------------------------------------------------------
