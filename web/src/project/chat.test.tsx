@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Chat, ChatMessage, Tab } from "../api/types";
+import { installFakeSockets } from "../test/fake-socket";
 import { ChatTab, groupReplies, shortArgs, writtenScript } from "./chat";
 
 const message = (id: number, over: Partial<ChatMessage>): ChatMessage => ({
@@ -50,36 +51,26 @@ beforeEach(() => {
     ],
   };
   window.sessionStorage.setItem("lectern.token", "t");
+  // The event streams: the runtime's stays silent; the chat's and an OCR session's send
+  // what a test pushes.
+  installFakeSockets((socket) => {
+    socket.open();
+    if (socket.path === "/api/runtime/events") return;
+    if (socket.path.includes("/ocr/")) {
+      ocrStreams += 1;
+      pushOcr = (event) => socket.push(event);
+    } else {
+      push = (event) => socket.push(event);
+    }
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/runtime/events") return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
       if (url === "/api/exporters") {
         return new Response(JSON.stringify([{ format: "docx", extension: ".docx", capabilities: [] }]));
       }
-      if (url.includes("/ocr/") && url.endsWith("/events")) {
-        ocrStreams += 1;
-        const encoder = new TextEncoder();
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              pushOcr = (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            },
-          }),
-        );
-      }
       if (url.includes("/ocr/")) return new Response(JSON.stringify(ocrSession));
-      if (url.endsWith("/events")) {
-        const encoder = new TextEncoder();
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              push = (event) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            },
-          }),
-        );
-      }
       if (url === "/api/projects/1/items") return new Response(JSON.stringify(items));
       if (url === "/api/projects/1/artifacts/11/content") {
         return new Response("print('penalty', 62.5)\n");

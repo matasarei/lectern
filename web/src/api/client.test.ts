@@ -7,9 +7,9 @@ import {
   followEvents,
   initToken,
   openSocket,
-  readEvents,
   RECONNECT_DELAYS_MS,
 } from "./client";
+import { type FakeSocket, installFakeSockets } from "../test/fake-socket";
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -70,145 +70,162 @@ describe("apiFetch", () => {
   });
 });
 
-describe("readEvents", () => {
-  it("parses data lines and skips comments, across chunk boundaries", async () => {
-    const chunks = [": connected\n\n", 'data: {"a":', '1}\n\ndata: {"a":2}\n\n'];
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const c of chunks) controller.enqueue(new TextEncoder().encode(c));
-        controller.close();
-      },
-    });
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(body)));
-    const events: unknown[] = [];
-
-    await readEvents("/api/models/events", (e) => events.push(e), new AbortController().signal);
-
-    expect(events).toEqual([{ a: 1 }, { a: 2 }]);
-  });
-});
-
 describe("followEvents", () => {
-  const encoder = new TextEncoder();
-  // A stream that sends `events` and then ends, as the server's does when it stops.
-  const ending = (...events: object[]) =>
-    new Response(new ReadableStream({
-      start(c) {
-        for (const e of events) c.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
-        c.close();
-      },
-    }));
-  // One that stays open, as a running server's does.
-  const open = (...events: object[]) =>
-    new Response(new ReadableStream({
-      start(c) {
-        for (const e of events) c.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
-      },
-    }));
+  const PATH = "/api/x/events";
 
   beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
   afterEach(() => vi.useRealTimers());
 
-  it("opens the stream again after it ends, and says so each time it opens", async () => {
-    const answers = [ending({ seq: 1 }), open({ seq: 1 })];
-    const fetched = vi.fn(async () => answers.shift()!);
-    vi.stubGlobal("fetch", fetched);
+  it("opens a socket with the token, and hands on each frame as an event", async () => {
+    window.sessionStorage.setItem("lectern.token", "t0k");
+    const sockets = installFakeSockets((socket) => {
+      socket.open();
+      socket.push({ a: 1 }, { a: 2 });
+    });
+    const events: unknown[] = [];
+    const controller = new AbortController();
+
+    void followEvents(PATH, (e) => events.push(e), controller.signal);
+    await vi.waitFor(() => expect(events).toEqual([{ a: 1 }, { a: 2 }]));
+
+    expect(sockets.all).toHaveLength(1);
+    expect(sockets.all[0].url).toBe(`ws://${window.location.host}${PATH}`);
+    expect(sockets.all[0].protocols).toEqual(["lectern.v1", "lectern.token.t0k"]);
+    controller.abort();
+  });
+
+  it("opens the socket again after it closes, and says so each time it opens", async () => {
+    // The server stops (1001: going away) after one event, and is back for the next socket.
+    const sockets = installFakeSockets((socket, index) => {
+      socket.open();
+      socket.push({ seq: 1 });
+      if (index === 0) socket.drop(1001);
+    });
     const events: unknown[] = [];
     const opens: boolean[] = [];
     const controller = new AbortController();
 
-    void followEvents("/api/x/events", (e) => events.push(e), controller.signal, (again) => opens.push(again));
+    void followEvents(PATH, (e) => events.push(e), controller.signal, (again) => opens.push(again));
     await vi.waitFor(() => expect(events).toHaveLength(1));
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
     await vi.waitFor(() => expect(events).toHaveLength(2));
 
     expect(events).toEqual([{ seq: 1 }, { seq: 1 }]); // the restarted server numbers from 1 again
     expect(opens).toEqual([false, true]); // only the reopen is told to catch up
-    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(sockets.all).toHaveLength(2);
     controller.abort();
   });
 
   it("keeps trying while the server can't be reached, waiting longer each time", async () => {
-    const fetched = vi.fn(async () => {
-      if (fetched.mock.calls.length < 3) throw new TypeError("Failed to fetch"); // restarting
-      return open({ seq: 1 });
+    const sockets = installFakeSockets((socket, index) => {
+      if (index < 2) return socket.drop(); // restarting: nothing answers
+      socket.open();
+      socket.push({ seq: 1 });
     });
-    vi.stubGlobal("fetch", fetched);
     const events: unknown[] = [];
     const controller = new AbortController();
 
-    void followEvents("/api/x/events", (e) => events.push(e), controller.signal);
+    void followEvents(PATH, (e) => events.push(e), controller.signal);
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
-    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(sockets.all).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[1] - 1);
-    expect(fetched).toHaveBeenCalledTimes(2); // the second wait is longer
+    expect(sockets.all).toHaveLength(2); // the second wait is longer
     await vi.advanceTimersByTimeAsync(1);
     await vi.waitFor(() => expect(events).toEqual([{ seq: 1 }]));
     controller.abort();
   });
 
-  it("retries a 5xx, but stops on a 4xx, which a retry wouldn't change", async () => {
-    const answers = [new Response("", { status: 503 }), new Response("", { status: 401 })];
-    const fetched = vi.fn(async () => answers.shift()!);
-    vi.stubGlobal("fetch", fetched);
+  it("retries the server's code for a 5xx, but stops on one for a 4xx, which a retry wouldn't change", async () => {
+    const sockets = installFakeSockets((socket, index) => {
+      socket.open();
+      if (index === 0) socket.drop(4503, "Starting.");
+      else socket.drop(4404, "No such session.");
+    });
     const controller = new AbortController();
 
-    const refused = expect(followEvents("/api/x/events", () => {}, controller.signal)).rejects.toMatchObject({
-      status: 401,
+    const refused = expect(followEvents(PATH, () => {}, controller.signal)).rejects.toMatchObject({
+      status: 404,
+      detail: "No such session.",
     });
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
 
     await refused;
-    expect(fetched).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
+    expect(sockets.all).toHaveLength(2);
+  });
+
+  it("goes on trying a socket that is refused before it opens, as if the server were down", async () => {
+    // A wrong token: the browser says only that it closed (1006).
+    const sockets = installFakeSockets((socket) => socket.drop());
+    const controller = new AbortController();
+
+    void followEvents(PATH, () => {}, controller.signal);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0] + RECONNECT_DELAYS_MS[1]);
+
+    expect(sockets.all).toHaveLength(3);
+    controller.abort();
   });
 
   it.each([
-    ["its handler throws", () => open({ seq: 1 }), () => { throw new TypeError("a bug in the handler"); }],
-    ["its JSON doesn't parse", () => new Response("data: {not json\n\n"), () => {}],
-  ])("stops, rather than reconnecting into the same event, when %s", async (_why, answer, onEvent) => {
-    const fetched = vi.fn(async () => answer());
-    vi.stubGlobal("fetch", fetched);
+    ["its handler throws", (socket: FakeSocket) => socket.push({ seq: 1 }), () => { throw new TypeError("a bug in the handler"); }],
+    ["its JSON doesn't parse", (socket: FakeSocket) => socket.pushText("{not json"), () => {}],
+  ])("stops, rather than reconnecting into the same event, when %s", async (_why, send, onEvent) => {
+    const sockets = installFakeSockets((socket) => {
+      socket.open();
+      send(socket);
+    });
     const controller = new AbortController();
 
-    const stopped = expect(followEvents("/api/x/events", onEvent, controller.signal)).rejects.toBeInstanceOf(EventError);
+    const stopped = expect(followEvents(PATH, onEvent, controller.signal)).rejects.toBeInstanceOf(EventError);
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
 
     await stopped;
-    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(sockets.all).toHaveLength(1);
+    expect(sockets.all[0].closedByPage).toBe(true);
   });
 
-  it("leaves no abort listener behind from the waits it finished", async () => {
-    const fetched = vi.fn(async () => {
-      if (fetched.mock.calls.length < 4) throw new TypeError("Failed to fetch");
-      return open({ seq: 1 });
-    });
-    vi.stubGlobal("fetch", fetched);
+  it("leaves no abort listener behind from the sockets and waits it finished", async () => {
+    const sockets = installFakeSockets((socket, index) => (index < 3 ? socket.drop() : socket.open()));
     const controller = new AbortController();
     const added = vi.spyOn(controller.signal, "addEventListener");
     const removed = vi.spyOn(controller.signal, "removeEventListener");
 
-    void followEvents("/api/x/events", () => {}, controller.signal);
+    void followEvents(PATH, () => {}, controller.signal);
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0] + RECONNECT_DELAYS_MS[1] + RECONNECT_DELAYS_MS[2]);
-    await vi.waitFor(() => expect(fetched).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(sockets.all).toHaveLength(4));
 
-    const waits = added.mock.calls.filter(([type]) => type === "abort").length;
-    expect(waits).toBe(3);
-    expect(removed.mock.calls.filter(([type]) => type === "abort")).toHaveLength(waits);
+    const aborts = (calls: unknown[][]) => calls.filter(([type]) => type === "abort").length;
+    // Four sockets and three waits listened; only the socket still open is still listening.
+    expect(aborts(added.mock.calls)).toBe(7);
+    expect(aborts(removed.mock.calls)).toBe(6);
     controller.abort();
   });
 
-  it("stops when aborted while waiting to reconnect", async () => {
-    const fetched = vi.fn(async () => ending());
-    vi.stubGlobal("fetch", fetched);
+  it("closes its socket when aborted, and opens no other", async () => {
+    const sockets = installFakeSockets();
     const controller = new AbortController();
 
-    const following = followEvents("/api/x/events", () => {}, controller.signal);
-    await vi.waitFor(() => expect(fetched).toHaveBeenCalledTimes(1));
+    const following = followEvents(PATH, () => {}, controller.signal);
+    await vi.waitFor(() => expect(sockets.all[0]?.readyState).toBe(1));
+    controller.abort();
+
+    await expect(following).resolves.toBeUndefined();
+    expect(sockets.all[0].closedByPage).toBe(true);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
+    expect(sockets.all).toHaveLength(1);
+  });
+
+  it("stops when aborted while waiting to reconnect", async () => {
+    const sockets = installFakeSockets((socket) => socket.drop());
+    const controller = new AbortController();
+
+    const following = followEvents(PATH, () => {}, controller.signal);
+    await vi.waitFor(() => expect(sockets.all).toHaveLength(1));
     controller.abort();
 
     await expect(following).resolves.toBeUndefined();
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
-    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(sockets.all).toHaveLength(1);
   });
 });
 

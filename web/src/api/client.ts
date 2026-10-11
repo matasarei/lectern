@@ -4,8 +4,8 @@
  * `lectern serve` opens the page as http://127.0.0.1:<port>/#token=<token>. The token is
  * moved into sessionStorage and removed from the address bar, then sent with every request:
  * as the X-Lectern-Token header over HTTP, and as the `lectern.token.<token>` subprotocol on
- * WebSockets (browsers can't set headers there). Server-sent events are read with fetch,
- * because EventSource can't send headers either.
+ * WebSockets (browsers can't set headers there). The server's event streams are followed on
+ * WebSockets (`followEvents`).
  */
 
 const STORAGE_KEY = "lectern.token";
@@ -84,54 +84,67 @@ export class EventError extends Error {
   }
 }
 
-/** Read a server-sent event stream; calls `onEvent` with each parsed `data:` payload, and
- * `onOpen` once the server has answered, before the first event. Returns when the stream ends. */
-export async function readEvents<T>(
-  path: string,
-  onEvent: (event: T) => void,
-  signal: AbortSignal,
-  onOpen: () => void = () => {},
-): Promise<void> {
-  const response = await fetch(path, withToken({ signal }));
-  if (!response.ok || !response.body) throw new ApiError(response.status, response.statusText);
-  onOpen();
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) return;
-    buffer += value;
-    let end: number;
-    while ((end = buffer.indexOf("\n\n")) >= 0) {
-      const block = buffer.slice(0, end);
-      buffer = buffer.slice(end + 2);
-      const data = block
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trimStart())
-        .join("\n");
-      if (!data) continue;
-      try {
-        onEvent(JSON.parse(data) as T);
-      } catch (error) {
-        throw new EventError(error);
-      }
-    }
-  }
-}
-
 /** How long to wait before each reconnect: a restart takes a few seconds, a longer outage
  * isn't worth asking about every second. */
 export const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000];
 
-/** Follow a server-sent event stream until `signal` aborts. When the stream ends or the
- * server can't be reached (a restart, an update), wait and open it again. `onConnect` runs
- * each time the stream opens, before its first event, with `again` true when it's a reopen
- * (the time to catch up on what happened while it was closed): after a restart the server's numbering
- * starts again, so whatever a reader counted from the last stream no longer applies. An error
- * answer (a wrong token, a session that's gone) ends it, and so does an event the page can't
- * take (EventError): a retry wouldn't change either. A 5xx is retried, since a server shutting
- * down can answer one. */
+/** Close codes 4000-4999 are the server's own: 4000 + the HTTP status it would have answered
+ * (4404: the chat isn't there). */
+const APP_CLOSE = 4000;
+
+/** How one socket ended: closed by the server or lost (`code`), or given up on abort. */
+type Ended = { code: number; reason: string } | "aborted";
+
+/** Follow one event stream on a socket until it closes or `signal` aborts. Each frame is one
+ * event as JSON. Rejects with EventError for an event the page can't take. */
+function socketEvents<T>(
+  path: string,
+  onEvent: (event: T) => void,
+  signal: AbortSignal,
+  onOpen: () => void,
+): Promise<Ended> {
+  return new Promise((resolve, reject) => {
+    const socket = openSocket(path);
+    const end = () => {
+      signal.removeEventListener("abort", abort);
+      socket.onopen = socket.onmessage = socket.onclose = null;
+    };
+    const abort = () => {
+      end();
+      socket.close();
+      resolve("aborted");
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    socket.onopen = onOpen;
+    socket.onmessage = (message) => {
+      try {
+        onEvent(JSON.parse(String(message.data)) as T);
+      } catch (error) {
+        end();
+        socket.close();
+        reject(new EventError(error));
+      }
+    };
+    socket.onclose = (event) => {
+      end();
+      resolve({ code: event.code, reason: event.reason });
+    };
+  });
+}
+
+/** Follow one of the server's event streams until `signal` aborts. Over a WebSocket, not an
+ * HTTP response: a browser allows six HTTP/1.1 connections to a host, shared by every tab,
+ * and streams held open as responses used them up (two project tabs were enough, and every
+ * other request then waited); sockets don't count against the six.
+ *
+ * When the socket closes or the server can't be reached (a restart, an update), wait and
+ * open it again. `onConnect` runs each time it opens, before its first event, with `again`
+ * true when it's a reopen (the time to catch up on what happened while it was closed): after
+ * a restart the server's numbering starts again, so whatever a reader counted from the last
+ * stream no longer applies. A close with the server's own code for an error answer (a session
+ * that's gone: 4404) ends it, and so does an event the page can't take (EventError): a retry
+ * wouldn't change either. The server's code for a 5xx is retried. A socket refused before it
+ * opened (a wrong token) can't be told from a server that is down, and is retried too. */
 export async function followEvents<T>(
   path: string,
   onEvent: (event: T) => void,
@@ -141,18 +154,14 @@ export async function followEvents<T>(
   let failures = 0;
   let opened = false;
   while (!signal.aborted) {
-    try {
-      await readEvents(path, onEvent, signal, () => {
-        failures = 0;
-        onConnect(opened);
-        opened = true;
-      });
-    } catch (error) {
-      if (signal.aborted) return;
-      if (error instanceof EventError) throw error;
-      if (error instanceof ApiError && error.status < 500) throw error;
-    }
-    if (signal.aborted) return;
+    const ended = await socketEvents(path, onEvent, signal, () => {
+      failures = 0;
+      onConnect(opened);
+      opened = true;
+    });
+    if (ended === "aborted") return;
+    const status = ended.code - APP_CLOSE;
+    if (status >= 0 && status < 500) throw new ApiError(status, ended.reason);
     const delay = RECONNECT_DELAYS_MS[Math.min(failures, RECONNECT_DELAYS_MS.length - 1)];
     failures += 1;
     await new Promise<void>((resolve) => {

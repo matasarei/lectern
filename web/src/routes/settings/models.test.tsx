@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTree } from "../../router";
+import { installFakeSockets } from "../../test/fake-socket";
 
 // The page asks for the list again while an update runs; no test should wait out the real gap.
 vi.mock("./polling", () => ({ UPDATE_POLL_MS: 20 }));
@@ -100,10 +101,10 @@ beforeEach(() => {
   posts = [];
   overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
+  installFakeSockets(); // the event streams: open, silent
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (init?.method === "POST" && url.endsWith("/update")) {
         posts.push({ url, body: null });
         if (refusal) return new Response(JSON.stringify({ detail: refusal }), { status: 409 });

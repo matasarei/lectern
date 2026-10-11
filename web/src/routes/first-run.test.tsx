@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { installFakeSockets } from "../test/fake-socket";
 import { FirstRunPage } from "./first-run";
 
 const GIB = 1024 ** 3;
@@ -76,10 +77,10 @@ beforeEach(() => {
   onPut = null;
   putRefused = null;
   window.sessionStorage.setItem("lectern.token", "t");
+  installFakeSockets(); // the event streams: open, silent
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith("/events")) return new Response(new ReadableStream({ start: (c) => c.close() }));
       if (init?.method === "POST") {
         posts.push(url);
         return new Response(JSON.stringify(firstRun ?? responses()["/api/first-run"]), { status: 202 });
