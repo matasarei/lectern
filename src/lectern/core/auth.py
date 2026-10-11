@@ -37,3 +37,12 @@ def current_user(connection: HTTPConnection) -> User:
     if user is None:
         raise HTTPException(401, "Not signed in")
     return user
+
+
+def require_admin(connection: HTTPConnection) -> User:
+    """FastAPI dependency for what changes the install itself: its models, its settings, its
+    setup, its accounts. A member may look at those, not change them."""
+    user = current_user(connection)
+    if user.role != ADMIN:
+        raise HTTPException(403, "Only an admin can do that.")
+    return user

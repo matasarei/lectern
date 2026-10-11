@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from lectern.agent import followups
 from lectern.agent.loop import TurnRun, run_tool, run_turn, store_message
 from lectern.agent.tools import Registry
-from lectern.core.auth import LOCAL_USER, User
+from lectern.core.auth import User
 from lectern.projects.store import NEW_CHAT, UNTITLED, Project, ProjectStore
 from lectern.projects.tables import ArtifactRow, SessionRow
 from lectern.runtime.supervisor import ModelRuntime
@@ -322,7 +322,7 @@ class TurnManager:
             summary = await self._ocr_summary(project, ocr_session_id) or summary
             if summary["clear"]:
                 return
-            owner = await run_in_threadpool(_owner, sessions, chat_id)
+            owner = await run_in_threadpool(_owner, self.projects, sessions, chat_id)
             run = self._new_run(key, project, sessions, owner, chat_id)
             channel = self.channel(key)
             channel.events.clear()
@@ -386,7 +386,7 @@ class TurnManager:
             taken = await run_in_threadpool(followups.take, sessions, chat_id, follow.id)
             if taken is None:  # already run by an earlier signal
                 return
-            owner = await run_in_threadpool(_owner, sessions, chat_id)
+            owner = await run_in_threadpool(_owner, self.projects, sessions, chat_id)
             run = self._new_run(key, project, sessions, owner, chat_id)
             channel = self.channel(key)
             channel.events.clear()
@@ -542,8 +542,8 @@ async def _run_follow_up(run: TurnRun, follow: followups.FollowUp, notice: str) 
               "action": result.action})  # fmt: skip
 
 
-def _owner(sessions, chat_id: int) -> User:  # noqa: ANN001
+def _owner(projects: ProjectStore, sessions, chat_id: int) -> User:  # noqa: ANN001
     """Who the chat belongs to: a follow-up runs as them."""
     with sessions() as session:
         owner_id = session.get(SessionRow, chat_id).owner_id
-    return LOCAL_USER if owner_id == LOCAL_USER.id else User(id=owner_id, name="")
+    return projects.user(owner_id)

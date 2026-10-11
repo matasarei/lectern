@@ -3,7 +3,7 @@ a download, remove a model, follow progress."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -13,6 +13,7 @@ from lectern.api.sse import hub_stream
 from lectern.api.ws import hub_socket
 from lectern.catalog import catalog
 from lectern.core import settings
+from lectern.core.auth import require_admin
 from lectern.downloads.manager import (
     DownloadManager,
     NoSuchFolder,
@@ -125,7 +126,7 @@ class RoleModel(BaseModel):
     model_id: str | None = None  # None: the one recommended for this computer
 
 
-@router.put("/models/roles/{role}")
+@router.put("/models/roles/{role}", dependencies=[Depends(require_admin)])
 async def set_role_model(role: str, body: RoleModel, request: Request) -> dict:
     """Choose the model a role uses. Any model with the role can be chosen, one this
     computer isn't meant for included: the runtime refuses what doesn't fit when it loads."""
@@ -188,7 +189,7 @@ class DownloadRequest(BaseModel):
     accept_licence: bool = False
 
 
-@router.post("/models/{model_id}/download", status_code=202)
+@router.post("/models/{model_id}/download", status_code=202, dependencies=[Depends(require_admin)])
 async def start_download(
     model_id: str, request: Request, body: DownloadRequest | None = None
 ) -> dict:
@@ -210,7 +211,7 @@ async def start_download(
     return _manager(request).start(entry).to_dict()
 
 
-@router.post("/models/{model_id}/update", status_code=202)
+@router.post("/models/{model_id}/update", status_code=202, dependencies=[Depends(require_admin)])
 async def update_model(model_id: str, request: Request) -> dict:
     """Bring an installed model to the revision the catalog pins now. It runs in the
     background: the new revision is built beside the model, which stays in use, and takes its
@@ -226,7 +227,7 @@ async def update_model(model_id: str, request: Request) -> dict:
         ) from exc
 
 
-@router.delete("/models/{name}")
+@router.delete("/models/{name}", dependencies=[Depends(require_admin)])
 async def remove_model(name: str, request: Request) -> dict:
     """Delete a model's folder from the models directory: a catalog model's, or one no
     catalog model owns. A role that used it keeps asking for it and shows Download."""

@@ -16,13 +16,14 @@ import asyncio
 import json
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from lectern.catalog import catalog
 from lectern.catalog.catalog import CatalogEntry
 from lectern.core import settings
+from lectern.core.auth import require_admin
 from lectern.core.tables import SettingRow
 from lectern.runners import mlx
 from lectern.runtime.wiring import pick
@@ -163,7 +164,7 @@ def _engine_report(request: Request) -> dict | None:
     return report
 
 
-@router.post("/first-run/engine", status_code=202)
+@router.post("/first-run/engine", status_code=202, dependencies=[Depends(require_admin)])
 async def download_engine(request: Request) -> dict:
     """Start the engine's download in the background, once; the page follows it through
     the runtime's events. Again after a failure: it tries again."""
@@ -186,7 +187,7 @@ class Advance(BaseModel):
     to: Step
 
 
-@router.post("/first-run")
+@router.post("/first-run", dependencies=[Depends(require_admin)])
 def advance_first_run(body: Advance, request: Request) -> dict:
     with request.app.state.sessions.begin() as session:
         current = _load_step(session)

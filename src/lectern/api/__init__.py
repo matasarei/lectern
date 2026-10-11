@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, WebSocket
 
 from lectern.api import chat, export, firstrun, models, projects, runtime, sessions, system
 from lectern.api import dev as dev_tools
-from lectern.core.auth import current_user
+from lectern.core.auth import current_user, require_admin
 from lectern.core.security import WS_SUBPROTOCOL
 
 
@@ -32,7 +32,8 @@ def api_router(module_routers: Sequence[APIRouter] = (), *, dev: bool = False) -
     router.include_router(sessions.router)
     router.include_router(export.router)
     if dev:
-        router.include_router(dev_tools.router)
+        # They unload models and change the memory budget: an admin's, reads included.
+        router.include_router(dev_tools.router, dependencies=[Depends(require_admin)])
     for extra in module_routers:
         router.include_router(extra)
     return router
