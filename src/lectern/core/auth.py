@@ -12,13 +12,19 @@ from starlette.requests import HTTPConnection
 
 from lectern.core.tables import LOCAL_USER_ID, LOCAL_USER_NAME
 
+ADMIN = "admin"  # may also manage models, settings and accounts
+MEMBER = "member"  # their own projects, and a read-only view of the rest
+
 
 @dataclass(frozen=True)
 class User:
     id: int
-    name: str
+    name: str  # the folder their projects are under
+    login: str | None = None  # what they sign in as; None where nobody signs in
+    role: str = ADMIN
 
 
+# The one user of an install without accounts. It owns the computer, so it is an admin.
 LOCAL_USER = User(id=LOCAL_USER_ID, name=LOCAL_USER_NAME)
 
 
