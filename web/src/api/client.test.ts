@@ -73,7 +73,12 @@ describe("apiFetch", () => {
 describe("followEvents", () => {
   const PATH = "/api/x/events";
 
-  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // A socket that never opened makes the page ask over HTTP whether it is still let in.
+    // Unless a test says otherwise, nothing answers: the server is down.
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("Failed to fetch"))));
+  });
   afterEach(() => vi.useRealTimers());
 
   it("opens a socket with the token, and hands on each frame as an event", async () => {
@@ -154,15 +159,58 @@ describe("followEvents", () => {
     expect(sockets.all).toHaveLength(2);
   });
 
-  it("goes on trying a socket that is refused before it opens, as if the server were down", async () => {
-    // A wrong token: the browser says only that it closed (1006).
+  it.each([401, 403])(
+    "gives up a socket refused before it opened when the server answers %i over HTTP",
+    async (status) => {
+      // A wrong token: the browser says only that the socket closed (1006), as when the
+      // server is down. Asked over HTTP, the server says which it is.
+      const sockets = installFakeSockets((socket) => socket.drop());
+      const asked = vi.fn(async () =>
+        new Response(JSON.stringify({ detail: "Missing or wrong token" }), { status }),
+      );
+      vi.stubGlobal("fetch", asked);
+      window.sessionStorage.setItem("lectern.token", "stale");
+
+      await expect(followEvents(PATH, () => {}, new AbortController().signal)).rejects.toMatchObject({
+        status,
+        detail: "Missing or wrong token",
+      });
+
+      await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
+      expect(sockets.all).toHaveLength(1); // not tried again: nothing would change
+      expect(asked).toHaveBeenCalledTimes(1);
+      const [url, init] = asked.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("/api/runtime");
+      expect(new Headers(init.headers).get("X-Lectern-Token")).toBe("stale");
+    },
+  );
+
+  it("goes on trying a socket that never opens while the server lets the page in, or can't be asked", async () => {
     const sockets = installFakeSockets((socket) => socket.drop());
+    const answers = [() => Promise.reject(new TypeError("Failed to fetch")), () => new Response("{}")];
+    const asked = vi.fn(async () => answers[Math.min(asked.mock.calls.length - 1, 1)]());
+    vi.stubGlobal("fetch", asked);
     const controller = new AbortController();
 
     void followEvents(PATH, () => {}, controller.signal);
     await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0] + RECONNECT_DELAYS_MS[1]);
 
     expect(sockets.all).toHaveLength(3);
+    controller.abort();
+  });
+
+  it("doesn't ask over HTTP about a socket that had opened", async () => {
+    const sockets = installFakeSockets((socket, index) => {
+      socket.open();
+      if (index === 0) socket.drop(1001); // the server restarts
+    });
+    const controller = new AbortController();
+
+    void followEvents(PATH, () => {}, controller.signal);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS[0]);
+    await vi.waitFor(() => expect(sockets.all).toHaveLength(2));
+
+    expect(fetch).not.toHaveBeenCalled();
     controller.abort();
   });
 

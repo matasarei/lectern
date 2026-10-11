@@ -132,6 +132,21 @@ function socketEvents<T>(
   });
 }
 
+/** A request the server answers at once to any page it lets in. */
+const STILL_LET_IN = "/api/runtime";
+
+/** The server's refusal of this page (a wrong token), or null when it lets the page in or
+ * can't be reached. Asked over HTTP, where a refusal comes with a status. */
+async function turnedAway(signal: AbortSignal): Promise<ApiError | null> {
+  try {
+    await apiFetch(STILL_LET_IN, { signal });
+    return null;
+  } catch (error) {
+    const refused = error instanceof ApiError && (error.status === 401 || error.status === 403);
+    return refused ? error : null;
+  }
+}
+
 /** Follow one of the server's event streams until `signal` aborts. Over a WebSocket, not an
  * HTTP response: a browser allows six HTTP/1.1 connections to a host, shared by every tab,
  * and streams held open as responses used them up (two project tabs were enough, and every
@@ -143,8 +158,12 @@ function socketEvents<T>(
  * a restart the server's numbering starts again, so whatever a reader counted from the last
  * stream no longer applies. A close with the server's own code for an error answer (a session
  * that's gone: 4404) ends it, and so does an event the page can't take (EventError): a retry
- * wouldn't change either. The server's code for a 5xx is retried. A socket refused before it
- * opened (a wrong token) can't be told from a server that is down, and is retried too. */
+ * wouldn't change either. The server's code for a 5xx is retried.
+ *
+ * A socket refused before it opened (a wrong token) looks to a browser like a server that is
+ * down. So after a socket that never opened the server is asked over HTTP: refused there
+ * too, the stream ends (a tab left open with an old token would otherwise knock every ten
+ * seconds for good); let in, or no answer, it is tried again. */
 export async function followEvents<T>(
   path: string,
   onEvent: (event: T) => void,
@@ -154,7 +173,9 @@ export async function followEvents<T>(
   let failures = 0;
   let opened = false;
   while (!signal.aborted) {
+    let reached = false;
     const ended = await socketEvents(path, onEvent, signal, () => {
+      reached = true;
       failures = 0;
       onConnect(opened);
       opened = true;
@@ -162,6 +183,11 @@ export async function followEvents<T>(
     if (ended === "aborted") return;
     const status = ended.code - APP_CLOSE;
     if (status >= 0 && status < 500) throw new ApiError(status, ended.reason);
+    if (!reached) {
+      const refusal = await turnedAway(signal);
+      if (signal.aborted) return;
+      if (refusal) throw refusal;
+    }
     const delay = RECONNECT_DELAYS_MS[Math.min(failures, RECONNECT_DELAYS_MS.length - 1)];
     failures += 1;
     await new Promise<void>((resolve) => {
