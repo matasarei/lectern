@@ -84,6 +84,9 @@ def test_a_restricted_licence_model_can_be_chosen(api):
         ("main", "nope", 404, "No model 'nope'"),
         ("main", "paddleocr-vl-1.6", 409, "can't be used for the 'main' role"),
         ("main", "qwen3.5-4b-mlx", 409, "MLX build"),
+        ("clean", "nope", 404, "No model 'nope'"),
+        ("clean", "paddleocr-vl-1.6", 409, "can't clean up scanned pages"),
+        ("clean", "qwen3.5-4b-mlx", 409, "can't be held to the shape cleanup needs"),
     ],
 )
 def test_a_choice_that_cannot_be_made_is_refused_and_nothing_is_stored(
@@ -127,6 +130,74 @@ def test_a_change_unloads_the_roles_idle_model(api):
     _choose(client, headers, "main", None)
     _choose(client, headers, "main", "qwen3.5-4b")  # the recommended one: stored as no choice
     assert unloaded == ["code"]
+
+
+# --- the model that cleans up scanned pages: a choice of its own, not a catalog role ---------
+
+CHAT_MODELS = ["qwen3.5-4b", "qwen3.5-9b", "qwen3.5-35b-a3b"]
+
+
+def test_the_list_says_which_model_cleans_pages_and_what_each_choice_can_be(api):
+    client, headers, _ = api
+
+    body = client.get("/api/models", headers=headers).json()
+
+    # Nothing chosen, the chat on llama.cpp: the chat's own model cleans.
+    assert (body["defaults"]["clean"], body["chosen"]["clean"]) == ("qwen3.5-4b", "qwen3.5-4b")
+    assert body["choices"]["clean"] == CHAT_MODELS  # never an MLX build: it can't clean
+    assert body["choices"]["main"] == CHAT_MODELS
+    assert body["choices"]["ocr"] == ["paddleocr-vl-1.6"]
+    assert "chandra-ocr-2" in body["choices"]["ocr.hand"]
+    assert set(body["choices"]) == set(body["chosen"])
+
+
+def test_with_the_chat_on_an_mlx_build_a_small_model_cleans(api, monkeypatch):
+    client, headers, app = api
+    monkeypatch.setattr("lectern.runners.mlx.mlx_supported", lambda: True)
+    monkeypatch.setattr("lectern.runners.mlx.mlx_available", lambda: True)
+    settings.put(app.state.sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
+    _choose(client, headers, "main", "qwen3.5-9b")
+    _downloaded(app, "qwen3.5-9b-mlx")
+
+    body = client.get("/api/models", headers=headers).json()
+
+    assert (body["chosen"]["main"], body["chosen"]["clean"]) == ("qwen3.5-9b", "qwen3.5-4b")
+    assert body["defaults"]["clean"] == "qwen3.5-4b"
+    used_by = {m["id"]: m["used_by"] for m in body["models"]}
+    assert used_by["qwen3.5-4b"] == ["clean"]
+    assert used_by["qwen3.5-9b-mlx"] == ["main"]
+
+
+def test_a_model_chosen_for_cleanup_is_saved_and_the_automatic_one_stores_no_choice(api):
+    client, headers, app = api
+
+    saved = _choose(client, headers, "clean", "qwen3.5-9b")
+
+    assert saved.status_code == 200
+    assert saved.json()["chosen"]["clean"] == "qwen3.5-9b"
+    assert saved.json()["defaults"]["clean"] == "qwen3.5-4b"  # what it would be, left alone
+    assert saved.json()["chosen"]["main"] == "qwen3.5-4b"  # the chat's model wasn't touched
+    assert _stored(app)["clean"] == "qwen3.5-9b"
+
+    _choose(client, headers, "clean", "qwen3.5-4b")  # the automatic pick: follow it again
+    assert _stored(app)["clean"] is None
+
+
+def test_a_change_of_the_cleanup_model_unloads_the_idle_copies_of_the_chat_model(api):
+    client, headers, app = api
+    unloaded: list[str | None] = []
+
+    async def record(role: str | None = None) -> list[str]:
+        unloaded.append(role)
+        return []
+
+    app.state.runtime.unload_between_replies = record
+
+    _choose(client, headers, "clean", "qwen3.5-9b")
+    _choose(client, headers, "clean", "qwen3.5-9b")  # saved again as it is: nothing to unload
+
+    # Cleanup's copies are leased as the chat role's ("main", "main@<model>").
+    assert unloaded == ["main"]
 
 
 # --- installed models, and removing one -------------------------------------------------------
@@ -173,7 +244,7 @@ def test_the_list_says_what_is_installed_at_which_version_and_who_uses_it(api):
     with app.state.sessions() as session:
         recorded = session.get(DownloadRow, "qwen3.5-4b").updated_at
     assert at.replace(tzinfo=None) == recorded.replace(tzinfo=None)
-    assert chat["used_by"] == ["main"]
+    assert chat["used_by"] == ["main", "clean"]  # the chat, and cleanup of scanned pages
     assert models["qwen3.5-9b"]["installed"]["revision"] is None  # version not recorded
     assert models["qwen3.5-9b"]["used_by"] == []
     assert models["qwen3.5-35b-a3b"]["installed"] is None

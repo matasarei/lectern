@@ -85,6 +85,11 @@ def cleanup_choices() -> list[catalog.CatalogEntry]:
     return catalog.load().choices_for("main")
 
 
+def choices(role: str) -> list[catalog.CatalogEntry]:
+    """The models a role, or cleanup, can be given in Models & memory."""
+    return cleanup_choices() if role == settings.CLEANUP else catalog.load().choices_for(role)
+
+
 def cleans_pages(runtime: ModelRuntime) -> catalog.CatalogEntry:
     """The model that cleans up scanned pages on this computer."""
     return pick(runtime.cleanup_key(), runtime.tier, runtime.chosen_models())[1]
