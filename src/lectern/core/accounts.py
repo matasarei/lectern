@@ -61,6 +61,10 @@ class AlreadySetUp(Exception):
     """Accounts are on already: the admin has a password."""
 
 
+class NotSetUp(Exception):
+    """Accounts aren't on yet: the admin's own account comes first (`init_admin`)."""
+
+
 class BadName(ValueError):
     """Not a sign-in name. The message says what one is."""
 
@@ -96,7 +100,7 @@ def init_admin(sessions: Sessions, login: str, password: str) -> User:
     login = _checked_name(login)
     passwords.check_new(password, login=login)
     with sessions.begin() as session:
-        if session.scalar(select(UserRow.id).where(UserRow.password_hash.is_not(None))):
+        if session.get(UserRow, LOCAL_USER_ID).password_hash is not None:
             raise AlreadySetUp(
                 "Accounts are already set up. Change a password with `user password`."
             )
@@ -110,6 +114,9 @@ def add_user(sessions: Sessions, login: str, password: str, *, admin: bool = Fal
     login = _checked_name(login)
     passwords.check_new(password, login=login)
     with sessions.begin() as session:
+        # Someone added first would turn accounts on with no admin able to sign in.
+        if session.get(UserRow, LOCAL_USER_ID).password_hash is None:
+            raise NotSetUp("Set accounts up first, on the server: lectern user init <name>")
         taken = session.scalar(
             select(UserRow.id).where((UserRow.login == login) | (UserRow.name == login))
         )

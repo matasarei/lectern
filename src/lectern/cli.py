@@ -180,8 +180,8 @@ def _or_say_why(action) -> None:  # noqa: ANN001
     from lectern.core.passwords import WeakPassword
 
     refusals = (
-        accounts.AlreadySetUp, accounts.BadName, accounts.NameTaken, accounts.NoSuchUser,
-        accounts.LastAdmin, WeakPassword,
+        accounts.AlreadySetUp, accounts.NotSetUp, accounts.BadName, accounts.NameTaken,
+        accounts.NoSuchUser, accounts.LastAdmin, WeakPassword,
     )  # fmt: skip
     try:
         action()

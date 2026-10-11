@@ -52,6 +52,17 @@ def test_nobody_signs_in_until_the_local_user_is_given_a_name_and_a_password(db)
     assert accounts.sign_in(db, "yevhen", PASSWORD, NOON) == admin
 
 
+def test_nobody_is_added_before_the_admin_has_an_account(db):
+    """Adding someone first would turn accounts on with no admin able to sign in, and
+    `init` would then say it was done."""
+    with pytest.raises(accounts.NotSetUp, match="lectern user init"):
+        accounts.add_user(db, "olena", PASSWORD)
+    assert not accounts.accounts_on(db)
+
+    admin = accounts.init_admin(db, "yevhen", PASSWORD)  # still possible
+    assert admin.role == "admin" and accounts.add_user(db, "olena", PASSWORD)
+
+
 def test_accounts_are_set_up_once(family):
     with pytest.raises(accounts.AlreadySetUp):
         accounts.init_admin(family, "someone", PASSWORD)

@@ -114,6 +114,9 @@ def test_where_nobody_signs_in_there_is_nothing_to_sign_in_to(paths):
     }
     answer = here.post("/api/login", json={"login": "x", "password": PASSWORD}, headers=token)
     assert answer.status_code == 409
+    # Nor is anyone added yet: the admin's own account comes first.
+    added = here.post("/api/users", json={"login": "olena", "password": PASSWORD}, headers=token)
+    assert added.status_code == 409 and "lectern user init" in added.json()["detail"]
     assert here.get("/api/login").status_code == 401  # and without the link, as before
 
 

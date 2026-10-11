@@ -163,8 +163,8 @@ async def add_user(body: NewUser, request: Request) -> dict:
         )
     except (accounts.BadName, WeakPassword) as bad:
         raise HTTPException(400, str(bad)) from None
-    except accounts.NameTaken as taken:
-        raise HTTPException(409, str(taken)) from None
+    except (accounts.NameTaken, accounts.NotSetUp) as refused:
+        raise HTTPException(409, str(refused)) from None
     return accounts.describe(sessions, user.login)[0]
 
 
