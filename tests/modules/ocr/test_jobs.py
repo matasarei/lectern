@@ -817,12 +817,12 @@ def test_a_session_still_at_work_isnt_clear(store, tmp_path):
     assert summary["status"] != "done" and summary["clear"] is False
 
 
-def test_cleanup_leases_the_chat_model_by_the_key_for_schema_work(store, tmp_path):
-    # Cleanup's answer is held to a JSON schema. Where the role's own model can't be (an MLX
-    # build), the runtime's schema_key names the one that can; cleanup leases by that key.
+def test_cleanup_leases_the_model_the_runtime_names_for_it(store, tmp_path):
+    # Cleanup's answer is held to a JSON schema. Where the chat's own model can't be (an MLX
+    # build), or another model was chosen for cleanup, the runtime's cleanup_key names it.
     runtime, runner = _runtime(FakeServer())
-    assert runtime.schema_key("main") == "main"  # as built: the role itself
-    runtime.schema_key = lambda role: f"{role}@gguf-chat"
+    assert runtime.cleanup_key() == "main"  # as built: the chat's own model
+    runtime.cleanup_key = lambda: "main@gguf-chat"
     project, sid = _session(store, tmp_path, pages=2)
     jobs = OcrJobs(runtime, store)
 

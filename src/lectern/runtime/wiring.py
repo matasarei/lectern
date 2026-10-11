@@ -79,12 +79,21 @@ def role_model(runtime: ModelRuntime, role: str) -> catalog.CatalogEntry | None:
         return None
 
 
+def cleanup_choices() -> list[catalog.CatalogEntry]:
+    """The models that can clean up scanned pages: the chat's, in the format that can be held
+    to cleanup's JSON schema. An MLX build can't be, so it isn't one."""
+    return catalog.load().choices_for("main")
+
+
+def cleans_pages(runtime: ModelRuntime) -> catalog.CatalogEntry:
+    """The model that cleans up scanned pages on this computer."""
+    return pick(runtime.cleanup_key(), runtime.tier, runtime.chosen_models())[1]
+
+
 def cleanup_model(runtime: ModelRuntime) -> catalog.CatalogEntry | None:
-    """The model OCR cleanup asks for by name: the usual chat model, where the chat itself
-    runs on its MLX build (which can't be held to cleanup's JSON schema). None where
-    cleanup uses the model the chat already runs on."""
-    key = runtime.schema_key("main")
-    return None if key == "main" else pick(key, runtime.tier, runtime.chosen_models())[1]
+    """The model OCR cleanup asks for by name: one chosen for it, or a small one where the
+    chat runs on its MLX build. None where cleanup uses the copy the chat already runs on."""
+    return None if runtime.cleanup_key() == "main" else cleans_pages(runtime)
 
 
 def keep_installed_models(sessions, downloads: DownloadManager, tier: Tier) -> None:  # noqa: ANN001
@@ -159,11 +168,27 @@ def build_runtime(
             return build
         return None
 
-    def schema_key(role: str) -> str:
-        """MLX's server can't hold a model to a JSON schema. Work that needs one names the
-        role's GGUF model when the role itself would run on its MLX build."""
-        _, entry = pick(role, tier, chosen())
-        return f"{role}@{entry.id}" if mlx_build_for(role, entry) else role
+    def cleanup_default() -> str:
+        """The model that cleans up scanned pages when none is chosen for it. The chat's own,
+        which is already loaded. Where the chat runs on its MLX build that copy can't clean
+        (MLX's server can't hold a model to a JSON schema), and the chat model's GGUF beside
+        its build would be the largest download there is: the minimum tier's chat model is
+        used, the one cleanup was tuned and timed on."""
+        _, chat = pick("main", tier, chosen())
+        if mlx_build_for("main", chat) is None:
+            return chat.id
+        return catalog.load().defaults_for(Tier.MINIMUM)["main"].id
+
+    def cleanup_key() -> str:
+        """The lease cleanup asks for: "main" when its model is the copy the chat runs on,
+        otherwise that model by name, which loads beside the chat's."""
+        _, chat = pick("main", tier, chosen())
+        wanted = chosen().get(settings.CLEANUP)
+        # A choice the catalog no longer offers for cleanup is as good as none.
+        usable = wanted in {m.id for m in cleanup_choices()}
+        model_id = wanted if usable else cleanup_default()
+        shares_the_chats = model_id == chat.id and mlx_build_for("main", chat) is None
+        return "main" if shares_the_chats else f"main@{model_id}"
 
     def resolve(key: str) -> ModelChoice:
         role, entry = pick(key, tier, chosen())
@@ -235,7 +260,8 @@ def build_runtime(
         if chat_during_job == "pause_job_after_current_item"
         else 0,
     )
-    runtime.schema_key = schema_key
+    runtime.cleanup_key = cleanup_key
+    runtime.cleanup_default = cleanup_default
     runtime.chosen_models = chosen
     # runner_for reports the engine's download to it; first-run downloads it ahead of time.
     runtime.engine = (

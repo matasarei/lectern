@@ -218,21 +218,26 @@ def test_a_role_whose_model_has_no_mlx_build_is_unchanged(mac):
     assert runtime.resolve("code").format == "gguf"
 
 
-def test_work_that_needs_a_schema_is_kept_off_the_mlx_build(mac, monkeypatch):
+def test_cleanup_is_kept_off_the_mlx_build_and_on_the_model_it_was_tuned_on(mac, monkeypatch):
     runtime, switch = mac
     # MLX's server can't hold a model to a JSON schema, which OCR cleanup relies on.
-    assert runtime.schema_key("main") == "main"  # MLX off: the role's own model can
+    assert runtime.cleanup_key() == "main"  # MLX off: the chat's own model can, and is loaded
+    assert runtime.cleanup_default() == "qwen3.5-35b-a3b"
+    assert wiring.cleanup_model(runtime) is None  # nothing but the chat's model to fetch
     switch(True)
-    key = runtime.schema_key("main")
-    assert key == "main@qwen3.5-35b-a3b"  # the GGUF model, by name
+    key = runtime.cleanup_key()
+    # Not the chat model's own GGUF (22 GB beside its MLX build): the minimum tier's chat
+    # model, the one cleanup was tuned and timed on.
+    assert key == "main@qwen3.5-4b"
+    assert runtime.cleanup_default() == "qwen3.5-4b"
     assert runtime.resolve(key).format == "gguf"
     assert runtime.resolve("main").format == "mlx"  # the chat itself is on MLX
-    assert runtime.schema_key("ocr") == "ocr"  # a role with no MLX build
+    assert wiring.cleanup_model(runtime).id == "qwen3.5-4b"
 
     monkeypatch.setattr(
         DownloadManager, "is_downloaded", lambda self, entry: entry.format == "gguf"
     )
-    assert runtime.schema_key("main") == "main"  # the build isn't there: nothing to avoid
+    assert runtime.cleanup_key() == "main"  # the build isn't there: nothing to avoid
 
 
 # --- a model chosen for a role, in place of the one recommended for the computer --------------
@@ -266,7 +271,8 @@ def test_every_role_can_have_a_chosen_model():
 
     from lectern.catalog.catalog import Role
 
-    assert set(settings.MODEL_DEFAULTS) == set(get_args(Role))
+    # And cleanup of scanned pages, which isn't a catalog role: a chat model does it.
+    assert set(settings.MODEL_DEFAULTS) == {*get_args(Role), settings.CLEANUP}
     assert set(settings.MODEL_DEFAULTS.values()) == {None}  # nothing chosen: the recommended
 
 
@@ -317,7 +323,51 @@ def test_with_mlx_on_the_chosen_models_build_runs_and_cleanup_names_the_chosen_g
     settings.put(choose.sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
     choose("main", "qwen3.5-4b")
     assert runtime.resolve("main").model_id == "qwen3.5-4b-mlx"
-    assert runtime.schema_key("main") == "main@qwen3.5-4b"
+    assert runtime.cleanup_key() == "main@qwen3.5-4b"
+    choose("main", "qwen3.5-9b")  # whatever the chat model, cleanup stays on the small one
+    assert runtime.resolve("main").model_id == "qwen3.5-9b-mlx"
+    assert runtime.cleanup_key() == "main@qwen3.5-4b"
+
+
+def test_a_model_chosen_for_cleanup_cleans_on_llama_cpp(card):
+    runtime, choose = card  # the chat is on the 9B's GGUF
+    choose("clean", "qwen3.5-4b")
+    assert runtime.cleanup_key() == "main@qwen3.5-4b"
+    assert wiring.cleans_pages(runtime).id == "qwen3.5-4b"
+    assert wiring.cleanup_model(runtime).id == "qwen3.5-4b"
+    assert runtime.cleanup_default() == "qwen3.5-9b"  # what it would be, left alone
+
+    choose("clean", "qwen3.5-9b")  # the chat's own model: its loaded copy is used
+    assert runtime.cleanup_key() == "main"
+    assert wiring.cleans_pages(runtime).id == "qwen3.5-9b"
+    assert wiring.cleanup_model(runtime) is None
+
+
+def test_a_model_chosen_for_cleanup_cleans_with_the_chat_on_mlx(card, monkeypatch):
+    runtime, choose = card
+    monkeypatch.setattr(mlx, "mlx_supported", lambda: True)
+    monkeypatch.setattr(mlx, "mlx_available", lambda: True)
+    settings.put(choose.sessions, settings.RUNTIME_KEY, {"mlx_enabled": True})
+    choose("clean", "qwen3.5-9b")
+    assert runtime.resolve("main").model_id == "qwen3.5-9b-mlx"
+    # The chat's own model, but not the copy the chat runs on: that one is the MLX build.
+    assert runtime.cleanup_key() == "main@qwen3.5-9b"
+    assert runtime.cleanup_default() == "qwen3.5-4b"
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "gone-from-the-catalog",
+        "paddleocr-vl-1.6",  # in the catalog, not a chat model
+        "qwen3.5-4b-mlx",  # an MLX build can't be held to cleanup's schema
+    ],
+)
+def test_a_cleanup_choice_that_cannot_be_used_falls_back_to_the_automatic_one(card, stored):
+    runtime, choose = card
+    choose("clean", stored)
+    assert runtime.cleanup_key() == "main"
+    assert wiring.cleans_pages(runtime).id == "qwen3.5-9b"
 
 
 # --- after a change of hardware, a role nobody set keeps the model it has ---------------------

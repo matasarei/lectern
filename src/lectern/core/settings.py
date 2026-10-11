@@ -18,7 +18,17 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
 MODELS_KEY = "models"
 # The model chosen for each role, as a catalog id. None: the one recommended for this computer,
 # which follows the hardware (runtime/wiring.py `pick`).
-MODEL_DEFAULTS: dict[str, Any] = {"main": None, "ocr": None, "ocr.hand": None, "code": None}
+# Cleanup of scanned pages has a choice of its own without being a catalog role: a chat model
+# does it. None: the chat's own model, or a small one where the chat runs on an MLX build
+# (runtime/wiring.py `cleanup_key`).
+CLEANUP = "clean"
+MODEL_DEFAULTS: dict[str, Any] = {
+    "main": None,
+    "ocr": None,
+    "ocr.hand": None,
+    "code": None,
+    CLEANUP: None,
+}
 HARDWARE_KEY = "hardware"
 # The tier this computer had at the last start, to notice that its hardware changed. Never
 # used to decide anything else: the tier itself is worked out from the hardware at each start.

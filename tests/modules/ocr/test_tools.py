@@ -49,8 +49,8 @@ class FakeRuntime:
     def chosen_models(self) -> dict[str, str | None]:
         return self.chosen
 
-    def schema_key(self, role: str) -> str:
-        return role  # the chat runs on its usual model, which cleanup uses too
+    def cleanup_key(self) -> str:
+        return "main"  # the chat runs on its usual model, which cleanup uses too
 
     def resident_bytes(self) -> int:
         return 3 * 10**9 if self.swap else 0  # the chat model, loaded
@@ -265,7 +265,7 @@ def _chat_on_mlx(ctx, *on_disk: str, **downloads):  # noqa: ANN001, ANN002, ANN0
     """The chat runs on its MLX build, as on a Mac set up with MLX: cleanup asks for the
     usual chat model by name."""
     ctx.runtime = FakeRuntime(swap=True, missing="paddleocr-vl-1.6" not in on_disk)
-    ctx.runtime.schema_key = lambda role: f"{role}@qwen3.5-4b"
+    ctx.runtime.cleanup_key = lambda: "main@qwen3.5-4b"
     ctx.downloads = OnDisk(*on_disk, **downloads)
     events: list[dict] = []
     ctx.emit = events.append
