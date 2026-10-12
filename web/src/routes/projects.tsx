@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { apiFetch, apiPost, ApiError } from "../api/client";
 import type { Project } from "../api/types";
 import { ErrorNote } from "../components";
+import { AccountBar } from "./login";
 
 /** The list of projects, and the button that starts a new one. */
 export function ProjectsPage() {
@@ -33,6 +34,7 @@ export function ProjectsPage() {
           </button>
         </div>
       </header>
+      <AccountBar />
       {projects.isPending && <p>{t("common.loading")}</p>}
       {projects.isError && (
         <ErrorNote

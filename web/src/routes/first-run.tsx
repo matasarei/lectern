@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, ApiError } from "../api/client";
+import { useIsAdmin } from "../api/session";
 import type {
   DownloadState,
   EngineState,
@@ -24,6 +25,7 @@ import {
 } from "../components";
 import { formatBytes } from "../format";
 import { useDownloadEvents } from "../hooks/useDownloadEvents";
+import { AccountBar } from "./login";
 
 const ACTIVE: DownloadState["status"][] = ["queued", "downloading", "verifying"];
 // Keep in step with DISK_HEADROOM in src/lectern/downloads/manager.py (1 GiB).
@@ -33,7 +35,46 @@ const DISK_HEADROOM = 1024 ** 3;
 const SANDBOX_POLL_MS = 10_000;
 const ENGINE_POLL_MS = 1_000;
 
+/** Setting Lectern up is an admin's: it downloads models and picks the engine. Anybody else
+ * who arrives before it's done is told so, with the way on for when it is. */
 export function FirstRunPage() {
+  return useIsAdmin() ? <Setup /> : <NotYet />;
+}
+
+function NotYet() {
+  const { t } = useTranslation();
+  // Asked, not assumed: this address can be opened after setup is done, too.
+  const firstRun = useQuery({
+    queryKey: ["first-run"],
+    queryFn: () => apiFetch<FirstRun>("/api/first-run"),
+  });
+  if (firstRun.isPending) return <Page>{t("common.loading")}</Page>;
+  if (firstRun.isError) {
+    const { error } = firstRun;
+    return (
+      <Page>
+        <ErrorNote message={error instanceof ApiError ? error.detail : t("common.loadFailed")} />
+      </Page>
+    );
+  }
+  if (firstRun.data.step === "done") return <Navigate to="/projects" />;
+  return (
+    <Page>
+      <header className="grid gap-2">
+        <h1 className="text-2xl font-semibold">{t("firstRun.notYetTitle")}</h1>
+        <p className="text-muted">{t("firstRun.notYet")}</p>
+      </header>
+      {/* "/" leads to the projects once setup is done, and back here until then. */}
+      <Link to="/" className="btn-secondary w-fit">
+        {t("firstRun.checkAgain")}
+      </Link>
+      {/* Nothing else here leads anywhere: without it they couldn't sign out. */}
+      <AccountBar />
+    </Page>
+  );
+}
+
+function Setup() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

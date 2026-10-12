@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/rea
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { forgetSession } from "../../api/session";
 import { routeTree } from "../../router";
 import { installFakeSockets } from "../../test/fake-socket";
 
@@ -101,6 +102,7 @@ beforeEach(() => {
   posts = [];
   overrides = {};
   window.sessionStorage.setItem("lectern.token", "t");
+  forgetSession();
   installFakeSockets(); // the event streams: open, silent
   vi.stubGlobal(
     "fetch",
@@ -875,5 +877,59 @@ describe("Models & memory", () => {
 
     await screen.findByLabelText(/Pause the job after the current page/);
     expect(screen.queryByLabelText(/Use MLX for MLX models/)).toBeNull();
+  });
+});
+
+describe("Models & memory, for someone who isn't an admin", () => {
+  beforeEach(() => {
+    overrides["/api/login"] = {
+      accounts: true,
+      user: { login: "olena", role: "member" },
+      token: "t",
+    };
+    // The chat model on disk, with an update on offer: an admin would see Update and Remove.
+    const base = RESPONSES["/api/models"] as { models: ReturnType<typeof model>[] };
+    const onDisk = { revision: "a".repeat(40), at: new Date().toISOString(), bytes: 5 * 10 ** 9 };
+    overrides["/api/models"] = {
+      ...base,
+      models: base.models.map((m) =>
+        m.id === "qwen3.5-9b" ? { ...m, update_available: true, installed: onDisk } : m),
+    };
+  });
+
+  it("shows the models, what is loaded and what is on disk", async () => {
+    renderPage();
+
+    expect(await screen.findByTestId("memory-used")).toBeTruthy();
+    expect(screen.getByTestId("status-main").textContent).toBe("Loaded, in use");
+    expect(screen.getByTestId("status-ocr.hand").textContent).toBe("Not downloaded");
+    expect(screen.getByTestId("installed-models")).toBeTruthy();
+  });
+
+  it("has nothing to press: models and the GPU's settings are the admin's", async () => {
+    renderPage();
+    await screen.findByTestId("installed-models");
+
+    expect(screen.queryAllByRole("button")).toEqual([]); // no Download, Update, Remove
+    expect(screen.queryAllByRole("combobox")).toEqual([]); // no list of models to choose from
+    expect(screen.queryAllByRole("radio")).toEqual([]); // no "Sharing the GPU"
+    expect(screen.queryAllByRole("checkbox")).toEqual([]);
+    expect(screen.getByText(/Only an admin can download, remove or choose models/)).toBeTruthy();
+    expect(screen.queryByText(/or now with Download/)).toBeNull();
+  });
+});
+
+describe("Models & memory, for an admin who signed in", () => {
+  it("is the whole page", async () => {
+    overrides["/api/login"] = {
+      accounts: true,
+      user: { login: "yevhen", role: "admin" },
+      token: "t",
+    };
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: "Download Qwen3-VL 8B" })).toBeTruthy();
+    expect(screen.getAllByRole("radio").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Only an admin can/)).toBeNull();
   });
 });

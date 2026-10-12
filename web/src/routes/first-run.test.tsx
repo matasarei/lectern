@@ -2,14 +2,20 @@ import "../i18n";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { forgetSession, setSession } from "../api/session";
 import { installFakeSockets } from "../test/fake-socket";
 import { FirstRunPage } from "./first-run";
 
 const GIB = 1024 ** 3;
 
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => vi.fn(),
+  Link: ({ to, children }: { to: string; children: ReactNode }) => <a href={to}>{children}</a>,
+  Navigate: ({ to }: { to: string }) => <span data-testid="goes-to">{to}</span>,
+}));
 
 const stopped = { runtime: "docker", version: null, engine_running: false, found: ["docker"] };
 const running = { runtime: "docker", version: "28.1", engine_running: true, found: ["docker"] };
@@ -77,6 +83,7 @@ beforeEach(() => {
   onPut = null;
   putRefused = null;
   window.sessionStorage.setItem("lectern.token", "t");
+  forgetSession();
   installFakeSockets(); // the event streams: open, silent
   vi.stubGlobal(
     "fetch",
@@ -407,5 +414,47 @@ describe("First run: finishing", () => {
     renderPage();
 
     expect(await screen.findByRole("button", { name: "Finish setup" })).toBeTruthy();
+  });
+});
+
+describe("First run, for someone who isn't an admin", () => {
+  it("says setup is the admin's, and offers nothing of it to press", async () => {
+    setSession({ accounts: true, user: { login: "olena", role: "member" } });
+    renderPage();
+
+    expect(await screen.findByText(/isn't set up yet/)).toBeTruthy();
+    expect(screen.getByText(/Ask an admin/)).toBeTruthy();
+    // The way on, once the admin is done: "/" leads to the projects then.
+    expect(screen.getByRole("link", { name: "Check again" }).getAttribute("href")).toBe("/");
+    // And the way out: the one button is theirs, not setup's.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Sign out"]);
+    expect(posts).toEqual([]);
+    expect(puts).toEqual([]);
+  });
+
+  it("doesn't say so once setup is done: it goes to the projects", async () => {
+    setSession({ accounts: true, user: { login: "olena", role: "member" } });
+    firstRun = { ...(responses()["/api/first-run"] as object), step: "done" };
+    renderPage();
+
+    expect((await screen.findByTestId("goes-to")).textContent).toBe("/projects");
+    expect(screen.queryByText(/isn't set up yet/)).toBeNull();
+  });
+
+  it("says so when it can't ask how far setup is", async () => {
+    setSession({ accounts: true, user: { login: "olena", role: "member" } });
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("Failed to fetch"))));
+    renderPage();
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Lectern didn't answer/);
+    expect(screen.queryByText(/isn't set up yet/)).toBeNull();
+  });
+
+  it("is the setup itself for an admin who signed in", async () => {
+    setSession({ accounts: true, user: { login: "yevhen", role: "admin" } });
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Set up Lectern" })).toBeTruthy();
+    expect(screen.queryByText(/Ask an admin/)).toBeNull();
   });
 });

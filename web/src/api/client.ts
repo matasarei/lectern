@@ -6,11 +6,16 @@
  * as the X-Lectern-Token header over HTTP, and as the `lectern.token.<token>` subprotocol on
  * WebSockets (browsers can't set headers there). The server's event streams are followed on
  * WebSockets (`followEvents`).
+ *
+ * Where people sign in, the token is the login's own instead: it comes with the answer to
+ * signing in, or to asking who this browser is (`./session`), and is kept the same way.
  */
 
 const STORAGE_KEY = "lectern.token";
 const TOKEN_HEADER = "X-Lectern-Token";
 const WS_SUBPROTOCOL = "lectern.v1";
+/** Signing in, and asking who this browser is. A 401 here is an answer, not a login lost. */
+const SIGNING_IN = "/api/login";
 
 export class ApiError extends Error {
   constructor(
@@ -39,6 +44,28 @@ export function getToken(win: Window = window): string | null {
   return win.sessionStorage.getItem(STORAGE_KEY);
 }
 
+export function setToken(token: string | null, win: Window = window): void {
+  if (token === null) win.sessionStorage.removeItem(STORAGE_KEY);
+  else win.sessionStorage.setItem(STORAGE_KEY, token);
+}
+
+let notSignedIn: () => unknown = () => {};
+/** Done when the listener has dealt with the last 401 it was told of. */
+let dealtWith: Promise<unknown> = Promise.resolve();
+
+/** Have `listener` told whenever the server answers 401: the login ended, or the token is
+ * wrong. One listener: whoever keeps track of the sign-in (`./session`), which asks the
+ * server who the page is now. If it returns a promise, a stream that was refused waits for
+ * it before giving up (`followEvents`). */
+export function onNotSignedIn(listener: () => unknown): void {
+  notSignedIn = listener;
+}
+
+function reportRefusal(path: string, response: Response): void {
+  if (response.status !== 401 || path === SIGNING_IN) return;
+  dealtWith = Promise.resolve(notSignedIn()).catch(() => {});
+}
+
 function withToken(init: RequestInit = {}): RequestInit {
   const headers = new Headers(init.headers);
   const token = getToken();
@@ -49,6 +76,7 @@ function withToken(init: RequestInit = {}): RequestInit {
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, withToken(init));
   if (!response.ok) {
+    reportRefusal(path, response);
     let detail = response.statusText;
     try {
       const body = (await response.json()) as { detail?: unknown };
@@ -64,7 +92,10 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 /** A raw response (for file contents), with the token, throwing ApiError when not OK. */
 export async function apiRaw(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, withToken(init));
-  if (!response.ok) throw new ApiError(response.status, response.statusText);
+  if (!response.ok) {
+    reportRefusal(path, response);
+    throw new ApiError(response.status, response.statusText);
+  }
   return response;
 }
 
@@ -163,7 +194,11 @@ async function turnedAway(signal: AbortSignal): Promise<ApiError | null> {
  * A socket refused before it opened (a wrong token) looks to a browser like a server that is
  * down. So after a socket that never opened the server is asked over HTTP: refused there
  * too, the stream ends (a tab left open with an old token would otherwise knock every ten
- * seconds for good); let in, or no answer, it is tried again. */
+ * seconds for good); let in, or no answer, it is tried again. One refusal isn't the end:
+ * the login replaced under this tab (signed in again, or a password changed, in another tab
+ * of this browser). Whoever keeps track of the sign-in has the new token once it has asked,
+ * and the socket is opened again with it; the page is still there, and would otherwise go
+ * on without its events until reloaded. */
 export async function followEvents<T>(
   path: string,
   onEvent: (event: T) => void,
@@ -174,6 +209,7 @@ export async function followEvents<T>(
   let opened = false;
   while (!signal.aborted) {
     let reached = false;
+    const token = getToken();
     const ended = await socketEvents(path, onEvent, signal, () => {
       reached = true;
       failures = 0;
@@ -186,7 +222,13 @@ export async function followEvents<T>(
     if (!reached) {
       const refusal = await turnedAway(signal);
       if (signal.aborted) return;
-      if (refusal) throw refusal;
+      if (refusal) {
+        await dealtWith;
+        if (signal.aborted) return;
+        const tokenNow = getToken();
+        if (tokenNow === null || tokenNow === token) throw refusal;
+        continue; // a new token: at once, and it is refused in its turn if that one is wrong
+      }
     }
     const delay = RECONNECT_DELAYS_MS[Math.min(failures, RECONNECT_DELAYS_MS.length - 1)];
     failures += 1;
