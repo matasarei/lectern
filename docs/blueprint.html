@@ -379,7 +379,7 @@ table.dir td.child2{padding-left:38px;color:var(--muted)}
   <div class="eyebrow">Proposal for review · v0.13 · 28 Sep 2026</div>
   <h1>Lectern: a local, modular AI workbench</h1>
   <p>A web app that works like a project workspace. It starts with two modules, Chat and OCR, and the core is built so more can be added later. Every model runs on the user's own machine through the fastest native runner the hardware has: llama.cpp everywhere (CUDA, Vulkan, Metal, CPU), plus MLX on Apple Silicon. The app decides which models stay in memory. On small GPUs, swapping models is the normal way it works, not an edge case.</p>
-  <div class="meta"><span><b>Minimum:</b> 4 GB VRAM + 16 GB RAM</span><span><b>Recommended:</b> 8 GB VRAM + 16 GB RAM</span><span>Windows, Linux and macOS in the MVP</span><span>Single user, no login in the MVP; login right after</span><span>Open source · Apache-2.0</span></div>
+  <div class="meta"><span><b>Minimum:</b> 4 GB VRAM + 16 GB RAM</span><span><b>Recommended:</b> 8 GB VRAM + 16 GB RAM</span><span>Windows, Linux and macOS in the MVP</span><span>One local user as installed; accounts and login once you turn them on</span><span>Open source · Apache-2.0</span></div>
 </header>
 
 <nav class="toc" aria-label="Sections">
@@ -1017,11 +1017,12 @@ sequenceDiagram
   <h3>Security</h3>
   <div class="scroll"><table class="t">
     <tr><th>Threat</th><th>Defence</th></tr>
-    <tr><td>Other websites calling the local API</td><td class="why">Listens on <code>127.0.0.1</code> only. Requests whose <code>Host</code> header isn't <code>127.0.0.1</code>/<code>localhost</code> are refused, which blocks DNS rebinding. <code>Origin</code> is checked on every request that changes something. A random token is created per install; the tray icon passes it to the page when it opens the browser, and every API call must carry it. A strict Content-Security-Policy is set.</td></tr>
+    <tr><td>Other websites calling the local API</td><td class="why">Listens on <code>127.0.0.1</code> only. Requests whose <code>Host</code> header isn't <code>127.0.0.1</code>/<code>localhost</code> are refused, which blocks DNS rebinding. <code>Origin</code> is checked on every request that changes something. A random token is created per install; the tray icon passes it to the page when it opens the browser, and every API call must carry it. Once accounts are on, that link opens Lectern on this computer only, and every call from a signed-in browser carries its own login's token instead. A strict Content-Security-Policy is set.</td></tr>
+    <tr><td>Strangers, and other people's work, once it is reached from outside</td><td class="why">Accounts, off until <code>lectern user init</code> is run on the server. A name and a password of 15 characters or more, stored as an Argon2id hash; the admin adds people, and there is no sign-up. A login is a random id in a cookie (<code>HttpOnly</code>, <code>SameSite=Lax</code>; over https <code>Secure</code> and bound to the host), kept on the server only as its hash, for 30 days or 7 unused. A request that changes something needs the login's token in a header as well, so the cookie alone does nothing for another site. Every refused sign-in gets the same answer, and five in a row make that account wait, a minute at first and 15 at most. Anything that isn't yours answers "not found"; only an admin changes models, settings or accounts. All of it is checked in the one middleware and two dependencies, not page by page. In front of it, for the internet: a tunnel with its own gate (see the README).</td></tr>
     <tr><td>Instructions hidden in documents</td><td class="why">Document text, OCR output, file contents and tool results are wrapped as data and labelled with their source in the prompt. The system prompt says text inside them is never an instruction. Actions that change the project still need a card, whatever the model decides.</td></tr>
     <tr><td>Paths escaping the project</td><td class="why">Artifact paths are resolved inside the project folder. Symlinks and <code>..</code> are refused.</td></tr>
-    <tr><td>WebSockets</td><td class="why">Browsers don't apply same-origin rules to WebSockets, so every upgrade must carry a local <code>Origin</code> and the token (sent as the <code>lectern.token.&lt;token&gt;</code> subprotocol, because browsers can't set custom headers on a WebSocket). Built in M0a, before anything uses it.</td></tr>
-    <tr><td>Agent terminals (after the MVP)</td><td class="why">Never run on the host. Each terminal runs in its own Docker/Podman container with only the project folder mounted. The module is off until you turn it on, and after login it is admin-only.</td></tr>
+    <tr><td>WebSockets</td><td class="why">Browsers don't apply same-origin rules to WebSockets, so every upgrade must carry an allowed <code>Origin</code> and the token (sent as the <code>lectern.token.&lt;token&gt;</code> subprotocol, because browsers can't set custom headers on a WebSocket). With accounts on it is the login's token, beside the login's cookie, and a socket for someone else's chat or OCR session is closed as not found. Built in M0a, before anything uses it.</td></tr>
+    <tr><td>Agent terminals (after the MVP)</td><td class="why">Never run on the host. Each terminal runs in its own Docker/Podman container with only the project folder mounted. The module is off until you turn it on, and it is admin-only.</td></tr>
     <tr><td>Generated code</td><td class="why">Runs only in the sandbox: no network, input files read-only, resource limits, killed after a time limit.</td></tr>
     <tr><td>Data leaving the machine</td><td class="why">None. No telemetry, no cloud models. The only network calls are model and image downloads, and update checks, which you can turn off.</td></tr>
   </table></div>
@@ -1161,15 +1162,15 @@ export default defineModule({
   </ol>
   <h3>After the MVP</h3>
   <ol class="steps">
-    <li><b>Agents &amp; terminal module</b> comes first after the MVP; see <a href="#agents-module">Agents &amp; terminal</a>. It is safe to add before login because there is only one user.</li>
-    <li><b>Login and multiple users</b> comes right after that. The terminal becomes admin-only from the day login exists. The MVP leaves room for it:
+    <li><b>Login and multiple users</b> came first, ahead of the terminal: Lectern was to be opened to the web for a household. It is built: accounts the admin creates, passwords as Argon2id hashes, logins kept on the server, two roles (admin and member), a workspace per person. An install where <code>lectern user init</code> never ran behaves as before. The MVP had left room for it:
       <ul style="margin:6px 0 0;padding-left:20px;display:grid;gap:4px">
-        <li>every API route gets the user from a single <code>current_user</code> dependency, which returns the one local user in the MVP;</li>
-        <li>every table that belongs to a person has an <code>owner_id</code> column;</li>
-        <li>the install-token check sits in the same place that login sessions will use;</li>
-        <li>projects live under a folder per user (<code>users/local/</code> in the MVP).</li>
+        <li>every API route got the user from a single <code>current_user</code> dependency, which returned the one local user;</li>
+        <li>every table that belongs to a person had an <code>owner_id</code> column;</li>
+        <li>the install-token check sat in the same place that logins now use;</li>
+        <li>projects lived under a folder per user (<code>users/local/</code>, still the first admin's).</li>
       </ul>
-      Adding login then means real accounts, session cookies, and a queue shared fairly between users for the GPU. None of the MVP tables or routes change.</li>
+      So it took one migration of the app database (six columns on <code>users</code>, a <code>logins</code> table) and none of the project databases. Still to come: a second factor or passkeys, and a queue shared fairly between people for the GPU (requests queue first come, first served today).</li>
+    <li><b>Agents &amp; terminal module</b> is next; see <a href="#agents-module">Agents &amp; terminal</a>. It is admin-only from its first day.</li>
     <li><b>Cutting images out of scans</b>, which fills the existing <code>images/</code> folder and figure blocks.</li>
     <li><b>More modules</b>, such as transcription, translation and image generation, through the same module contract.</li>
   </ol>
