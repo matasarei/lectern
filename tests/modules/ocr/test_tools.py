@@ -234,6 +234,22 @@ def test_starting_downloads_the_ocr_model_then_opens_the_session(ctx):
     assert len(ctx.ocr_jobs.started) == 1 and result.action["type"] == "open_tab"
 
 
+def test_a_member_cant_start_a_model_download_from_a_chat(ctx):
+    """Downloading models is the admin's (Models & memory refuses a member): a tool that
+    needs a missing model mustn't be a way round."""
+    from dataclasses import replace
+
+    from lectern.core.auth import MEMBER, User
+
+    entry, _ = _missing_ocr_model(ctx)
+    # The same person as the fixture's (the scan is theirs), but a member.
+    member = replace(ctx, user=User(id=ctx.user.id, name=ctx.user.name, role=MEMBER))
+
+    with pytest.raises(ToolError, match=f"only an admin can download models.*{entry.title}"):
+        _call(START, member, name="lease-scan.pdf")
+    assert ctx.downloads.started == [] and ctx.ocr_jobs.started == []
+
+
 def test_a_failed_ocr_model_download_starts_no_session(ctx):
     _missing_ocr_model(ctx, fail=True)
 

@@ -6,10 +6,28 @@ from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, WebSocket
 
-from lectern.api import chat, export, firstrun, models, projects, runtime, sessions, system
+from lectern.api import (
+    accounts,
+    chat,
+    export,
+    firstrun,
+    models,
+    projects,
+    runtime,
+    sessions,
+    system,
+)
 from lectern.api import dev as dev_tools
-from lectern.core.auth import current_user
+from lectern.core.auth import current_user, require_admin
 from lectern.core.security import WS_SUBPROTOCOL
+
+
+def open_api_router() -> APIRouter:
+    """The /api routes someone who isn't signed in can reach: signing in, and asking whether
+    they are. The guard lets exactly this path through; everything else is in `api_router`."""
+    router = APIRouter(prefix="/api")
+    router.include_router(accounts.open_router)
+    return router
 
 
 def api_router(module_routers: Sequence[APIRouter] = (), *, dev: bool = False) -> APIRouter:
@@ -23,6 +41,7 @@ def api_router(module_routers: Sequence[APIRouter] = (), *, dev: bool = False) -
         await websocket.send_text("pong")
         await websocket.close()
 
+    router.include_router(accounts.router)
     router.include_router(system.router)
     router.include_router(models.router)
     router.include_router(firstrun.router)
@@ -32,7 +51,8 @@ def api_router(module_routers: Sequence[APIRouter] = (), *, dev: bool = False) -
     router.include_router(sessions.router)
     router.include_router(export.router)
     if dev:
-        router.include_router(dev_tools.router)
+        # They unload models and change the memory budget: an admin's, reads included.
+        router.include_router(dev_tools.router, dependencies=[Depends(require_admin)])
     for extra in module_routers:
         router.include_router(extra)
     return router

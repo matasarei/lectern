@@ -74,20 +74,37 @@ def serve(
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from None
-    if host == EVERY_ADDRESS:
-        typer.echo(
+    from lectern.core import accounts
+
+    token = lectern_app.state.token
+    url = f"http://127.0.0.1:{port}/#token={token}"
+    people_sign_in = accounts.accounts_on(lectern_app.state.sessions)
+    for line in where_it_runs(
+        port, token, lectern_app.state.public_urls, every_address=host == EVERY_ADDRESS,
+        people_sign_in=people_sign_in,
+    ):  # fmt: skip
+        typer.echo(line)
+    if browser:
+        open_when_listening(url, port)
+    LecternServer(server_config(lectern_app, port, host)).run()
+
+
+def where_it_runs(
+    port: int, token: str, public: list[str], *, every_address: bool, people_sign_in: bool
+) -> list[str]:
+    """What `serve` says as it starts: where Lectern is, and who can get in."""
+    here = f"Lectern is running at http://127.0.0.1:{port}/#token={token}"
+    if people_sign_in:
+        # The link is this computer's; from anywhere else people sign in.
+        return [here, *(f"People sign in at {origin}" for origin in public)]
+    lines = []
+    if every_address:
+        lines.append(
             "Listening on every network address, with no login: anyone on this network who "
             "has the link can use Lectern, and on plain http the token can be read off the "
             "network."
         )
-    token = lectern_app.state.token
-    url = f"http://127.0.0.1:{port}/#token={token}"
-    typer.echo(f"Lectern is running at {url}")
-    for origin in lectern_app.state.public_urls:
-        typer.echo(f"and at {origin}/#token={token}")
-    if browser:
-        open_when_listening(url, port)
-    LecternServer(server_config(lectern_app, port, host)).run()
+    return [*lines, here, *(f"and at {origin}/#token={token}" for origin in public)]
 
 
 @app.command()
@@ -110,8 +127,168 @@ def url(
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from None
+    if _accounts_on():
+        # From outside the link is refused now; it opens Lectern here, as the admin.
+        typer.echo(f"http://127.0.0.1:{port}/#token={token}")
+        typer.echo("That link works on this computer only, and opens the admin's workspace.")
+        for address in public:
+            typer.echo(f"People sign in at {address.origin}")
+        return
     base = public[0].origin if public else f"http://127.0.0.1:{port}"
     typer.echo(f"{base}/#token={token}")
+
+
+# --- accounts ------------------------------------------------------------------------------------
+
+user_app = typer.Typer(
+    help="Accounts: who can sign in. Passwords are typed when asked, never given as arguments.",
+    no_args_is_help=True,
+)
+app.add_typer(user_app, name="user")
+
+
+def _accounts():  # noqa: ANN202
+    """The app database's sessions, migrated: these commands work before Lectern has run,
+    and beside one that is running."""
+    from lectern.config import get_paths
+    from lectern.core.db import make_engine, make_sessionmaker, migrate
+
+    engine = make_engine(get_paths().app_db)
+    migrate(engine)
+    return make_sessionmaker(engine)
+
+
+def _accounts_on() -> bool:
+    from lectern.core import accounts
+
+    return accounts.accounts_on(_accounts())
+
+
+def _new_password() -> str:
+    """Asked for twice, without showing it. Not an option: an argument would stay in the
+    shell's history and show in the process list."""
+    password = typer.prompt("Password", hide_input=True)
+    if typer.prompt("Again", hide_input=True) != password:
+        typer.echo("The two didn't match. Nothing was changed.", err=True)
+        raise typer.Exit(1)
+    return password
+
+
+def _or_say_why(action) -> None:  # noqa: ANN001
+    """Run an accounts change; what it refuses is said in its own words, without a trace."""
+    from lectern.core import accounts
+    from lectern.core.passwords import WeakPassword
+
+    refusals = (
+        accounts.AlreadySetUp, accounts.NotSetUp, accounts.BadName, accounts.NameTaken,
+        accounts.NoSuchUser, accounts.LastAdmin, WeakPassword,
+    )  # fmt: skip
+    try:
+        action()
+    except refusals as refused:
+        typer.echo(str(refused), err=True)
+        raise typer.Exit(1) from None
+
+
+def _accounts_or_exit():  # noqa: ANN202
+    sessions = _accounts()
+    from lectern.core import accounts
+
+    if not accounts.accounts_on(sessions):
+        typer.echo("Nobody signs in here yet. Start with: lectern user init <name>", err=True)
+        raise typer.Exit(1)
+    return sessions
+
+
+@user_app.command("init")
+def user_init(login: str = typer.Argument(..., help="The name you will sign in with.")) -> None:
+    """Turn accounts on: this install's one user becomes the admin LOGIN, keeping its
+    projects. From then on people sign in, and the link from `lectern url` opens Lectern on
+    this computer only."""
+    from lectern.core import accounts
+
+    sessions = _accounts()
+    if accounts.accounts_on(sessions):
+        typer.echo(
+            "Accounts are already set up. Change a password with: lectern user password <name>",
+            err=True,
+        )
+        raise typer.Exit(1)
+    password = _new_password()
+    made: list = []
+    _or_say_why(lambda: made.append(accounts.init_admin(sessions, login, password)))
+    typer.echo(
+        f"Accounts are on. {made[0].login} is the admin. Add people with: lectern user add <name>"
+    )
+
+
+@user_app.command("add")
+def user_add(
+    login: str = typer.Argument(..., help="The name they will sign in with."),
+    admin: bool = typer.Option(
+        False, "--admin", help="May also manage models, settings and accounts."
+    ),
+) -> None:
+    """Add a person. They get a workspace of their own."""
+    from lectern.core import accounts
+
+    sessions = _accounts_or_exit()
+    password = _new_password()
+    made: list = []
+    _or_say_why(lambda: made.append(accounts.add_user(sessions, login, password, admin=admin)))
+    typer.echo(f"Added {made[0].login} ({made[0].role}).")
+
+
+@user_app.command("password")
+def user_password(login: str = typer.Argument(..., help="Whose password to set.")) -> None:
+    """Set a new password, for someone who forgot theirs. It signs them out everywhere."""
+    from lectern.core import accounts
+
+    sessions = _accounts_or_exit()
+    _or_say_why(lambda: accounts.describe(sessions, login) or _no_such(login))
+    password = _new_password()
+    _or_say_why(lambda: accounts.set_password(sessions, login, password))
+    typer.echo(f"{login.strip().lower()} has a new password, and is signed out everywhere.")
+
+
+def _no_such(login: str) -> None:
+    from lectern.core import accounts
+
+    raise accounts.NoSuchUser(f"No account is named {login!r}.")
+
+
+@user_app.command("list")
+def user_list() -> None:
+    """Who has an account: name, role, and whether it is disabled."""
+    from lectern.core import accounts
+
+    sessions = _accounts()
+    if not accounts.accounts_on(sessions):
+        typer.echo("Nobody signs in here yet. Start with: lectern user init <name>")
+        return
+    for person in accounts.describe(sessions):
+        off = "  disabled" if person["disabled"] else ""
+        typer.echo(f"{person['login']}  {person['role']}{off}")
+
+
+@user_app.command("disable")
+def user_disable(login: str = typer.Argument(..., help="Whose account to disable.")) -> None:
+    """Stop someone signing in, and sign them out. Their projects stay."""
+    from lectern.core import accounts
+
+    sessions = _accounts_or_exit()
+    _or_say_why(lambda: accounts.set_disabled(sessions, login, True))
+    typer.echo(f"{login.strip().lower()} can't sign in any more.")
+
+
+@user_app.command("enable")
+def user_enable(login: str = typer.Argument(..., help="Whose account to enable again.")) -> None:
+    """Let a disabled account sign in again."""
+    from lectern.core import accounts
+
+    sessions = _accounts_or_exit()
+    _or_say_why(lambda: accounts.set_disabled(sessions, login, False))
+    typer.echo(f"{login.strip().lower()} can sign in again.")
 
 
 # The page keeps event streams open (runtime and download progress). Uvicorn's graceful

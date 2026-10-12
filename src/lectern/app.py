@@ -15,9 +15,12 @@ from lectern import __version__
 from lectern.agent.core_tools import CORE_TOOLS
 from lectern.agent.export_tools import export_tools
 from lectern.agent.turns import TurnManager
-from lectern.api import api_router
+from lectern.api import api_router, open_api_router
+from lectern.api.accounts import SignInGate
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
+from lectern.core.accounts import Logins
+from lectern.core.auth import LOCAL_USER
 from lectern.core.db import make_engine, make_sessionmaker, migrate
 from lectern.core.security import LocalGuard, load_or_create_token, parse_public_urls
 from lectern.downloads.manager import DownloadManager
@@ -72,7 +75,14 @@ def create_app(
         app.state.projects.dispose()
 
     app = FastAPI(
-        title="Lectern", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan
+        title="Lectern",
+        version=__version__,
+        # No description of the API is served: it would sit outside /api, open to anyone
+        # who reaches the host, and the page doesn't use it.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
     )
     app.state.paths = paths
     app.state.shutting_down = asyncio.Event()  # set by `lectern serve` on Ctrl+C
@@ -113,8 +123,18 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    app.include_router(open_api_router())
     app.include_router(api_router(module_routers(modules), dev=dev))
     mount_web(app, web_dist)  # last: it answers every path the API didn't
-    app.add_middleware(LocalGuard, port=port, token=app.state.token, public=public)
+    app.add_middleware(
+        LocalGuard,
+        port=port,
+        token=app.state.token,
+        public=public,
+        logins=Logins(app.state.sessions),
+        local_user=LOCAL_USER,
+    )
+    app.state.public = public  # for the login cookie's name on each address
+    app.state.sign_in_gate = SignInGate()
     app.state.public_urls = [u.origin for u in public]
     return app

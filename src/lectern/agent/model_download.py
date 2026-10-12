@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from lectern.agent.tools import ToolContext
 from lectern.catalog.catalog import CatalogEntry
+from lectern.core.auth import ADMIN
 from lectern.downloads.manager import DownloadState
 
 
@@ -16,7 +17,12 @@ def on_disk(ctx: ToolContext, entry: CatalogEntry) -> bool:
 
 async def download(ctx: ToolContext, entry: CatalogEntry) -> DownloadState:
     """Download `entry`, reporting progress to the chat, and return how it ended: "done",
-    "failed" or "paused" (stopped before it finished, e.g. the app shutting down)."""
+    "failed" or "paused" (stopped before it finished, e.g. the app shutting down). Downloading
+    a model is the admin's, here as in Models & memory: for anyone else it fails at once, and
+    says who to ask."""
+    if ctx.user.role != ADMIN:
+        why = f"only an admin can download models. Ask them to download {entry.title}"
+        return DownloadState(entry.id, "failed", 0, entry.size, error=why)
     downloads = ctx.downloads
     async with downloads.events.listen() as queue:
         state = downloads.start(entry)

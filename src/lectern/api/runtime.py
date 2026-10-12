@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -13,6 +13,7 @@ from starlette.requests import HTTPConnection
 from lectern.api.sse import hub_stream
 from lectern.api.ws import hub_socket
 from lectern.core import settings
+from lectern.core.auth import require_admin
 from lectern.runners import mlx
 from lectern.runtime.supervisor import ModelRuntime
 
@@ -48,7 +49,7 @@ class Unload(BaseModel):
     role: str | None = None
 
 
-@router.post("/runtime/unload")
+@router.post("/runtime/unload", dependencies=[Depends(require_admin)])
 async def unload(body: Unload, request: Request) -> dict:
     return {"unloaded": await _runtime(request).unload_idle(body.role)}
 
@@ -86,7 +87,7 @@ def get_settings(request: Request) -> dict:
     }
 
 
-@router.put("/runtime/settings")
+@router.put("/runtime/settings", dependencies=[Depends(require_admin)])
 async def put_settings(body: RuntimeSettings, request: Request) -> dict:
     for key, allowed in IMPLEMENTED.items():
         if getattr(body, key) not in allowed:

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from lectern.config import Paths
 from lectern.core.auth import User
 from lectern.core.db import make_engine, make_sessionmaker, migrate
-from lectern.core.tables import ProjectRow
+from lectern.core.tables import ProjectRow, UserRow
 from lectern.projects import files
 from lectern.projects.tables import SessionRow, now
 
@@ -105,6 +105,13 @@ class ProjectStore:
                 select(ProjectRow).where(ProjectRow.owner_id == user.id).order_by(ProjectRow.id)
             )
             return [Project.from_row(r) for r in rows]
+
+    def user(self, user_id: int) -> User:
+        """The user with that id, for work done in their name when they aren't asking (a
+        chat's follow-up)."""
+        with self.app_sessions() as session:
+            row = session.get(UserRow, user_id)
+            return User(id=row.id, name=row.name, login=row.login, role=row.role)
 
     def get(self, user: User, project_id: int) -> Project:
         with self.app_sessions() as session:

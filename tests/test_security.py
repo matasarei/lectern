@@ -80,6 +80,15 @@ def test_every_response_has_csp(client, path):
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
+@pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
+def test_the_api_isnt_described_to_whoever_asks(client, path):
+    """FastAPI serves a description of every route by default, outside /api and so to anyone
+    who reaches the host. The page doesn't use it."""
+    response = client.get(path)
+    assert "openapi" not in response.text and "paths" not in response.text
+    assert response.headers["content-type"].startswith("text/html")  # the page itself
+
+
 def test_rejections_also_have_csp(client):
     response = client.get("/health", headers={"Host": "evil.example"})
     assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
@@ -263,3 +272,152 @@ def test_on_every_address_the_guard_still_decides_by_host_and_token(paths, free_
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+
+
+# --- accounts: once somebody can sign in, the page is a login's, not the link's -------------------
+
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+from lectern.core import accounts  # noqa: E402
+
+WEB = "https://lectern.example"  # reached through a tunnel or a proxy with TLS
+LAN = "http://lectern.lan"  # reached on the home network, without TLS
+PASSWORD = "we walked to the lake in may"  # noqa: S105 (made up for the tests)
+NOW = datetime.now(UTC)
+
+
+@pytest.fixture
+def family(paths):
+    """An install with accounts on, and one browser signed in as the member `olena`.
+    Returns (app, login_id, token)."""
+    app = create_app(paths, port=PORT, public_urls=[WEB, LAN])
+    accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
+    olena = accounts.add_user(app.state.sessions, "olena", PASSWORD)
+    login_id, token = accounts.open_login(app.state.sessions, olena.id, NOW)
+    return app, login_id, token
+
+
+def _browser(app, base: str, cookie: dict | None = None, *, at: str = "203.0.113.7") -> TestClient:
+    return TestClient(app, base_url=base, cookies=cookie, client=(at, 50000))
+
+
+def _projects_of(app, login: str) -> list[str]:
+    from lectern.core.tables import ProjectRow, UserRow
+
+    with app.state.sessions() as session:
+        owner = session.query(UserRow).filter_by(login=login).one()
+        return [p.name for p in session.query(ProjectRow).filter_by(owner_id=owner.id)]
+
+
+def test_with_accounts_on_a_public_address_needs_a_login(family):
+    app, _, _ = family
+    for base in (WEB, LAN):
+        refused = _browser(app, base).get(API_GET)
+        assert (refused.status_code, refused.json()) == (401, {"detail": "Not signed in"})
+        # The per-install link opened everything before; from outside it opens nothing now.
+        linked = _browser(app, base).get(API_GET, headers={"X-Lectern-Token": app.state.token})
+        assert linked.status_code == 401
+
+
+def test_a_login_is_its_cookie_and_its_token_together(family):
+    app, login_id, token = family
+    cookie = {"__Host-lectern": login_id}
+
+    signed_in = _browser(app, WEB, cookie).get(API_GET, headers={"X-Lectern-Token": token})
+    assert signed_in.status_code == 200
+    # The cookie alone is what another site could make a browser send: not enough.
+    assert _browser(app, WEB, cookie).get(API_GET).status_code == 401
+    wrong = _browser(app, WEB, cookie).get(API_GET, headers={"X-Lectern-Token": "nope"})
+    assert wrong.status_code == 401
+    # Nor the token alone, nor with a cookie nobody was given.
+    assert _browser(app, WEB).get(API_GET, headers={"X-Lectern-Token": token}).status_code == 401
+    forged = _browser(app, WEB, {"__Host-lectern": "made-up"})
+    assert forged.get(API_GET, headers={"X-Lectern-Token": token}).status_code == 401
+
+
+def test_what_a_signed_in_person_does_is_done_as_them(family):
+    app, login_id, token = family
+    browser = _browser(app, WEB, {"__Host-lectern": login_id})
+    made = browser.post(
+        "/api/projects", json={"name": "Hers"}, headers={"X-Lectern-Token": token, "Origin": WEB}
+    )
+    assert made.status_code == 201
+    assert _projects_of(app, "olena") == ["Hers"] and _projects_of(app, "yevhen") == []
+
+
+def test_over_https_only_the_host_bound_cookie_counts(family):
+    app, login_id, token = family
+    headers = {"X-Lectern-Token": token}
+    # A cookie a sibling site or plain http could have planted has the plain name.
+    assert (
+        _browser(app, WEB, {"lectern": login_id}).get(API_GET, headers=headers).status_code == 401
+    )
+    # Without TLS (the home network) there is no host-bound cookie: the plain one is the login.
+    assert (
+        _browser(app, LAN, {"lectern": login_id}).get(API_GET, headers=headers).status_code == 200
+    )
+
+
+def test_a_login_past_its_time_opens_nothing(family):
+    app, _, _ = family
+    with app.state.sessions() as session:
+        from lectern.core.tables import UserRow
+
+        olena = session.query(UserRow).filter_by(login="olena").one()
+    old_id, old_token = accounts.open_login(app.state.sessions, olena.id, NOW - timedelta(days=31))
+    browser = _browser(app, WEB, {"__Host-lectern": old_id})
+    assert browser.get(API_GET, headers={"X-Lectern-Token": old_token}).status_code == 401
+
+
+def test_the_link_still_opens_lectern_on_this_computer_as_the_admin(family):
+    app, _, _ = family
+    here = _browser(app, BASE, at="127.0.0.1")
+    made = here.post(
+        "/api/projects",
+        json={"name": "Mine"},
+        headers={"X-Lectern-Token": app.state.token, "Origin": ORIGIN},
+    )
+    assert made.status_code == 201
+    assert _projects_of(app, "yevhen") == ["Mine"]
+
+
+def test_the_link_is_refused_to_another_computer_that_names_this_one(family):
+    """Listening on the network, a request can carry `Host: 127.0.0.1:8765` from anywhere:
+    the link is this computer's only when the connection is too."""
+    app, _, _ = family
+    elsewhere = _browser(app, BASE, at="192.168.1.50")
+    assert elsewhere.get(API_GET, headers={"X-Lectern-Token": app.state.token}).status_code == 401
+
+
+def test_signing_in_is_reachable_without_a_login(family):
+    app, _, _ = family
+    for method in ("GET", "POST"):
+        response = _browser(app, WEB).request(method, "/api/login", headers={"Origin": WEB})
+        assert response.status_code != 401  # past the guard (the route itself comes later)
+    assert _browser(app, WEB).get("/api/login/extra").status_code == 401  # only that path
+
+
+def test_a_socket_needs_the_login_too(family):
+    app, login_id, token = family
+
+    def follow(cookie: str | None, offered: str | None, *, name: str = "__Host-lectern"):  # noqa: ANN202
+        headers = {"Host": "lectern.example", "Origin": WEB}
+        if cookie:
+            headers["Cookie"] = f"{name}={cookie}"
+        protocols = ["lectern.v1"] + ([f"lectern.token.{offered}"] if offered else [])
+        client = TestClient(app, base_url=WEB, client=("203.0.113.7", 50000))
+        return client.websocket_connect(
+            "/api/runtime/events", headers=headers, subprotocols=protocols
+        )
+
+    with follow(login_id, token) as socket:
+        assert socket.receive_json()["type"] == "state"
+    for cookie, offered, name in [
+        (None, token, "__Host-lectern"),  # no cookie
+        (login_id, None, "__Host-lectern"),  # no token
+        (login_id, "nope", "__Host-lectern"),
+        (None, app.state.token, "__Host-lectern"),  # the link, from outside
+        (login_id, token, "lectern"),  # the plain cookie, over https
+    ]:
+        with pytest.raises(WebSocketDisconnect), follow(cookie, offered, name=name):
+            pass

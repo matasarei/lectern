@@ -234,3 +234,144 @@ def test_any_other_host_is_refused_before_listening(paths, monkeypatch, host):
     result, hosts = _serve_host(monkeypatch)
     assert result.exit_code == 2 and hosts == []
     assert "LECTERN_HOST must be 127.0.0.1" in result.output
+
+
+# --- accounts: `lectern user` -------------------------------------------------------------
+
+PASSWORD = "we walked to the lake in may"  # noqa: S105 (made up for the tests)
+
+
+def _user(*args: str, typed: str = ""):  # noqa: ANN202
+    """`lectern user …`, with `typed` as what the person types at its prompts."""
+    from typer.testing import CliRunner
+
+    return CliRunner().invoke(cli.app, ["user", *args], input=typed)
+
+
+def _sessions(paths):  # noqa: ANN001, ANN202
+    from lectern.core.db import make_engine, make_sessionmaker, migrate
+
+    engine = make_engine(paths.app_db)
+    migrate(engine)  # a command refused before it started hasn't made the database
+    return make_sessionmaker(engine)
+
+
+def _twice(password: str) -> str:
+    return f"{password}\n{password}\n"  # typed, and typed again to confirm
+
+
+def test_user_init_turns_accounts_on_with_a_password_typed_not_given(paths):
+    from datetime import UTC, datetime
+
+    from lectern.core import accounts
+
+    result = _user("init", "Yevhen", typed=_twice(PASSWORD))
+
+    assert result.exit_code == 0, result.output
+    assert "yevhen" in result.output and PASSWORD not in result.output
+    admin = accounts.sign_in(_sessions(paths), "yevhen", PASSWORD, datetime.now(UTC))
+    assert (admin.id, admin.role) == (1, "admin")
+    # Once only: after that it is `user password`.
+    again = _user("init", "someone", typed=_twice(PASSWORD))
+    assert again.exit_code == 1 and "already set up" in again.output
+
+
+def test_a_password_cant_be_given_on_the_command_line(paths):
+    """It would stay in the shell's history and show in the process list."""
+    for args in (["init", "yevhen", PASSWORD], ["init", "yevhen", "--password", PASSWORD]):
+        result = _user(*args)
+        assert result.exit_code == 2  # not a command this accepts
+    from lectern.core import accounts
+
+    assert not accounts.accounts_on(_sessions(paths))
+
+
+def test_user_add_list_password_and_disable(paths):
+    from datetime import UTC, datetime
+
+    from lectern.core import accounts
+
+    _user("init", "yevhen", typed=_twice(PASSWORD))
+    assert _user("add", "olena", typed=_twice(PASSWORD)).exit_code == 0
+    assert _user("add", "taras", "--admin", typed=_twice(PASSWORD)).exit_code == 0
+
+    listed = _user("list").output
+    assert [line.split() for line in listed.strip().splitlines()] == [
+        ["yevhen", "admin"],
+        ["olena", "member"],
+        ["taras", "admin"],
+    ]
+
+    other = "and came back before the rain"
+    assert _user("password", "olena", typed=_twice(other)).exit_code == 0
+    sessions = _sessions(paths)
+    assert accounts.sign_in(sessions, "olena", other, datetime.now(UTC))
+
+    assert _user("disable", "olena").exit_code == 0
+    assert "olena  member  disabled" in _user("list").output
+    with pytest.raises(accounts.SignInRefused):
+        accounts.sign_in(sessions, "olena", other, datetime.now(UTC))
+    assert _user("enable", "olena").exit_code == 0
+    assert accounts.sign_in(sessions, "olena", other, datetime.now(UTC))
+
+
+@pytest.mark.parametrize(
+    ("args", "typed", "says"),
+    [
+        (["add", "olena"], _twice(PASSWORD), "already in use"),
+        (["add", "../etc"], _twice(PASSWORD), "sign-in name is"),
+        (["add", "taras"], _twice("too short"), "at least 15 characters"),
+        (["add", "taras"], f"{PASSWORD}\nsomething else entirely\n", "didn't match"),
+        (["password", "nobody"], _twice(PASSWORD), "No account"),
+        (["disable", "nobody"], "", "No account"),
+        (["disable", "yevhen"], "", "only admin"),
+    ],
+)
+def test_user_commands_say_why_they_refuse(paths, args, typed, says):
+    _user("init", "yevhen", typed=_twice(PASSWORD))
+    _user("add", "olena", typed=_twice(PASSWORD))
+    result = _user(*args, typed=typed)
+    assert result.exit_code == 1 and says in result.output
+
+
+def test_before_accounts_are_set_up_only_init_makes_sense(paths):
+    result = _user("add", "olena", typed=_twice(PASSWORD))
+    assert result.exit_code == 1 and "lectern user init" in result.output
+    assert (
+        _user("list").output.strip()
+        == "Nobody signs in here yet. Start with: lectern user init <name>"
+    )
+
+
+def test_url_is_for_this_computer_once_people_sign_in(paths, monkeypatch):
+    from lectern.core.security import load_or_create_token
+
+    token = load_or_create_token(paths.token_file)
+    monkeypatch.setenv("LECTERN_PUBLIC_URL", "https://lectern.example")
+    _user("init", "yevhen", typed=_twice(PASSWORD))
+
+    lines = _run("url").output.strip().splitlines()
+
+    # The link opens Lectern here, as the admin; from outside it is refused, so the public
+    # address is given without it.
+    assert lines[0] == f"http://127.0.0.1:8765/#token={token}"
+    assert "this computer only" in lines[1]
+    assert lines[2] == "People sign in at https://lectern.example"
+    assert token not in "\n".join(lines[1:])
+
+
+def test_serve_says_where_people_sign_in_and_keeps_the_link_for_this_computer():
+    quiet = cli.where_it_runs(8765, "t0k", ["https://lectern.example"], every_address=True,
+                              people_sign_in=True)  # fmt: skip
+    assert quiet == [
+        "Lectern is running at http://127.0.0.1:8765/#token=t0k",
+        "People sign in at https://lectern.example",
+    ]
+    # Without accounts, as it always was: the warning, and the link on every address.
+    open_house = cli.where_it_runs(8765, "t0k", ["http://192.168.1.2:8765"], every_address=True,
+                                   people_sign_in=False)  # fmt: skip
+    assert "with no login" in open_house[0]
+    assert open_house[1:] == [
+        "Lectern is running at http://127.0.0.1:8765/#token=t0k",
+        "and at http://192.168.1.2:8765/#token=t0k",
+    ]

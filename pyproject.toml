@@ -22,6 +22,7 @@ dependencies = [
     "python-docx>=1.2",
     "pillow>=11",
     "odfdo>=3.26,<4",
+    "argon2-cffi>=25.1",
 ]
 
 [project.optional-dependencies]
