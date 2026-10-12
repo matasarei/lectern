@@ -1,8 +1,9 @@
 # Lectern — notes for Claude
 
 A local AI workbench: a FastAPI app (`src/lectern`) serving a React/TypeScript UI (`web/`),
-running models on the user's own GPU via llama.cpp or MLX. Single local user; the design is in
-`docs/blueprint.html`, milestone acceptance criteria in `docs/acceptance/`.
+running models on the user's own GPU via llama.cpp or MLX. One local user as installed;
+accounts and a login once `lectern user init` has run. The design is in `docs/blueprint.html`,
+milestone acceptance criteria in `docs/acceptance/`.
 
 ## Commands
 
@@ -121,12 +122,18 @@ stated recovery path before it runs.
 ## This project specifically
 
 - **Security is a middleware, not per-route** (`src/lectern/core/security.py`): Host check
-  (DNS rebinding), Origin check on mutating requests and every WebSocket, the per-install
-  token on every `/api` request (`X-Lectern-Token`, or a WS subprotocol), and a strict CSP.
-  That token check is the CSRF protection; don't add a second mechanism, and don't loosen the
-  host/origin allowlist beyond `LECTERN_PUBLIC_URL`.
-- **Authorisation:** every `/api` route depends on `current_user` (`core/auth.py`). It is a
-  single local user for the MVP; keep the dependency on new routes so login can land later.
+  (DNS rebinding), Origin check on mutating requests and every WebSocket, a token on every
+  `/api` request (`X-Lectern-Token`, or a WS subprotocol): the per-install one, or, once
+  accounts are on, the signed-in login's own beside its cookie (the per-install one then
+  works on this computer only), and a strict CSP. That token check is the CSRF protection;
+  don't add a second mechanism, and don't loosen the host/origin allowlist beyond
+  `LECTERN_PUBLIC_URL`.
+- **Authorisation:** every `/api` route depends on `current_user` (`core/auth.py`), which
+  returns who the middleware signed the request in as: the one local user until
+  `lectern user init` has run, an account after. Anything owned is looked up through its owner
+  (someone else's answers 404). A route that changes the install (models, runtime, first run,
+  dev tools, users) also takes `require_admin`. Only `GET`/`POST /api/login` are open to
+  someone not signed in. Keep both on new routes.
 - **Escaping:** the UI is React, and Markdown goes through `react-markdown` without
   `rehype-raw`, so raw HTML is not rendered. Keep it that way; no `dangerouslySetInnerHTML`.
 - **UI strings** go through i18next (`web/src/locales/`); eslint fails on literal strings.
@@ -140,7 +147,10 @@ stated recovery path before it runs.
 - **Generated, never hand-edit:** `src/lectern/web_dist/` (UI build, shipped in the wheel —
   without it `serve` answers 503), `dist/`, `uv.lock`/`web/package-lock.json` (via the tools).
 - **Credentials:** the access token lives in the data dir (`~/.lectern/data` when installed),
-  settings in `~/.lectern/lectern.env`; neither is in the repo. Never log the token.
+  settings in `~/.lectern/lectern.env`; neither is in the repo. Passwords are stored only as
+  Argon2id hashes (`core/passwords.py`) and typed at a prompt, never passed as an argument; a
+  login's cookie id is stored only as its SHA-256. Never log the token, a password, a login's
+  id or its token.
 - **Agent-written scripts** run sandboxed in Podman/Docker with only their project folder
   mounted; keep it that way.
 - Local-only work notes: `.tasks/` (git-ignored); open work is under "Open now" in
