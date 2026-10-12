@@ -14,6 +14,7 @@ const GIB = 1024 ** 3;
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
   Link: ({ to, children }: { to: string; children: ReactNode }) => <a href={to}>{children}</a>,
+  Navigate: ({ to }: { to: string }) => <span data-testid="goes-to">{to}</span>,
 }));
 
 const stopped = { runtime: "docker", version: null, engine_running: false, found: ["docker"] };
@@ -417,18 +418,36 @@ describe("First run: finishing", () => {
 });
 
 describe("First run, for someone who isn't an admin", () => {
-  it("says setup is the admin's, and offers nothing to press", async () => {
+  it("says setup is the admin's, and offers nothing of it to press", async () => {
     setSession({ accounts: true, user: { login: "olena", role: "member" } });
     renderPage();
 
-    expect(screen.getByText(/isn't set up yet/)).toBeTruthy();
+    expect(await screen.findByText(/isn't set up yet/)).toBeTruthy();
     expect(screen.getByText(/Ask an admin/)).toBeTruthy();
-    expect(screen.queryAllByRole("button")).toEqual([]);
     // The way on, once the admin is done: "/" leads to the projects then.
     expect(screen.getByRole("link", { name: "Check again" }).getAttribute("href")).toBe("/");
-    await Promise.resolve();
+    // And the way out: the one button is theirs, not setup's.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Sign out"]);
     expect(posts).toEqual([]);
     expect(puts).toEqual([]);
+  });
+
+  it("doesn't say so once setup is done: it goes to the projects", async () => {
+    setSession({ accounts: true, user: { login: "olena", role: "member" } });
+    firstRun = { ...(responses()["/api/first-run"] as object), step: "done" };
+    renderPage();
+
+    expect((await screen.findByTestId("goes-to")).textContent).toBe("/projects");
+    expect(screen.queryByText(/isn't set up yet/)).toBeNull();
+  });
+
+  it("says so when it can't ask how far setup is", async () => {
+    setSession({ accounts: true, user: { login: "olena", role: "member" } });
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("Failed to fetch"))));
+    renderPage();
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Lectern didn't answer/);
+    expect(screen.queryByText(/isn't set up yet/)).toBeNull();
   });
 
   it("is the setup itself for an admin who signed in", async () => {
