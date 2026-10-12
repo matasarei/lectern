@@ -61,7 +61,7 @@ export function onNotSignedIn(listener: () => unknown): void {
   notSignedIn = listener;
 }
 
-function refused(path: string, response: Response): void {
+function reportRefusal(path: string, response: Response): void {
   if (response.status !== 401 || path === SIGNING_IN) return;
   dealtWith = Promise.resolve(notSignedIn()).catch(() => {});
 }
@@ -76,7 +76,7 @@ function withToken(init: RequestInit = {}): RequestInit {
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, withToken(init));
   if (!response.ok) {
-    refused(path, response);
+    reportRefusal(path, response);
     let detail = response.statusText;
     try {
       const body = (await response.json()) as { detail?: unknown };
@@ -93,7 +93,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 export async function apiRaw(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, withToken(init));
   if (!response.ok) {
-    refused(path, response);
+    reportRefusal(path, response);
     throw new ApiError(response.status, response.statusText);
   }
   return response;
