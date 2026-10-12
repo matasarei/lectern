@@ -230,6 +230,50 @@ describe("followEvents", () => {
     },
   );
 
+  it("opens the socket again, with the new token, when the login was replaced under this tab", async () => {
+    // Signed in again in another tab of this browser (or a password changed there): this
+    // tab's token is the old login's. Whoever keeps track of the sign-in is told of the 401,
+    // asks who the browser is now, and has the new token by the time it answers.
+    window.sessionStorage.setItem("lectern.token", "old");
+    const sockets = installFakeSockets((socket) =>
+      socket.protocols.includes("lectern.token.new") ? socket.open() : socket.drop(),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "Not signed in" }), { status: 401 })),
+    );
+    onNotSignedIn(async () => setToken("new"));
+    const connected = vi.fn();
+    const controller = new AbortController();
+
+    const following = followEvents(PATH, () => {}, controller.signal, connected);
+    await vi.waitFor(() => expect(connected).toHaveBeenCalledWith(false));
+
+    expect(sockets.all).toHaveLength(2); // at once: no wait before the second
+    controller.abort();
+    await following;
+    onNotSignedIn(() => {});
+  });
+
+  it("gives up a refused socket when asking again brought no new token: the login has ended", async () => {
+    window.sessionStorage.setItem("lectern.token", "old");
+    const sockets = installFakeSockets((socket) => socket.drop());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ detail: "Not signed in" }), { status: 401 })),
+    );
+    const asked = vi.fn(async () => {});
+    onNotSignedIn(asked);
+
+    await expect(followEvents(PATH, () => {}, new AbortController().signal)).rejects.toMatchObject({
+      status: 401,
+    });
+
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(sockets.all).toHaveLength(1);
+    onNotSignedIn(() => {});
+  });
+
   it("goes on trying a socket that never opens while the server lets the page in, or can't be asked", async () => {
     const sockets = installFakeSockets((socket) => socket.drop());
     const answers = [() => Promise.reject(new TypeError("Failed to fetch")), () => new Response("{}")];

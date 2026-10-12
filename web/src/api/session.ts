@@ -130,4 +130,4 @@ export function keepInStep(queries: QueryClient): () => void {
   });
 }
 
-onNotSignedIn(() => void askAgain());
+onNotSignedIn(askAgain);
