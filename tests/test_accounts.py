@@ -213,6 +213,20 @@ def test_a_login_ends_after_a_week_unused_or_thirty_days_in_all(family):
     assert accounts.find_login(family, unused, NOON + 7 * day + timedelta(seconds=1)) is None
 
 
+def test_asking_whether_a_login_stands_neednt_count_as_using_it(family):
+    """What an open socket asks: the answer is the same, and "last seen" stays."""
+    olena = accounts.sign_in(family, "olena", PASSWORD, NOON)
+    login_id, token = accounts.open_login(family, olena.id, NOON)
+    day = timedelta(days=1)
+
+    assert accounts.find_login(family, login_id, NOON + 6 * day, seen=False) == (olena, token)
+    # Not marked used on day 6, so just past a week after NOON it has gone unused too long.
+    late = NOON + 7 * day + timedelta(seconds=1)
+    assert accounts.find_login(family, login_id, late, seen=False) is None
+    with family() as session:
+        assert session.query(LoginRow).count() == 0  # past its time: removed, as ever
+
+
 def test_logins_nobody_came_back_to_are_removed_when_somebody_signs_in(family):
     olena = accounts.sign_in(family, "olena", PASSWORD, NOON)
     yevhen = accounts.sign_in(family, "yevhen", PASSWORD, NOON)

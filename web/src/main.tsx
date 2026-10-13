@@ -7,13 +7,14 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { initToken } from "./api/client";
-import { keepInStep } from "./api/session";
+import { followOtherTabs, keepInStep } from "./api/session";
 import { router } from "./router";
 
 initToken();
 
 const queryClient = new QueryClient();
 keepInStep(queryClient);
+followOtherTabs();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

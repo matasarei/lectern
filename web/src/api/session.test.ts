@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch, getToken, setToken } from "./client";
 import {
   askAgain,
+  followOtherTabs,
   forgetSession,
   getSession,
   keepInStep,
@@ -181,5 +182,87 @@ describe("what the page has fetched", () => {
 
     expect(getSession()).toEqual({ accounts: true, user: OLENA });
     expect(getToken()).toBe("t9");
+  });
+});
+
+/** The tabs of one browser: what one says, the others on that channel hear (never itself). */
+class FakeChannel {
+  static open: FakeChannel[] = [];
+  private heard: ((event: { data: unknown }) => void)[] = [];
+
+  constructor(readonly name: string) {
+    FakeChannel.open.push(this);
+  }
+
+  postMessage(data: unknown) {
+    for (const other of FakeChannel.open) {
+      if (other !== this && other.name === this.name) other.heard.forEach((hear) => hear({ data }));
+    }
+  }
+
+  addEventListener(_type: "message", hear: (event: { data: unknown }) => void) {
+    this.heard.push(hear);
+  }
+
+  close() {
+    FakeChannel.open = FakeChannel.open.filter((channel) => channel !== this);
+  }
+}
+
+describe("the other tabs of this browser", () => {
+  beforeEach(() => {
+    FakeChannel.open = [];
+    vi.stubGlobal("BroadcastChannel", FakeChannel);
+  });
+
+  it("ask again who they are when one of them signs in or out", async () => {
+    const stop = followOtherTabs();
+    await whoAmI(); // this tab: nobody signs in here, as far as it knows
+    login = () => ok({ accounts: true, user: OLENA, token: "this-logins-token" });
+
+    new FakeChannel("lectern.session").postMessage("changed"); // another tab signed in
+
+    await vi.waitFor(() => expect(getSession()).toEqual({ accounts: true, user: OLENA }));
+    expect(getToken()).toBe("this-logins-token");
+    stop();
+  });
+
+  it("are told when this one signs in and when it signs out, and it doesn't ask itself", () => {
+    const stop = followOtherTabs();
+    const heard: unknown[] = [];
+    new FakeChannel("lectern.session").addEventListener("message", (event) => heard.push(event.data));
+
+    signedIn({ user: OLENA, token: "this-logins-token" });
+    expect(heard).toHaveLength(1);
+    signedOut();
+    expect(heard).toHaveLength(2);
+
+    expect(heard.join()).not.toContain("this-logins-token"); // only that something changed
+    expect(asked).toBe(0);
+    stop();
+  });
+
+  it("aren't listened to, or told, once stopped", async () => {
+    followOtherTabs()();
+    const other = new FakeChannel("lectern.session");
+    const heard: unknown[] = [];
+    other.addEventListener("message", (event) => heard.push(event.data));
+
+    other.postMessage("changed");
+    signedIn({ user: OLENA, token: "this-logins-token" });
+    await Promise.resolve();
+
+    expect(asked).toBe(0);
+    expect(heard).toEqual([]);
+  });
+
+  it("make no difference in a browser that has no such channel", () => {
+    vi.stubGlobal("BroadcastChannel", undefined);
+    const stop = followOtherTabs();
+
+    signedIn({ user: OLENA, token: "this-logins-token" });
+
+    expect(getSession().user).toEqual(OLENA);
+    stop();
   });
 });

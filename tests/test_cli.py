@@ -265,11 +265,13 @@ def test_user_init_turns_accounts_on_with_a_password_typed_not_given(paths):
 
     from lectern.core import accounts
 
+    noon = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)  # the commands themselves take no time
+
     result = _user("init", "Yevhen", typed=_twice(PASSWORD))
 
     assert result.exit_code == 0, result.output
     assert "yevhen" in result.output and PASSWORD not in result.output
-    admin = accounts.sign_in(_sessions(paths), "yevhen", PASSWORD, datetime.now(UTC))
+    admin = accounts.sign_in(_sessions(paths), "yevhen", PASSWORD, noon)
     assert (admin.id, admin.role) == (1, "admin")
     # Once only: after that it is `user password`.
     again = _user("init", "someone", typed=_twice(PASSWORD))
@@ -291,6 +293,8 @@ def test_user_add_list_password_and_disable(paths):
 
     from lectern.core import accounts
 
+    noon = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)  # the commands themselves take no time
+
     _user("init", "yevhen", typed=_twice(PASSWORD))
     assert _user("add", "olena", typed=_twice(PASSWORD)).exit_code == 0
     assert _user("add", "taras", "--admin", typed=_twice(PASSWORD)).exit_code == 0
@@ -305,14 +309,14 @@ def test_user_add_list_password_and_disable(paths):
     other = "and came back before the rain"
     assert _user("password", "olena", typed=_twice(other)).exit_code == 0
     sessions = _sessions(paths)
-    assert accounts.sign_in(sessions, "olena", other, datetime.now(UTC))
+    assert accounts.sign_in(sessions, "olena", other, noon)
 
     assert _user("disable", "olena").exit_code == 0
     assert "olena  member  disabled" in _user("list").output
     with pytest.raises(accounts.SignInRefused):
-        accounts.sign_in(sessions, "olena", other, datetime.now(UTC))
+        accounts.sign_in(sessions, "olena", other, noon)
     assert _user("enable", "olena").exit_code == 0
-    assert accounts.sign_in(sessions, "olena", other, datetime.now(UTC))
+    assert accounts.sign_in(sessions, "olena", other, noon)
 
 
 @pytest.mark.parametrize(

@@ -238,10 +238,13 @@ def open_login(sessions: Sessions, user_id: int, now: datetime) -> tuple[str, st
     return login_id, token
 
 
-def find_login(sessions: Sessions, login_id: str, now: datetime) -> tuple[User, str] | None:
+def find_login(
+    sessions: Sessions, login_id: str, now: datetime, *, seen: bool = True
+) -> tuple[User, str] | None:
     """Who the browser holding `login_id` is signed in as, and its token. None when it isn't:
     never was, signed out, expired, unused too long, or the account is disabled. A login past
-    its time is removed."""
+    its time is removed. `seen`: whether asking counts as the browser using its login (a
+    request does; a socket left open asking whether it may stay doesn't)."""
     if not login_id:
         return None
     with sessions.begin() as session:
@@ -254,7 +257,7 @@ def find_login(sessions: Sessions, login_id: str, now: datetime) -> tuple[User, 
         user = session.get(UserRow, row.user_id)
         if user is None or user.disabled:
             return None
-        if now - _utc(row.last_seen_at) >= SEEN_EVERY:
+        if seen and now - _utc(row.last_seen_at) >= SEEN_EVERY:
             row.last_seen_at = now
         return _user(user), row.token
 
@@ -279,8 +282,8 @@ class Logins:
     def accounts_on(self) -> bool:
         return accounts_on(self.sessions)
 
-    def find(self, login_id: str) -> tuple[User, str] | None:
-        return find_login(self.sessions, login_id, self.clock())
+    def find(self, login_id: str, *, seen: bool = True) -> tuple[User, str] | None:
+        return find_login(self.sessions, login_id, self.clock(), seen=seen)
 
 
 # --- inside ---------------------------------------------------------------------------------------

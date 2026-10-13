@@ -140,6 +140,7 @@ from datetime import UTC, datetime  # noqa: E402
 from lectern.core import accounts  # noqa: E402
 
 WEB = "https://lectern.example"
+NOW = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)  # the app's clock stands here
 PASSWORD = "we walked to the lake in may"  # noqa: S105 (made up for the tests)
 
 # Install-wide routes that change something: a member is refused each of them. Reads of the
@@ -176,7 +177,7 @@ A_MEMBERS_TOO = {
 def family(paths):
     """Accounts on: the admin `yevhen`, the members `olena` and `taras`, each signed in from
     one browser. Returns (app, as_): as_(login) is (client, headers) for that person."""
-    app = create_app(paths, public_urls=[WEB], dev=True)
+    app = create_app(paths, public_urls=[WEB], dev=True, clock=lambda: NOW)
     sessions = app.state.sessions
     people = {
         "yevhen": accounts.init_admin(sessions, "yevhen", PASSWORD),
@@ -185,7 +186,7 @@ def family(paths):
     }
 
     def as_(login: str):  # noqa: ANN202
-        login_id, token = accounts.open_login(sessions, people[login].id, datetime.now(UTC))
+        login_id, token = accounts.open_login(sessions, people[login].id, NOW)
         client = TestClient(app, base_url=WEB, cookies={"__Host-lectern": login_id})
         return client, {"X-Lectern-Token": token, "Origin": WEB}
 
@@ -321,7 +322,7 @@ def test_a_follow_up_runs_as_the_chats_owner(family):
 
         olena = session.query(UserRow).filter_by(login="olena").one()
     project = app.state.projects.get(
-        accounts.sign_in(app.state.sessions, "olena", PASSWORD, datetime.now(UTC)), pid
+        accounts.sign_in(app.state.sessions, "olena", PASSWORD, NOW), pid
     )
 
     owner = _owner(app.state.projects, app.state.projects.db(project), 1)

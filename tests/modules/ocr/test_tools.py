@@ -250,6 +250,36 @@ def test_a_member_cant_start_a_model_download_from_a_chat(ctx):
     assert ctx.downloads.started == [] and ctx.ocr_jobs.started == []
 
 
+def _as_member(ctx):  # noqa: ANN001, ANN202
+    """The same person as the fixture's (the scan is theirs), but a member."""
+    from dataclasses import replace
+
+    from lectern.core.auth import MEMBER, User
+
+    return replace(ctx, user=User(id=ctx.user.id, name=ctx.user.name, role=MEMBER))
+
+
+def test_a_member_is_told_so_instead_of_a_card_that_offers_the_download(ctx):
+    """The card would ask them to allow a download that then fails for them."""
+    entry, _ = _missing_ocr_model(ctx)
+
+    with pytest.raises(ToolError, match=f"isn't downloaded.*only an admin.*{entry.title}"):
+        _question(_as_member(ctx), name="lease-scan.pdf")
+
+
+def test_a_member_is_told_so_when_only_the_cleanup_model_is_missing(ctx):
+    chat, _ = _chat_on_mlx(ctx, "paddleocr-vl-1.6")
+
+    with pytest.raises(ToolError, match=f"isn't downloaded.*only an admin.*{chat.title}"):
+        _question(_as_member(ctx), name="lease-scan.pdf")
+
+
+def test_a_member_gets_the_usual_card_when_nothing_is_to_download(ctx):
+    assert _question(_as_member(ctx), name="lease-scan.pdf").startswith(
+        "Start an OCR session for lease-scan.pdf?"
+    )
+
+
 def test_a_failed_ocr_model_download_starts_no_session(ctx):
     _missing_ocr_model(ctx, fail=True)
 

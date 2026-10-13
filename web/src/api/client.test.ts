@@ -255,6 +255,49 @@ describe("followEvents", () => {
     onNotSignedIn(() => {});
   });
 
+  it("says so to whoever keeps track of the sign-in when the server closes a socket as not signed in", async () => {
+    // The login ended while the socket was open (signed out elsewhere, a new password, the
+    // account disabled): the server closes it with its code for a 401.
+    window.sessionStorage.setItem("lectern.token", "old");
+    const sockets = installFakeSockets((socket) => {
+      socket.open();
+      socket.drop(4401, "Not signed in");
+    });
+    const asked = vi.fn(async () => {});
+    onNotSignedIn(asked);
+
+    await expect(followEvents(PATH, () => {}, new AbortController().signal)).rejects.toMatchObject({
+      status: 401,
+      detail: "Not signed in",
+    });
+
+    expect(asked).toHaveBeenCalledTimes(1); // the page asks who it is now: the form, then
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
+    expect(sockets.all).toHaveLength(1); // and it isn't opened again with a token that ended
+    onNotSignedIn(() => {});
+  });
+
+  it("opens a socket closed as not signed in again when the page has a new token by then", async () => {
+    // Signed in again in another tab: the old login ended, and this tab's socket with it.
+    window.sessionStorage.setItem("lectern.token", "old");
+    const sockets = installFakeSockets((socket) => {
+      socket.open();
+      if (!socket.protocols.includes("lectern.token.new")) socket.drop(4401, "Not signed in");
+    });
+    onNotSignedIn(async () => setToken("new"));
+    const connected = vi.fn();
+    const controller = new AbortController();
+
+    const following = followEvents(PATH, () => {}, controller.signal, connected);
+    await vi.waitFor(() => expect(connected).toHaveBeenCalledTimes(2));
+
+    expect(connected.mock.calls).toEqual([[false], [true]]); // the second: catch up
+    expect(sockets.all).toHaveLength(2); // at once: no wait before the second
+    controller.abort();
+    await following;
+    onNotSignedIn(() => {});
+  });
+
   it("gives up a refused socket when asking again brought no new token: the login has ended", async () => {
     window.sessionStorage.setItem("lectern.token", "old");
     const sockets = installFakeSockets((socket) => socket.drop());

@@ -17,12 +17,14 @@ const TARAS = { login: "taras", role: "admin" };
 let who: { accounts: boolean; user: object | null; token: string | null } | null;
 let signsIn: object;
 let setup: "hardware" | "done" | "unknown";
+let down: boolean; // nothing answers: the server is stopped, or the network is
 let asked: string[];
 
 beforeEach(() => {
   who = { accounts: true, user: null, token: null };
   signsIn = OLENA;
   setup = "done";
+  down = false;
   asked = [];
   window.sessionStorage.clear();
   forgetSession();
@@ -31,6 +33,7 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init: RequestInit = {}) => {
       asked.push(`${init.method ?? "GET"} ${url}`);
+      if (down) throw new TypeError("Failed to fetch");
       const refused = (detail: string) => new Response(JSON.stringify({ detail }), { status: 401 });
       if (url === "/api/login" && init.method === "POST") {
         who = { accounts: true, user: signsIn, token: "the-logins-token" };
@@ -217,5 +220,41 @@ describe("The bare address, where nobody signs in", () => {
 
     expect(await screen.findByText(/Open Lectern from the link/)).toBeTruthy();
     expect(asked).toEqual(["GET /api/login"]);
+  });
+});
+
+describe("When Lectern doesn't answer as the page opens", () => {
+  beforeEach(() => {
+    down = true;
+  });
+
+  it("says so, and nothing about a link: it hasn't said whether people sign in here", async () => {
+    open("/");
+
+    expect(await screen.findByText(/Lectern didn't answer/)).toBeTruthy();
+    expect(screen.queryByText(/Open Lectern from the link/)).toBeNull();
+  });
+
+  it("shows the sign-in once it answers that people sign in here", async () => {
+    const router = open("/");
+    await screen.findByText(/Lectern didn't answer/);
+
+    down = false;
+    await router.navigate({ to: "/projects" }); // the next page asks again
+
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeTruthy();
+    expect(screen.queryByText(/Lectern didn't answer/)).toBeNull();
+  });
+
+  it("says where the link is once it answers that nobody signs in here", async () => {
+    const router = open("/");
+    await screen.findByText(/Lectern didn't answer/);
+
+    down = false;
+    who = null; // no token: refused, as on an install without accounts
+    await router.navigate({ to: "/projects" });
+
+    expect(await screen.findByText(/Open Lectern from the link/)).toBeTruthy();
+    expect(screen.queryByText(/Lectern didn't answer/)).toBeNull();
   });
 });

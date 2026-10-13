@@ -158,6 +158,21 @@ def test_no_download_means_no_script_and_says_not_computed(make_ctx):
     assert downloads.started == [] and handle.requests == []
 
 
+def test_a_member_is_told_the_download_is_the_admins_and_no_card_offers_it(make_ctx):
+    from dataclasses import replace
+
+    from lectern.core.auth import MEMBER, User
+
+    downloads = FakeDownloads(downloaded=False)
+    ctx, handle = ctx_for(make_ctx, [GOOD], downloads=downloads, answers=[True])
+    member = replace(ctx, user=User(id=ctx.user.id, name=ctx.user.name, role=MEMBER))
+    entry = catalog.load().defaults_for(Tier.MINIMUM)["code"]
+
+    with pytest.raises(ToolError, match=f"only an admin.*{entry.title}.*not computed"):
+        write(member)
+    assert ctx.asked == [] and downloads.started == [] and handle.requests == []
+
+
 def test_a_failed_download_is_reported(make_ctx):
     ctx, _ = ctx_for(make_ctx, [GOOD], downloads=FakeDownloads(False, fail=True), answers=[True])
     with pytest.raises(ToolError, match="download failed: disk full"):

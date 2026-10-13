@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -83,10 +82,6 @@ class Disabled(BaseModel):
     disabled: bool
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
 def _cookie(request: Request) -> tuple[str, bool]:
     """The login cookie's name on the address this request came to, and whether Secure."""
     return login_cookie(request.headers.get("host", "").lower(), request.app.state.public)
@@ -103,7 +98,7 @@ def _open_login(request: Request, response: Response, user: User) -> str:
     name, secure = _cookie(request)
     if had := request.cookies.get(name):
         accounts.end_login(sessions, had)
-    login_id, token = accounts.open_login(sessions, user.id, _now())
+    login_id, token = accounts.open_login(sessions, user.id, request.app.state.clock())
     response.set_cookie(
         name,
         login_id,
@@ -137,7 +132,7 @@ async def sign_in(body: SignIn, request: Request, response: Response) -> dict:
     async with request.app.state.sign_in_gate.turn():
         try:
             user = await run_in_threadpool(
-                accounts.sign_in, sessions, body.login, body.password, _now()
+                accounts.sign_in, sessions, body.login, body.password, request.app.state.clock()
             )
         except accounts.SignInRefused as refused:
             raise HTTPException(401, str(refused)) from None
@@ -166,7 +161,7 @@ def change_password(
     if user.login is None:
         raise HTTPException(409, "This is the computer's own link, not an account.")
     try:
-        accounts.sign_in(sessions, user.login, body.current, _now())
+        accounts.sign_in(sessions, user.login, body.current, request.app.state.clock())
     except accounts.SignInRefused:
         raise HTTPException(403, "The current password is wrong.") from None
     try:
