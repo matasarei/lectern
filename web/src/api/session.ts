@@ -106,12 +106,31 @@ export function signedIn(answer: { user: Who; token: string }): void {
   known = true;
   setToken(answer.token);
   setSession({ accounts: true, user: answer.user });
+  tabs?.postMessage(CHANGED);
 }
 
 /** Signed out here: the page returns to the form. */
 export function signedOut(): void {
   setToken(null);
   setSession({ accounts: true, user: null });
+  tabs?.postMessage(CHANGED);
+}
+
+const CHANGED = "changed"; // all a tab says: who it is now is the server's to tell
+let tabs: BroadcastChannel | null = null;
+
+/** The tabs of a browser share its cookie. When one signs in or out it tells the others, and
+ * each asks again who it is: left alone, a tab goes on showing the last person's page until
+ * its next request. Returns how to stop. */
+export function followOtherTabs(): () => void {
+  if (typeof BroadcastChannel === "undefined") return () => {};
+  const channel = new BroadcastChannel("lectern.session");
+  channel.addEventListener("message", () => void askAgain());
+  tabs = channel;
+  return () => {
+    channel.close();
+    if (tabs === channel) tabs = null;
+  };
 }
 
 /** As when the page was opened: nobody, and not asked yet. For the tests. */
