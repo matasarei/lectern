@@ -1169,7 +1169,7 @@ export default defineModule({
         <li>the install-token check sat in the same place that logins now use;</li>
         <li>projects lived under a folder per user (<code>users/local/</code>, still the first admin's).</li>
       </ul>
-      So it took one migration of the app database (six columns on <code>users</code>, a <code>logins</code> table) and none of the project databases. Still to come: a second factor or passkeys, and a queue shared fairly between people for the GPU (requests queue first come, first served today).</li>
+      So it took one migration of the app database (six columns on <code>users</code>, a <code>logins</code> table) and none of the project databases. Still to come: a second factor or passkeys, and a queue shared fairly between people for the GPU (today a chat goes ahead of a job, and otherwise requests are served in the order they came, whoever's they are).</li>
     <li><b>Agents &amp; terminal module</b> is next; see <a href="#agents-module">Agents &amp; terminal</a>. It is admin-only from its first day.</li>
     <li><b>Cutting images out of scans</b>, which fills the existing <code>images/</code> folder and figure blocks.</li>
     <li><b>More modules</b>, such as transcription, translation and image generation, through the same module contract.</li>
