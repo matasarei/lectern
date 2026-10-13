@@ -496,3 +496,53 @@ def test_an_open_socket_doesnt_count_as_using_the_login(paths):
         with pytest.raises(WebSocketDisconnect) as closed:
             socket.receive_json()
     assert closed.value.code == 4401
+
+
+def _follow_with_the_link(app, *, here: bool):  # noqa: ANN001, ANN202
+    """The runtime's events, followed with the per-install token: from this computer, or
+    from elsewhere through the public address."""
+    origin = BASE if here else WEB
+    host = f"127.0.0.1:{PORT}" if here else "lectern.example"
+    address = "127.0.0.1" if here else "203.0.113.7"
+    return TestClient(app, base_url=origin, client=(address, 50000)).websocket_connect(
+        "/api/runtime/events",
+        headers={"Host": host, "Origin": origin},
+        subprotocols=["lectern.v1", f"lectern.token.{app.state.token}"],
+    )
+
+
+def test_a_socket_opened_with_the_link_elsewhere_is_closed_when_accounts_are_turned_on(paths):
+    """Before accounts the per-install token opens Lectern at every address it is served at;
+    once they are on, on this computer only. A socket already open from elsewhere goes the
+    way a new one would: it is asked the guard's own question, not only about a login."""
+    app = create_app(paths, port=PORT, public_urls=[WEB], login_check_seconds=0.01)
+    with _follow_with_the_link(app, here=False) as socket:
+        assert socket.receive_json()["type"] == "state"
+        accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_json()
+    assert (closed.value.code, closed.value.reason) == (4401, "Not signed in")
+
+
+def test_a_socket_opened_with_the_link_on_this_computer_stays_when_accounts_are_turned_on(
+    paths, monkeypatch
+):
+    """The link goes on working here, so its socket has no login to ask about and stays."""
+    asked = threading.Event()
+    accounts_on = accounts.accounts_on
+
+    def counted(sessions):  # noqa: ANN001, ANN202
+        answer = accounts_on(sessions)
+        asked.set()
+        return answer
+
+    monkeypatch.setattr(accounts, "accounts_on", counted)
+    app = create_app(paths, port=PORT, public_urls=[WEB], login_check_seconds=0.01)
+    with _follow_with_the_link(app, here=True) as socket:
+        assert socket.receive_json()["type"] == "state"
+        accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
+        for _ in range(2):  # asked twice since: the first of them has been answered
+            asked.clear()
+            assert asked.wait(5)
+        socket.portal.call(app.state.runtime.events.publish, {"type": "still", "n": 1})
+        assert socket.receive_json() == {"type": "still", "n": 1}
