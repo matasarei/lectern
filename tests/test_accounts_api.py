@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,11 +15,27 @@ LAN = "http://lectern.lan"  # the home network, without TLS
 PASSWORD = "we walked to the lake in may"  # noqa: S105 (made up for the tests)
 OTHER = "and came back before the rain"
 REFUSED = {"detail": accounts.REFUSED}
+NOON = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+
+
+class Clock:
+    """The time the app is told it is: a test moves it instead of waiting."""
+
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
 
 
 @pytest.fixture
-def app(paths):
-    app = create_app(paths, public_urls=[WEB, LAN])
+def clock() -> Clock:
+    return Clock(NOON)
+
+
+@pytest.fixture
+def app(paths, clock):
+    app = create_app(paths, public_urls=[WEB, LAN], clock=clock)
     accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
     accounts.add_user(app.state.sessions, "olena", PASSWORD)
     return app
@@ -90,6 +108,33 @@ def test_each_sign_in_is_a_new_login_and_ends_the_one_the_browser_had(app):
     assert again.json()["token"] != old_token
     stale = TestClient(app, base_url=WEB, cookies={"__Host-lectern": old_cookie})
     assert stale.get("/api/projects", headers={"X-Lectern-Token": old_token}).status_code == 401
+
+
+def test_a_sign_in_lasts_thirty_days_in_use_and_a_week_unused_by_the_apps_clock(app, clock):
+    browser, _ = _sign_in(app)
+    for used_on in (6, 12, 18, 24, 29):  # never a week idle
+        clock.now = NOON + timedelta(days=used_on)
+        assert browser.get("/api/projects").status_code == 200
+    clock.now = NOON + timedelta(days=30)  # thirty days in all
+    assert browser.get("/api/projects").status_code == 401
+
+    unused, _ = _sign_in(app)
+    clock.now += timedelta(days=7, seconds=1)
+    assert unused.get("/api/projects").status_code == 401
+
+
+def test_five_wrong_passwords_make_the_account_wait_a_minute_by_the_apps_clock(app, clock):
+    browser = _browser(app)
+    for _ in range(5):
+        wrong = browser.post("/api/login", json={"login": "olena", "password": OTHER})
+        assert (wrong.status_code, wrong.json()) == (401, REFUSED)
+
+    held = browser.post("/api/login", json={"login": "olena", "password": PASSWORD})
+    assert (held.status_code, held.json()) == (401, REFUSED)  # the right one, too soon
+
+    clock.now += timedelta(seconds=61)
+    waited = browser.post("/api/login", json={"login": "olena", "password": PASSWORD})
+    assert waited.status_code == 200
 
 
 def test_signing_in_from_another_site_is_refused(app):

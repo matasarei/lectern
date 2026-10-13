@@ -283,14 +283,14 @@ from lectern.core import accounts  # noqa: E402
 WEB = "https://lectern.example"  # reached through a tunnel or a proxy with TLS
 LAN = "http://lectern.lan"  # reached on the home network, without TLS
 PASSWORD = "we walked to the lake in may"  # noqa: S105 (made up for the tests)
-NOW = datetime.now(UTC)
+NOW = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)  # the app's clock stands here
 
 
 @pytest.fixture
 def family(paths):
     """An install with accounts on, and one browser signed in as the member `olena`.
     Returns (app, login_id, token)."""
-    app = create_app(paths, port=PORT, public_urls=[WEB, LAN])
+    app = create_app(paths, port=PORT, public_urls=[WEB, LAN], clock=lambda: NOW)
     accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
     olena = accounts.add_user(app.state.sessions, "olena", PASSWORD)
     login_id, token = accounts.open_login(app.state.sessions, olena.id, NOW)

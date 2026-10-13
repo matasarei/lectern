@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 
@@ -49,11 +50,14 @@ def create_app(
     web_dist: Path = WEB_DIST,
     public_urls: list[str] | None = None,
     dev: bool | None = None,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FastAPI:
     """`public_urls`: the addresses a reverse proxy serves Lectern at; LECTERN_PUBLIC_URL when
     not given. A malformed one raises ValueError here, before anything starts.
 
-    `dev`: serve the developer tools (/api/dev); LECTERN_DEV=1 when not given."""
+    `dev`: serve the developer tools (/api/dev); LECTERN_DEV=1 when not given.
+
+    `clock`: the time sign-ins and logins go by (a test sets it instead of waiting)."""
     paths = paths or get_paths()
     if dev is None:
         dev = os.environ.get("LECTERN_DEV") == "1"
@@ -131,10 +135,11 @@ def create_app(
         port=port,
         token=app.state.token,
         public=public,
-        logins=Logins(app.state.sessions),
+        logins=Logins(app.state.sessions, clock),
         local_user=LOCAL_USER,
     )
     app.state.public = public  # for the login cookie's name on each address
     app.state.sign_in_gate = SignInGate()
+    app.state.clock = clock  # the sign-in routes go by the guard's clock
     app.state.public_urls = [u.origin for u in public]
     return app
