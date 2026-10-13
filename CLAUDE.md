@@ -133,7 +133,8 @@ stated recovery path before it runs.
   `lectern user init` has run, an account after. Anything owned is looked up through its owner
   (someone else's answers 404). A route that changes the install (models, runtime, first run,
   dev tools, users) also takes `require_admin`. Only `GET`/`POST /api/login` are open to
-  someone not signed in. Keep both on new routes.
+  someone not signed in. Keep `current_user` on every new route, and `require_admin` on any
+  that changes the install.
 - **Escaping:** the UI is React, and Markdown goes through `react-markdown` without
   `rehype-raw`, so raw HTML is not rendered. Keep it that way; no `dangerouslySetInnerHTML`.
 - **UI strings** go through i18next (`web/src/locales/`); eslint fails on literal strings.
