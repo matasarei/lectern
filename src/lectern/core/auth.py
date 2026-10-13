@@ -1,7 +1,8 @@
-"""Who is asking. In the MVP it is always the single local user; login comes after the MVP.
+"""Who is asking: the one local user until `lectern user init` has run, an account after.
 
-Every /api route depends on `current_user`, so adding real accounts later means changing
-this one function, not the routes.
+Every /api route depends on `current_user`, which returns whoever the guard signed the
+request in as; the routes didn't change when accounts came. `require_admin` is for what
+changes the install.
 """
 
 from __future__ import annotations

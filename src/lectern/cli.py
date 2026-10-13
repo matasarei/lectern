@@ -36,7 +36,8 @@ def serve(
         "--host",
         envvar="LECTERN_HOST",
         help="127.0.0.1 (this machine only), or 0.0.0.0 to be reached on your network without "
-        "a proxy; that needs --public-url / LECTERN_PUBLIC_URL, and there's no login yet.",
+        "a proxy; that needs --public-url / LECTERN_PUBLIC_URL. Turn accounts on first "
+        "(lectern user init): until then, anyone on the network who has the link gets in.",
     ),
     browser: bool = typer.Option(True, help="Open the browser once the server starts."),
     public_url: Annotated[
