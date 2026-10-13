@@ -95,9 +95,10 @@ Docker it's `docker compose -f packaging/docker/compose.yaml exec lectern lecter
   it. Five wrong ones in a row make that account wait a minute, then longer each time, up to
   15 minutes. A browser stays signed in for 30 days, or 7 without use.
 - **The access link works on the server itself only** (`127.0.0.1` or `localhost`, from that
-  computer) and opens Lectern as the admin. It's the way back in if you forget your
-  password: `lectern user password <name>` sets a new one and signs that person out
-  everywhere.
+  computer) and opens Lectern as the admin.
+- **A forgotten password** is set again on the server: `lectern user password <name>`, run
+  the same way, asks for a new one and signs that person out everywhere. That works for
+  your own too.
 - **Only an admin** downloads, removes or chooses models, changes how they're loaded, runs
   the first-run setup, and manages accounts. Everyone else sees which models there are, and
   uses them.
