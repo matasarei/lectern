@@ -115,6 +115,7 @@ async def _signed_out(websocket: WebSocket) -> None:
     still_signed_in = getattr(websocket.state, "signed_in", None)
     if still_signed_in is None:
         await asyncio.Event().wait()
+        return  # not reached: nothing sets that event
     while await still_signed_in():
         await asyncio.sleep(websocket.app.state.login_check_seconds)
 
