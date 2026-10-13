@@ -101,9 +101,13 @@ async function ask(): Promise<Session> {
 function take(next: Session, token: string | null): void {
   const first = !known;
   known = true;
+  const ended = session.user !== null && next.user === null;
   const newToken = token !== null && token !== getToken();
   if (newToken) setToken(token);
   if (first || newToken || JSON.stringify(next) !== JSON.stringify(session)) setSession(next);
+  // Ended somewhere else (signed out in another browser, a new password, disabled): this tab
+  // found out by asking, and one with nothing to ask goes on showing the person's page.
+  if (ended) tabs?.postMessage(CHANGED);
 }
 
 /** Signed in at the form: who, and the token of the new login. */
@@ -124,9 +128,11 @@ export function signedOut(): void {
 const CHANGED = "changed"; // all a tab says: who it is now is the server's to tell
 let tabs: BroadcastChannel | null = null;
 
-/** The tabs of a browser share its cookie. When one signs in or out it tells the others, and
- * each asks again who it is: left alone, a tab goes on showing the last person's page until
- * its next request. Returns how to stop. */
+/** The tabs of a browser share its cookie. When one signs in or out, or learns from the
+ * server that its login has ended, it tells the others, and each asks again who it is: left
+ * alone, a tab goes on showing the last person's page until its next request. A tab told so
+ * that finds itself nobody says it in its turn, once: after that nothing changes, and
+ * nothing more is said. Returns how to stop. */
 export function followOtherTabs(): () => void {
   if (typeof BroadcastChannel === "undefined") return () => {};
   const channel = new BroadcastChannel("lectern.session");
