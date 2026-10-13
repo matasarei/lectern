@@ -86,6 +86,7 @@ mkdir -p "$app/versions" "$dir/bin" "$data" "$units"
 install_version ""  # the bare wheel: no extras on Linux
 switch_venv
 write_lectern_url
+write_lectern_command
 
 # --- settings and the service -------------------------------------------------------------
 write_settings "systemctl --user restart lectern"
@@ -136,6 +137,7 @@ cat <<NEXT
 
 Lectern runs on this machine at http://127.0.0.1:$port (LECTERN_PORT in $settings).
 The link with its access token:  $dir/bin/lectern-url
+Before anyone else uses it, turn accounts on:  $dir/bin/lectern user init <name>
 Update: git pull && ./install.sh   Logs: journalctl --user -u lectern
 
 To reach it from other computers, put a reverse proxy or a tunnel in front of

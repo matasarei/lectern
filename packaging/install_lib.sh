@@ -120,6 +120,20 @@ URL
     chmod 0755 "$dir/bin/lectern-url"
 }
 
+# Lectern's own command, with its settings loaded: ~/.lectern/bin/lectern user add <name>.
+# Run bare, app/venv/bin/lectern keeps its data in the system's app-data folder, not in
+# $data: `user init` there would turn accounts on in a database the service never reads.
+write_lectern_command() {
+    cat > "$dir/bin/lectern" <<COMMAND
+#!/bin/sh
+set -a
+. "$settings"
+set +a
+exec "$app/venv/bin/lectern" "\$@"
+COMMAND
+    chmod 0755 "$dir/bin/lectern"
+}
+
 # The settings file, written only when it's missing, so your edits survive updates. $1 is
 # the command that restarts Lectern on this system, for the file's own first lines.
 write_settings() {
