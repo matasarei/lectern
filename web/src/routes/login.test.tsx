@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch, getToken, setToken } from "../api/client";
-import { forgetSession, getSession, keepInStep, setSession } from "../api/session";
+import { forgetSession, getSession, keepInStep, setSession, whoAmI } from "../api/session";
 import { AccountBar, PasswordPage, SignedIn } from "./login";
 
 const router = vi.hoisted(() => ({ invalidate: vi.fn(), navigate: vi.fn() }));
@@ -81,11 +81,22 @@ describe("Who gets in", () => {
     expect(screen.getByText("the page")).toBeTruthy();
   });
 
-  it("is nobody without it, and the page says where the link is", () => {
+  it("is nobody without it, and the page says where the link is", async () => {
+    answers["GET /api/login"] = [401, "Missing or wrong token"]; // nobody signs in here
+    await whoAmI();
     show(<SignedIn>the page</SignedIn>);
 
     expect(screen.queryByText("the page")).toBeNull();
     expect(screen.getByText(/Open Lectern from the link/)).toBeTruthy();
+  });
+
+  it("is nobody while the server hasn't answered, and the page says that, not where a link is", async () => {
+    await whoAmI(); // nothing answers
+    show(<SignedIn>the page</SignedIn>);
+
+    expect(screen.queryByText("the page")).toBeNull();
+    expect(screen.getByText(/Lectern didn't answer/)).toBeTruthy();
+    expect(screen.queryByText(/Open Lectern from the link/)).toBeNull();
   });
 
   it("is whoever signed in, where people do", () => {

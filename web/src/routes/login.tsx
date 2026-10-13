@@ -4,7 +4,14 @@ import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ApiError, apiPost, getToken, setToken } from "../api/client";
-import { signedIn, signedOut, useIsAdmin, useSession, type Who } from "../api/session";
+import {
+  signedIn,
+  signedOut,
+  useAnswered,
+  useIsAdmin,
+  useSession,
+  type Who,
+} from "../api/session";
 import { ErrorNote } from "../components";
 
 const FIELD = "rounded-md border border-line bg-surface px-3 py-1.5";
@@ -15,12 +22,15 @@ const FIELD = "rounded-md border border-line bg-surface px-3 py-1.5";
 export function SignedIn({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const session = useSession();
+  const answered = useAnswered();
   if (session.accounts) return session.user ? <>{children}</> : <SignInPage />;
   if (!getToken()) {
     return (
       <main className="mx-auto max-w-xl px-4 py-16">
         <h1 className="text-2xl font-semibold">{t("app.name")}</h1>
-        <p className="mt-3 text-muted">{t("errors.noToken")}</p>
+        {/* Until the server has said whether people sign in here, the link may not be what
+            is missing: someone who would sign in has none to open. */}
+        <p className="mt-3 text-muted">{t(answered ? "errors.noToken" : "common.loadFailed")}</p>
       </main>
     );
   }

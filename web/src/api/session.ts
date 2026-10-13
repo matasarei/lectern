@@ -55,6 +55,12 @@ export function useSession(): Session {
   return useSyncExternalStore(subscribe, getSession);
 }
 
+/** Whether the server has said who this page is. Until it has, nobody being signed in says
+ * nothing: not even whether people sign in here. */
+export function useAnswered(): boolean {
+  return useSyncExternalStore(subscribe, () => known);
+}
+
 /** Whether the page shows what only an admin can do. A page that doesn't know who it is
  * shows it, as before accounts: the server refuses what isn't allowed. */
 export function useIsAdmin(): boolean {
@@ -82,23 +88,22 @@ async function ask(): Promise<Session> {
     // Refused: nobody signs in here, and the link's token is missing or wrong. Anything
     // else (no answer, a server error) says nothing about who this is: nobody is signed out
     // over it, and the next page asks again.
-    if (error instanceof ApiError && error.status === 401) {
-      known = true;
-      take(NOBODY, null);
-    }
+    if (error instanceof ApiError && error.status === 401) take(NOBODY, null);
     return session;
   }
-  known = true;
   take({ accounts: answer.accounts, user: answer.user }, answer.token);
   return session;
 }
 
-/** Listeners are told only of a change: a page that fetches again when told would otherwise
- * ask, be refused and be told again, for as long as the server refused it. */
+/** The server's answer. Listeners are told only of a change: a page that fetches again when
+ * told would otherwise ask, be refused and be told again, for as long as the server refused
+ * it. The first answer is a change even when it says what was assumed: it is now known. */
 function take(next: Session, token: string | null): void {
+  const first = !known;
+  known = true;
   const newToken = token !== null && token !== getToken();
   if (newToken) setToken(token);
-  if (newToken || JSON.stringify(next) !== JSON.stringify(session)) setSession(next);
+  if (first || newToken || JSON.stringify(next) !== JSON.stringify(session)) setSession(next);
 }
 
 /** Signed in at the form: who, and the token of the new login. */
