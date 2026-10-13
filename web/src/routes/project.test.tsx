@@ -90,9 +90,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderAt(path: string) {
+function renderAt(
+  path: string,
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [path] }) });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
@@ -393,5 +395,34 @@ describe("A tab for something that's gone", () => {
     renderAt("/projects/1");
     expect(await screen.findByText("This file is no longer in the project.")).toBeTruthy();
     expect(screen.queryByText("Loading…")).toBeNull();
+  });
+});
+
+describe("A project that isn't there, or isn't yours", () => {
+  it("is said at once: the same question isn't asked again", async () => {
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      asked.push(url);
+      if (!url.startsWith("/api/projects/7")) return new Response("{}");
+      return new Response(JSON.stringify({ detail: "No such project." }), { status: 404 });
+    }));
+    // The client as the app makes it: a query that fails is tried again, a second later.
+    renderAt("/projects/7", new QueryClient());
+    expect(await screen.findByText("No such project.")).toBeTruthy();
+    expect(screen.queryByText("Loading…")).toBeNull();
+    expect(asked.filter((url) => url === "/api/projects/7")).toHaveLength(1);
+  });
+
+  it("is still asked for again when the server couldn't answer", async () => {
+    let asks = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/projects/1/tabs") return new Response(JSON.stringify(savedTabs));
+      if (url !== "/api/projects/1") return new Response(JSON.stringify(RESPONSES[url] ?? {}));
+      if (++asks === 1) return new Response(JSON.stringify({ detail: "Busy." }), { status: 503 });
+      return new Response(JSON.stringify(RESPONSES[url]));
+    }));
+    renderAt("/projects/1", new QueryClient({ defaultOptions: { queries: { retryDelay: 1 } } }));
+    expect(await screen.findByText("Lease archive 1998")).toBeTruthy();
+    expect(asks).toBe(2);
   });
 });

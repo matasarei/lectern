@@ -435,6 +435,8 @@ def test_a_first_install_puts_lectern_in_the_home_folder_and_builds_and_opens_th
     assert f"LECTERN_HOME={home}/data" in env and "LECTERN_PUBLIC_URL=" in env
     assert "systemctl" not in env  # the Linux way to restart isn't the Mac's
     assert (home / "bin/lectern-url").exists() and (home / "data").is_dir()
+    assert (home / "bin/lectern").stat().st_mode & 0o111  # `lectern user …`, settings loaded
+    assert f"{home}/bin/lectern user init <name>" in done.stdout
 
     assert (bundle / "Contents/MacOS/Lectern").exists()
     info = plistlib.loads((bundle / "Contents/Info.plist").read_bytes())

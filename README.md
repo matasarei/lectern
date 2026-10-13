@@ -42,6 +42,7 @@ the installer brings its own.
    | `data` | the database (`lectern.sqlite`), models, projects, the access token |
    | `lectern.env` | settings: the port, the public address |
    | `bin/lectern-url` | prints the access link |
+   | `bin/lectern` | Lectern's own command with those settings loaded, for `lectern user …` |
 
    The service is `~/.config/systemd/user/lectern.service`. So that it starts at boot without
    you logging in, the installer turns on lingering, or prints the line if that needs admin
@@ -76,13 +77,14 @@ everything. Before anyone else uses it, and before it's reachable from the inter
 accounts on. On the server, as the user Lectern runs as:
 
 ```sh
-( set -a; . ~/.lectern/lectern.env; set +a; ~/.lectern/app/venv/bin/lectern user init <name> )
+~/.lectern/bin/lectern user init <name>
 ```
 
 `<name>` is what you'll sign in as. It asks for a password, twice, and makes you the admin,
-keeping your projects.
-Passwords are always typed when asked, never given on the command line. The settings have to
-be loaded as above: without them the command looks for Lectern's data somewhere else. In
+keeping your projects. Passwords are always typed when asked, never given on the command
+line. Use that `lectern`, not the one inside `app`: it loads Lectern's settings first, and
+without them the command looks for Lectern's data somewhere else. If `~/.lectern/bin/lectern`
+isn't there, your install is older than it: update first (`git pull && ./install.sh`). In
 Docker it's `docker compose -f packaging/docker/compose.yaml exec lectern lectern user init
 <name>`. Nothing needs restarting. From then on:
 
@@ -195,9 +197,9 @@ its own.
    It builds Lectern and the app from that copy, puts the app in `~/Applications` and opens
    it: an icon appears in the menu bar. Everything else goes in `~/.lectern`, laid out as
    [on Linux](#install-on-a-linux-server) (`src`, `app`, `data`, `lectern.env`,
-   `bin/lectern-url`). The app is built on your own Mac, so macOS opens it without the
-   warning it shows for a downloaded one. Its icon, an open book with an L on its first
-   page, is drawn there too.
+   `bin/lectern-url`, `bin/lectern`). The app is built on your own Mac, so macOS opens it
+   without the warning it shows for a downloaded one. Its icon, an open book with an L on
+   its first page, is drawn there too.
 2. **Use the icon's menu:**
 
    | | |

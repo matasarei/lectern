@@ -134,6 +134,30 @@ def test_a_first_install_puts_everything_in_the_home_folder_and_starts_a_user_se
     assert all(name.endswith(".whl") for name in outside), outside
 
 
+def test_the_installed_lectern_command_loads_the_settings_and_passes_its_arguments_on(tmp_path):
+    """Run bare, the installed `lectern` keeps its data in the OS's app-data folder: `user
+    init` there would turn accounts on in a database the service never reads."""
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"))
+    assert done.returncode == 0, done.stderr
+    home = _home(tmp_path)
+    # A stand-in for the installed `lectern` that says how it was run.
+    (home / "app/venv/bin/lectern").write_text(
+        '#!/bin/sh\necho "home: $LECTERN_HOME"\nfor a in "$@"; do echo "arg: $a"; done\nexit 3\n'
+    )
+    (home / "app/venv/bin/lectern").chmod(0o755)
+    command = home / "bin/lectern"
+    assert command.stat().st_mode & 0o111
+    ran = subprocess.run(  # noqa: S603
+        [str(command), "user", "add", "two words"], env={"PATH": "/usr/bin:/bin"},
+        capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert ran.stdout.splitlines() == [
+        f"home: {home}/data", "arg: user", "arg: add", "arg: two words",
+    ]  # fmt: skip
+    assert ran.returncode == 3  # its answer is the command's own
+    assert f"{command} user init <name>" in done.stdout  # and the installer names it
+
+
 def test_on_linux_lectern_is_installed_without_extras(tmp_path):
     wheel = _wheel(tmp_path, "0.1.0")
     assert _install(tmp_path, wheel).returncode == 0

@@ -70,6 +70,16 @@ const projectsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects",
   component: ProjectsPage,
+  // An admin who signs in here before setup is done is led to it, as "/" would: the empty
+  // list says nothing about models still to choose. Setup isn't a member's, and where nobody
+  // signs in the computer's link opens "/".
+  beforeLoad: async () => {
+    const { accounts, user } = getSession();
+    if (!accounts || user?.role !== "admin") return;
+    // If the server can't say how far setup is, the projects are still worth showing.
+    const run = await apiFetch<FirstRun>("/api/first-run").catch(() => null);
+    if (run && run.step !== "done") throw redirect({ to: "/first-run" });
+  },
 });
 const projectRoute = createRoute({
   getParentRoute: () => rootRoute,

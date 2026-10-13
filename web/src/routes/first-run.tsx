@@ -254,6 +254,9 @@ function Setup() {
           message={advance.error instanceof ApiError ? advance.error.detail : t("common.loadFailed")}
         />
       )}
+      {/* Until setup is done the projects lead back here: without it an admin couldn't sign
+          out, or reach Users. Nothing where nobody signs in. */}
+      <AccountBar />
     </Page>
   );
 }

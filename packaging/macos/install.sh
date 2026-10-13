@@ -122,6 +122,7 @@ rm -rf "$bundle.old"
 mv "$bundle.new" "$bundle"
 rm -rf "$bundle.old"
 write_lectern_url
+write_lectern_command
 # What Lectern.app starts. exec keeps the process id, so the app's signals reach Lectern.
 cat > "$dir/bin/lectern-serve" <<SERVE
 #!/bin/sh
@@ -169,6 +170,7 @@ cat <<NEXT
 Lectern is in ~/Applications and in the menu bar: Open Lectern, in its menu.
 It runs on this Mac at http://127.0.0.1:$port (LECTERN_PORT in $settings).
 The link with its access token:  $dir/bin/lectern-url
+If others will use it, turn accounts on (once):  $dir/bin/lectern user init <name>
 Update: git pull && ./install.sh   Log: ~/Library/Logs/Lectern/lectern.log
 
 Lectern runs while the app is open. To have it open when you log in:
