@@ -457,4 +457,23 @@ describe("First run, for someone who isn't an admin", () => {
     expect(await screen.findByRole("heading", { name: "Set up Lectern" })).toBeTruthy();
     expect(screen.queryByText(/Ask an admin/)).toBeNull();
   });
+
+  it("gives an admin who is setting up the way out, and the way to Users", async () => {
+    // Until setup is done the projects lead back here, so this is the only page they have.
+    setSession({ accounts: true, user: { login: "taras", role: "admin" } });
+    renderPage();
+
+    expect(await screen.findByText("Signed in as taras")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Users" }).getAttribute("href")).toBe("/settings/users");
+    expect(screen.getByRole("link", { name: "Change password" })).toBeTruthy();
+  });
+
+  it("shows no account line on setup where nobody signs in", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Set up Lectern" })).toBeTruthy();
+    expect(screen.queryByText(/Signed in as|this computer's link/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+  });
 });
