@@ -63,7 +63,20 @@ export function onNotSignedIn(listener: () => unknown): void {
 
 function reportRefusal(path: string, response: Response): void {
   if (response.status !== 401 || path === SIGNING_IN) return;
+  tellNotSignedIn();
+}
+
+function tellNotSignedIn(): void {
   dealtWith = Promise.resolve(notSignedIn()).catch(() => {});
+}
+
+/** Whether the page has another token than `had` once the listener has dealt with the last
+ * 401: the login was replaced under this tab (signed in again, or a password changed, in
+ * another tab of this browser), and a stream can go on with the new one. */
+async function tokenReplaced(had: string | null): Promise<boolean> {
+  await dealtWith;
+  const now = getToken();
+  return now !== null && now !== had;
 }
 
 function withToken(init: RequestInit = {}): RequestInit {
@@ -191,6 +204,10 @@ async function turnedAway(signal: AbortSignal): Promise<ApiError | null> {
  * that's gone: 4404) ends it, and so does an event the page can't take (EventError): a retry
  * wouldn't change either. The server's code for a 5xx is retried.
  *
+ * The server closes an open socket as not signed in (4401) when the login it was opened with
+ * has ended. That is said to whoever keeps track of the sign-in, as a 401 over HTTP is: the
+ * page asks who it is now and shows the form, or has a new token and the stream goes on.
+ *
  * A socket refused before it opened (a wrong token) looks to a browser like a server that is
  * down. So after a socket that never opened the server is asked over HTTP: refused there
  * too, the stream ends (a tab left open with an old token would otherwise knock every ten
@@ -218,15 +235,20 @@ export async function followEvents<T>(
     });
     if (ended === "aborted") return;
     const status = ended.code - APP_CLOSE;
+    if (status === 401) {
+      tellNotSignedIn();
+      const replaced = await tokenReplaced(token);
+      if (signal.aborted) return;
+      if (replaced) continue; // at once, as below
+    }
     if (status >= 0 && status < 500) throw new ApiError(status, ended.reason);
     if (!reached) {
       const refusal = await turnedAway(signal);
       if (signal.aborted) return;
       if (refusal) {
-        await dealtWith;
+        const replaced = await tokenReplaced(token);
         if (signal.aborted) return;
-        const tokenNow = getToken();
-        if (tokenNow === null || tokenNow === token) throw refusal;
+        if (!replaced) throw refusal;
         continue; // a new token: at once, and it is refused in its turn if that one is wrong
       }
     }

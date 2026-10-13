@@ -18,6 +18,7 @@ from lectern.agent.export_tools import export_tools
 from lectern.agent.turns import TurnManager
 from lectern.api import api_router, open_api_router
 from lectern.api.accounts import SignInGate
+from lectern.api.ws import LOGIN_CHECK_SECONDS
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
 from lectern.core.accounts import Logins
@@ -51,13 +52,17 @@ def create_app(
     public_urls: list[str] | None = None,
     dev: bool | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    login_check_seconds: float = LOGIN_CHECK_SECONDS,
 ) -> FastAPI:
     """`public_urls`: the addresses a reverse proxy serves Lectern at; LECTERN_PUBLIC_URL when
     not given. A malformed one raises ValueError here, before anything starts.
 
     `dev`: serve the developer tools (/api/dev); LECTERN_DEV=1 when not given.
 
-    `clock`: the time sign-ins and logins go by (a test sets it instead of waiting)."""
+    `clock`: the time sign-ins and logins go by (a test sets it instead of waiting).
+
+    `login_check_seconds`: how often an open event socket asks whether its opener is still
+    signed in."""
     paths = paths or get_paths()
     if dev is None:
         dev = os.environ.get("LECTERN_DEV") == "1"
@@ -141,5 +146,6 @@ def create_app(
     app.state.public = public  # for the login cookie's name on each address
     app.state.sign_in_gate = SignInGate()
     app.state.clock = clock  # the sign-in routes go by the guard's clock
+    app.state.login_check_seconds = login_check_seconds
     app.state.public_urls = [u.origin for u in public]
     return app

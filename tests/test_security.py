@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import stat
 import sys
+import threading
 
 import pytest
 import uvicorn
@@ -421,3 +422,77 @@ def test_a_socket_needs_the_login_too(family):
     ]:
         with pytest.raises(WebSocketDisconnect), follow(cookie, offered, name=name):
             pass
+
+
+def _follow(app, cookie: str, token: str, *, host: str = "lectern.example", origin: str = WEB):  # noqa: ANN202
+    """The runtime's events, followed as a signed-in browser does."""
+    client = TestClient(app, base_url=origin, client=("203.0.113.7", 50000))
+    return client.websocket_connect(
+        "/api/runtime/events",
+        headers={"Host": host, "Origin": origin, "Cookie": f"__Host-lectern={cookie}"},
+        subprotocols=["lectern.v1", f"lectern.token.{token}"],
+    )
+
+
+@pytest.mark.parametrize(
+    "end",
+    [
+        lambda sessions, login_id: accounts.end_login(sessions, login_id),  # signed out
+        lambda sessions, login_id: accounts.set_password(sessions, "olena", PASSWORD[::-1]),
+        lambda sessions, login_id: accounts.set_disabled(sessions, "olena", True),
+    ],
+    ids=["signed out", "a new password", "disabled"],
+)
+def test_a_socket_is_closed_once_its_login_has_ended(family, end):
+    """Also when it ended in another process (`lectern user disable`): the socket asks."""
+    app, login_id, token = family
+    app.state.login_check_seconds = 0.01
+    with _follow(app, login_id, token) as socket:
+        assert socket.receive_json()["type"] == "state"
+        end(app.state.sessions, login_id)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_json()
+    assert (closed.value.code, closed.value.reason) == (4401, "Not signed in")
+
+
+class _Clock:
+    """The app's clock, set by the test; `read` says it has been asked the time."""
+
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+        self.read = threading.Event()
+
+    def __call__(self) -> datetime:
+        self.read.set()
+        return self.now
+
+
+def test_an_open_socket_doesnt_count_as_using_the_login(paths):
+    """A tab left open isn't someone at the computer: its socket asks whether the login still
+    stands without marking it used, so a week unused still ends it."""
+    from lectern.core.tables import LoginRow
+
+    clock = _Clock(NOW)
+    app = create_app(paths, port=PORT, public_urls=[WEB], clock=clock, login_check_seconds=0.01)
+    accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
+    olena = accounts.add_user(app.state.sessions, "olena", PASSWORD)
+    login_id, token = accounts.open_login(app.state.sessions, olena.id, NOW)
+
+    def last_seen() -> datetime:
+        with app.state.sessions() as session:
+            return session.query(LoginRow).one().last_seen_at.replace(tzinfo=UTC)
+
+    clock.now = NOW + timedelta(days=6)
+    with _follow(app, login_id, token) as socket:
+        assert socket.receive_json()["type"] == "state"
+        assert last_seen() == NOW + timedelta(days=6)  # opening it was a use
+        clock.now = NOW + timedelta(days=12)
+        for _ in range(2):  # asked twice at day 12: the first question has been answered
+            clock.read.clear()
+            assert clock.read.wait(5)
+        assert last_seen() == NOW + timedelta(days=6)
+
+        clock.now = NOW + timedelta(days=13, seconds=1)  # a week since it was last used
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_json()
+    assert closed.value.code == 4401

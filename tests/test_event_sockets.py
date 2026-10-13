@@ -86,10 +86,14 @@ def test_a_refusal_is_a_close_the_page_can_read(served):
 
 
 class _Socket:
-    """A socket whose browser stays: nothing arrives on it. `send` is what sending does."""
+    """A socket whose browser stays: nothing arrives on it. `send` is what sending does;
+    `signed_in`, what the guard left on it to ask whether its opener is still signed in."""
 
-    def __init__(self, send=None) -> None:  # noqa: ANN001
-        self.app = SimpleNamespace(state=SimpleNamespace(shutting_down=asyncio.Event()))
+    def __init__(self, send=None, signed_in=None) -> None:  # noqa: ANN001
+        self.app = SimpleNamespace(
+            state=SimpleNamespace(shutting_down=asyncio.Event(), login_check_seconds=0)
+        )
+        self.state = SimpleNamespace(**({} if signed_in is None else {"signed_in": signed_in}))
         self.closed_with: int | None = None
         self.reason: str | None = None
         self._send = send
@@ -229,3 +233,34 @@ def test_a_send_that_finds_the_browser_gone_ends_the_stream_quietly():
     socket = _Socket(send=gone)
     asyncio.run(ws.socket_events(socket, asyncio.Queue(), [{"n": 1}]))
     assert socket.closed_with is None  # nobody to tell
+
+
+# --- a login that ends while its socket is open --------------------------------------------------
+
+
+def test_it_closes_once_its_opener_is_no_longer_signed_in():
+    """The guard lets a socket in when it opens; a stream then goes on for hours. Signed out,
+    given a new password or disabled meanwhile, its opener must stop getting events."""
+    answers = iter([True, True, False])
+    sent: list[str] = []
+
+    async def still_signed_in() -> bool:
+        return next(answers)
+
+    socket = _Socket(send=sent.append, signed_in=still_signed_in)
+    # Bounded: a socket nobody asks about would follow for good.
+    asyncio.run(asyncio.wait_for(ws.socket_events(socket, asyncio.Queue(), [{"n": 1}]), 5))
+
+    assert sent == ['{"n": 1}']  # followed while signed in
+    assert (socket.closed_with, socket.reason) == (4401, "Not signed in")
+    assert list(answers) == []  # asked again and again, not once
+
+
+def test_a_question_about_the_login_that_fails_isnt_swallowed():
+    async def cant_say() -> bool:
+        raise RuntimeError("database is locked")
+
+    socket = _Socket(signed_in=cant_say)
+    with pytest.raises(RuntimeError, match="database is locked"):
+        asyncio.run(asyncio.wait_for(ws.socket_events(socket, asyncio.Queue(), []), 5))
+    assert socket.closed_with is None  # not told it was signed out: it wasn't asked and answered

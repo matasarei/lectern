@@ -172,8 +172,9 @@ class Logins(Protocol):
 
     def accounts_on(self) -> bool: ...
 
-    def find(self, login_id: str) -> tuple[Any, str] | None:
-        """The user that login is, and its token."""
+    def find(self, login_id: str, *, seen: bool = True) -> tuple[Any, str] | None:
+        """The user that login is, and its token. `seen`: whether asking counts as the
+        browser using its login."""
 
 
 @dataclass(frozen=True)
@@ -243,17 +244,22 @@ class LocalGuard:
         await self.app(scope, receive, send_with_headers)
 
     async def _who(
-        self, scope: Scope, offered: str | None, *, cookie_is_enough: bool = False
+        self,
+        scope: Scope,
+        offered: str | None,
+        *,
+        cookie_is_enough: bool = False,
+        seen: bool = True,
     ) -> Asker:
         """Who the request is from. `cookie_is_enough`: for the one request that hands a
-        signed-in browser its token."""
+        signed-in browser its token. `seen`: whether asking counts as using the login."""
         if self.logins is None or not await asyncio.to_thread(self.logins.accounts_on):
             user = self.local_user if _tokens_match(offered, self.token) else None
             return Asker(user, None, accounts=False)
         name, _secure = login_cookie(_host(scope), self.public)
         login_id = _cookie(scope, name)
         if login_id:
-            found = await asyncio.to_thread(self.logins.find, login_id)
+            found = await asyncio.to_thread(self.logins.find, login_id, seen=seen)
             if found is not None and (cookie_is_enough or _tokens_match(offered, found[1])):
                 return Asker(found[0], found[1], accounts=True)
         # The link: from this computer only. The Host header alone doesn't say so (anyone
@@ -281,7 +287,14 @@ class LocalGuard:
             await receive()
             await send({"type": "websocket.close", "code": 1008})
             return
-        scope.setdefault("state", {})["user"] = user
+
+        # A socket stays open for hours: what it is let in on can end meanwhile (signed
+        # out, a new password, the account disabled, accounts turned on). The route asks
+        # again while it follows (`lectern.api.ws`); a socket left open isn't a use.
+        async def still_signed_in() -> bool:
+            return (await self._who(scope, token, seen=False)).user is not None
+
+        scope.setdefault("state", {}).update(user=user, signed_in=still_signed_in)
         await self.app(scope, receive, send)
 
 
