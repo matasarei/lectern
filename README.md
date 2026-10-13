@@ -76,14 +76,15 @@ everything. Before anyone else uses it, and before it's reachable from the inter
 accounts on. On the server, as the user Lectern runs as:
 
 ```sh
-( set -a; . ~/.lectern/lectern.env; set +a; ~/.lectern/app/venv/bin/lectern user init yevhen )
+( set -a; . ~/.lectern/lectern.env; set +a; ~/.lectern/app/venv/bin/lectern user init <name> )
 ```
 
-It asks for a password, twice, and makes you the admin `yevhen`, keeping your projects.
+`<name>` is what you'll sign in as. It asks for a password, twice, and makes you the admin,
+keeping your projects.
 Passwords are always typed when asked, never given on the command line. The settings have to
 be loaded as above: without them the command looks for Lectern's data somewhere else. In
 Docker it's `docker compose -f packaging/docker/compose.yaml exec lectern lectern user init
-yevhen`. Nothing needs restarting. From then on:
+<name>`. Nothing needs restarting. From then on:
 
 - **People sign in** with a name and a password, at the address in `LECTERN_PUBLIC_URL`.
   There's no sign-up: you add each person, on the Users page (linked beside your name on the
