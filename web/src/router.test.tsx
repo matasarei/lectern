@@ -2,7 +2,7 @@ import "./i18n";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRouter, RouterProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { forgetSession, keepInStep } from "./api/session";
@@ -10,14 +10,18 @@ import { routeTree } from "./router";
 import { installFakeSockets } from "./test/fake-socket";
 
 const OLENA = { login: "olena", role: "member" };
+const TARAS = { login: "taras", role: "admin" };
 
-/** The server: who it says the browser is, and how far setup has got. */
+/** The server: who it says the browser is, who the form signs in, and how far setup has got
+ * ("unknown": it can't say). */
 let who: { accounts: boolean; user: object | null; token: string | null } | null;
-let setup: "hardware" | "done";
+let signsIn: object;
+let setup: "hardware" | "done" | "unknown";
 let asked: string[];
 
 beforeEach(() => {
   who = { accounts: true, user: null, token: null };
+  signsIn = OLENA;
   setup = "done";
   asked = [];
   window.sessionStorage.clear();
@@ -29,13 +33,16 @@ beforeEach(() => {
       asked.push(`${init.method ?? "GET"} ${url}`);
       const refused = (detail: string) => new Response(JSON.stringify({ detail }), { status: 401 });
       if (url === "/api/login" && init.method === "POST") {
-        who = { accounts: true, user: OLENA, token: "the-logins-token" };
-        return new Response(JSON.stringify({ user: OLENA, token: who.token }));
+        who = { accounts: true, user: signsIn, token: "the-logins-token" };
+        return new Response(JSON.stringify({ user: signsIn, token: who.token }));
       }
       if (url === "/api/login") {
         return who ? new Response(JSON.stringify(who)) : refused("Missing or wrong token");
       }
       if (who?.accounts && !who.user) return refused("Not signed in");
+      if (url === "/api/first-run" && setup === "unknown") {
+        return new Response(JSON.stringify({ detail: "The database is busy." }), { status: 500 });
+      }
       if (url === "/api/first-run") return new Response(JSON.stringify({ step: setup }));
       return new Response(JSON.stringify([]));
     }),
@@ -46,6 +53,14 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+
+function signIn(name: string) {
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: name } });
+  fireEvent.change(screen.getByLabelText("Password"), {
+    target: { value: "we walked to the lake in may" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+}
 
 /** The app as the browser opens it at `path`. */
 function open(path: string) {
@@ -112,6 +127,72 @@ describe("The bare address, where people sign in", () => {
     fireEvent.click(screen.getByRole("link", { name: "Check again" }));
 
     expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
+  });
+});
+
+describe("The projects, opened by their own address before setup is done", () => {
+  beforeEach(() => {
+    setup = "hardware";
+  });
+
+  it("lead an admin who signs in there to setup, as the bare address would", async () => {
+    signsIn = TARAS;
+    const router = open("/projects");
+    await screen.findByLabelText("Name");
+    signIn("taras");
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/first-run"));
+    expect(screen.queryByRole("heading", { name: "Projects" })).toBeNull();
+  });
+
+  it("lead an admin already signed in to setup too", async () => {
+    who = { accounts: true, user: TARAS, token: "the-logins-token" };
+
+    const router = open("/projects");
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/first-run"));
+  });
+
+  it("are shown to an admin once setup is done", async () => {
+    setup = "done";
+    signsIn = TARAS;
+    const router = open("/projects");
+    await screen.findByLabelText("Name");
+    signIn("taras");
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/projects");
+  });
+
+  it("are shown to an admin when the server can't say how far setup is", async () => {
+    setup = "unknown";
+    who = { accounts: true, user: TARAS, token: "the-logins-token" };
+
+    const router = open("/projects");
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/projects");
+  });
+
+  it("are shown to a member, whose setup it isn't, without asking how far it is", async () => {
+    const router = open("/projects");
+    await screen.findByLabelText("Name");
+    signIn("olena");
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/projects");
+    expect(asked).not.toContain("GET /api/first-run");
+  });
+
+  it("are shown where nobody signs in, as before accounts", async () => {
+    who = { accounts: false, user: { login: null, role: "admin" }, token: null };
+    window.sessionStorage.setItem("lectern.token", "from-the-link");
+
+    const router = open("/projects");
+
+    expect(await screen.findByRole("heading", { name: "Projects" })).toBeTruthy();
+    expect(router.state.location.pathname).toBe("/projects");
+    expect(asked).not.toContain("GET /api/first-run");
   });
 });
 
