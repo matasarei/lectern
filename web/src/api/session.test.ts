@@ -242,6 +242,62 @@ describe("the other tabs of this browser", () => {
     stop();
   });
 
+  it("are told when this one learns from the server that its login has ended", async () => {
+    // Signed out, given a new password or disabled somewhere else: this tab finds out at a
+    // refused request or a closed socket, and asks. A tab with nothing to ask wouldn't.
+    const stop = followOtherTabs();
+    login = () => ok({ accounts: true, user: OLENA, token: "this-logins-token" });
+    await whoAmI();
+    const heard: unknown[] = [];
+    new FakeChannel("lectern.session").addEventListener("message", (event) => heard.push(event.data));
+    login = () => ok({ accounts: true, user: null, token: null });
+
+    await askAgain();
+    expect(getSession().user).toBeNull();
+    expect(heard).toEqual(["changed"]);
+
+    await askAgain(); // still nobody: nothing new to tell
+    expect(heard).toEqual(["changed"]);
+    stop();
+  });
+
+  it("pass it on, once, when they were told and find their own login has ended", async () => {
+    const stop = followOtherTabs();
+    login = () => ok({ accounts: true, user: OLENA, token: "this-logins-token" });
+    await whoAmI();
+    const other = new FakeChannel("lectern.session");
+    const heard: unknown[] = [];
+    other.addEventListener("message", (event) => heard.push(event.data));
+    login = () => ok({ accounts: true, user: null, token: null });
+
+    other.postMessage("changed"); // that tab's login ended, and so has this one's
+    await vi.waitFor(() => expect(getSession().user).toBeNull());
+    expect(heard).toEqual(["changed"]);
+
+    other.postMessage("changed"); // a third tab passing it on: nobody here already
+    await vi.waitFor(() => expect(asked).toBe(3));
+    expect(heard).toEqual(["changed"]);
+    stop();
+  });
+
+  it("aren't told what the server says when nobody's login has ended", async () => {
+    const stop = followOtherTabs();
+    const heard: unknown[] = [];
+    new FakeChannel("lectern.session").addEventListener("message", (event) => heard.push(event.data));
+    login = () => ok({ accounts: true, user: null, token: null });
+    await whoAmI(); // a tab opened with nobody signed in: nobody stopped being anybody
+
+    login = () => ok({ accounts: true, user: OLENA, token: "this-logins-token" });
+    await askAgain(); // signed in elsewhere: the tab that did it has said so
+
+    login = () => ok({ accounts: true, user: OLENA, token: "another-logins-token" });
+    await askAgain(); // the login replaced under this tab: the same
+
+    expect(getToken()).toBe("another-logins-token");
+    expect(heard).toEqual([]);
+    stop();
+  });
+
   it("aren't listened to, or told, once stopped", async () => {
     followOtherTabs()();
     const other = new FakeChannel("lectern.session");
