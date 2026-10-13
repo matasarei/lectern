@@ -27,6 +27,9 @@ export function ProjectPage() {
   const project = useQuery({
     queryKey: ["project", id],
     queryFn: () => apiFetch<Project>(`/api/projects/${id}`),
+    // Not there, or not yours: asked again it answers the same, so say so now, not after
+    // the retries (seconds of "Loading…", longer in a tab that isn't showing).
+    retry: (failures, error) => !(error instanceof ApiError && error.status === 404) && failures < 3,
   });
   const items = useQuery({
     queryKey: ["items", id],
