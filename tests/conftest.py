@@ -5,9 +5,12 @@ import socket
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
+import anyio
 import pytest
 import uvicorn
+from starlette.testclient import WebSocketTestSession
 
 from lectern.config import Paths
 from lectern.core.db import make_engine, make_sessionmaker, migrate
@@ -16,6 +19,31 @@ from lectern.modules import EnvProbe
 from lectern.projects.store import ProjectStore
 
 NO_ENGINE = SandboxRuntime(runtime=None, version=None, engine_running=False, found=())
+SOCKET_READ_SECONDS = 5.0  # far more than a read takes; a test sets `socket.read_seconds`
+
+
+def _receive_or_fail(socket: WebSocketTestSession) -> Any:
+    """`WebSocketTestSession.receive`, failing the test when nothing arrives in time."""
+    seconds = getattr(socket, "read_seconds", SOCKET_READ_SECONDS)
+
+    async def receive() -> Any:
+        with anyio.fail_after(seconds):
+            return await socket._send_rx.receive()  # what Starlette's own `receive` awaits
+
+    try:
+        return socket.portal.call(receive)
+    except TimeoutError:
+        pytest.fail(f"Nothing arrived on the socket in {seconds:g} s.", pytrace=False)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def socket_reads_are_bounded() -> Iterator[None]:
+    """A test reading a socket fails after a few seconds when nothing arrives. Starlette's
+    test socket waits for good: a test expecting a message or a close that the server never
+    sends would hang the whole run until CI's own limit, and say nothing about which."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(WebSocketTestSession, "receive", _receive_or_fail)
+        yield
 
 
 @pytest.fixture(autouse=True)

@@ -264,3 +264,17 @@ def test_a_question_about_the_login_that_fails_isnt_swallowed():
     with pytest.raises(RuntimeError, match="database is locked"):
         asyncio.run(asyncio.wait_for(ws.socket_events(socket, asyncio.Queue(), []), 5))
     assert socket.closed_with is None  # not told it was signed out: it wasn't asked and answered
+
+
+# --- a test that waits on a socket ---------------------------------------------------------------
+
+
+def test_a_read_of_a_socket_nothing_arrives_on_fails_instead_of_hanging(served):
+    """Starlette's test socket waits for good, so a test expecting a close the server never
+    sends would hang the run. Every read in the tests is bounded (`tests/conftest.py`)."""
+    client, _, _ = served
+    with client.websocket_connect("/events", subprotocols=PROTOCOLS) as socket:
+        assert socket.receive_json() == {"type": "state", "n": 0}
+        socket.read_seconds = 0  # not the few seconds a test gets: nothing more is coming
+        with pytest.raises(pytest.fail.Exception, match="Nothing arrived on the socket"):
+            socket.receive_json()
