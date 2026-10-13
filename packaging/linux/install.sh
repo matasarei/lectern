@@ -137,7 +137,7 @@ cat <<NEXT
 
 Lectern runs on this machine at http://127.0.0.1:$port (LECTERN_PORT in $settings).
 The link with its access token:  $dir/bin/lectern-url
-Before anyone else uses it, turn accounts on:  $dir/bin/lectern user init <name>
+If others will use it, turn accounts on (once):  $dir/bin/lectern user init <name>
 Update: git pull && ./install.sh   Logs: journalctl --user -u lectern
 
 To reach it from other computers, put a reverse proxy or a tunnel in front of
