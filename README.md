@@ -89,7 +89,8 @@ Docker it's `docker compose -f packaging/docker/compose.yaml exec lectern lecter
 - **People sign in** with a name and a password, at the address in `LECTERN_PUBLIC_URL`.
   There's no sign-up: you add each person, on the Users page (linked beside your name on the
   projects page) or with `lectern user add <name>`, run the same way. Each gets a workspace
-  of their own, in `data/users/<name>/projects`; yours stays in `data/users/local`.
+  of their own, in `~/.lectern/data/users/<name>/projects`; yours stays in
+  `~/.lectern/data/users/local`.
 - **A password** is 15 characters or more. A sentence is fine, and nothing else is asked of
   it. Five wrong ones in a row make that account wait a minute, then longer each time, up to
   15 minutes. A browser stays signed in for 30 days, or 7 without use.
