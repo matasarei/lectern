@@ -92,6 +92,13 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
         f"about {minutes} minute{'s' if minutes != 1 else ''} on this PC · opens in a new tab."
     )
     entry = _ocr_model(ctx)
+    cleanup = _cleanup_model(ctx)
+    for missing in (entry, cleanup):
+        if missing is None or model_download.on_disk(ctx, missing):
+            continue
+        # No card for a download this person couldn't allow: the reply says who can.
+        if (why := model_download.why_not(ctx, missing)) is not None:
+            raise ToolError(f"{missing.title} isn't downloaded yet, and {why}.")
     if entry is not None and not model_download.on_disk(ctx, entry):
         # The runtime can't size a model that isn't on disk; the card says what happens first.
         question += (
@@ -104,7 +111,6 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
             )
     elif ctx.runtime is not None and ctx.runtime.needs_room("ocr"):
         question += " The chat model is unloaded while pages are read, so replies wait until then."
-    cleanup = _cleanup_model(ctx)
     if cleanup is not None and not model_download.on_disk(ctx, cleanup):
         also = "also " if entry is not None and not model_download.on_disk(ctx, entry) else ""
         question += (

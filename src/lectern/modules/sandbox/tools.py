@@ -501,6 +501,12 @@ async def ensure_coder(ctx: ToolContext) -> None:
         raise ToolError("No coding model is set for this computer. Say the result is not computed.")
     if model_download.on_disk(ctx, entry):
         return
+    # No card for a download this person couldn't allow.
+    if (why := model_download.why_not(ctx, entry)) is not None:
+        raise ToolError(
+            f"The coding model isn't downloaded yet, and {why}. Show the formula and say the "
+            "result is not computed."
+        )
     question = (
         f"Download {entry.title} ({entry.size / 1e9:.1f} GB, {entry.licence}) to write scripts?"
     )
