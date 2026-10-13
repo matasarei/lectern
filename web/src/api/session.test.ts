@@ -275,7 +275,9 @@ describe("the other tabs of this browser", () => {
     expect(heard).toEqual(["changed"]);
 
     other.postMessage("changed"); // a third tab passing it on: nobody here already
-    await vi.waitFor(() => expect(asked).toBe(3));
+    expect(asked).toBe(3);
+    await askAgain(); // the question in flight, answered and taken
+    expect(asked).toBe(3);
     expect(heard).toEqual(["changed"]);
     stop();
   });
