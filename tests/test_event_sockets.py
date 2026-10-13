@@ -222,8 +222,10 @@ def test_an_error_while_sending_isnt_swallowed():
     log, as it does on an HTTP stream. Dropped silently, the page reopens the socket every
     second into the same event, and nothing anywhere says why."""
     socket = _Socket()
+    events = [{"broken": object()}]
+    # Bounded, here and below: the browser stays, so a loop that missed its end would wait.
     with pytest.raises(TypeError, match="not JSON serializable"):
-        asyncio.run(ws.socket_events(socket, asyncio.Queue(), [{"broken": object()}]))
+        asyncio.run(asyncio.wait_for(ws.socket_events(socket, asyncio.Queue(), events), 5))
 
 
 def test_a_send_that_finds_the_browser_gone_ends_the_stream_quietly():
@@ -231,7 +233,7 @@ def test_a_send_that_finds_the_browser_gone_ends_the_stream_quietly():
         raise WebSocketDisconnect(code=1006)
 
     socket = _Socket(send=gone)
-    asyncio.run(ws.socket_events(socket, asyncio.Queue(), [{"n": 1}]))
+    asyncio.run(asyncio.wait_for(ws.socket_events(socket, asyncio.Queue(), [{"n": 1}]), 5))
     assert socket.closed_with is None  # nobody to tell
 
 
