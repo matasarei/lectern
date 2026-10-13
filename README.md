@@ -69,6 +69,47 @@ that's isolated: they run in Podman or Docker, with only their project folder mo
 Without either, that feature switches itself off; on Fedora, rootless Podman works for your
 user as it is (`sudo dnf install podman`).
 
+### Accounts: a login for each person
+
+As installed, Lectern has one user and no login: whoever has the access link can do
+everything. Before anyone else uses it, and before it's reachable from the internet, turn
+accounts on. On the server, as the user Lectern runs as:
+
+```sh
+( set -a; . ~/.lectern/lectern.env; set +a; ~/.lectern/app/venv/bin/lectern user init <name> )
+```
+
+`<name>` is what you'll sign in as. It asks for a password, twice, and makes you the admin,
+keeping your projects.
+Passwords are always typed when asked, never given on the command line. The settings have to
+be loaded as above: without them the command looks for Lectern's data somewhere else. In
+Docker it's `docker compose -f packaging/docker/compose.yaml exec lectern lectern user init
+<name>`. Nothing needs restarting. From then on:
+
+- **People sign in** with a name and a password, at the address in `LECTERN_PUBLIC_URL`.
+  There's no sign-up: you add each person, on the Users page (linked beside your name on the
+  projects page) or with `lectern user add <name>`, run the same way. Each gets a workspace
+  of their own, in `~/.lectern/data/users/<name>/projects`; yours stays in
+  `~/.lectern/data/users/local`.
+- **A password** is 15 characters or more. A sentence is fine, and nothing else is asked of
+  it. Five wrong ones in a row make that account wait a minute, then longer each time, up to
+  15 minutes. A browser stays signed in for 30 days, or 7 without use.
+- **The access link works on the server itself only** (`127.0.0.1` or `localhost`, from that
+  computer) and opens Lectern as the admin.
+- **A forgotten password** is set again on the server: `lectern user password <name>`, run
+  the same way, asks for a new one and signs that person out everywhere. That works for
+  your own too.
+- **Only an admin** downloads, removes or chooses models, changes how they're loaded, runs
+  the first-run setup, and manages accounts. Everyone else sees which models there are, and
+  uses them.
+- **Nobody sees another person's projects through Lectern, the admin included.** But
+  projects are ordinary folders on the server, and whoever runs the server can read them
+  there. Tell the people you add.
+
+`lectern user list` shows who has an account; `lectern user disable <name>` stops someone
+signing in and signs them out, keeping their projects, and `enable` undoes it. On a Mac it's
+all the same, with the same paths.
+
 ### Reaching it from other computers
 
 Lectern listens on `127.0.0.1` unless you say otherwise. To use it from elsewhere, put
@@ -88,16 +129,21 @@ updates). How you set that up is yours; three ways that work:
 
 - **A Cloudflare Tunnel, with Cloudflare Access** (from anywhere, nothing opened on the
   server). In the tunnel, point a public hostname at `http://127.0.0.1:8765` and leave
-  `httpHostHeader` unset. **Lectern has no login yet**: the access link is the only lock, so
-  put a Cloudflare Access application in front of that hostname (Zero Trust → Access →
-  Applications, a policy allowing only your email, with a one-time code). On the free plan
-  Cloudflare refuses uploads over 100 MB, and cuts a request after about 100 seconds without
-  a response.
+  `httpHostHeader` unset. **Turn accounts on first** (above), and write the hostname with
+  `https://` in `LECTERN_PUBLIC_URL`: that is what makes Lectern mark its login cookie
+  `Secure` and tie it to that host. Then put a Cloudflare Access application in front of the
+  hostname all the same (Zero Trust → Access → Applications, a policy allowing only the
+  emails of the people you added, with a one-time code): nobody reaches Lectern's sign-in
+  page without passing Cloudflare's first. The price is signing in twice the first time. On
+  the free plan Cloudflare refuses uploads over 100 MB, and cuts a request after about 100
+  seconds without a response.
 - **nginx on the same machine** (your local network). `packaging/linux/nginx-lectern.conf`
   is an example: copy it to `/etc/nginx/conf.d/lectern.conf`, set its `server_name`, then
   `sudo nginx -t && sudo systemctl reload nginx`. On Fedora/RHEL (SELinux), let nginx reach
   Lectern's port, and only that one: `sudo semanage port -a -t http_port_t -p tcp 8765`.
-  Without a login, keep this to your local network.
+  As written it's plain http: with accounts on, people sign in, but a password typed over it
+  can be read by someone watching the network. Keep it to a network you trust, or give it a
+  certificate and put the `https://` address in `LECTERN_PUBLIC_URL`.
 - **Directly on your network, no proxy.** Let Lectern listen on every address, and use the
   machine's own address as the public one:
   ```sh
@@ -109,11 +155,12 @@ updates). How you set that up is yours; three ways that work:
   `0.0.0.0`, nothing else, and `0.0.0.0` needs `LECTERN_PUBLIC_URL`. If the firewall blocks
   the port (Fedora Workstation allows 1025–65535; Server doesn't):
   `sudo firewall-cmd --add-port=8765/tcp --permanent && sudo firewall-cmd --reload`.
-  **The risks:** there's no login yet, so anyone on the network who has the link can use
-  Lectern. It's plain http, so on Wi-Fi or any network you don't control, the token can be
-  read off the network by someone watching it. Use it only on a network you trust, never
-  forward the port on your router, and use the tunnel with Access for anything wider. The
-  model servers Lectern runs stay on `127.0.0.1` either way.
+  **The risks:** until you turn accounts on (above), anyone on the network who has the link
+  can use Lectern. With them on, the link stops working from other computers and people sign
+  in. Either way it's plain http, so on Wi-Fi or any network you don't control, a password
+  or the token can be read off the network by someone watching it. Use it only on a network
+  you trust, never forward the port on your router, and use the tunnel with Access for
+  anything wider. The model servers Lectern runs stay on `127.0.0.1` either way.
 
 ### Or in Docker
 

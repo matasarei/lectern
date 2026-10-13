@@ -133,8 +133,9 @@ LECTERN_PORT=8765
 # e.g. https://lectern.example.com (comma-separate several).
 LECTERN_PUBLIC_URL=
 # To reach Lectern on your network without a proxy, uncomment this and set LECTERN_PUBLIC_URL
-# to the address people type, e.g. http://192.168.1.2:8765. There's no login yet and it's
-# plain http: see README "Reaching it from other computers".
+# to the address people type, e.g. http://192.168.1.2:8765. Turn accounts on first (README
+# "Accounts: a login for each person"), and it's plain http: see README "Reaching it from
+# other computers".
 # LECTERN_HOST=0.0.0.0
 ENV
 }
