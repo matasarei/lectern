@@ -1,8 +1,8 @@
 // Lectern.app's icon, drawn in code: an open book with an illuminated "L" on its first page.
 // build_app.sh runs the built app with --draw-icon to write the .iconset that iconutil turns
-// into Lectern.icns. No artwork is kept in the repository, and the letter is set in a font
-// this Mac already has. (The menu bar uses a system symbol, which Apple doesn't allow in an
-// app's icon; hence a book of our own.)
+// into Lectern.icns. The app's icon isn't kept as artwork, and the letter is set in a font
+// this Mac already has; docs/lectern-icon.png, the README's, is one it drew. (The menu bar
+// uses a system symbol, which Apple doesn't allow in an app's icon; hence a book of our own.)
 import AppKit
 
 enum Icon {

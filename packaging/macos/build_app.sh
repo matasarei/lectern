@@ -44,7 +44,8 @@ mkdir -p "$bundle/Contents/MacOS"
     -o "$bundle/Contents/MacOS/Lectern" "$here/tray/Lectern.swift" "$here/tray/Icon.swift" \
     || { rm -rf "$bundle"; die "compiling the app failed (see above)."; }
 # The icon is drawn by the app itself (tray/Icon.swift), here, with this Mac's own fonts: no
-# artwork is kept in the repository. Without it the app works and shows the system's icon.
+# artwork is kept for it (docs/lectern-icon.png, the README's, is one drawn this way).
+# Without it the app works and shows the system's icon.
 scratch="$(mktemp -d)"
 iconset="$scratch/Lectern.iconset"
 mkdir -p "$bundle/Contents/Resources"

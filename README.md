@@ -1,12 +1,80 @@
-# Lectern
+<p align="center">
+  <img src="docs/lectern-icon.png" width="128" height="128" alt="Lectern's icon: an open book with a red initial L">
+</p>
 
-A local, modular AI workbench. Projects are folders of chat and OCR sessions and the files they produce. Every model runs on your own machine through llama.cpp (CUDA, Vulkan, Metal, CPU), or MLX on Apple Silicon.
+<h1 align="center">Lectern</h1>
 
-- **Minimum hardware:** 4 GB VRAM + 16 GB RAM
-- **Recommended:** 8 GB VRAM + 16 GB RAM
-- **Platforms:** Windows, Linux, macOS
+<p align="center">
+  <a href="https://github.com/matasarei/lectern/actions/workflows/ci.yml"><img src="https://github.com/matasarei/lectern/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Licence: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS-555" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/status-pre--MVP-orange" alt="Status: pre-MVP">
+</p>
 
-Status: pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html). Open it in a browser.
+<p align="center"><b>An AI workbench that runs on your own computer.</b></p>
+
+Lectern is a local, modular AI workbench. You work in **projects**: folders of chats, OCR
+sessions and the files they produce. Every model runs on your own machine, through llama.cpp
+(CUDA, Vulkan, Metal, CPU) or MLX on Apple Silicon, so what you type and import stays on it;
+the internet is for downloading the models and llama.cpp.
+
+- **A chat that works on your files.** It finds, searches and reads a project's files, writes
+  new ones, and asks before deleting anything.
+- **Exact answers by running code.** For a calculation it writes a Python script and runs it
+  in a sandbox (Podman or Docker, no network) instead of guessing.
+- **Scanned pages to text.** An OCR session reads a PDF or a page image page by page, printed
+  or handwritten, asks you about the words it isn't sure of, and builds a Document you can
+  export as Markdown, DOCX or ODT.
+- **Models chosen for your hardware,** one for each job, each downloaded at a fixed version and
+  checked against its checksum.
+- **Accounts for a household.** Each person signs in to a workspace of their own, at home or,
+  through a tunnel, from anywhere.
+
+**Hardware:** 4 GB VRAM + 16 GB RAM at least; 8 GB VRAM + 16 GB RAM recommended.
+**Installers:** Linux (x86_64, systemd) and macOS (Apple Silicon, 13 or newer). Windows isn't
+packaged yet.
+**Status:** pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html); open it in
+a browser.
+
+## Quick start
+
+You need Node.js, and on a Mac the Command Line Tools (`xcode-select --install`). Then, as
+yourself (no sudo):
+
+```sh
+git clone https://github.com/matasarei/lectern.git ~/.lectern/src
+cd ~/.lectern/src && make install      # or ./install.sh
+```
+
+- **On a Mac** an open-book icon appears in the menu bar: choose **Open Lectern**.
+- **On Linux** it runs as your own service; `~/.lectern/bin/lectern-url` prints the link to
+  open on that machine.
+
+The first run checks the hardware, recommends a chat model and downloads it. Everything lives
+in `~/.lectern`. Update with `git pull && make install`; remove it with `make uninstall`
+(keeps your models, projects and settings) or `make purge` (asks, then removes those too).
+The details for each system are below: [Linux](#install-on-a-linux-server),
+[Mac](#install-on-a-mac).
+
+## Using it
+
+1. **Make a project** on the projects page. It's a folder: everything in it stays there.
+2. **Chat.** **New chat**, then ask, or attach files to the message. **Import files…** in the
+   project's Overview adds files for every chat, and the search box looks through their text.
+3. **Read scanned pages.** Import a PDF or an image, open it, and choose **Open as OCR
+   session**. Lectern reads it page by page and asks about what it isn't sure of; answer in
+   the OCR tab, then export the Document.
+4. **Choose models** in **Models & memory**: which model does each job, what's downloaded, and
+   how much of the GPU's memory they're using. See [Models](#models).
+5. **Let others in.** Turn accounts on with `~/.lectern/bin/lectern user init <your name>`,
+   add people on the Users page, and give them a way in: see
+   [Accounts](#accounts-a-login-for-each-person) and
+   [Reaching it from other computers](#reaching-it-from-other-computers).
+
+**Working on Lectern itself:** `make` installs the Python and web dependencies and builds the
+web UI; `uv run lectern serve` then runs it from the checkout on `http://127.0.0.1:8765`. How
+the code is laid out and checked is in [`CLAUDE.md`](CLAUDE.md).
 
 ## Install on a Linux server
 
