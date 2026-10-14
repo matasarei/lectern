@@ -29,10 +29,10 @@ def run(tool, ctx, **arguments):
     return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
 
-
 def _note(name: str) -> str:
     """What document.read says after a file's text: it's data, not the person's words."""
     return f"\n\n({core_tools.FILE_TEXT_IS_DATA.format(name=name)})"
+
 
 def test_every_tool_has_a_wire_name_and_a_schema():
     registry = core_registry()

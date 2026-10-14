@@ -147,10 +147,15 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
         # What runs when an OCR session finishes (task.after, ocr.start's then_export).
         "followups": [
             # tool "": a notice (a plain message when the session ends), not a step to show
-            {"id": f.id, "label": f.label, "ocr_session_id": f.ocr_session_id,
-             "tool": f.tool, "what": f.what}
+            {
+                "id": f.id,
+                "label": f.label,
+                "ocr_session_id": f.ocr_session_id,
+                "tool": f.tool,
+                "what": f.what,
+            }
             for f in chat_state.followups
-        ],  # fmt: skip
+        ],
         # Where the summary ends: messages up to this id reach the model only as the summary.
         "summary": {
             "upto": chat_state.summary_upto,
