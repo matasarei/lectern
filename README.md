@@ -282,6 +282,11 @@ memory** page.
 
 The models are in `~/.lectern/data/models`, one folder each.
 
+## Security
+
+How Lectern is protected, what it doesn't protect against, and how to report a vulnerability
+privately: [`SECURITY.md`](SECURITY.md).
+
 ## Licence
 
 Apache-2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Models are downloaded separately and keep their own licences; the app shows each model's licence before downloading it.
