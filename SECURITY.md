@@ -47,9 +47,9 @@ What a report is measured against. The details are in the README's install secti
   proxy on the same machine, connect to Lectern from `127.0.0.1`; with the header rewritten
   too, every request through them looks like this computer, and the access link would work
   from outside. Leave cloudflared's `httpHostHeader` unset and pass `Host` through unchanged.
-- **Logs.** `lectern serve` prints the access link when it starts, so the service's log holds
-  it (on Linux, `journalctl --user -u lectern`). Don't paste logs or `lectern url` output
-  anywhere public.
+- **Logs.** `lectern serve` prints the access link when it starts. On Linux the service's log
+  holds it (`journalctl --user -u lectern`), and in Docker `docker compose logs` does; the Mac
+  app leaves it out of its log. Don't paste those logs or `lectern url` output anywhere public.
 - **People you've given an account.** A member can't change the install (models, the GPU,
   other people's accounts), but nothing limits how much disk their projects use. There is no
   second factor yet: put Cloudflare Access, or something like it, in front for that.
