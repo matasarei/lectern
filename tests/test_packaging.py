@@ -518,6 +518,43 @@ def test_a_purge_left_in_the_environment_doesnt_wipe():
     assert "--purge" not in shown.stdout
 
 
+@pytest.mark.parametrize(
+    ("args", "answer", "runs"),
+    [
+        (["purge"], "y\n", "--purge"),
+        (["purge"], "yes\n", "--purge"),
+        (["purge"], "n\n", None),
+        (["purge"], "\n", None),  # Enter alone keeps everything
+        (["purge"], "", None),  # nobody at the keyboard: no answer, no wipe
+        (["uninstall", "PURGE=1"], "y\n", "--purge"),
+        (["uninstall", "PURGE=1"], "n\n", None),
+        (["uninstall"], "", ""),  # keeps the data, so it doesn't ask
+    ],
+)
+def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
+    """A wipe deletes every model and project, and nothing brings them back. Run for real, on
+    a copy of the Makefile beside an uninstall.sh that only writes down what it was given."""
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shutil.copy(ROOT / "Makefile", tmp_path)
+    ran = tmp_path / "ran"
+    (tmp_path / "uninstall.sh").write_text(f'#!/bin/sh\nprintf %s "$*" > {ran}\n')
+    (tmp_path / "uninstall.sh").chmod(0o755)
+    done = subprocess.run(  # noqa: S603
+        ["make", *args, f"LECTERN_DIR={tmp_path / 'home'}"],  # noqa: S607
+        capture_output=True, text=True, timeout=30, cwd=tmp_path, input=answer,
+    )  # fmt: skip
+    if runs is None:
+        assert done.returncode != 0
+        assert not ran.exists()
+        assert "Nothing removed" in done.stdout + done.stderr
+    else:
+        assert done.returncode == 0, done.stderr
+        assert ran.read_text() == runs
+    if "--purge" in (runs, None):
+        assert str(tmp_path / "home") in done.stdout  # it says which folder goes
+
+
 def test_make_from_another_folder_says_where_to_run_it(tmp_path):
     """Its commands are relative to the repository: run from elsewhere with -f, they would
     fail one by one ("./install.sh: No such file or directory"), or build in the wrong place."""
