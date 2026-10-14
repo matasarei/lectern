@@ -22,9 +22,9 @@ What a report is measured against. The details are in the README's install secti
 - **It listens on `127.0.0.1` only**, unless `LECTERN_HOST=0.0.0.0` says otherwise, and that
   needs `LECTERN_PUBLIC_URL`. The model servers it starts stay on `127.0.0.1` either way.
 - **Every request is checked.** The `Host` header must be `127.0.0.1` or `localhost` with
-  Lectern's port, or exactly an address in `LECTERN_PUBLIC_URL` (this stops DNS rebinding); requests that change
-  something, and every WebSocket, must come from Lectern's own origin; every `/api` request
-  carries a token; every page has a strict Content-Security-Policy.
+  Lectern's port, or exactly an address in `LECTERN_PUBLIC_URL` (this stops DNS rebinding);
+  requests that change something, and every WebSocket, must come from Lectern's own origin;
+  every `/api` request carries a token; every page has a strict Content-Security-Policy.
 - **Until `lectern user init` has run, the access link is the only lock.** It carries a random
   per-install token, and whoever has the link can do everything. Turn accounts on before anyone
   else uses Lectern, and before it can be reached from the internet.
