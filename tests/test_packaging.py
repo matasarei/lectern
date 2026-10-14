@@ -516,6 +516,20 @@ def test_a_purge_left_in_the_environment_doesnt_wipe():
     assert shown.stdout.splitlines() == ["./uninstall.sh"]
 
 
+def test_make_from_another_folder_says_where_to_run_it(tmp_path):
+    """Its commands are relative to the repository: run from elsewhere with -f, they would
+    fail one by one ("./install.sh: No such file or directory"), or build in the wrong place."""
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["make", "-n", "-f", str(ROOT / "Makefile"), "install"],  # noqa: S607
+        capture_output=True, text=True, timeout=30, cwd=tmp_path,
+    )  # fmt: skip
+    assert shown.returncode != 0
+    assert f"make -C {ROOT}" in shown.stderr
+    assert "install.sh" not in shown.stdout
+
+
 def test_make_alone_builds_for_development_and_installs_nothing():
     if shutil.which("make") is None:
         pytest.skip("make isn't installed")

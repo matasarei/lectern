@@ -9,6 +9,13 @@
 # Make reads `make uninstall --purge` as an option of its own and refuses it: PURGE=1 it is.
 # LECTERN_DIR and the installers' other settings pass through, as with the scripts.
 
+# The commands below are relative to this folder: run from another with -f, they would fail
+# one by one or build in the wrong place.
+here := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
+ifneq ($(here),$(realpath $(CURDIR)))
+$(error run it in $(here), or from anywhere as make -C $(here))
+endif
+
 .PHONY: all install uninstall purge
 
 all: web/node_modules/.package-lock.json
