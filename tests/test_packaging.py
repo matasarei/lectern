@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import os
 import re
 import shutil
 import subprocess
@@ -500,6 +501,19 @@ def test_make_runs_the_script_at_the_root(args, runs):
     )  # fmt: skip
     assert shown.returncode == 0, shown.stderr
     assert runs in shown.stdout.splitlines()
+
+
+def test_a_purge_left_in_the_environment_doesnt_wipe():
+    """Make takes the environment's variables as its own: a PURGE=1 exported for something
+    else, or left from a test, mustn't turn a plain uninstall into a wipe of the models."""
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["make", "-n", "-C", str(ROOT), "uninstall"],  # noqa: S607
+        capture_output=True, text=True, timeout=30, env={**os.environ, "PURGE": "1"},
+    )  # fmt: skip
+    assert shown.returncode == 0, shown.stderr
+    assert shown.stdout.splitlines() == ["./uninstall.sh"]
 
 
 def test_make_alone_builds_for_development_and_installs_nothing():

@@ -22,9 +22,12 @@ web/node_modules/.package-lock.json: web/package-lock.json
 install:
 	./install.sh
 
-# Only 1 (or yes, true) wipes: PURGE=0 must not.
+# Only 1 (or yes, true) wipes, and only typed on the command line: make also takes the
+# environment's variables, and a PURGE=1 left exported there must not.
+wipe := $(and $(filter command line,$(origin PURGE)),$(filter 1 yes true,$(PURGE)))
+
 uninstall:
-	./uninstall.sh$(if $(filter 1 yes true,$(PURGE)), --purge)
+	./uninstall.sh$(if $(wipe), --purge)
 
 purge:
 	./uninstall.sh --purge
