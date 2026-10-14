@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import os
 import re
 import shutil
 import subprocess
@@ -476,3 +477,67 @@ def test_an_update_with_the_same_version_replaces_the_code_and_keeps_the_data(tm
     assert (data / "lectern.sqlite").read_text() == "the app's database"
     assert (data / "users/local/projects/Lease").is_dir() and (data / "token").read_text() == "t"
     assert "Upgraded to Lectern 0.1.0" in done.stdout
+
+
+# --- the Makefile: shorthands for the scripts above ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("args", "runs"),
+    [
+        (["install"], "./install.sh"),
+        (["uninstall"], "./uninstall.sh"),
+        (["uninstall", "PURGE=1"], "./uninstall.sh --purge"),
+        (["uninstall", "PURGE=0"], "./uninstall.sh"),  # anything but yes keeps the data
+        (["purge"], "./uninstall.sh --purge"),
+    ],
+)
+def test_make_runs_the_script_at_the_root(args, runs):
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["make", "-n", "-C", str(ROOT), *args],  # noqa: S607
+        capture_output=True, text=True, timeout=30,
+    )  # fmt: skip
+    assert shown.returncode == 0, shown.stderr
+    assert runs in shown.stdout.splitlines()
+
+
+def test_a_purge_left_in_the_environment_doesnt_wipe():
+    """Make takes the environment's variables as its own: a PURGE=1 exported for something
+    else, or left from a test, mustn't turn a plain uninstall into a wipe of the models."""
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["make", "-n", "-C", str(ROOT), "uninstall"],  # noqa: S607
+        capture_output=True, text=True, timeout=30, env={**os.environ, "PURGE": "1"},
+    )  # fmt: skip
+    assert shown.returncode == 0, shown.stderr
+    # Not the whole output: GNU Make 4 adds "Entering directory" lines with -C, 3.81 doesn't.
+    assert "./uninstall.sh" in shown.stdout.splitlines()
+    assert "--purge" not in shown.stdout
+
+
+def test_make_from_another_folder_says_where_to_run_it(tmp_path):
+    """Its commands are relative to the repository: run from elsewhere with -f, they would
+    fail one by one ("./install.sh: No such file or directory"), or build in the wrong place."""
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["make", "-n", "-f", str(ROOT / "Makefile"), "install"],  # noqa: S607
+        capture_output=True, text=True, timeout=30, cwd=tmp_path,
+    )  # fmt: skip
+    assert shown.returncode != 0
+    assert f"make -C {ROOT}" in shown.stderr
+    assert "install.sh" not in shown.stdout
+
+
+def test_make_alone_builds_for_development_and_installs_nothing():
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["make", "-n", "-C", str(ROOT)], capture_output=True, text=True, timeout=30  # noqa: S607
+    )  # fmt: skip
+    assert shown.returncode == 0, shown.stderr
+    assert "uv sync" in shown.stdout and "npm --prefix web run build" in shown.stdout
+    assert "install.sh" not in shown.stdout
