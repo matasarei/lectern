@@ -31,11 +31,11 @@ the internet is for downloading the models and llama.cpp.
 - **Accounts for a household.** Each person signs in to a workspace of their own, at home or,
   through a tunnel, from anywhere.
 
-**Hardware:** 4 GB VRAM + 16 GB RAM at least; 8 GB VRAM + 16 GB RAM recommended.
-**Installers:** Linux (x86_64, systemd) and macOS (Apple Silicon, 13 or newer). Windows isn't
-packaged yet.
-**Status:** pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html); open it in
-a browser.
+- **Hardware:** 4 GB VRAM + 16 GB RAM at least; 8 GB VRAM + 16 GB RAM recommended.
+- **Installers:** Linux (x86_64, systemd) and macOS (Apple Silicon, 13 or newer). Windows isn't
+  packaged yet.
+- **Status:** pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html); open it
+  in a browser.
 
 ## Quick start
 
