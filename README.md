@@ -52,8 +52,9 @@ cd ~/.lectern/src && make install      # or ./install.sh
   open on that machine.
 
 The first run checks the hardware, recommends a chat model and downloads it. Everything lives
-in `~/.lectern`. Update with `git pull && make install`; remove it with `make uninstall`
-(keeps your models, projects and settings) or `make purge` (asks, then removes those too).
+in `~/.lectern`. Update with `cd ~/.lectern/src && git pull && make install`; remove it with
+`make uninstall` (keeps your models, projects and settings) or `make purge` (asks, then
+removes those too), in the same folder.
 The details for each system are below: [Linux](#install-on-a-linux-server),
 [Mac](#install-on-a-mac).
 
