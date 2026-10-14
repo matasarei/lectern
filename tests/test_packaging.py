@@ -513,7 +513,9 @@ def test_a_purge_left_in_the_environment_doesnt_wipe():
         capture_output=True, text=True, timeout=30, env={**os.environ, "PURGE": "1"},
     )  # fmt: skip
     assert shown.returncode == 0, shown.stderr
-    assert shown.stdout.splitlines() == ["./uninstall.sh"]
+    # Not the whole output: GNU Make 4 adds "Entering directory" lines with -C, 3.81 doesn't.
+    assert "./uninstall.sh" in shown.stdout.splitlines()
+    assert "--purge" not in shown.stdout
 
 
 def test_make_from_another_folder_says_where_to_run_it(tmp_path):
