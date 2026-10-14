@@ -22,7 +22,7 @@ the internet is for downloading the models and llama.cpp.
 - **A chat that works on your files.** It finds, searches and reads a project's files, writes
   new ones, and asks before deleting anything.
 - **Exact answers by running code.** For a calculation it writes a Python script and runs it
-  in a sandbox (Podman or Docker, no network) instead of guessing.
+  in a sandbox, with no network, instead of guessing (when Podman or Docker is installed).
 - **Scanned pages to text.** An OCR session reads a PDF or a page image page by page, printed
   or handwritten, asks you about the words it isn't sure of, and builds a Document you can
   export as Markdown, DOCX or ODT.
