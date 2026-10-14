@@ -500,7 +500,8 @@ def test_make_runs_the_script_at_the_root(args, runs):
         capture_output=True, text=True, timeout=30,
     )  # fmt: skip
     assert shown.returncode == 0, shown.stderr
-    assert runs in shown.stdout.splitlines()
+    # Stripped: the wipe is the last line of a longer command, indented under the question.
+    assert runs in [line.strip() for line in shown.stdout.splitlines()]
 
 
 def test_a_purge_left_in_the_environment_doesnt_wipe():
@@ -529,6 +530,9 @@ def test_a_purge_left_in_the_environment_doesnt_wipe():
         (["uninstall", "PURGE=1"], "y\n", "--purge"),
         (["uninstall", "PURGE=1"], "n\n", None),
         (["uninstall"], "", ""),  # keeps the data, so it doesn't ask
+        # -i (ignore errors) goes on past a failed command: a No must still stop the wipe
+        (["-i", "purge"], "n\n", None),
+        (["-i", "uninstall", "PURGE=1"], "n\n", None),
     ],
 )
 def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
@@ -545,7 +549,7 @@ def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
         capture_output=True, text=True, timeout=30, cwd=tmp_path, input=answer,
     )  # fmt: skip
     if runs is None:
-        assert done.returncode != 0
+        assert done.returncode != 0 or "-i" in args  # -i also ignores the No's exit status
         assert not ran.exists()
         assert "Nothing removed" in done.stdout + done.stderr
     else:
