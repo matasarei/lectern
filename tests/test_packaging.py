@@ -500,7 +500,8 @@ def test_make_runs_the_script_at_the_root(args, runs):
         capture_output=True, text=True, timeout=30,
     )  # fmt: skip
     assert shown.returncode == 0, shown.stderr
-    assert runs in shown.stdout.splitlines()
+    # Stripped: the wipe is the last line of a longer command, indented under the question.
+    assert runs in [line.strip() for line in shown.stdout.splitlines()]
 
 
 def test_a_purge_left_in_the_environment_doesnt_wipe():
@@ -516,6 +517,47 @@ def test_a_purge_left_in_the_environment_doesnt_wipe():
     # Not the whole output: GNU Make 4 adds "Entering directory" lines with -C, 3.81 doesn't.
     assert "./uninstall.sh" in shown.stdout.splitlines()
     assert "--purge" not in shown.stdout
+
+
+@pytest.mark.parametrize(
+    ("args", "answer", "runs"),
+    [
+        (["purge"], "y\n", "--purge"),
+        (["purge"], "yes\n", "--purge"),
+        (["purge"], "n\n", None),
+        (["purge"], "\n", None),  # Enter alone keeps everything
+        (["purge"], "", None),  # nobody at the keyboard: no answer, no wipe
+        (["uninstall", "PURGE=1"], "y\n", "--purge"),
+        (["uninstall", "PURGE=1"], "n\n", None),
+        (["uninstall"], "", ""),  # keeps the data, so it doesn't ask
+        # -i (ignore errors) goes on past a failed command: a No must still stop the wipe
+        (["-i", "purge"], "n\n", None),
+        (["-i", "uninstall", "PURGE=1"], "n\n", None),
+    ],
+)
+def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
+    """A wipe deletes every model and project, and nothing brings them back. Run for real, on
+    a copy of the Makefile beside an uninstall.sh that only writes down what it was given."""
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+    shutil.copy(ROOT / "Makefile", tmp_path)
+    ran = tmp_path / "ran"
+    (tmp_path / "uninstall.sh").write_text(f'#!/bin/sh\nprintf %s "$*" > {ran}\n')
+    (tmp_path / "uninstall.sh").chmod(0o755)
+    home = tmp_path / "Lectern's home"  # a quote and a space mustn't break the question
+    done = subprocess.run(  # noqa: S603
+        ["make", *args, f"LECTERN_DIR={home}"],  # noqa: S607
+        capture_output=True, text=True, timeout=30, cwd=tmp_path, input=answer,
+    )  # fmt: skip
+    if runs is None:
+        assert done.returncode != 0 or "-i" in args  # -i also ignores the No's exit status
+        assert not ran.exists()
+        assert "Nothing removed" in done.stdout + done.stderr
+    else:
+        assert done.returncode == 0, done.stderr
+        assert ran.read_text() == runs
+    if "--purge" in (runs, None):
+        assert str(home) in done.stdout  # it says which folder goes
 
 
 def test_make_from_another_folder_says_where_to_run_it(tmp_path):
