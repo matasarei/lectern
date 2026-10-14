@@ -150,7 +150,7 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             {"id": f.id, "label": f.label, "ocr_session_id": f.ocr_session_id,
              "tool": f.tool, "what": f.what}
             for f in chat_state.followups
-        ],  # fmt: skip
+        ],
         # Where the summary ends: messages up to this id reach the model only as the summary.
         "summary": {
             "upto": chat_state.summary_upto,
@@ -163,7 +163,7 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             for p in pending
             if state == "waiting"
         ],
-    }
+    }  # fmt: skip
 
 
 @router.patch("/projects/{project_id}/sessions/{session_id}")

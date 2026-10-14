@@ -73,9 +73,7 @@ async def export(
         doc = await run_in_threadpool(load_for_export, project.root, row.path)
     except (ValueError, files.BadName) as exc:
         raise HTTPException(400, str(exc)) from None
-    opts = resolved_options(
-        ExportOptions(open_doubts=body.open_doubts, notes=body.notes), exporter
-    )
+    opts = resolved_options(ExportOptions(open_doubts=body.open_doubts, notes=body.notes), exporter)
     missing = lost(doc, opts, exporter)
     if missing and not body.accept_loss:
         return JSONResponse(
