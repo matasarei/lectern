@@ -544,8 +544,9 @@ def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
     ran = tmp_path / "ran"
     (tmp_path / "uninstall.sh").write_text(f'#!/bin/sh\nprintf %s "$*" > {ran}\n')
     (tmp_path / "uninstall.sh").chmod(0o755)
+    home = tmp_path / "Lectern's home"  # a quote and a space mustn't break the question
     done = subprocess.run(  # noqa: S603
-        ["make", *args, f"LECTERN_DIR={tmp_path / 'home'}"],  # noqa: S607
+        ["make", *args, f"LECTERN_DIR={home}"],  # noqa: S607
         capture_output=True, text=True, timeout=30, cwd=tmp_path, input=answer,
     )  # fmt: skip
     if runs is None:
@@ -556,7 +557,7 @@ def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
         assert done.returncode == 0, done.stderr
         assert ran.read_text() == runs
     if "--purge" in (runs, None):
-        assert str(tmp_path / "home") in done.stdout  # it says which folder goes
+        assert str(home) in done.stdout  # it says which folder goes
 
 
 def test_make_from_another_folder_says_where_to_run_it(tmp_path):

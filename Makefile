@@ -46,7 +46,7 @@ endif
 # separate wipe after a No.
 purge:
 	@printf 'This deletes the models, projects and settings in %s.\nGo on? [y/N] ' \
-		'$(or $(LECTERN_DIR),$(HOME)/.lectern)'; \
+		"$${LECTERN_DIR:-$$HOME/.lectern}"; \
 	read -r answer; \
 	case "$$answer" in y|Y|yes|YES) ;; *) echo 'Nothing removed.'; exit 1 ;; esac; \
 	./uninstall.sh --purge
