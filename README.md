@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/matasarei/lectern/actions/workflows/ci.yml"><img src="https://github.com/matasarei/lectern/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Licence: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/runs%20on-llama.cpp%20%7C%20MLX-2C6A58" alt="Runs on: llama.cpp, MLX">
   <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS-555" alt="Platforms: Linux, macOS">
   <img src="https://img.shields.io/badge/status-pre--MVP-orange" alt="Status: pre-MVP">
 </p>
