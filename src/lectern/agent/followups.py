@@ -9,6 +9,7 @@ takes it out first, so it never runs twice.
 
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from dataclasses import asdict, dataclass, field, replace
@@ -16,6 +17,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.concurrency import run_in_threadpool
 
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult
 from lectern.projects.tables import ChatStateRow, OcrSessionRow, SessionRow, now
@@ -225,15 +227,20 @@ def _arguments(params: AfterParams, chat: SessionRow, ocr: OcrSessionRow) -> dic
     return arguments
 
 
-def _checked(ctx: ToolContext, params: AfterParams) -> tuple[SessionRow, AgentTool, dict]:
-    """The session, the tool and its arguments, or a ToolError before any card: a follow-up
-    never runs a tool that would have asked, and never waits for a session that won't finish."""
+def _checked(
+    ctx: ToolContext, params: AfterParams, *, finished_ok: bool = False
+) -> tuple[SessionRow, AgentTool, dict, bool]:
+    """The session, the tool, its arguments and whether the session has finished, or a
+    ToolError before any card: a follow-up never runs a tool that would have asked, and never
+    waits for a session that won't finish. A finished session is refused, unless
+    `finished_ok` (the card was answered after it finished)."""
     chat, ocr = _ocr_session(ctx, params.session)
     wire = params.tool.replace(".", "_")
     for waiting in pending(ctx.sessions, ctx.session_id):
         if waiting.ocr_session_id == chat.id and waiting.tool.replace(".", "_") == wire:
             raise ToolError(f"Already queued: {waiting.label}. Nothing more to do now.")
-    if ocr.status == "done":
+    finished = ocr.status == "done"
+    if finished and not finished_ok:
         raise ToolError(f"{chat.title} has already finished: run {params.tool} now instead.")
     tool = ctx.registry.get(wire) if ctx.registry else None
     if tool is None or tool.name == "task.after":
@@ -242,16 +249,35 @@ def _checked(ctx: ToolContext, params: AfterParams) -> tuple[SessionRow, AgentTo
         raise ToolError(f"{tool.name} asks the person first, so it can't run unattended.")
     arguments = _arguments(params, chat, ocr)
     tool.validate(arguments)  # ToolError with what's wrong, now rather than later
-    return chat, tool, arguments
+    return chat, tool, arguments, finished
 
 
 def _after_question(ctx: ToolContext, params: AfterParams) -> str:
-    chat, tool, _ = _checked(ctx, params)
+    chat, tool, _, _ = _checked(ctx, params)
     return f"After OCR · {chat.title} finishes: {params.label} ({tool.name})?"
 
 
-def _after(ctx: ToolContext, params: AfterParams) -> ToolResult:
-    chat, tool, arguments = _checked(ctx, params)
+async def _after(ctx: ToolContext, params: AfterParams) -> ToolResult:
+    chat, tool, arguments, finished = await run_in_threadpool(
+        lambda: _checked(ctx, params, finished_ok=True)
+    )
+    if finished:
+        # Asked while the session ran, answered after it finished: what the person allowed
+        # for then runs now (seen: the tool refused, and the 4B had to find export_run itself).
+        validated = tool.validate(arguments)
+        if inspect.iscoroutinefunction(tool.run):
+            result = await tool.run(ctx, validated)
+        else:
+            result = await run_in_threadpool(tool.run, ctx, validated)
+        return replace(
+            result, text=f"{chat.title} had already finished, so it ran now: {result.text}"
+        )
+    return await run_in_threadpool(_queue, ctx, params, chat, tool, arguments)
+
+
+def _queue(
+    ctx: ToolContext, params: AfterParams, chat: SessionRow, tool: AgentTool, arguments: dict
+) -> ToolResult:
     try:
         added = add(ctx.sessions, ctx.session_id, ocr_session_id=chat.id, tool=tool.name,
                     arguments=arguments, label=f"after OCR · {chat.title}: {params.label}",

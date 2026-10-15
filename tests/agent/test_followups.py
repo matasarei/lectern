@@ -470,7 +470,7 @@ def test_task_after_queues_a_follow_up_and_refuses_one_that_would_ask(follow):
     assert TASK_AFTER.confirm_text(ctx, params) == (
         "After OCR · lease-scan.pdf finishes: export to DOCX (export.run)?"
     )
-    TASK_AFTER.run(ctx, params)
+    asyncio.run(TASK_AFTER.run(ctx, params))
     (queued,) = followups.pending(db, 1)
     assert (queued.ocr_session_id, queued.tool) == (ocr_id, "export.run")
     assert queued.arguments == {"format": "docx", "name": "lease-scan/"}  # the session's folder
@@ -480,6 +480,36 @@ def test_task_after_queues_a_follow_up_and_refuses_one_that_would_ask(follow):
         bad = TASK_AFTER.validate({"session": "lease-scan", "tool": tool, "label": "x"})
         with pytest.raises(ToolError):
             TASK_AFTER.confirm_text(ctx, bad)
+
+
+def test_a_card_answered_once_its_session_finished_runs_the_tool_then_and_there(follow):
+    """Asked while the session ran, the card was answered after it finished: the tool used
+    to refuse ("already finished: run export_run now"), and the 4B had to find it itself."""
+    manager, project, db, ocr_id, _ = follow([])
+    file_tab = {"type": "open_tab", "tab": {"kind": "artifact", "id": 30}}
+
+    def export(ctx: ToolContext, params: _EchoParams) -> ToolResult:  # noqa: ARG001
+        RAN.append({"chat": ctx.session_id, "format": params.format})
+        return ToolResult("Saved as Lease 1998.docx.", refs=[{"kind": "artifact", "id": 30}],
+                          action=file_tab)  # fmt: skip
+
+    exporting = AgentTool(name="export.run", description="Export.", params=_EchoParams, run=export)
+    ctx = ToolContext(project=project, sessions=db, user=LOCAL_USER, session_id=1,
+                      registry=Registry([*CORE_TOOLS, exporting]))  # fmt: skip
+    params = TASK_AFTER.validate({"session": "lease-scan", "tool": "export_run",
+                                  "arguments": {"format": "docx"},
+                                  "label": "export to DOCX"})  # fmt: skip
+    TASK_AFTER.confirm_text(ctx, params)  # the card, while the session runs
+    _set_status(db, ocr_id, "done")  # it finishes before the person answers
+
+    result = asyncio.run(TASK_AFTER.run(ctx, params))
+
+    assert RAN == [{"chat": 1, "format": "docx"}]
+    assert result.text == (
+        "lease-scan.pdf had already finished, so it ran now: Saved as Lease 1998.docx."
+    )
+    assert (result.refs, result.action) == ([{"kind": "artifact", "id": 30}], file_tab)
+    assert followups.pending(db, 1) == []  # nothing left to run when the session ends
 
 
 def test_queueing_what_is_already_queued_says_so_whatever_the_arguments(follow):
@@ -589,7 +619,7 @@ def test_an_export_after_ocr_without_the_documents_name_gets_the_sessions_folder
                                   "arguments": arguments, "label": "export to DOCX"})  # fmt: skip
 
     TASK_AFTER.confirm_text(ctx, params)  # no "Field required"
-    TASK_AFTER.run(ctx, params)
+    asyncio.run(TASK_AFTER.run(ctx, params))
 
     (queued,) = followups.pending(db, 1)
     assert queued.arguments == {"name": "lease-scan/", "format": "docx"}
