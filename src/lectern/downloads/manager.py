@@ -97,6 +97,11 @@ class EventHub:
     def __init__(self) -> None:
         self._queues: set[asyncio.Queue[dict]] = set()
 
+    @property
+    def listening(self) -> int:
+        """How many listen now."""
+        return len(self._queues)
+
     def publish(self, event: dict) -> None:
         for queue in list(self._queues):
             with contextlib.suppress(asyncio.QueueFull):
