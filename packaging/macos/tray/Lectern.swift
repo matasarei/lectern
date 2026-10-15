@@ -105,10 +105,13 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         if let left = lecternLeftRunning() { adopt(left) } else { start() }
     }
 
-    // Opening the app again while it runs (Finder, Spotlight) opens Lectern in the browser.
+    // Opening the app again while it runs (Finder, Spotlight) opens Lectern in the browser;
+    // while Lectern is still starting, once it answers.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         if state == .running {
             openLectern()
+        } else if state == .starting {
+            openWhenReady = true
         } else if pid == nil {
             openWhenReady = true
             start()
@@ -136,6 +139,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
 
     private func start() {
         guard pid == nil else { return }
+        // Opened again with each start, so its size is checked then too (rotated past the
+        // limit): an app left open for weeks doesn't grow it without end.
+        try? log?.close()
+        log = nil
         let process = Process()
         process.executableURL = URL(fileURLWithPath: dir + "/bin/lectern-serve")
         process.standardInput = FileHandle.nullDevice
