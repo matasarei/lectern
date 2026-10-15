@@ -385,7 +385,9 @@ FAKES = {
     '[ "$1" != --version ] || exit 0; '
     'if [ -n "${FAIL_SWIFTC:-}" ]; then echo "error: it does not compile" >&2; exit 1; fi; '
     'while [ $# -gt 0 ]; do if [ "$1" = -o ]; then : > "$2"; fi; shift; done',
-    "codesign": 'echo "codesign $*" >> "$LOG"',
+    # FAIL_CODESIGN: signing fails, saying why.
+    "codesign": 'echo "codesign $*" >> "$LOG"; '
+    'if [ -n "${FAIL_CODESIGN:-}" ]; then echo "errSecInternalComponent" >&2; exit 1; fi',
     "open": 'echo "open $*" >> "$LOG"',
     # The running app is the process whose id is in STATE/app-pid, for as long as it lives
     # (a killed child of the test is a zombie until the test collects it: not running).
@@ -479,6 +481,12 @@ def test_an_app_whose_icon_cant_be_drawn_is_still_installed(tmp_path):
     bundle = _bundle(tmp_path)
     assert (bundle / "Contents/MacOS/Lectern").exists()
     assert not (bundle / "Contents/Resources").exists()
+
+
+def test_a_signing_failure_says_why(tmp_path):
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"), FAIL_CODESIGN="1")
+    assert done.returncode != 0
+    assert "signing the app failed" in done.stderr and "errSecInternalComponent" in done.stderr
 
 
 def test_on_a_mac_run_as_root_it_refuses(tmp_path):
