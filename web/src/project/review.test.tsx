@@ -142,4 +142,19 @@ describe("reviewing a page", () => {
     expect(screen.getByText("<b>Ков</b>", { selector: "mark" })).toBeTruthy();
     expect(document.querySelector("mark b")).toBeNull();
   });
+
+  it("says which answers are no longer in the page's text, on their page only", () => {
+    const doc = {
+      ...lease(),
+      unplaced: [
+        { page: 1, doubt_id: "d1.9", raw: "1O", value: "10", action: "edit" },
+        { page: 3, doubt_id: "d3.9", raw: "Ков?", value: "Коваль", action: "accept" },
+      ],
+    };
+    renderPage(doc, 1);
+    const notes = screen.getAllByTestId("unplaced");
+    expect(notes.map((n) => n.textContent)).toEqual([
+      "Your answer “10” to “1O” is no longer in this page's text: the page was cleaned again. Check it in the text below.",
+    ]);
+  });
 });
