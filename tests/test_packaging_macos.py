@@ -489,6 +489,15 @@ def test_a_signing_failure_says_why(tmp_path):
     assert "signing the app failed" in done.stderr and "errSecInternalComponent" in done.stderr
 
 
+def test_an_install_in_another_folder_doesnt_take_over_the_app(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    other = tmp_path / "home/elsewhere"
+    done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), LECTERN_DIR=str(other))
+    assert done.returncode != 0
+    assert f"runs the Lectern in {_home(tmp_path)}, not {other}" in done.stderr
+    assert _version(_bundle(tmp_path)) == "0.1.0" and not other.exists()
+
+
 def test_on_a_mac_run_as_root_it_refuses(tmp_path):
     env = _env(tmp_path)
     (tmp_path / "fakebin/id").write_text(

@@ -63,10 +63,20 @@ binary="$bundle/Contents/MacOS/Lectern"
 identifier_of() {
     sed -n '/<key>CFBundleIdentifier<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$1" 2>/dev/null || true
 }
+# The install folder an app was built for (its LecternDir).
+dir_of() {
+    sed -n '/<key>LecternDir<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$1" 2>/dev/null || true
+}
 # Another app that happens to be called Lectern is never replaced.
 if [ -e "$bundle" ] \
     && [ "$(identifier_of "$bundle/Contents/Info.plist")" != "$(identifier_of "$here/tray/Info.plist")" ]; then
     die "$bundle is another app, not this one: move it away first."
+fi
+# There is one Lectern.app: an install in another folder (LECTERN_DIR) would take it over.
+built_for="$(dir_of "$bundle/Contents/Info.plist")"
+if [ -e "$bundle" ] && [ -n "$built_for" ] && [ "$built_for" != "$dir" ]; then
+    die "$bundle runs the Lectern in $built_for, not $dir. Uninstall that one first \
+(LECTERN_DIR=$built_for ./uninstall.sh), or install there."
 fi
 
 # --- uv ---------------------------------------------------------------------------------
