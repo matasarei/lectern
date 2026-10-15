@@ -707,6 +707,7 @@ def test_a_step_failing_after_the_app_was_quit_opens_it_again(tmp_path):
     assert _opens(tmp_path) == 2  # the first install's, and this one's on the way out
     assert _bundle(tmp_path).exists()
 
+
 def test_an_update_that_doesnt_start_says_so_and_keeps_the_previous_version(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     home = _home(tmp_path)
@@ -795,6 +796,43 @@ def test_uninstall_with_an_app_that_wont_quit_removes_nothing(tmp_path):
         done = _uninstall(tmp_path, LECTERN_QUIT_WAIT="2")
     assert done.returncode == 1 and "didn't quit" in done.stderr
     assert _bundle(tmp_path).exists() and (_home(tmp_path) / "app/venv").exists()
+
+
+def test_uninstall_stops_a_lectern_left_running_without_the_app_and_nothing_else(tmp_path):
+    """The app was force-quit and Lectern lived on: its files mustn't go from under it, and it
+    is stopped as the app would (SIGINT, so it stops its models too)."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home = _home(tmp_path)
+    marker, ready = tmp_path / "stopped", tmp_path / "ready"
+    lectern = home / "app/venv/bin/lectern"
+    lectern.write_text(
+        f"#!/bin/sh\ntrap 'echo interrupted > \"{marker}\"; exit 0' INT\n"
+        f': > "{ready}"\nwhile :; do sleep 0.1; done\n'
+    )
+    lectern.chmod(0o755)
+    left = subprocess.Popen([str(lectern), "serve"])  # noqa: S603
+    try:
+        _until(ready.exists, "Lectern is running, its SIGINT handled")
+        (home / "app/lectern.pid").write_text(f"{left.pid}\n")
+        done = _uninstall(tmp_path)
+        assert done.returncode == 0, done.stderr
+        assert left.wait(timeout=10) == 0 and marker.read_text().strip() == "interrupted"
+        assert not (home / "app").exists()
+    finally:
+        left.kill()
+        left.wait()
+
+
+def test_uninstall_never_signals_another_process_with_the_number_in_the_pid_file(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    other = subprocess.Popen(["/bin/sleep", "600"])  # noqa: S603
+    try:
+        (_home(tmp_path) / "app/lectern.pid").write_text(f"{other.pid}\n")
+        assert _uninstall(tmp_path).returncode == 0
+        assert other.poll() is None
+    finally:
+        other.kill()
+        other.wait()
 
 
 def test_uninstall_on_a_mac_run_as_root_refuses(tmp_path):

@@ -47,6 +47,39 @@ if $ours && pgrep -f "$binary" >/dev/null; then
     fi
 fi
 
+# A Lectern still running without the app (the app was force-quit and Lectern lived on) is
+# stopped the way the app stops it: SIGINT, as Ctrl+C, so it stops its models too; SIGTERM if
+# it hasn't gone after a while. Only if the process the pid file names is this Lectern: a
+# number the system has since given to something else is never signalled.
+# Running: there, and not a zombie (ended, waiting for its parent to collect it).
+alive() {
+    kill -0 "$1" 2>/dev/null && [ "$(ps -o stat= -p "$1" 2>/dev/null | cut -c1)" != "Z" ]
+}
+left="$(cat "$dir/app/lectern.pid" 2>/dev/null || true)"
+real_dir="$(cd "$dir" 2>/dev/null && pwd -P || echo "$dir")"
+if [ -n "$left" ] && alive "$left"; then
+    case "$(ps -o args= -p "$left" 2>/dev/null)" in
+        *"$dir/app/venv/bin/lectern"* | *"$real_dir/app/venv/bin/lectern"* | \
+            *"$dir/bin/lectern-serve"* | *"$real_dir/bin/lectern-serve"*)
+            echo "Stopping the Lectern left running (process $left)…"
+            kill -INT "$left" 2>/dev/null || true
+            for _ in $(seq "${LECTERN_QUIT_WAIT:-60}"); do
+                alive "$left" || break
+                sleep 1
+            done
+            kill -TERM "$left" 2>/dev/null || true
+            for _ in 1 2 3 4 5; do
+                alive "$left" || break
+                sleep 1
+            done
+            if alive "$left"; then
+                echo "uninstall.sh: Lectern (process $left) didn't stop; nothing was removed." >&2
+                exit 1
+            fi
+            ;;
+    esac
+fi
+
 if $ours; then rm -rf "$bundle"; fi
 rm -rf "${dir:?}/app" "${dir:?}/bin" "${HOME:?}/Library/Logs/Lectern"
 if $purge; then
