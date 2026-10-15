@@ -6,6 +6,7 @@ import { apiRaw, ApiError } from "../api/client";
 import type { Artifact, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { fileType, formatBytes } from "../format";
+import { Markdown } from "../markdown";
 import { startOcr } from "./ocr-api";
 
 /** Text shown in the page up to this size; bigger files download. */
@@ -20,8 +21,8 @@ export function isPageSource(artifact: Artifact): boolean {
   return PAGE_SOURCES.some((suffix) => name.endsWith(suffix));
 }
 
-/** A file in a tab: text as text (never rendered as HTML), images as images, and the
- * details with where the file came from. */
+/** A file in a tab: Markdown as Markdown and other text as text (neither ever as HTML),
+ * images as images, and the details with where the file came from. */
 export function FileTab({
   projectId,
   artifact,
@@ -39,7 +40,7 @@ export function FileTab({
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[1fr_18rem]">
       <div className="min-w-0">
-        <Preview url={url} artifact={artifact} />
+        <Preview url={url} artifact={artifact} keepLines={publishedByOcr(artifact, items)} />
       </div>
       <aside className="grid content-start gap-2 rounded-lg border border-line bg-surface p-4">
         <h2 className="font-semibold break-all">{artifact.name}</h2>
@@ -59,17 +60,24 @@ export function FileTab({
   );
 }
 
-function Preview({ url, artifact }: { url: string; artifact: Artifact }) {
+/** An OCR session's published Document (its document.md): its paragraphs' lines are the
+ * page's own, kept as written for the chat to read, and shown as lines here. */
+function publishedByOcr(artifact: Artifact, items: ProjectItems): boolean {
+  if (artifact.mime !== "text/markdown" || artifact.from.kind !== "session") return false;
+  return items.sessions.some((s) => s.id === artifact.from.id && s.kind === "ocr");
+}
+
+function Preview({ url, artifact, keepLines }: { url: string; artifact: Artifact; keepLines: boolean }) {
   const { t } = useTranslation();
   if (TEXT_MIMES.includes(artifact.mime)) {
     if (artifact.size > TEXT_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
-    return <TextPreview url={url} />;
+    return <TextPreview url={url} markdown={artifact.mime === "text/markdown"} keepLines={keepLines} />;
   }
   if (IMAGE_MIMES.includes(artifact.mime)) return <ImagePreview url={url} name={artifact.name} />;
   return <p className="text-muted">{t("file.noPreview")}</p>;
 }
 
-function TextPreview({ url }: { url: string }) {
+function TextPreview({ url, markdown, keepLines }: { url: string; markdown: boolean; keepLines: boolean }) {
   const { t } = useTranslation();
   const text = useQuery({
     queryKey: ["file-text", url],
@@ -79,6 +87,13 @@ function TextPreview({ url }: { url: string }) {
     return <ErrorNote message={text.error instanceof ApiError ? text.error.detail : t("common.loadFailed")} />;
   }
   if (text.data === undefined) return <p className="text-muted">{t("common.loading")}</p>;
+  if (markdown) {
+    return (
+      <div className="rounded-lg border border-line bg-surface p-4" data-testid="markdown-preview">
+        <Markdown text={text.data} breaks={keepLines} />
+      </div>
+    );
+  }
   return (
     <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
       {text.data}

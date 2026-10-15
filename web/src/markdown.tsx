@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 /** How long a Copy button says "Copied". */
@@ -138,14 +139,20 @@ function ImageLink({ src, alt }: { src?: string | Blob; alt?: string }) {
   );
 }
 
+const PLAIN = [remarkGfm];
+const WITH_BREAKS = [remarkGfm, remarkBreaks];
+
 /** Text the model wrote, as Markdown (GitHub's flavour: tables, task lists, strikethrough).
  * Raw HTML in it stays text, links keep only http(s) and mailto addresses, and images aren't
  * fetched. Memoised: every streamed token re-renders the chat, and parsing each stored reply
- * again for it would make a long chat stutter. */
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+ * again for it would make a long chat stutter.
+ *
+ * `breaks`: a line break inside a paragraph is shown as one, where Markdown would join the
+ * lines. For a Document's text (a statement's rows, an address), whose lines are its own. */
+export const Markdown = memo(function Markdown({ text, breaks = false }: { text: string; breaks?: boolean }) {
   return (
     <div className="text-sm leading-relaxed break-words">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={safeUrl} components={components}>
+      <ReactMarkdown remarkPlugins={breaks ? WITH_BREAKS : PLAIN} urlTransform={safeUrl} components={components}>
         {text}
       </ReactMarkdown>
     </div>
