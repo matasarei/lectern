@@ -294,3 +294,65 @@ def test_a_document_tab_is_kept_while_its_session_is_and_never_keeps_a_page(api)
         "open": [{"kind": "document", "id": 1}],
         "active": {"kind": "document", "id": 1},
     }
+
+
+# --- removing a project ------------------------------------------------------------------
+
+
+def _remove(client, headers, project_id: int, typed: str):  # noqa: ANN001, ANN202
+    return client.request(
+        "DELETE", f"/api/projects/{project_id}", json={"name": typed}, headers=headers
+    )
+
+
+def test_removing_a_project_needs_its_name_typed_exactly(api):
+    client, headers, _ = api
+    project = client.post("/api/projects", json={"name": "Lease 1998"}, headers=headers).json()
+
+    for typed in ("lease 1998", "Lease 1998 ", ""):
+        refused = _remove(client, headers, project["id"], typed)
+        assert refused.status_code == 422
+        assert "exactly" in refused.json()["detail"]
+    assert client.get(f"/api/projects/{project['id']}", headers=headers).status_code == 200
+
+
+def test_a_removed_project_is_gone_and_its_folder_is_in_the_trash(api, paths):
+    client, headers, _ = api
+    project = client.post("/api/projects", json={"name": "Lease 1998"}, headers=headers).json()
+    kept = client.post("/api/projects", json={"name": "Kept"}, headers=headers).json()
+    pid = project["id"]
+    client.put(f"/api/projects/{pid}/files?name=a.md", content=b"# A", headers=headers)
+
+    removed = _remove(client, headers, pid, "Lease 1998")
+    assert removed.status_code == 200 and removed.json() == {"removed": pid}
+
+    assert [p["id"] for p in client.get("/api/projects", headers=headers).json()] == [kept["id"]]
+    for path in (f"/api/projects/{pid}", f"/api/projects/{pid}/items"):
+        assert client.get(path, headers=headers).status_code == 404
+    assert _remove(client, headers, pid, "Lease 1998").status_code == 404
+    assert not Path(project["folder"]).exists()
+    (trashed,) = paths.projects_trash("local").iterdir()
+    assert (trashed / "a.md").read_bytes() == b"# A"
+
+
+def test_someone_elses_project_cant_be_removed(api):
+    client, headers, app = api
+    with app.state.sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = app.state.projects.create(User(id=2, name="other"), "Private")
+
+    for project_id in (theirs.id, 999):
+        assert _remove(client, headers, project_id, "Private").status_code == 404
+    assert theirs.root.is_dir()
+
+
+def test_removing_a_project_needs_the_token(api):
+    client, _, _ = api
+    project = client.post(
+        "/api/projects",
+        json={"name": "Kept"},
+        headers={"X-Lectern-Token": client.app.state.token, "Origin": BASE},
+    ).json()
+    refused = _remove(client, {"Origin": BASE}, project["id"], "Kept")
+    assert refused.status_code == 401
+    assert Path(project["folder"]).is_dir()
