@@ -601,3 +601,40 @@ def test_make_alone_builds_for_development_and_installs_nothing():
     assert shown.returncode == 0, shown.stderr
     assert "uv sync" in shown.stdout and "npm --prefix web run build" in shown.stdout
     assert "install.sh" not in shown.stdout
+
+
+# --- Windows, checked from here: compiled and linted in containers ---------------------------
+
+WINDOWS = ROOT / "packaging/windows"
+# Mono's C# compiler stands in for the csc.exe that ships with Windows (.NET Framework 4,
+# C# 5): the same language version, and the WinForms and Win32 calls the app makes.
+MONO_IMAGE = "mono:6.12@sha256:34d816779b1248b5cfd095770b64ecbaf1798e2aca693a91c11a018dce9c7ad5"
+
+
+def _image_here(image: str) -> bool:
+    """Docker answers and has the image already: these checks never pull hundreds of MB."""
+    docker = shutil.which("docker")
+    if docker is None:
+        return False
+    found = subprocess.run([docker, "image", "inspect", image], capture_output=True, timeout=60)  # noqa: S603
+    return found.returncode == 0
+
+
+@pytest.mark.skipif(not _image_here(MONO_IMAGE), reason=f"needs Docker with {MONO_IMAGE}")
+def test_the_windows_tray_app_compiles_as_csharp_5():
+    built = subprocess.run(  # noqa: S603 (fixed argv)
+        [shutil.which("docker"), "run", "--rm", "--tmpfs", "/work", "-w", "/work",
+         "-v", f"{WINDOWS / 'tray'}:/src:ro", MONO_IMAGE,
+         "mcs", "-langversion:5", "-target:winexe", "-codepage:65001", "-warnaserror",
+         "-r:System.Windows.Forms.dll", "-r:System.Drawing.dll", "-out:/work/Lectern.exe",
+         "/src/Lectern.cs"],
+        capture_output=True, text=True, timeout=300,
+    )  # fmt: skip
+    assert built.returncode == 0, built.stdout + built.stderr
+
+
+def test_the_windows_icon_has_the_sizes_windows_asks_for():
+    from PIL import Image
+
+    with Image.open(WINDOWS / "tray/lectern.ico") as icon:
+        assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= set(icon.info["sizes"])
