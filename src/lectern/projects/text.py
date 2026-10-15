@@ -204,6 +204,14 @@ def pdf_pages(path: Path) -> list[str]:
     return read[0]
 
 
+def scanned_pages(path: Path) -> int:
+    """How many of a PDF's pages have no text layer (scans among typed pages); 0 when it
+    can't be opened."""
+    with PDFIUM_LOCK:
+        read = _read_pages(path, limit=None)
+    return 0 if read is None else sum(len(t) < PDF_PAGE_MIN_CHARS for t in read[0])
+
+
 def _read_pages(path: Path, limit: int | None) -> tuple[list[str], int] | None:
     """With PDFIUM_LOCK held. The pages' texts (stopping once past `limit` characters, if
     given) and the page count, or None when the PDF can't be opened."""
