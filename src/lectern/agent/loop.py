@@ -156,13 +156,14 @@ async def call_model(run: TurnRun, history: History) -> Reply:
             run.emit({"type": "model", "model_id": lease.model_id, "ctx": lease.plan.ctx})
             run.stats["model_sent"] = True
         built = await build_context(run, history, lease.plan.ctx, _counter(run, lease))
-        if built.left_out or built.released or built.stubbed_files:
+        if built.left_out or built.released or built.stubbed_files or built.pins_left_out:
             run.emit(
                 {
                     "type": "context",
                     "left_out": built.left_out,
                     "released": built.released,
                     "stubbed_files": built.stubbed_files,
+                    "pins_left_out": built.pins_left_out,
                 }
             )
         run.emit({"type": "usage", "parts": built.parts, "budget": built.budget})

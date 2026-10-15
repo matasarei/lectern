@@ -204,3 +204,19 @@ def test_pending_follow_ups_go_with_the_pins_and_are_never_left_out():
     assert "# Pending follow-ups (they run when their session finishes)\n" in system
     assert "- after OCR · lease-scan.pdf: export to ODT" in system
     assert "Pending follow-ups" not in run(history=[user("hi")], ctx=4096).messages[0]["content"]
+
+
+def test_on_a_small_context_only_the_newest_pins_that_fit_go_in_and_the_model_is_told():
+    pins = [("fact", f"fact {i}: " + "x" * 280) for i in range(20)]  # 20 pins at the limit
+    built = run(history=[user("q")], pins=pins, ctx=4096)
+
+    system = built.messages[0]["content"]
+    assert built.pins_left_out > 0 and "fact 19: " in system and "fact 0: " not in system
+    kept = [i for i in range(20) if f"fact {i}: " in system]
+    assert kept == list(range(20 - len(kept), 20))  # the newest, in the order pinned
+    assert f"({built.pins_left_out} older pinned items left out" in system
+    budget = 4096 - answer_reserve(4096)
+    assert built.parts["pinned"] <= 0.26 * budget
+
+    roomy = run(history=[user("q")], pins=pins, ctx=65536)
+    assert roomy.pins_left_out == 0 and "left out" not in roomy.messages[0]["content"]
