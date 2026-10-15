@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 
 from lectern.core.auth import LOCAL_USER, User
-from lectern.core.tables import UserRow
-from lectern.projects.store import ProjectNotFound, ProjectStore, folder_name
+from lectern.core.tables import ProjectRow, UserRow
+from lectern.projects.store import NameMismatch, ProjectNotFound, ProjectStore, folder_name
 from lectern.projects.tables import ConfirmationRow, MessageRow, SessionRow
 
 
@@ -272,3 +275,135 @@ def test_a_project_at_p0006_gets_follow_ups_in_its_chats_state(store, paths):
     followups.add(db, 1, ocr_session_id=2, tool="export.run", arguments={}, label="export")
     assert [f.label for f in followups.pending(db, 1)] == ["export"]
     fresh.dispose()
+
+
+# --- removing a project ------------------------------------------------------------------
+
+
+class _Clock:
+    """The time the store goes by, moved by the test."""
+
+    def __init__(self) -> None:
+        self.now = datetime(2026, 10, 15, 9, 30, tzinfo=UTC)
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+@pytest.fixture
+def clock() -> _Clock:
+    return _Clock()
+
+
+@pytest.fixture
+def timed(store, clock):
+    """The store, on the test's clock."""
+    store.clock = clock
+    return store
+
+
+@pytest.mark.parametrize("typed", ["lease 1998", "Lease 1998 ", " Lease 1998", "", "Lease"])
+def test_a_project_is_removed_only_by_its_name_typed_exactly(timed, typed):
+    project = timed.create(LOCAL_USER, "Lease 1998")
+    with pytest.raises(NameMismatch):
+        timed.remove(LOCAL_USER, project.id, typed)
+    assert timed.get(LOCAL_USER, project.id).root.is_dir()
+
+
+def test_a_removed_project_is_gone_and_its_folder_is_in_the_trash(timed, paths):
+    project = timed.create(LOCAL_USER, "Lease 1998")
+    twin = timed.create(LOCAL_USER, "Lease 1998")  # same name, its own folder
+    (project.root / "scan.pdf").write_bytes(b"%PDF")
+    timed.db(project)  # its database is open, as after any request
+
+    removed = timed.remove(LOCAL_USER, project.id, "Lease 1998")
+    assert removed.root == project.root  # not moved yet: what runs in it is stopped first
+    for gone in (timed.get, lambda user, pid: timed.rename(user, pid, "x")):
+        with pytest.raises(ProjectNotFound):
+            gone(LOCAL_USER, project.id)
+    assert [p.id for p in timed.list(LOCAL_USER)] == [twin.id]
+    with pytest.raises(ProjectNotFound):  # removing it again: it isn't there to remove
+        timed.remove(LOCAL_USER, project.id, "Lease 1998")
+
+    timed.move_to_trash(removed)
+    trashed = paths.projects_trash("local") / "Lease 1998 20261015-093000"
+    assert (trashed / "scan.pdf").read_bytes() == b"%PDF"
+    assert not project.root.exists()
+    assert twin.root.is_dir() and timed.get(LOCAL_USER, twin.id).root == twin.root
+    assert project.id not in timed._dbs
+
+
+def test_someone_elses_project_cant_be_removed(timed):
+    with timed.app_sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = timed.create(User(id=2, name="other"), "Private")
+    with pytest.raises(ProjectNotFound):
+        timed.remove(LOCAL_USER, theirs.id, "Private")
+    assert timed.get(User(id=2, name="other"), theirs.id).root.is_dir()
+
+
+def test_two_removed_projects_with_one_name_keep_their_own_folders_in_the_trash(timed, paths):
+    first = timed.create(LOCAL_USER, "Notes")
+    second = timed.create(LOCAL_USER, "Notes")
+    for project in (first, second):
+        timed.move_to_trash(timed.remove(LOCAL_USER, project.id, "Notes"))
+    names = sorted(p.name for p in paths.projects_trash("local").iterdir())
+    assert names == ["Notes 2 20261015-093000", "Notes 20261015-093000"]
+
+
+def test_a_removed_project_is_deleted_after_30_days_and_not_before(timed, clock, paths):
+    project = timed.create(LOCAL_USER, "Old")
+    kept = timed.create(LOCAL_USER, "Kept")
+    timed.move_to_trash(timed.remove(LOCAL_USER, project.id, "Old"))
+    trashed = next(paths.projects_trash("local").iterdir())
+
+    clock.now += timedelta(days=29, hours=23)
+    assert timed.purge_removed() == 0
+    assert trashed.is_dir()
+
+    clock.now += timedelta(hours=2)
+    assert timed.purge_removed() == 1
+    assert not trashed.exists()
+    with timed.app_sessions() as session:
+        assert session.get(ProjectRow, project.id) is None
+    assert timed.purge_removed() == 0  # and again: nothing more to do
+    assert [p.id for p in timed.list(LOCAL_USER)] == [kept.id]
+
+
+def test_a_folder_that_cant_be_moved_stays_and_is_purged_from_where_it_is(timed, clock):
+    project = timed.create(LOCAL_USER, "Busy")
+    removed = timed.remove(LOCAL_USER, project.id, "Busy")
+    timed.paths.projects_trash("local").write_text("a file where the trash folder goes")
+
+    timed.move_to_trash(removed)  # the trash can't be made: logged, and nothing is moved
+    assert project.root.is_dir()
+    with pytest.raises(ProjectNotFound):
+        timed.get(LOCAL_USER, project.id)
+
+    clock.now += timedelta(days=31)
+    assert timed.purge_removed() == 1
+    assert not project.root.exists()
+
+
+def test_a_folder_that_refuses_the_move_leaves_the_project_removed(timed, monkeypatch):
+    project = timed.create(LOCAL_USER, "Locked")
+    removed = timed.remove(LOCAL_USER, project.id, "Locked")
+
+    def refuse(self, target):  # noqa: ANN001, ARG001 — as Windows does with a file open in it
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(Path, "rename", refuse)
+    timed.move_to_trash(removed)  # logged, not raised: the project is removed either way
+    monkeypatch.undo()
+    assert project.root.is_dir()
+    with timed.app_sessions() as session:
+        assert session.get(ProjectRow, project.id).root_path == str(project.root)
+
+
+def test_a_removed_project_whose_folder_was_deleted_by_hand_is_purged_too(timed, clock):
+    project = timed.create(LOCAL_USER, "Gone")
+    timed.move_to_trash(timed.remove(LOCAL_USER, project.id, "Gone"))
+    with timed.app_sessions() as session:
+        shutil.rmtree(session.get(ProjectRow, project.id).root_path)
+    clock.now += timedelta(days=31)
+    assert timed.purge_removed() == 1
