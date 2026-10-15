@@ -513,7 +513,9 @@ function FinishedActions({
       >
         {t("chat.openDocument")}
       </button>
-      <ExportButtons projectId={projectId} artifactId={document.id} onOpen={onOpen} />
+      {/* A hold message whose exports have run: they're in the chat below it, and Export
+          buttons here would only make a second file. */}
+      {!session.hold && <ExportButtons projectId={projectId} artifactId={document.id} onOpen={onOpen} />}
     </div>
   );
 }

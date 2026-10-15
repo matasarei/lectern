@@ -738,6 +738,35 @@ describe("The chat's message when an OCR session finishes", () => {
     );
   });
 
+  it("once a hold message's export has run, offers its Document but no second export", async () => {
+    chat.messages = [
+      message(2, {
+        role: "assistant",
+        content: "OCR · scan.jpg isn't finished yet: 2 open questions. Export to DOCX waits for it: …",
+        refs: [
+          { kind: "session", id: 8, name: "scan.jpg", ref: null, hold: true },
+          { kind: "artifact", id: 40, name: "scan/document.md", ref: null },
+        ],
+      }),
+      // Another session's plain "finished": its buttons show once the formats have loaded
+      message(3, {
+        role: "assistant",
+        content: "OCR · other.jpg finished.",
+        refs: [
+          { kind: "session", id: 9, name: "other.jpg", ref: null },
+          { kind: "artifact", id: 41, name: "other/document.md", ref: null },
+        ],
+      }),
+    ];
+    chat.followups = []; // the questions were answered and the held export ran
+    renderChat();
+    const [held, plain] = await screen.findAllByTestId("finished");
+    expect(await within(plain).findByRole("button", { name: "DOCX" })).toBeTruthy();
+    expect(within(held).getByRole("button", { name: "Open the document" })).toBeTruthy();
+    expect(within(held).queryByRole("button", { name: "DOCX" })).toBeNull();
+    expect(within(held).queryByRole("button", { name: /now, as it is/ })).toBeNull();
+  });
+
   it("offers nothing to open when the session stopped", async () => {
     chat.messages = [
       message(2, {

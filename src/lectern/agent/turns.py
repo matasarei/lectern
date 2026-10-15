@@ -329,6 +329,9 @@ class TurnManager:
             run.emit = channel.publish
             channel.publish({"type": "turn", "status": "running", "followup": ""})
             refs = await run_in_threadpool(followups.notice_refs, sessions, ocr_session_id)
+            # Marked as the hold: once its export has run, the page shows no buttons for
+            # another one under it.
+            refs = [{**r, "hold": True} if r["kind"] == "session" else r for r in refs]
             title = refs[0]["name"] if refs else "the scan"
             text = followups.hold_text(title, summary, [f.what or f.label for f in unheld])
             message_id = await run_in_threadpool(

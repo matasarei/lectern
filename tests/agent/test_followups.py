@@ -351,7 +351,7 @@ def test_an_export_waits_while_questions_are_open_and_the_chat_is_told_once(foll
     asyncio.run(go())
     assert RAN == [] and handle.requests == []  # no export, no model
     assert _transcript(db) == [("assistant", HELD, None)]
-    assert [r["kind"] for r in _refs(db)[0]] == ["session"]
+    assert [(r["kind"], r.get("hold")) for r in _refs(db)[0]] == [("session", True)]
     (waiting,) = followups.pending(db, 1)
     assert waiting.tool == "export.run" and waiting.held
 
