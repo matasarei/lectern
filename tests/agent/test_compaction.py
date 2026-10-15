@@ -183,6 +183,21 @@ def test_stop_while_compacting_leaves_the_answered_turn_done(store):
     assert (last.role, last.content) == ("assistant", "Short answer.")
 
 
+def test_a_chats_messages_are_counted_once_across_its_calls_and_turns(store):
+    """Each model call counted every message through /tokenize again."""
+    handle = FakeHandle([text_reply("A."), text_reply("B.")])
+    manager = TurnManager(make_runtime(handle), store, core_registry())
+    project = store.create(LOCAL_USER, "Counted")
+    seed(store, project, pairs=2, size=50)
+
+    run_turn(manager, project, "first")
+    run_turn(manager, project, "second")
+
+    old = [t for t in handle.tokenized if t.startswith("question 0 ")]
+    assert old == ["question 0 " + "q" * 50]  # once, though two turns were built from it
+    assert handle.tokenized.count("first") == 1
+
+
 def test_a_short_chat_is_left_alone(store):
     handle = FakeHandle([text_reply("A.")])
     manager = TurnManager(make_runtime(handle), store, core_registry())

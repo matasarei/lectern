@@ -49,11 +49,18 @@ class Built:
 
 class Counter:
     """Counts tokens with the runner's own tokenizer when there is one, remembering answers
-    by text, and estimates (a character count divided by 3) when there isn't."""
+    by text, and estimates (a character count divided by 3) when there isn't.
 
-    def __init__(self, tokenize: Callable[[str], Awaitable[int]] | None = None) -> None:
+    `cache`: the answers to remember them in. One kept per chat and model outlives the
+    counter, so a call doesn't send every message to the tokenizer again."""
+
+    def __init__(
+        self,
+        tokenize: Callable[[str], Awaitable[int]] | None = None,
+        cache: dict[str, int] | None = None,
+    ) -> None:
         self._tokenize = tokenize
-        self._cache: dict[str, int] = {}
+        self._cache: dict[str, int] = {} if cache is None else cache
 
     async def count(self, text: str) -> int:
         if not text:

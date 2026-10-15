@@ -63,6 +63,8 @@ class TurnRun:
     sandbox: object = None  # passed on to tools (the Sandbox module)
     ocr_jobs: object = None  # passed on to tools (the OCR module)
     stats: dict = field(default_factory=dict)
+    # The chat's token counts, by model: kept from call to call and turn to turn
+    token_counts: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 class TurnFailed(Exception):
@@ -153,7 +155,7 @@ async def call_model(run: TurnRun, history: History) -> Reply:
         if not run.stats.get("model_sent"):
             run.emit({"type": "model", "model_id": lease.model_id, "ctx": lease.plan.ctx})
             run.stats["model_sent"] = True
-        built = await build_context(run, history, lease.plan.ctx, Counter(_tokenizer(lease.client)))
+        built = await build_context(run, history, lease.plan.ctx, _counter(run, lease))
         if built.left_out or built.released or built.stubbed_files:
             run.emit(
                 {
@@ -204,7 +206,7 @@ async def maybe_compact(run: TurnRun) -> None:
     try:
         history = await run_in_threadpool(load_history, run)
         async with run.runtime.lease("main", Priority.CHAT) as lease:
-            counter = Counter(_tokenizer(lease.client))
+            counter = _counter(run, lease)
             built = await build_context(run, history, lease.plan.ctx, counter)
             used = sum(built.parts.values())
             if used <= compaction.COMPACT_AT * built.budget and not built.left_out:
@@ -244,6 +246,12 @@ async def maybe_compact(run: TurnRun) -> None:
                 "detail": str(exc).splitlines()[0] if str(exc) else type(exc).__name__,
             }
         )
+
+
+def _counter(run: TurnRun, lease) -> Counter:  # noqa: ANN001 — a runtime lease
+    """A counter on the leased model's tokenizer, remembering into the chat's counts for that
+    model (another model's tokenizer counts differently)."""
+    return Counter(_tokenizer(lease.client), run.token_counts.setdefault(lease.model_id, {}))
 
 
 def _tokenizer(client: httpx2.AsyncClient):  # noqa: ANN202

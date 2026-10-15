@@ -111,6 +111,8 @@ class TurnManager:
         self._starting: set[Key] = set()
         self._follow_ups: set[asyncio.Task[None]] = set()
         self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
+        # Each chat's token counts, by model, kept between its turns (lectern.agent.context)
+        self._token_counts: dict[Key, dict[str, dict[str, int]]] = {}
 
     def channel(self, key: Key) -> Channel:
         if key not in self._channels:
@@ -212,6 +214,7 @@ class TurnManager:
             downloads=self.downloads,
             sandbox=self.sandbox,
             ocr_jobs=self.ocr_jobs,
+            token_counts=self._token_counts.setdefault(key, {}),
         )
 
     # --- follow-ups: what a chat queued for when an OCR session finishes --------------------

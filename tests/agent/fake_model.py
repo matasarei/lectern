@@ -60,6 +60,7 @@ class FakeHandle:
     ) -> None:
         self.replies = list(replies)
         self.requests: list[dict] = []
+        self.tokenized: list[str] = []  # what /tokenize was asked to count
         self.hold = hold
         self.hold_if = hold_if  # only the requests it picks wait for `hold`; all, without it
 
@@ -68,6 +69,7 @@ class FakeHandle:
             await asyncio.sleep(0)
             body = json.loads(request.content)
             if request.url.path == "/tokenize":
+                self.tokenized.append(body["content"])
                 return httpx2.Response(200, json={"tokens": [0] * (len(body["content"]) // 4 + 1)})
             self.requests.append(body)
             if self.hold_if is not None and not self.hold_if(body):
