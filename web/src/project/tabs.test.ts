@@ -20,3 +20,14 @@ describe("addTab", () => {
     expect(openTab({ open: [chat], active: chat }, ocr).active).toEqual(ocr);
   });
 });
+
+describe("openTab", () => {
+  it("opens an OCR tab at its page once; the bar keeps the tab without it", () => {
+    const atPage = { ...ocr, page: 12 };
+    const opened = openTab({ open: [chat], active: chat }, atPage);
+    expect(opened.active).toEqual(atPage); // shown at page 12 now
+    expect(opened.open).toEqual([chat, ocr]); // back from the bar later: where it starts
+
+    expect(addTab({ open: [chat], active: chat }, atPage).open).toEqual([chat, ocr]);
+  });
+});
