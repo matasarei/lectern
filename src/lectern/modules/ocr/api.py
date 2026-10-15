@@ -149,6 +149,13 @@ def _refuse_without_cleanup_model(request: Request) -> None:
 async def new_ocr(project_id: int, body: NewOcr, request: Request, user: CurrentUser) -> dict:
     project = await run_in_threadpool(open_project, request, project_id, user)
     db = await run_in_threadpool(store(request).db, project)
+    try:
+        # Not a scan says so first: a missing model doesn't matter for a file OCR can't read.
+        await run_in_threadpool(
+            lambda: ocr_store.check_source(db, owner_id=user.id, artifact_id=body.artifact_id)
+        )
+    except ocr_store.CannotOpen as exc:
+        raise HTTPException(400, str(exc)) from None
     await run_in_threadpool(_refuse_without_cleanup_model, request)
     try:
         row, _ = await run_in_threadpool(
