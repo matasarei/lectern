@@ -17,8 +17,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // same way. Never SIGKILL: nothing would clean up the llama-server processes left behind.
     private static let interruptPatience: TimeInterval = 30
     private static let terminatePatience: TimeInterval = 10
-    // What Lectern left running gets this long to end on SIGTERM before it's killed.
+    // What Lectern left running gets this long to end on SIGTERM before it's killed, and
+    // then this long for the kill to take it away (it lands a moment after it's sent).
     private static let leftoverPatience: TimeInterval = 5
+    private static let killPatience: TimeInterval = 2
 
     // The install folder (~/.lectern) and the version, written into Info.plist at build time.
     private let dir = Bundle.main.object(forInfoDictionaryKey: "LecternDir") as? String ?? ""
@@ -223,7 +225,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // Of the processes noted when Lectern was asked to stop, those that outlived it: the same
     // program under the same number, now with no parent. They get SIGTERM, which a model
     // runner ends on, and a few seconds; one that's still there after that is killed (unlike
-    // Lectern, it has nothing under it to leave behind in turn). Then `done` runs.
+    // Lectern, it has nothing under it to leave behind in turn). Then `done` runs, once they're
+    // gone: the app mustn't leave before them.
     private func endRunnersLeftBehind(then done: @escaping () -> Void) {
         let left = runners.filter {
             !$0.program.isEmpty && parent(of: $0.pid) == 1 && program(of: $0.pid) == $0.program
@@ -236,12 +239,18 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         left.forEach { kill($0.pid, SIGTERM) }
         writeLog(Data("---- ended \(left.count) process(es) Lectern left running ----\n".utf8))
         let deadline = Date().addingTimeInterval(Self.leftoverPatience)
+        var killed = false
         var check: Timer?
         check = timer(every: 0.2, repeats: true) { [weak self] in
             guard let self else { return }
             let still = left.filter { self.program(of: $0.pid) == $0.program }
-            guard still.isEmpty || Date() >= deadline else { return }
-            still.forEach { kill($0.pid, SIGKILL) }
+            if !still.isEmpty, Date() < deadline { return }  // their time to end on SIGTERM
+            if !still.isEmpty, !killed {
+                still.forEach { kill($0.pid, SIGKILL) }
+                killed = true
+                return
+            }
+            if !still.isEmpty, Date() < deadline.addingTimeInterval(Self.killPatience) { return }
             check?.invalidate()
             done()
         }
