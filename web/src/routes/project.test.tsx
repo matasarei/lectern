@@ -16,6 +16,7 @@ let pushChat: (event: object) => void = () => {}; // the open chat's event strea
 let pushProject: (event: object) => void = () => {}; // the project's event stream
 let endChat: () => void = () => {}; // the server stops (a restart): the chat's stream ends
 let sockets: FakeSockets;
+let tabsGate: Promise<void> | null = null; // the saved tabs answer once it resolves
 
 const RESPONSES: Record<string, unknown> = {
   "/api/projects": [],
@@ -54,6 +55,7 @@ const RESPONSES: Record<string, unknown> = {
 beforeEach(() => {
   puts = [];
   sessionsFail = false;
+  tabsGate = null;
   savedTabs = { open: [{ kind: "session", id: 1 }], active: { kind: "session", id: 1 } };
   window.sessionStorage.setItem("lectern.token", "t");
   // The event streams: the open chat's and the project's send what a test pushes; the
@@ -73,6 +75,8 @@ beforeEach(() => {
         if (init?.method === "PUT") {
           savedTabs = JSON.parse(String(init.body));
           puts.push(savedTabs);
+        } else if (tabsGate) {
+          await tabsGate;
         }
         return new Response(JSON.stringify(savedTabs));
       }
@@ -262,6 +266,25 @@ describe("A tab a chat opens while it isn't showing", () => {
       active: { kind: "session", id: 2 },
     }));
     expect(screen.getByRole("tab", { name: "OCR · lease-scan.pdf" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("is kept when it comes before the saved tabs have loaded, and added once they have", async () => {
+    let release = () => {};
+    tabsGate = new Promise((resolve) => (release = resolve));
+    renderAt("/projects/1");
+    await waitFor(() => expect(sockets.to("/api/projects/1/events")).toHaveLength(1));
+    await act(async () => {
+      pushProject({ seq: 0, type: "replayed" });
+      pushProject(exported);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(puts).toEqual([]); // nothing to add it to yet
+
+    await act(async () => release());
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
+      active: { kind: "session", id: 1 },
+    }));
   });
 
   it("is added while Overview is showing, and Overview stays", async () => {
