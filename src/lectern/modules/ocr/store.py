@@ -13,6 +13,7 @@ import functools
 import hashlib
 import json
 import threading
+import weakref
 from dataclasses import asdict
 from pathlib import Path
 
@@ -299,7 +300,11 @@ class NoSuchDoubt(LookupError):
     """The Document has no such doubt (or, to reopen, none resolved by that id)."""
 
 
-_locks: dict[tuple[str, int], threading.RLock] = {}
+# Held weakly: a session's lock lives while someone holds it (two writers at once get the
+# same one), and goes with the last, rather than one per session for as long as the app runs.
+_locks: weakref.WeakValueDictionary[tuple[str, int], threading.RLock] = (
+    weakref.WeakValueDictionary()
+)
 _locks_guard = threading.Lock()
 
 
