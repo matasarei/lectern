@@ -30,11 +30,13 @@ internal static class Program
         string dir = InstallFolder();
         bool background = Array.IndexOf(args, "--background") >= 0;
         // One app per install folder. Opened again (Start menu, a second click), it asks the one
-        // already running to open Lectern in the browser, and leaves.
+        // already running to open Lectern in the browser, and leaves. The installer and the
+        // uninstaller ask it to quit through "-quit" (install.ps1 names them the same way).
         string name = "Lectern-" + dir.ToLowerInvariant().Replace('\\', '_').Replace(':', '_');
         bool first;
         using (var one = new Mutex(true, "Local\\" + name, out first))
         using (var reopen = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\" + name + "-open"))
+        using (var quit = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\" + name + "-quit"))
         {
             if (!first)
             {
@@ -43,7 +45,7 @@ internal static class Program
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            using (var app = new TrayApp(dir, !background, reopen))
+            using (var app = new TrayApp(dir, !background, reopen, quit))
             {
                 Application.Run();
             }
@@ -93,7 +95,7 @@ internal sealed class TrayApp : IDisposable
     private Action afterStop;
     private bool quitting;
 
-    public TrayApp(string dir, bool openWhenReady, EventWaitHandle reopen)
+    public TrayApp(string dir, bool openWhenReady, EventWaitHandle reopen, EventWaitHandle quit)
     {
         this.dir = dir;
         this.openWhenReady = openWhenReady;
@@ -134,6 +136,11 @@ internal sealed class TrayApp : IDisposable
         {
             ui.Post(delegate { Reopened(); }, null);
         }, null, Timeout.Infinite, false);
+        // Asked to quit (an update, an uninstall): as Quit in the menu, Lectern stopped first.
+        ThreadPool.RegisterWaitForSingleObject(quit, delegate
+        {
+            ui.Post(delegate { Quit(); }, null);
+        }, null, Timeout.Infinite, true);
 
         Refresh();
         Start();

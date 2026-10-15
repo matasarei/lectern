@@ -16,7 +16,7 @@ $tray = Join-Path $PSScriptRoot 'tray'
 $folder = Split-Path -Parent $Out
 New-Item -ItemType Directory -Force -Path $folder | Out-Null
 
-# /codepage:65001: the source is UTF-8 ("Starting…"), which csc doesn't assume.
+# /codepage:65001: the source is UTF-8 ("Starting..." with an ellipsis), which csc doesn't assume.
 & $csc /nologo /target:winexe /codepage:65001 /optimize+ `
     "/win32icon:$(Join-Path $tray 'lectern.ico')" `
     /reference:System.Windows.Forms.dll /reference:System.Drawing.dll `

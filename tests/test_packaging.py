@@ -638,3 +638,43 @@ def test_the_windows_icon_has_the_sizes_windows_asks_for():
 
     with Image.open(WINDOWS / "tray/lectern.ico") as icon:
         assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= set(icon.info["sizes"])
+
+
+POWERSHELL_IMAGE = (  # 7.4-ubuntu-22.04
+    "mcr.microsoft.com/powershell"
+    "@sha256:62300a213a9293916333df2b014cd3a8f22fb0b0b65f2bb446aaf436bcf8c868"
+)
+WINDOWS_SCRIPTS = [
+    ROOT / "install.ps1",
+    ROOT / "uninstall.ps1",
+    *sorted(WINDOWS.glob("*.ps1")),
+]
+
+
+@pytest.mark.parametrize("script", WINDOWS_SCRIPTS, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_the_windows_scripts_are_ascii(script):
+    """Windows PowerShell 5.1 reads a script with no byte-order mark in the system's code page:
+    anything but ASCII comes out garbled."""
+    script.read_bytes().decode("ascii")
+
+
+@pytest.mark.parametrize("script", WINDOWS_SCRIPTS, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_the_windows_scripts_never_delete_a_folder_with_remove_item(script):
+    """Remove-Item -Recurse in Windows PowerShell 5.1 follows a junction and deletes what it
+    points at (a models folder linked in from elsewhere): folders go with cmd's rmdir."""
+    for line in script.read_text().splitlines():
+        code = line.split("#", 1)[0]  # what a comment says doesn't count
+        assert not ("Remove-Item" in code and "-Recurse" in code), line
+
+
+@pytest.mark.skipif(
+    not _image_here(POWERSHELL_IMAGE), reason=f"needs Docker with {POWERSHELL_IMAGE}"
+)
+def test_the_windows_scripts_pass_psscriptanalyzer():
+    """Fetches PSScriptAnalyzer from the PowerShell Gallery: run where the image was pulled."""
+    found = subprocess.run(  # noqa: S603 (fixed argv)
+        [shutil.which("docker"), "run", "--rm", "-v", f"{ROOT}:/src:ro", POWERSHELL_IMAGE,
+         "pwsh", "-NoProfile", "-File", "/src/tests/fixtures/analyze_windows.ps1"],
+        capture_output=True, text=True, timeout=600,
+    )  # fmt: skip
+    assert found.returncode == 0, found.stdout + found.stderr
