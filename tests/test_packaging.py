@@ -352,6 +352,24 @@ def test_every_dockerfile_builds_from_the_pinned_python_image(dockerfile):
     assert froms == [_pin("PYTHON_IMAGE")]
 
 
+def _windows_pin(name: str) -> str:
+    """A value from packaging/windows/pins.ps1, read as text."""
+    text = (ROOT / "packaging/windows/pins.ps1").read_text()
+    found = re.search(rf"^\${name} = ['\"]([^'\"]+)['\"]$", text, re.M)
+    assert found, f"${name} is missing from packaging/windows/pins.ps1"
+    return found.group(1)
+
+
+def test_windows_uses_the_same_uv_as_linux_and_the_mac():
+    assert _windows_pin("UvVersion") == _pin("UV_VERSION")
+    url = _windows_pin("UvWindowsX64Url").replace("$UvVersion", _windows_pin("UvVersion"))
+    assert url == (
+        f"https://github.com/astral-sh/uv/releases/download/{_pin('UV_VERSION')}/"
+        "uv-x86_64-pc-windows-msvc.zip"
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", _windows_pin("UvWindowsX64Sha256"))
+
+
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
 def test_the_scripts_pass_shellcheck():
     scripts = [
