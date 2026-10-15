@@ -75,7 +75,7 @@ Run on 2026-09-29 with `LECTERN_TIER=minimum`: Qwen3.5-4B Q4_K_M with an 8,192-t
 
 The same Mac and models, on the MVP plan's integration tree (`origin/main` + its branches), a scratch home with the models linked in.
 
-- **The tool-calling set: 31 of 33** (three prompts more than in September). Right tools in 32, right answers in 32. Failed: **due-day** (searched seven times without reading the lease, then ran out of model calls: the September failure's kind), and **calc-days**, answered without `code.run` as "general knowledge" (see `m1b.md`, 2026-10-15).
+- **The tool-calling set: 31 of 33** (three prompts more than in September). Right tools in 32, right answers in 32. Failed: **due-day** (searched six times, read the lease once, and ran out of model calls before answering: the September failure's kind), and **calc-days**, answered without `code.run` as "general knowledge" (see `m1b.md`, 2026-10-15).
 - **The 100-turn chat: passed.** 99 filler turns, three compactions, and at the end clause 3.3 quoted word for word from `document.read`.
 
 ## Notes
