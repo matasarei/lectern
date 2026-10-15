@@ -38,7 +38,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // it was running, such as a script in the sandbox. It stops them itself on the way out.
     // Any still there once it's gone (it was cut short) are ended by the app, so that stopping
     // never leaves a model in memory.
-    private var runners: [(pid: pid_t, program: String)] = []
+    private var runners: [(pid: pid_t, program: String, parent: pid_t)] = []
     private var healthTimer: Timer?
     private var stopTimers: [Timer] = []
     private var signalSource: DispatchSourceSignal?
@@ -178,7 +178,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         healthTimer?.invalidate()
         detail = ""
         state = .stopping
-        runners = children(of: pid).map { (pid: $0, program: program(of: $0)) }
+        runners = children(of: pid).map { (pid: $0, program: program(of: $0), parent: pid) }
         kill(pid, SIGINT)
         stopTimers = [
             timer(every: Self.interruptPatience, repeats: false) { [weak self] in
@@ -221,12 +221,16 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // MARK: What Lectern leaves behind
 
     // Of the processes noted when Lectern was asked to stop, those that outlived it: the same
-    // program under the same number, now with no parent. They get SIGTERM, which a model
+    // program under the same number, now with no parent. (Or still under the Lectern that has
+    // just ended: the system may tell of its end a moment before it hands its children to
+    // launchd, which is when they'd show no parent.) They get SIGTERM, which a model
     // runner ends on, and a few seconds; one that's still there after that is killed (unlike
     // Lectern, it has nothing under it to leave behind in turn). Then `done` runs.
     private func endRunnersLeftBehind(then done: @escaping () -> Void) {
         let left = runners.filter {
-            !$0.program.isEmpty && parent(of: $0.pid) == 1 && program(of: $0.pid) == $0.program
+            let now = parent(of: $0.pid)
+            return !$0.program.isEmpty && (now == 1 || now == $0.parent)
+                && program(of: $0.pid) == $0.program
         }
         runners = []
         guard !left.isEmpty else {
