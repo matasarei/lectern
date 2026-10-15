@@ -66,9 +66,25 @@ def test_list_and_find(ctx):
     assert found.text.startswith("lease-1998.md · file")
     assert found.refs[0]["name"] == "lease-1998.md"
     assert run(core_tools.FIND, ctx, query="nothing").text == (
-        "Nothing in this project matches 'nothing'."
+        "Nothing in this project matches 'nothing', in a name or in a text."
     )
     assert run(core_tools.LIST, ctx, kind="sessions").text == "New chat · chat session"
+
+
+def test_find_names_the_files_whose_text_matches_when_no_name_does(ctx):
+    """Seen: "meeting" found nothing beside notes.md, headed "Meeting notes", and the 4B
+    read file after file until it ran out of calls."""
+    add_file(ctx, "notes.md", "# Meeting notes\n\nThe tenant asked to pay on the 15th.")
+    add_file(ctx, "lease-1998.md", LEASE)
+
+    found = run(core_tools.FIND, ctx, query="meeting")
+
+    assert found.text == (
+        "No name matches 'meeting', but the text of these files does:\n"
+        "notes.md (Meeting notes)\n"
+        "Read one with document.read, or find the passages with project.search."
+    )
+    assert [r["name"] for r in found.refs] == ["notes.md"]
 
 
 def test_search_returns_block_refs_not_whole_files(ctx):
