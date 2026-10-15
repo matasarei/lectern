@@ -542,7 +542,7 @@ def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
         pytest.skip("make isn't installed")
     shutil.copy(ROOT / "Makefile", tmp_path)
     ran = tmp_path / "ran"
-    (tmp_path / "uninstall.sh").write_text(f'#!/bin/sh\nprintf %s "$*" > {ran}\n')
+    (tmp_path / "uninstall.sh").write_text(f"#!/bin/sh\nprintf %s \"$*\" > '{ran}'\n")
     (tmp_path / "uninstall.sh").chmod(0o755)
     home = tmp_path / "Lectern's home"  # a quote and a space mustn't break the question
     done = subprocess.run(  # noqa: S603
