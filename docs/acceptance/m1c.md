@@ -71,6 +71,13 @@ Run on 2026-09-29 with `LECTERN_TIER=minimum`: Qwen3.5-4B Q4_K_M with an 8,192-t
   - It quoted clause 3.3 exactly.
   - Without the 100 tool calls the turns are much shorter: compaction ran once instead of 6 times, and the run took 51 s instead of 162 s.
 
+### Again on 2026-10-15
+
+The same Mac and models, on the MVP plan's integration tree (`origin/main` + its branches), a scratch home with the models linked in.
+
+- **The tool-calling set: 31 of 33** (three prompts more than in September). Right tools in 32, right answers in 32. Failed: **due-day** (searched seven times without reading the lease, then ran out of model calls: the September failure's kind), and **calc-days**, answered without `code.run` as "general knowledge" (see `m1b.md`, 2026-10-15).
+- **The 100-turn chat: passed.** 99 filler turns, three compactions, and at the end clause 3.3 quoted word for word from `document.read`.
+
 ## Notes
 
 - **The summary as the page shows it:** the Pinned strip, the summary marker and the usage line were covered by the web tests. I didn't open them in a browser during this run.
