@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx2
@@ -51,11 +52,16 @@ class FakeHandle:
     pid = 4242
 
     def __init__(
-        self, replies: list[bytes], *, hold: asyncio.Event | threading.Event | None = None
+        self,
+        replies: list[bytes],
+        *,
+        hold: asyncio.Event | threading.Event | None = None,
+        hold_if: Callable[[dict], bool] | None = None,
     ) -> None:
         self.replies = list(replies)
         self.requests: list[dict] = []
         self.hold = hold
+        self.hold_if = hold_if  # only the requests it picks wait for `hold`; all, without it
 
     def client(self) -> httpx2.AsyncClient:
         async def handler(request: httpx2.Request) -> httpx2.Response:
@@ -64,7 +70,9 @@ class FakeHandle:
             if request.url.path == "/tokenize":
                 return httpx2.Response(200, json={"tokens": [0] * (len(body["content"]) // 4 + 1)})
             self.requests.append(body)
-            if isinstance(self.hold, threading.Event):  # set from another thread
+            if self.hold_if is not None and not self.hold_if(body):
+                pass
+            elif isinstance(self.hold, threading.Event):  # set from another thread
                 while not self.hold.is_set():
                     await asyncio.sleep(0.01)
             elif self.hold is not None:

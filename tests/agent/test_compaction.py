@@ -151,6 +151,38 @@ def test_a_failed_summary_keeps_the_old_one_and_the_turn_is_still_done(store):
     assert state.load(store.db(project), 1).summary == "Old summary."
 
 
+def test_stop_while_compacting_leaves_the_answered_turn_done(store):
+    """Stop is still shown while old turns are folded, after the answer: pressed then, it
+    marked a turn that had answered "stopped"."""
+    never = asyncio.Event()  # the summary never comes back: the turn is stopped meanwhile
+
+    def is_summary(body: dict) -> bool:
+        return body["messages"][0]["content"] == SUMMARY_PROMPT
+
+    handle = FakeHandle([text_reply("Short answer.")], hold=never, hold_if=is_summary)
+    manager = TurnManager(make_runtime(handle), store, core_registry())
+    project = store.create(LOCAL_USER, "Stopped")
+    seed(store, project, pairs=10)
+    state.save_summary(store.db(project), 1, "Old summary.", upto=0)
+
+    async def scenario():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "latest question", [])
+        while not any(e["type"] == "compacting" for e in events(manager, project)):
+            await asyncio.sleep(0)
+        assert await manager.stop((project.id, 1))
+        return await manager.wait((project.id, 1))
+
+    assert asyncio.run(scenario()) == "done"
+    seen = events(manager, project)
+    assert "stopped" not in [e["type"] for e in seen]
+    assert (seen[-2]["type"], seen[-2]["detail"]) == ("compaction_failed", "stopped")
+    assert (seen[-1]["type"], seen[-1]["status"]) == ("turn", "done")
+    assert state.load(store.db(project), 1).summary == "Old summary."
+    with store.db(project)() as session:
+        last = session.scalars(select(MessageRow).order_by(MessageRow.id.desc())).first()
+    assert (last.role, last.content) == ("assistant", "Short answer.")
+
+
 def test_a_short_chat_is_left_alone(store):
     handle = FakeHandle([text_reply("A.")])
     manager = TurnManager(make_runtime(handle), store, core_registry())

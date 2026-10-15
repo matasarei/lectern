@@ -453,7 +453,12 @@ async def run_turn(run: TurnRun) -> str:
                         "tokens": tokens,
                     }
                 )
-                await maybe_compact(run)
+                try:
+                    await maybe_compact(run)
+                except asyncio.CancelledError:
+                    # Stop while old turns were being folded: the answer is stored and stands,
+                    # and the summary is made after a later turn.
+                    run.emit({"type": "compaction_failed", "detail": "stopped"})
                 return "done"
             for call in reply.calls:
                 result = await run_tool(run, call, failures)
