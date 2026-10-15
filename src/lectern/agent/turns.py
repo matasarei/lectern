@@ -45,11 +45,17 @@ class Channel:
     seq: int = 0
     keep: bool = True  # False: live only, nothing kept for a listener that comes later
     forward: Callable[[dict], None] | None = None  # also told every event, after listeners
+    # Kept: only the latest event of each kind this names (an OCR page's newest state), in
+    # the order they came. None: every event.
+    latest: Callable[[dict], object] | None = None
 
     def publish(self, event: dict) -> None:
         self.seq += 1
         event = {**event, "seq": self.seq}
         if self.keep:
+            if self.latest is not None:
+                kind = self.latest(event)
+                self.events = [e for e in self.events if self.latest(e) != kind]
             self.events.append(event)
         for queue in list(self.listeners):
             with contextlib.suppress(asyncio.QueueFull):
