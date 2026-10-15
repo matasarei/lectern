@@ -153,7 +153,8 @@ def _engine_report(request: Request) -> dict | None:
     report = {"variant": engine.variant, "status": "none", "bytes_done": 0,
               "bytes_total": engine.size(), "error": None}  # fmt: skip
     if engine.installed():
-        return {**report, "status": "done", "bytes_done": report["bytes_total"]}
+        weighs = engine.variant_bytes()
+        return {**report, "status": "done", "bytes_done": weighs, "bytes_total": weighs}
     if task is not None and not task.done():
         activity = request.app.state.runtime.activity or {}
         if activity.get("kind") == "engine":
