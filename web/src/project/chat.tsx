@@ -66,6 +66,10 @@ export function ChatTab({
     },
   });
   const stop = useMutation({ mutationFn: () => apiPost(`${base}/stop`) });
+  const cancel = useMutation({
+    mutationFn: (id: string) => apiFetch(`${base}/followups/${id}`, { method: "DELETE" }),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ["chat", projectId, sessionId] }),
+  });
   const decide = useMutation({
     mutationFn: ({ id, approve }: { id: number; approve: boolean }) =>
       apiPost(`${base}/confirmations/${id}`, { approve }),
@@ -116,7 +120,7 @@ export function ChatTab({
   const steps = chat.data.followups.filter((f) => f.tool !== "");
   const busy = live.running || chat.data.state !== "idle";
   const canSend = !busy && text.trim().length > 0 && !send.isPending && !attach.isPending;
-  const error = send.error ?? stop.error ?? decide.error ?? attach.error;
+  const error = send.error ?? stop.error ?? decide.error ?? attach.error ?? cancel.error;
 
   return (
     <div className="mx-auto grid h-full max-h-full max-w-3xl grid-rows-[minmax(0,1fr)_auto] gap-3 p-4">
@@ -158,8 +162,16 @@ export function ChatTab({
           <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="followups">
             <span className="font-semibold text-muted">{t("chat.followups")}</span>
             {steps.map((f) => (
-              <span key={f.id} className="rounded-full bg-paper px-3 py-0.5">
+              <span key={f.id} className="flex items-center gap-1 rounded-full bg-paper px-3 py-0.5">
                 {f.label}
+                <button
+                  type="button"
+                  aria-label={t("chat.cancelFollowup", { label: f.label })}
+                  disabled={cancel.isPending}
+                  onClick={() => cancel.mutate(f.id)}
+                >
+                  ×
+                </button>
               </span>
             ))}
           </div>

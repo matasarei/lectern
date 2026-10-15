@@ -369,6 +369,7 @@
       "turns": "recent"
     },
     "followups": "Waiting",
+    "cancelFollowup": "Cancel: {{label}}",
     "followupRunning": "Follow-up: {{label}}",
     "mention": "Mention a file from the project",
     "pickerLabel": "Project files",

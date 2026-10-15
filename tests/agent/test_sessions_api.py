@@ -317,6 +317,36 @@ def test_export_now_on_someone_elses_chat_is_not_found(api):
     assert client.post(url, headers=headers).status_code == 404
 
 
+def test_a_waiting_follow_up_is_cancelled_once_and_never_runs(api):
+    from lectern.agent import followups
+
+    client, headers, app, pid, handle = api([])
+    project = app.state.projects.get(User(id=1, name="local"), pid)
+    db = app.state.projects.db(project)
+    waiting = followups.add(db, 1, ocr_session_id=5, tool="export.run",
+                            arguments={"format": "odt"}, label="after OCR · scan: export to ODT",
+                            what="export to ODT")  # fmt: skip
+    url = f"/api/projects/{pid}/sessions/1/followups/{waiting.id}"
+
+    cancelled = client.delete(url, headers=headers)
+    again = client.delete(url, headers=headers)
+
+    assert cancelled.status_code == 200 and cancelled.json()["label"] == waiting.label
+    assert again.status_code == 404
+    assert client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()["followups"] == []
+    assert followups.waiting_on(db, 5) == []  # its session finishing finds nothing to run
+    assert handle.requests == []
+
+
+def test_cancelling_on_someone_elses_chat_is_not_found(api):
+    client, headers, app, _, _ = api([])
+    with app.state.sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = app.state.projects.create(User(id=2, name="other"), "Theirs")
+    url = f"/api/projects/{theirs.id}/sessions/1/followups/abc"
+    assert client.delete(url, headers=headers).status_code == 404
+
+
 def test_a_tool_results_refs_are_kept_with_it(api):
     client, headers, _, pid, _ = api(
         [tool_reply("project_find", {"query": "lease"}), text_reply("Found it.")]
