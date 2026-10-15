@@ -6,7 +6,7 @@ import { apiRaw, ApiError } from "../api/client";
 import type { Artifact, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { fileType, formatBytes } from "../format";
-import { Markdown } from "../markdown";
+import { Markdown } from "../lazy-markdown";
 import { startOcr } from "./ocr-api";
 
 /** Text shown in the page up to this size; bigger files download. */

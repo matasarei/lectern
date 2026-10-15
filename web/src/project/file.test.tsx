@@ -35,7 +35,12 @@ beforeEach(() => {
       return new Response(body);
     }),
   );
-  vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:preview", revokeObjectURL: () => {} });
+  // Still a constructor: loading a module on demand (the Markdown viewer) makes URLs.
+  class PreviewUrl extends URL {
+    static createObjectURL = () => "blob:preview";
+    static revokeObjectURL = () => {};
+  }
+  vi.stubGlobal("URL", PreviewUrl);
 });
 
 afterEach(() => {

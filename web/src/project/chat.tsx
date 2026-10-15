@@ -9,7 +9,7 @@ import { ErrorNote } from "../components";
 import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
 import { formatTokens } from "../format";
 import { useRuntime } from "../hooks/useRuntime";
-import { Markdown } from "../markdown";
+import { Markdown } from "../lazy-markdown";
 import { ExportButtons } from "./export-buttons";
 import { OcrLine } from "./ocr-line";
 import { modelWaitText } from "../status";
