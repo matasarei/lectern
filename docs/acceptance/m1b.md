@@ -86,7 +86,7 @@ The same Mac and models (`LECTERN_TIER=minimum`: Qwen3.5-4B, Qwen2.5-Coder-1.5B)
 
 **The criterion is not met:** on each tree 9 prompts were answered without `code.run`. On both: weekday, median, increase, workdays, durations, power and xlsx-sum; on the integration tree also vat and ratio, on `origin/main` also percent and days-between. The answers say why: "That's general knowledge, not from the project's files", or "This is a simple calculation, so I can compute it directly". The cause is the prompt's rule for general questions (`src/lectern/agent/prompts.py`, from `68300aa` and `e92e5de`, 2026-10-08, backlog #11): a 4B reads a sum with no file in it as general knowledge, and the rule lets it answer from what it knows. Most of those answers were right, which is the danger the rule against it exists for. Still to fix: exact results go through `code_run` whatever the question is about; measured by this set, several runs.
 
-Also: **xlsx-sum** failed on both (the scripts failed 3–5 times reading `hours.xlsx`), and **csv-count** on `origin/main` ran out of model calls (it passed on the other tree, as it did once in each run before). Not looked into.
+Also: **xlsx-sum** failed on both (the scripts failed 3–5 times reading `hours.xlsx`), and **csv-count** on `origin/main` ran out of model calls (it passed on the other tree; in September it passed in run 1 and ran out in run 2). Not looked into.
 
 ## Notes
 
