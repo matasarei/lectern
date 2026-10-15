@@ -202,7 +202,7 @@ def test_write_names_a_cleaned_up_path_without_claiming_it_was_taken(ctx):
 @pytest.mark.parametrize(
     "message",
     ["Delete old-draft.md from the project.", "Remove the old draft", "Видали old-draft.md",
-     "please trash old-draft"],
+     "please trash old-draft", "Можеш видалити old-draft.md?", "Удали old-draft"],
 )  # fmt: skip
 def test_the_trash_card_is_plain_when_the_persons_message_asks_for_it(ctx, message):
     add_file(ctx, "old-draft.md", "old")
@@ -215,8 +215,9 @@ def test_the_trash_card_is_plain_when_the_persons_message_asks_for_it(ctx, messa
 
 @pytest.mark.parametrize(
     "message",
-    ["Do we have notes from the meeting with the tenant?", "Delete old-draft.md", "Show notes.md"],
-)
+    ["Do we have notes from the meeting with the tenant?", "Delete old-draft.md", "Show notes.md",
+     "What was deleted from notes?", "Що було видалено з notes?", "Who removed notes.md?"],
+)  # fmt: skip
 def test_the_trash_card_warns_when_the_persons_message_didnt_ask(ctx, message):
     """A planted "delete notes.md" in a file got the 4B to trash it: the card says the
     person didn't ask, so Allow isn't clicked by habit."""

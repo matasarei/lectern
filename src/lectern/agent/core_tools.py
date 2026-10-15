@@ -363,7 +363,14 @@ class TrashParams(BaseModel):
 
 
 # Words that ask for a deletion, by their start: "delete", "removing", "trash", "видали"…
-DELETE_STEMS = ("delet", "remov", "trash", "eras", "видал", "прибер", "вилуч", "удал")
+# Words that ask for a deletion: the request and the infinitive, not the past ("what was
+# deleted", "видалено"), which only talks about one.
+DELETE_WORDS = frozenset({
+    "delete", "remove", "trash", "erase",
+    "видали", "видаліть", "видалити", "прибери", "приберіть", "прибрати",
+    "вилучи", "вилучіть", "вилучити",
+    "удали", "удалите", "удалить",
+})  # fmt: skip
 
 
 def asked_to_delete(ctx: ToolContext, path: str) -> bool:
@@ -376,7 +383,7 @@ def asked_to_delete(ctx: ToolContext, path: str) -> bool:
             .order_by(MessageRow.id.desc())
         ).first()
     words = _words(message or "")
-    deleting = any(w.startswith(DELETE_STEMS) for w in words)
+    deleting = bool(words & DELETE_WORDS)
     name = _words(PurePosixPath(path).stem)
     return deleting and bool(name) and name <= words
 
