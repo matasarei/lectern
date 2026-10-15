@@ -38,7 +38,7 @@ from lectern.modules.ocr.doubts import mark_unsure, unsure_words
 from lectern.modules.ocr.pages import NotAPageSource, rasterise
 from lectern.modules.ocr.recognise import RecogniseFailed, recognise
 from lectern.projects.store import Project, ProjectStore
-from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, now
+from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, iso, now
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import ModelRuntime, NotAvailable, Priority
 from lectern.runtime.wiring import pick
@@ -73,6 +73,8 @@ def page_dict(page: OcrPageRow) -> dict:
         "has_hint": page.has_hint,
         "clean_status": page.clean_status,
         "clean_error": page.clean_error,
+        # When the step it's at began (reading or cleaning); the page counts from it.
+        "step_started_at": iso(page.step_started_at) if page.step_started_at else None,
     }
 
 
@@ -359,8 +361,8 @@ class OcrJobs:
                 self._say_if_held(key, lease_key)
 
                 async def reading(page=page) -> None:  # noqa: ANN001 — once the model is ours
-                    await asyncio.to_thread(self._mark_reading, db, page.id)
-                    self._publish(key, {"type": "page", **page_dict(page), "status": "recognising"})
+                    marked = await asyncio.to_thread(self._mark_reading, db, page.id)
+                    self._publish(key, {"type": "page", **page_dict(marked)})
 
                 settings = entry.ocr
                 read = await self._leased_unless_paused(
@@ -577,9 +579,11 @@ class OcrJobs:
             return session.get(OcrSessionRow, session_id)
 
     @staticmethod
-    def _mark_reading(db, page_id: int) -> None:  # noqa: ANN001
+    def _mark_reading(db, page_id: int) -> OcrPageRow:  # noqa: ANN001
         with db.begin() as session:
-            session.get(OcrPageRow, page_id).status = "recognising"
+            page = session.get(OcrPageRow, page_id)
+            page.status, page.step_started_at = "recognising", now()
+            return page
 
     @staticmethod
     def _unmark_reading(db, page_id: int) -> None:  # noqa: ANN001

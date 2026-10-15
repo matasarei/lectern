@@ -164,6 +164,30 @@ def test_a_session_is_rasterised_then_every_page_read(store, tmp_path):
     assert kinds[-1] == ("session", "done")
 
 
+def test_each_step_of_a_page_says_when_it_began_with_its_zone(store, tmp_path):
+    from datetime import datetime
+
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=1)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+
+    pages = [e for e in _events(jobs, project, sid) if e["type"] == "page"]
+    reading = next(e for e in pages if e["status"] == "recognising")
+    cleaning = next(e for e in pages if e["clean_status"] == "cleaning")
+    for step in (reading, cleaning):
+        assert datetime.fromisoformat(step["step_started_at"]).utcoffset() is not None
+    assert cleaning["step_started_at"] >= reading["step_started_at"]
+    (page,) = ocr_store.pages(store.db(project), sid)
+    assert page.step_started_at is not None  # kept: a reload counts from the same moment
+
+
 def test_a_page_that_fails_is_recorded_and_the_rest_are_read(store, tmp_path):
     loop = " ".join(f"w{i}" for i in range(15))
     server = FakeServer(lambda model, n: {2: 500, 3: f"{loop}\n{loop}"}.get(n, "ok"))

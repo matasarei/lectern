@@ -177,6 +177,8 @@ def mark_cleaning(db: sessionmaker[Session], page_id: int, status: str) -> OcrPa
     with db.begin() as session:
         page = session.get(OcrPageRow, page_id)
         page.clean_status = status
+        if status == "cleaning":  # the model is the page's: its cleanup's time starts
+            page.step_started_at = now()
         return page
 
 
