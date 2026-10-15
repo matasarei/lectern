@@ -7,7 +7,7 @@ export const page = (number: number, over: Partial<OcrPage> = {}): OcrPage => ({
   number, key: `p${String(number).padStart(3, "0")}`, status: "pending", model_id: null,
   lease_key: null, handwritten: false, note: "", seconds: null, cut_off: false, looped: false,
   error: null, width: 2480, height: 3508, has_hint: false, clean_status: "pending",
-  clean_error: null, ...over,
+  clean_error: null, step_started_at: null, ...over,
 });
 
 export const session = (over: Partial<OcrSession> = {}): OcrSession => ({

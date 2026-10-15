@@ -377,6 +377,7 @@ export interface OcrPage {
   has_hint: boolean;
   clean_status: "pending" | "cleaning" | "done" | "failed"; // M3a: the chat model's cleanup
   clean_error: string | null;
+  step_started_at: string | null; // when its reading or cleanup began (UTC, with its zone)
 }
 
 export interface OcrSession {
