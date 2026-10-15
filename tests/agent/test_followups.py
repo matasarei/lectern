@@ -268,6 +268,30 @@ def test_a_notice_whose_session_finished_unseen_posts_when_the_chat_is_next_open
     assert handle.requests == []
 
 
+def test_a_notice_posted_late_says_the_session_isnt_finished_while_questions_are_open(follow):
+    """After a restart the job's own signal is gone: the line comes from the job's notice,
+    not a bare "finished", so open questions aren't hidden."""
+    manager, project, db, ocr_id, handle = follow([])
+    _notice(db, ocr_id)
+    with db.begin() as session:
+        session.get(OcrSessionRow, ocr_id).status = "done"
+    line = "OCR · lease-scan.pdf isn't finished yet: 3 pages read · 2 open questions."
+
+    class Jobs(_Summary):
+        def notice(self, project, session_id):  # noqa: ANN001, ANN201
+            return "done", line
+
+    manager.ocr_jobs = Jobs()  # a notice is only a message: it's posted, open questions or not
+
+    async def go():  # noqa: ANN202
+        await manager.resume_follow_ups(project, 1)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert _transcript(db) == [("assistant", line, None)]
+    assert handle.requests == []
+
+
 def test_the_model_sees_waiting_exports_but_not_notices(follow):
     manager, project, _, ocr_id, handle = follow([text_reply("ok")])
     db = manager.projects.db(project)

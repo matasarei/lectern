@@ -237,6 +237,12 @@ class TurnManager:
         its turns."""
         sessions = await run_in_threadpool(self.projects.db, project)
         stale = await run_in_threadpool(followups.stale, sessions, chat_id)
+        # A finished session says where it stands as its own signal would have: questions
+        # still open aren't "finished".
+        if (notice_of := getattr(self.ocr_jobs, "notice", None)) is not None:
+            done = {f.ocr_session_id for f, status, _ in stale if status == "done"}
+            lines = {i: (await run_in_threadpool(notice_of, project, i))[1] for i in done}
+            stale = [(f, s, lines.get(f.ocr_session_id, notice)) for f, s, notice in stale]
         waiting = [(chat_id, f) for f, status, _ in stale if status != "done"]
         for ocr_id in dict.fromkeys(f.ocr_session_id for f, status, _ in stale if status == "done"):
             done = [(chat_id, f) for f, status, _ in stale
