@@ -255,6 +255,29 @@ describe("Chat", () => {
     expect(within(card).getByText("Allowed")).toBeTruthy();
   });
 
+  it("puts a card under the line of the call it asks about, not below the reply's text", async () => {
+    chat.messages.push(
+      message(5, { content: "delete old.md" }),
+      message(6, {
+        role: "assistant",
+        content: "Moving it now.",
+        tool_calls: [{ id: "c9", type: "function", function: { name: "artifact_trash", arguments: '{"name":"old.md"}' } }],
+      }),
+    );
+    renderChat();
+    await screen.findByText("Moving it now.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "delete old.md", attachments: [] },
+      { type: "confirm", confirmation_id: 7, call_id: "c9", name: "artifact.trash", text: "Move old.md to the trash?" },
+    );
+
+    const cards = screen.getAllByRole("alertdialog", { name: "Allow this?" });
+    expect(cards).toHaveLength(1); // not again in the live part of the reply
+    expect(screen.getAllByTestId("tool-line").at(-1)!.parentElement!.nextElementSibling).toBe(cards[0]);
+    const text = screen.getByText("Moving it now.");
+    expect(cards[0].compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("marks where the model's view starts when older messages were left out", async () => {
     renderChat();
     await screen.findByText("Yes: lease.md.");

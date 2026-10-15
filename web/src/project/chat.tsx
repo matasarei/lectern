@@ -132,9 +132,14 @@ export function ChatTab({
           live={live}
           followups={chat.data.followups}
           onOpen={onOpen}
+          onDecide={(id, approve) => decide.mutate({ id, approve })}
           liveReply={
             hasLiveReply(live) && (
-              <LiveReply live={live} onDecide={(id, approve) => decide.mutate({ id, approve })} />
+              <LiveReply
+                live={live}
+                placed={new Set(chat.data.messages.flatMap((m) => m.tool_calls?.map((c) => c.id) ?? []))}
+                onDecide={(id, approve) => decide.mutate({ id, approve })}
+              />
             )
           }
         />
@@ -337,6 +342,7 @@ function Transcript({
   liveReply,
   followups,
   onOpen,
+  onDecide,
 }: {
   projectId: number;
   chatId: number;
@@ -346,11 +352,14 @@ function Transcript({
   liveReply: React.ReactNode; // the reply as it streams in; it joins the last reply's card
   followups: Chat["followups"];
   onOpen: (tab: Tab) => void;
+  onDecide: (confirmationId: number, approve: boolean) => void;
 }) {
   const { t } = useTranslation();
   const results = new Map(
     messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m] as const),
   );
+  // A card shows under the line of the call it asks about (the live reply has the others).
+  const cards = new Map(live.cards.map((card) => [card.call_id, card] as const));
   // The markers go where the model's view starts: after the messages covered by the summary,
   // and after any it had to leave out of the last call (counted from the summary on).
   const leftOut = live.context?.left_out ?? 0;
@@ -387,15 +396,17 @@ function Transcript({
                   .map((message) => (
                     <Fragment key={message.id}>
                       {message.tool_calls?.map((call) => (
-                        <ToolLine
-                          key={call.id}
-                          projectId={projectId}
-                          call={call}
-                          result={results.get(call.id)}
-                          progress={live.progress[call.id]}
-                          followups={followups}
-                          onOpen={onOpen}
-                        />
+                        <Fragment key={call.id}>
+                          <ToolLine
+                            projectId={projectId}
+                            call={call}
+                            result={results.get(call.id)}
+                            progress={live.progress[call.id]}
+                            followups={followups}
+                            onOpen={onOpen}
+                          />
+                          {cards.has(call.id) && <ConfirmCard card={cards.get(call.id)!} onDecide={onDecide} />}
+                        </Fragment>
                       ))}
                       {message.content && <Markdown text={message.content} />}
                       {message.refs.length > 0 && (
@@ -649,38 +660,55 @@ function hasLiveReply(live: LiveTurn): boolean {
   return live.running || live.cards.length > 0 || live.text !== "" || Boolean(live.stats?.tps);
 }
 
+/** A card that asks before a tool runs: Allow or Don't allow, then which it was. */
+function ConfirmCard({
+  card,
+  onDecide,
+}: {
+  card: LiveTurn["cards"][number];
+  onDecide: (confirmationId: number, approve: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="grid gap-2 rounded-lg border border-accent bg-accent-soft p-3 text-sm"
+      role="alertdialog"
+      aria-label={t("chat.confirmTitle")}
+    >
+      <p className="font-semibold">{card.text}</p>
+      {card.approved === null ? (
+        <div className="flex gap-2">
+          <button className="btn-primary" onClick={() => onDecide(card.confirmation_id, true)}>
+            {t("chat.allow")}
+          </button>
+          <button className="btn-secondary" onClick={() => onDecide(card.confirmation_id, false)}>
+            {t("chat.deny")}
+          </button>
+        </div>
+      ) : (
+        <p className="text-muted">{card.approved ? t("chat.allowed") : t("chat.denied")}</p>
+      )}
+    </div>
+  );
+}
+
 function LiveReply({
   live,
+  placed,
   onDecide,
 }: {
   live: LiveTurn;
+  placed: Set<string>; // the calls already in the transcript: their cards show under them
   onDecide: (confirmationId: number, approve: boolean) => void;
 }) {
   const { t } = useTranslation();
   return (
     <>
-      {live.cards.map((card) => (
-        <div
-          key={card.confirmation_id}
-          className="grid gap-2 rounded-lg border border-accent bg-accent-soft p-3 text-sm"
-          role="alertdialog"
-          aria-label={t("chat.confirmTitle")}
-        >
-          <p className="font-semibold">{card.text}</p>
-          {card.approved === null ? (
-            <div className="flex gap-2">
-              <button className="btn-primary" onClick={() => onDecide(card.confirmation_id, true)}>
-                {t("chat.allow")}
-              </button>
-              <button className="btn-secondary" onClick={() => onDecide(card.confirmation_id, false)}>
-                {t("chat.deny")}
-              </button>
-            </div>
-          ) : (
-            <p className="text-muted">{card.approved ? t("chat.allowed") : t("chat.denied")}</p>
-          )}
-        </div>
-      ))}
+      {live.cards
+        .filter((card) => !placed.has(card.call_id))
+        .map((card) => (
+          <ConfirmCard key={card.confirmation_id} card={card} onDecide={onDecide} />
+        ))}
       {live.text && (
         <div data-testid="streaming">
           <Markdown text={live.text} />

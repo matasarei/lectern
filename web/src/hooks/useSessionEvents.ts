@@ -10,7 +10,8 @@ export interface LiveTurn {
   text: string; // streamed since the last stored assistant message
   model: { model_id: string; ctx: number } | null;
   context: { left_out: number; released: number; stubbed_files: string[] } | null;
-  cards: { confirmation_id: number; name: string; text: string; approved: boolean | null }[];
+  // call_id: the tool call each asks about, so it shows under that call's line
+  cards: { confirmation_id: number; call_id: string; name: string; text: string; approved: boolean | null }[];
   // The latest progress of each tool at work, by tool call.
   progress: Record<string, { label: string; done?: number; total?: number; line?: string; seconds?: number }>;
   stats: { ttft: number | null; tps: number | null } | null;
@@ -73,7 +74,13 @@ export function reduce(state: LiveTurn, event: ChatEvent | typeof CONNECTED): Li
         ...next,
         cards: [
           ...state.cards,
-          { confirmation_id: event.confirmation_id, name: event.name, text: event.text, approved: null },
+          {
+            confirmation_id: event.confirmation_id,
+            call_id: event.call_id,
+            name: event.name,
+            text: event.text,
+            approved: null,
+          },
         ],
       };
     case "confirmed":
