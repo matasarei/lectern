@@ -323,6 +323,19 @@ describe("OCR tab", () => {
     expect(posts.at(-1)).toEqual({
       url: "/api/projects/1/export", body: { artifact_id: 40, format: "odt", accept_loss: false },
     });
+    expect(screen.queryByText(/^as it is/)).toBeNull(); // nothing open: nothing to say
+  });
+
+  it("says an export before the questions are answered is as it is, with them marked", async () => {
+    current = session({
+      status: "done",
+      document: { version: 2, artifact_id: 40, open_doubts: 3 },
+      pages: [page(1, { status: "done", clean_status: "done" })],
+    });
+    renderTab();
+    const odt = await screen.findByRole("button", { name: "ODT" });
+    expect((odt as HTMLButtonElement).disabled).toBe(false); // still there to use
+    expect(within(screen.getByTestId("export")).getByText("as it is: its 3 open questions are marked")).toBeTruthy();
   });
 
   it("offers no export while the session is still at work", async () => {

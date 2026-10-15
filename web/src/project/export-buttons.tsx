@@ -19,10 +19,12 @@ export function ExportButtons({
   projectId,
   artifactId,
   onOpen,
+  note,
 }: {
   projectId: number;
   artifactId: number; // what to export: a session's document.md, a Markdown file…
   onOpen: (tab: Tab) => void;
+  note?: string; // beside the buttons: what an export now would be ("as it is, with …")
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -76,6 +78,7 @@ export function ExportButtons({
             {f.format.toUpperCase()}
           </button>
         ))}
+        {note && <span className="text-xs text-muted">{note}</span>}
       </div>
       {asking && (
         <div className="flex flex-wrap items-center gap-2" role="alert">
