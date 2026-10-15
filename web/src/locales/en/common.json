@@ -236,7 +236,13 @@
     "new": "New project",
     "empty": "No projects yet. A project is a folder for your chats and files.",
     "folder": "Folder: {{folder}}",
-    "settings": "Models & memory"
+    "settings": "Models & memory",
+    "remove": "Remove {{name}}",
+    "removeTitle": "Remove {{name}}?",
+    "removeWhat": "Its chats and OCR sessions stop, and its folder, with every file and scan in it, goes to the trash. After 30 days it's deleted for good.",
+    "removeType": "To confirm, type the project's name: {{name}}",
+    "removeCancel": "Cancel",
+    "removeConfirm": "Remove"
   },
   "project": {
     "overview": "Overview",
@@ -248,6 +254,7 @@
     "vramIdle": "{{budget}} · nothing loaded",
     "back": "Projects",
     "missing": "This tab's item is no longer in the project.",
+    "gone": "This project isn't here: it was removed, or it isn't yours.",
     "fileTab": "File",
     "chatTab": "Chat",
     "ocrTab": "OCR · {{title}}",
