@@ -187,19 +187,31 @@ def _until(condition, what: str, timeout: float = 20.0) -> None:  # noqa: ANN001
     raise AssertionError(f"never happened: {what}")
 
 
-def _arguments(pid: int) -> str:
+def _ps(pid: int, column: str) -> str:
+    """One of ps's columns for the process ("args=", "stat="); "" once it's gone."""
     shown = subprocess.run(  # noqa: S603
-        ["/bin/ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=60
+        ["/bin/ps", "-o", column, "-p", str(pid)], capture_output=True, text=True, timeout=60
     )
-    return shown.stdout
+    return shown.stdout.strip()
 
 
 def _alive(pid: int) -> bool:
+    """Running, not just a number: a killed process whose parent is gone stays a zombie until
+    launchd collects it, and os.kill(pid, 0) still finds a zombie."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    return not _ps(pid, "stat=").startswith("Z")
+
+
+def _text(path: Path) -> str:
+    """The log so far. The app writes the pid file a moment before its first log line, so a
+    test that has just seen the pid file may find no log yet."""
+    try:
+        return path.read_text()
+    except FileNotFoundError:
+        return ""
 
 
 @pytest.fixture
@@ -247,7 +259,7 @@ def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_qui
         _until(pid_file.exists, "the app started Lectern and wrote its process id")
         lectern = int(pid_file.read_text())
         assert _alive(lectern)
-        _until(lambda: log.exists() and "an ordinary line" in log.read_text(), "the log")
+        _until(lambda: "an ordinary line" in _text(log), "the log")
         assert "SECRET" not in log.read_text() and "token" not in log.read_text()
         assert log.stat().st_mode & 0o777 == 0o600
 
@@ -278,7 +290,7 @@ def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, install
         _until(runner_file.exists, "Lectern started its runner")
         runner = int(runner_file.read_text())
         stack.callback(lambda: _alive(runner) and os.kill(runner, signal.SIGKILL))
-        _until(lambda: "an ordinary line" in log.read_text(), "Lectern is up")
+        _until(lambda: "an ordinary line" in _text(log), "Lectern is up")
 
         app.send_signal(signal.SIGTERM)  # Shut Down
         assert app.wait(timeout=20) == 0
@@ -302,21 +314,26 @@ def test_the_app_takes_over_a_lectern_left_running_and_says_its_log_is_paused(
     with _app(tmp_path, bundle) as crashed:
         _until(pid_file.exists, "the app started Lectern")
         lectern = int(pid_file.read_text())
+        # The app's own first line, written just after the pid file: killed before it, the
+        # app would leave no log, and no "started" line to count below.
+        _until(lambda: "---- Lectern 1.0.0 started" in _text(log), "the app's first log line")
         if caught == "running":
-            _until(lambda: "an ordinary line" in log.read_text(), "Lectern is up")
+            _until(lambda: "an ordinary line" in _text(log), "Lectern is up")
         crashed.kill()  # the app is force-quit: Lectern lives on
         crashed.wait()
     assert _alive(lectern)
 
     with _app(tmp_path, bundle) as app:
-        _until(lambda: f"took over Lectern (process {lectern})" in log.read_text(), "the take-over")
+        _until(lambda: f"took over Lectern (process {lectern})" in _text(log), "the take-over")
         assert "isn't kept until Restart" in log.read_text()
         assert int(pid_file.read_text()) == lectern  # no second Lectern was started
         assert log.read_text().count("---- Lectern 1.0.0 started") == 1
 
         stopped = folder / "app/venv/bin/lectern.stopped"
         if caught == "still starting":  # let it become Lectern, so SIGINT is its to handle
-            _until(lambda: "app/venv/bin/lectern" in _arguments(lectern), "the start script ended")
+            _until(
+                lambda: "app/venv/bin/lectern" in _ps(lectern, "args="), "the start script ended"
+            )
         app.send_signal(signal.SIGTERM)
         assert app.wait(timeout=20) == 0
     if caught == "running":  # (caught earlier, the stand-in may not have set its trap yet)
