@@ -692,6 +692,21 @@ def test_a_failed_update_leaves_the_app_and_the_version_as_they_were(tmp_path, f
     assert _opens(tmp_path) == 1
 
 
+def test_a_step_failing_after_the_app_was_quit_opens_it_again(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    url = _home(tmp_path) / "bin/lectern-url"
+    url.chmod(0o444)  # it can't be written again: a step after the switch fails
+    try:
+        with _open_app(tmp_path) as app:
+            done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
+            assert app.wait(timeout=10) == -15  # it was quit for the switch
+    finally:
+        url.chmod(0o755)
+    assert done.returncode != 0
+    assert "opened again" in done.stderr
+    assert _opens(tmp_path) == 2  # the first install's, and this one's on the way out
+    assert _bundle(tmp_path).exists()
+
 def test_an_update_that_doesnt_start_says_so_and_keeps_the_previous_version(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     home = _home(tmp_path)

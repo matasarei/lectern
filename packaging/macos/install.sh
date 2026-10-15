@@ -97,6 +97,19 @@ models_before="$HOME/Library/Application Support/Lectern/models"
 offer_models=""
 if [ -d "$models_before" ] && [ ! -e "$data/models" ]; then offer_models=1; fi
 
+# Lectern.app was open, and a step after it was quit failed: open it again as it is now (the
+# new app, or the old one put back), on whichever version app/venv points at.
+reopen_after_a_failure() {
+    status=$?
+    [ "$status" -ne 0 ] || return 0
+    if [ ! -e "$bundle" ] && [ -e "$bundle.old" ]; then mv "$bundle.old" "$bundle"; fi
+    if [ -e "$bundle" ]; then
+        open -g "$bundle" --args --background || true
+        echo "install.sh: Lectern.app was opened again, as it was before this step." >&2
+    fi
+    exit "$status"
+}
+
 # --- the switch ---------------------------------------------------------------------------
 # An open app is quit first: it handles SIGTERM as its own Shut Down, which stops Lectern cleanly.
 # It's opened again below. An app that isn't open isn't started by an update.
@@ -115,6 +128,9 @@ if pgrep -f "$binary" >/dev/null; then
         die "Lectern.app didn't quit. Shut it down from its menu and run this again; the version \
 in use is unchanged."
     fi
+    # From here a step that fails would leave Lectern closed: it's opened again on the way
+    # out, the old app put back if the swap was cut short.
+    trap reopen_after_a_failure EXIT
 fi
 switch_venv
 rm -rf "$bundle.old"
@@ -138,6 +154,7 @@ chmod 0755 "$dir/bin/lectern-serve"
 write_settings "Restart, in Lectern's menu (its icon in the menu bar)"
 
 # --- start it -----------------------------------------------------------------------------
+trap - EXIT  # the switch is done: from here, starting it is this script's own business
 if [ -z "$start" ]; then
     cat <<CLOSED
 Upgraded to Lectern $version. Lectern wasn't open, so it isn't now: open it from
