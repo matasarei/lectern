@@ -504,7 +504,8 @@
   "export": {
     "label": "Export:",
     "anyway": "Export anyway",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "formatsFailed": "The export formats couldn't be read: {{detail}}"
   },
   "ocrSteps": {
     "read": "Reading",

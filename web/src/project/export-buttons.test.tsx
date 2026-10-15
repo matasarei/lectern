@@ -76,4 +76,11 @@ describe("ExportButtons", () => {
     await waitFor(() => expect(opened).toEqual([{ kind: "artifact", id: 31 }]));
     expect(posts.at(-1)).toEqual({ artifact_id: 7, format: "md", accept_loss: true });
   });
+
+  it("says so when the formats can't be read, rather than showing nothing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
+    renderButtons(() => {});
+    expect(await screen.findByText("The export formats couldn't be read: boom")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
 });
