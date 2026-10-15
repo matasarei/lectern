@@ -53,7 +53,7 @@ export function ProjectsPage() {
       {projects.data?.length === 0 && <p className="text-muted">{t("projects.empty")}</p>}
       <ul className="grid gap-2">
         {projects.data?.map((project) => (
-          <li key={project.id} className="flex items-stretch gap-2">
+          <li key={project.id} className="flex min-w-0 items-stretch gap-2">
             <Link
               to="/projects/$projectId"
               params={{ projectId: String(project.id) }}
