@@ -49,15 +49,18 @@ def test_the_prompt_has_the_rules_for_open_questions_notes_exports_and_scans():
 
 def test_the_prompt_lets_general_questions_be_answered_from_what_the_model_knows():
     """Seen on the test server: asked what it knows about Old Church Slavonic, the 4B said
-    its knowledge was "limited to this project". What it must not make up is the files and
-    the person's own facts, not everything nobody gave it."""
+    its knowledge was "limited to this project". General knowledge is fine, said as such;
+    the project's files and the person's own facts are still never made up."""
     prompt = system_prompt("x", sandbox=True)
-    assert "Never make up what a file says, or the person's own facts" in prompt
+    assert "General questions" in prompt and "from your own knowledge" in prompt
+    assert "Never make up what a file says" in prompt
 
 
-def test_the_prompt_has_no_rule_for_general_questions():
-    """A line letting general questions be answered from memory made the 4B answer 9 of 20
-    calculations without code_run ("That's general knowledge"), even with calculations
-    excluded in so many words. Without it the general questions still get answers."""
-    prompt = system_prompt("x", sandbox=True)
-    assert "General questions" not in prompt and "from your own knowledge" not in prompt
+def test_exact_results_come_before_general_questions_and_need_no_file():
+    """Read first, the general-questions line made the 4B answer about half the calc set
+    from memory ("That's general knowledge"). Below the exact-results rule it does so less
+    often (code_run in 14-16 of 20 against 10-11), and still answers general questions."""
+    for sandbox in (True, False):
+        prompt = system_prompt("x", sandbox=sandbox)
+        assert prompt.index("- Exact results") < prompt.index("- General questions")
+        assert "even with no file" in prompt
