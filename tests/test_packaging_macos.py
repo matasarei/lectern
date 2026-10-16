@@ -840,6 +840,29 @@ def test_uninstall_stops_a_lectern_left_running_without_the_app_and_nothing_else
         left.wait()
 
 
+def test_uninstall_with_a_lectern_that_wont_stop_removes_nothing(tmp_path):
+    """SIGINT, then SIGTERM, and it's still there: nothing goes from under it."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home, ready = _home(tmp_path), tmp_path / "ready"
+    lectern = home / "app/venv/bin/lectern"
+    lectern.write_text(
+        f"#!/bin/sh\ntrap '' INT TERM\n: > \"{ready}\"\nwhile :; do sleep 0.1; done\n"
+    )
+    lectern.chmod(0o755)
+    left = subprocess.Popen([str(lectern), "serve"])  # noqa: S603
+    try:
+        _until(ready.exists, "Lectern is running, ignoring SIGINT and SIGTERM")
+        (home / "app/lectern.pid").write_text(f"{left.pid}\n")
+        done = _uninstall(tmp_path, LECTERN_QUIT_WAIT="1")
+        assert done.returncode == 1
+        assert f"Lectern (process {left.pid}) didn't stop; nothing was removed." in done.stderr
+        assert left.poll() is None
+        assert _bundle(tmp_path).exists() and (home / "app/venv").exists()
+    finally:
+        left.kill()
+        left.wait()
+
+
 def test_uninstall_never_signals_another_process_with_the_number_in_the_pid_file(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     other = subprocess.Popen(["/bin/sleep", "600"])  # noqa: S603
