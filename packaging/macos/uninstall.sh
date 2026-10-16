@@ -57,6 +57,7 @@ alive() {
     kill -0 "$1" 2>/dev/null && [ "$(ps -o stat= -p "$1" 2>/dev/null | cut -c1)" != "Z" ]
 }
 left="$(cat "$dir/app/lectern.pid" 2>/dev/null || true)"
+case "$left" in *[!0-9]*) left="" ;; esac  # one process number, or nothing to stop
 real_dir="$(cd "$dir" 2>/dev/null && pwd -P || echo "$dir")"
 if [ -n "$left" ] && alive "$left"; then
     case "$(ps -o args= -p "$left" 2>/dev/null)" in
