@@ -272,6 +272,23 @@ def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_qui
 
 
 @needs_a_desktop
+def test_a_log_past_its_limit_is_moved_aside_when_lectern_starts(tmp_path, installed):
+    """Only the start at launch can be driven from here; the one from Restart, in the menu,
+    goes through the same start() and is checked by hand."""
+    folder, bundle = installed
+    log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
+    log.parent.mkdir(parents=True)
+    log.write_bytes(b"an old line\n" * 500_000)  # 6 MB, past the 5 MB limit
+    with _app(tmp_path, bundle) as app:
+        _until(lambda: "---- Lectern 1.0.0 started" in _text(log), "the app's first log line")
+        app.send_signal(signal.SIGTERM)
+        assert app.wait(timeout=20) == 0
+    older = log.with_name("lectern.log.1")
+    assert older.stat().st_size == 6_000_000
+    assert "an old line" not in log.read_text() and log.stat().st_size < 10_000
+
+
+@needs_a_desktop
 @pytest.mark.parametrize(
     "runner_command",
     ["/bin/sleep 600", "/bin/sh -c 'trap \"\" TERM; while :; do sleep 1; done'"],
