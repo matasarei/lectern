@@ -406,6 +406,9 @@ FAKES = {
     "codesign": 'echo "codesign $*" >> "$LOG"; '
     'if [ -n "${FAIL_CODESIGN:-}" ]; then echo "errSecInternalComponent" >&2; exit 1; fi',
     "open": 'echo "open $*" >> "$LOG"',
+    # FAIL_MV_NEW: the new app can't be moved into place (the swap is cut short).
+    "mv": 'if [ -n "${FAIL_MV_NEW:-}" ] && [ "$1" != "${1%.app.new}" ]; then '
+    'echo "mv: rename failed" >&2; exit 1; fi; exec /bin/mv "$@"',
     # The running app is the process whose id is in STATE/app-pid, for as long as it lives
     # (a killed child of the test is a zombie until the test collects it: not running).
     "pgrep": 'p="$(cat "$STATE/app-pid" 2>/dev/null)"; [ -n "$p" ] || exit 1; '
@@ -747,6 +750,17 @@ def test_a_step_failing_after_the_app_was_quit_opens_it_again(tmp_path):
     assert "opened again" in done.stderr
     assert _opens(tmp_path) == 2  # the first install's, and this one's on the way out
     assert _bundle(tmp_path).exists()
+
+
+def test_a_swap_cut_short_puts_the_old_app_back_and_opens_it(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    bundle = _bundle(tmp_path)
+    with _open_app(tmp_path) as app:
+        done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), FAIL_MV_NEW="1")
+        assert app.wait(timeout=10) == -15
+    assert done.returncode != 0 and "opened again" in done.stderr
+    assert _version(bundle) == "0.1.0" and not bundle.with_name("Lectern.app.old").exists()
+    assert _opens(tmp_path) == 2
 
 
 def test_an_update_that_doesnt_start_says_so_and_keeps_the_previous_version(tmp_path):
