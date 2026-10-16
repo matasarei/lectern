@@ -15,6 +15,7 @@ fi
 
 here="$(cd "$(dirname "$0")" && pwd)"
 dir="${LECTERN_DIR:-$HOME/.lectern}"
+dir="${dir%/}"  # as install.sh: matched below against the paths Lectern runs from
 bundle="$HOME/Applications/Lectern.app"
 binary="$bundle/Contents/MacOS/Lectern"
 

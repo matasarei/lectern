@@ -45,6 +45,7 @@ esac
 Command Line Tools (swiftc): xcode-select --install"
 
 dir="${LECTERN_DIR:-$HOME/.lectern}"
+dir="${dir%/}"  # ~/.lectern/ is ~/.lectern: one spelling, compared below
 # It goes into the app's Info.plist and into bin/lectern-serve: plain paths only.
 case "$dir" in
     /*) ;;
@@ -74,6 +75,7 @@ if [ -e "$bundle" ] \
 fi
 # There is one Lectern.app: an install in another folder (LECTERN_DIR) would take it over.
 built_for="$(dir_of "$bundle/Contents/Info.plist")"
+built_for="${built_for%/}"
 if [ -e "$bundle" ] && [ -n "$built_for" ] && [ "$built_for" != "$dir" ]; then
     die "$bundle runs the Lectern in $built_for, not $dir. Uninstall that one first \
 (LECTERN_DIR=$built_for ./uninstall.sh), or install there."

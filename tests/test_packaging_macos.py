@@ -515,6 +515,13 @@ def test_an_install_in_another_folder_doesnt_take_over_the_app(tmp_path):
     assert _version(_bundle(tmp_path)) == "0.1.0" and not other.exists()
 
 
+def test_the_same_folder_with_a_trailing_slash_is_the_same_install(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), LECTERN_DIR=f"{_home(tmp_path)}/")
+    assert done.returncode == 0, done.stderr
+    assert _version(_bundle(tmp_path)) == "0.2.0"
+
+
 def test_on_a_mac_run_as_root_it_refuses(tmp_path):
     env = _env(tmp_path)
     (tmp_path / "fakebin/id").write_text(
