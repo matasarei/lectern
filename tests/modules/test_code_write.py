@@ -344,12 +344,12 @@ def test_a_name_two_files_share_gives_neither_unless_the_path_is_named(make_ctx)
 def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandbox(make_ctx):
     """Seen on the 4B: told only "an Excel workbook", the coder guessed a column 'hours' for
     'Hours', and finding the name took a write and a run more than the turn had left."""
-    from lectern.modules.sandbox.tools import SHEET_PREVIEW
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
 
     def behave(code, inputs, out):  # noqa: ANN001, ANN202
         if code == SHEET_PREVIEW:  # what pandas prints of each sheet, inside the sandbox
             return RunResult(
-                0, "== hours.xlsx\ncolumns: Day, Hours\nDay  Hours\nMon    7.5\n", "", 0.4
+                0, SHEET_MARK + "hours.xlsx\ncolumns: Day, Hours\nDay  Hours\nMon    7.5\n", "", 0.4
             )
         return RunResult(0, "total 39.25\n", "", 0.2)
 
@@ -393,13 +393,13 @@ def test_without_a_spreadsheet_input_there_is_no_preview_run(make_ctx):
 
 def test_a_big_workbooks_preview_is_cut_and_says_so(make_ctx):
     """Forty sheets, or two hundred columns, would crowd the brief out of the coder's request."""
-    from lectern.modules.sandbox.tools import SHEET_PREVIEW, SHEET_PREVIEW_CHARS
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW, SHEET_PREVIEW_CHARS
 
     many = "\n".join(f"sheet 'Week {n}': Day, Hours\nDay  Hours\nMon    7.5" for n in range(1, 200))
 
     def behave(code, inputs, out):  # noqa: ANN001, ANN202
         if code == SHEET_PREVIEW:
-            return RunResult(0, f"== hours.xlsx\n{many}\n", "", 0.4)
+            return RunResult(0, f"{SHEET_MARK}hours.xlsx\n{many}\n", "", 0.4)
         return RunResult(0, "total 39.25\n", "", 0.2)
 
     ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
@@ -411,3 +411,21 @@ def test_a_big_workbooks_preview_is_cut_and_says_so(make_ctx):
     assert "sheet 'Week 1': Day, Hours" in asked and "sheet 'Week 199'" not in asked
     assert "(shortened here: the workbook has more sheets, columns or rows)" in asked
     assert len(asked) < SHEET_PREVIEW_CHARS + 600  # the cut preview, the brief and the header
+
+
+def test_a_cell_with_two_equals_signs_doesnt_cut_the_preview(make_ctx):
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
+
+    shown = "columns: Rule, Hours\nRule  Hours\n== 8 a day   7.5\nweekend    0\n"
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW:
+            return RunResult(0, f"{SHEET_MARK}hours.xlsx\n{shown}", "", 0.4)
+        return RunResult(0, "total 7.5\n", "", 0.2)
+
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+    add(ctx, "hours.xlsx", "Rule,Hours")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+
+    assert "weekend    0" in handle.requests[0]["messages"][1]["content"]

@@ -301,6 +301,7 @@ PREVIEW_LINES = 5
 PREVIEW_LINE_CHARS = 300
 SHEET_SUFFIXES = {".xlsx", ".xlsm"}
 SHEET_PREVIEW_CHARS = 2000  # of one workbook's preview: forty sheets or wide ones are cut
+SHEET_MARK = "\x1e"  # starts each file's part of the preview: no cell holds a record separator
 # Run in the sandbox before the coder is asked: what pandas, the reader its script will use,
 # makes of each spreadsheet in /in. The server itself has no Excel reader.
 SHEET_PREVIEW = f"""from pathlib import Path
@@ -308,7 +309,7 @@ SHEET_PREVIEW = f"""from pathlib import Path
 import pandas as pd
 
 for path in sorted(Path("/in").iterdir()):
-    print(f"== {{path.name}}")
+    print({SHEET_MARK!r} + path.name)
     sheets = pd.read_excel(path, sheet_name=None, nrows={PREVIEW_LINES})
     for name, frame in sheets.items():
         columns = ", ".join(str(c) for c in frame.columns)
@@ -478,7 +479,7 @@ async def _sheet_previews(
     if not result.ok:
         return {}
     shown: dict[str, str] = {}
-    for part in result.stdout.split("== ")[1:]:
+    for part in result.stdout.split(SHEET_MARK)[1:]:
         name, _, text = part.partition("\n")
         if name in sheets and text.strip():
             shown[name] = _shortened(text.rstrip(), SHEET_PREVIEW_CHARS)
