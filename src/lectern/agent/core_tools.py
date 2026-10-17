@@ -383,14 +383,14 @@ class TrashParams(BaseModel):
     name: str = Field(min_length=1, description="The file's name, as in project.list.")
 
 
-# Words that ask for a deletion, by their start: "delete", "removing", "trash", "видали"…
-# Words that ask for a deletion: the request and the infinitive, not the past ("what was
-# deleted", "видалено"), which only talks about one.
+# Words that ask for a deletion: the request, the infinitive and the -ing form, not the past
+# ("what was deleted", "видалено"), which only talks about one.
 DELETE_WORDS = frozenset({
-    "delete", "remove", "trash", "erase",
-    "видали", "видаліть", "видалити", "прибери", "приберіть", "прибрати",
-    "вилучи", "вилучіть", "вилучити",
-    "удали", "удалите", "удалить",
+    "delete", "remove", "trash", "erase", "deleting", "removing", "trashing", "erasing",
+    "видали", "видаліть", "видалити", "видаляй", "видаляйте", "видаляти",
+    "прибери", "приберіть", "прибрати", "прибирай", "прибирайте",
+    "вилучи", "вилучіть", "вилучити", "вилучай",
+    "удали", "удалите", "удалить", "удаляй", "удаляйте", "удалять",
 })  # fmt: skip
 
 

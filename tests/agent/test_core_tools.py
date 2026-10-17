@@ -218,7 +218,8 @@ def test_write_names_a_cleaned_up_path_without_claiming_it_was_taken(ctx):
 @pytest.mark.parametrize(
     "message",
     ["Delete old-draft.md from the project.", "Remove the old draft", "Видали old-draft.md",
-     "please trash old-draft", "Можеш видалити old-draft.md?", "Удали old-draft"],
+     "please trash old-draft", "Можеш видалити old-draft.md?", "Удали old-draft",
+     "Go ahead with deleting old-draft.md", "Видаляй old-draft.md", "Удаляй old-draft"],
 )  # fmt: skip
 def test_the_trash_card_is_plain_when_the_persons_message_asks_for_it(ctx, message):
     add_file(ctx, "old-draft.md", "old")
