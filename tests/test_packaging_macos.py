@@ -311,7 +311,9 @@ def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, install
 
         app.send_signal(signal.SIGTERM)  # Shut Down
         assert app.wait(timeout=20) == 0
-        assert not _alive(runner)  # gone before the app left, not some time after
+        # Gone before the app left, not some time after. Failing, the log says why: with no
+        # "ended … left running" line the runner was never counted; with one, it outlived its kill.
+        assert not _alive(runner), _text(log)
     assert "ended 1 process(es) Lectern left running" in log.read_text()
 
 
