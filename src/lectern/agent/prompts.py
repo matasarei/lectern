@@ -53,6 +53,15 @@ durations, percentages, statistics, counting, unit conversions — can't be comp
 file: show the formula, say the result is not computed, and that starting Docker or Podman \
 makes it possible."""
 
+# Asked once, by the loop rather than the prompt, when a reply to a message with a number in
+# it came without any tool (lectern.agent.loop): a 4B answers sums from memory however the
+# rule above is worded (docs/acceptance/m1b.md). Never stored, and its NO_CALC never shown.
+EXACT_CHECK = """Lectern check: no script computed the answer above. If it states an exact \
+result — arithmetic, a sum or average, a date or weekday, a duration, a percentage, a count, \
+a unit conversion — don't give it: call code_write, then code_run, and answer from the output. \
+If it states none (a fact, a name, a year in history, an answer from a file), reply with only: \
+NO_CALC"""
+
 
 def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
     return SYSTEM.format(
