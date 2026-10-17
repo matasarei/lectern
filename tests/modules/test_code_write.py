@@ -389,3 +389,25 @@ def test_without_a_spreadsheet_input_there_is_no_preview_run(make_ctx):
     write(ctx, inputs=["rent.csv"])
 
     assert len(sandbox.runs) == 1  # the test run only
+
+
+def test_a_big_workbooks_preview_is_cut_and_says_so(make_ctx):
+    """Forty sheets, or two hundred columns, would crowd the brief out of the coder's request."""
+    from lectern.modules.sandbox.tools import SHEET_PREVIEW, SHEET_PREVIEW_CHARS
+
+    many = "\n".join(f"sheet 'Week {n}': Day, Hours\nDay  Hours\nMon    7.5" for n in range(1, 200))
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW:
+            return RunResult(0, f"== hours.xlsx\n{many}\n", "", 0.4)
+        return RunResult(0, "total 39.25\n", "", 0.2)
+
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+    add(ctx, "hours.xlsx", "Day,Hours")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of every sheet in hours.xlsx.")
+
+    asked = handle.requests[0]["messages"][1]["content"]
+    assert "sheet 'Week 1': Day, Hours" in asked and "sheet 'Week 199'" not in asked
+    assert "(shortened here: the workbook has more sheets, columns or rows)" in asked
+    assert len(asked) < SHEET_PREVIEW_CHARS + 600  # the cut preview, the brief and the header

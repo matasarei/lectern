@@ -300,6 +300,7 @@ CODER_TEMPERATURE = 0.2
 PREVIEW_LINES = 5
 PREVIEW_LINE_CHARS = 300
 SHEET_SUFFIXES = {".xlsx", ".xlsm"}
+SHEET_PREVIEW_CHARS = 2000  # of one workbook's preview: forty sheets or wide ones are cut
 # Run in the sandbox before the coder is asked: what pandas, the reader its script will use,
 # makes of each spreadsheet in /in. The server itself has no Excel reader.
 SHEET_PREVIEW = f"""from pathlib import Path
@@ -480,8 +481,16 @@ async def _sheet_previews(
     for part in result.stdout.split("== ")[1:]:
         name, _, text = part.partition("\n")
         if name in sheets and text.strip():
-            shown[name] = text.rstrip()
+            shown[name] = _shortened(text.rstrip(), SHEET_PREVIEW_CHARS)
     return shown
+
+
+def _shortened(text: str, limit: int) -> str:
+    """At most `limit` characters, cut at a line, and saying so when it was cut."""
+    if len(text) <= limit:
+        return text
+    kept = text[:limit].rsplit("\n", 1)[0]
+    return f"{kept}\n(shortened here: the workbook has more sheets, columns or rows)"
 
 
 def coder_request(
