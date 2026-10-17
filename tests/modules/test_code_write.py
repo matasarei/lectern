@@ -335,4 +335,57 @@ def test_a_name_two_files_share_gives_neither_unless_the_path_is_named(make_ctx)
     write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
     write(ctx, name="sum-hours-2026", brief="Sum the 'Hours' column of 2026/hours.xlsx.")
 
-    assert [list(run["inputs"]) for run in sandbox.runs] == [[], ["hours.xlsx"]]
+    from lectern.modules.sandbox.tools import SHEET_PREVIEW
+
+    tests = [r for r in sandbox.runs if r["code"] != SHEET_PREVIEW]  # not the sheets' preview
+    assert [list(run["inputs"]) for run in tests] == [[], ["hours.xlsx"]]
+
+
+def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandbox(make_ctx):
+    """Seen on the 4B: told only "an Excel workbook", the coder guessed a column 'hours' for
+    'Hours', and finding the name took a write and a run more than the turn had left."""
+    from lectern.modules.sandbox.tools import SHEET_PREVIEW
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW:  # what pandas prints of each sheet, inside the sandbox
+            return RunResult(
+                0, "== hours.xlsx\nsheet 'Week 1': Day, Hours\nDay  Hours\nMon    7.5\n", "", 0.4
+            )
+        return RunResult(0, "total 39.25\n", "", 0.2)
+
+    sandbox = FakeSandbox(behave=behave)
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+
+    asked = handle.requests[0]["messages"][1]["content"]
+    assert "sheet 'Week 1': Day, Hours" in asked and "Mon    7.5" in asked
+    assert [r["code"] == SHEET_PREVIEW for r in sandbox.runs] == [True, False]  # once, first
+
+
+def test_a_spreadsheet_the_sandbox_cant_read_is_described_as_before(make_ctx):
+    from lectern.modules.sandbox.tools import SHEET_PREVIEW
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW:
+            return RunResult(1, "", "ValueError: Excel file format cannot be determined", 0.4)
+        return RunResult(0, "total 39.25\n", "", 0.2)
+
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+    add(ctx, "hours.xlsx", "not really a workbook")
+
+    result = write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+
+    assert "test run passed" in result.text
+    assert "an Excel workbook" in handle.requests[0]["messages"][1]["content"]
+
+
+def test_without_a_spreadsheet_input_there_is_no_preview_run(make_ctx):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "penalty 62.5\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "rent.csv", "month,amount\nApril,250.00\n")
+
+    write(ctx, inputs=["rent.csv"])
+
+    assert len(sandbox.runs) == 1  # the test run only

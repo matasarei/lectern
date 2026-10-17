@@ -299,6 +299,19 @@ CODER_MAX_TOKENS = 1500
 CODER_TEMPERATURE = 0.2
 PREVIEW_LINES = 5
 PREVIEW_LINE_CHARS = 300
+SHEET_SUFFIXES = {".xlsx", ".xlsm"}
+# Run in the sandbox before the coder is asked: what pandas, the reader its script will use,
+# makes of each spreadsheet in /in. The server itself has no Excel reader.
+SHEET_PREVIEW = f"""from pathlib import Path
+
+import pandas as pd
+
+for path in sorted(Path("/in").iterdir()):
+    print(f"== {{path.name}}")
+    for name, frame in pd.read_excel(path, sheet_name=None, nrows={PREVIEW_LINES}).items():
+        print(f"sheet {{name!r}}: " + ", ".join(str(c) for c in frame.columns))
+        print(frame.to_string(index=False))
+"""
 
 CODER_SYSTEM = """You write one Python 3.12 script for a sandbox. Rules:
 - Input files are in /in (read them from there, e.g. /in/rent.csv). There is no network.
@@ -354,10 +367,9 @@ async def _code_write(ctx: ToolContext, params: WriteParams) -> ToolResult:
 async def _write_and_test(
     ctx: ToolContext, box: Sandbox, params: WriteParams, inputs: list[Input], job_dir: Path
 ) -> ToolResult:
-    messages = [
-        {"role": "system", "content": CODER_SYSTEM},
-        {"role": "user", "content": await run_in_threadpool(coder_request, ctx, params, inputs)},
-    ]
+    sheets = await _sheet_previews(ctx, box, inputs, job_dir)
+    request = await run_in_threadpool(coder_request, ctx, params, inputs, sheets)
+    messages = [{"role": "system", "content": CODER_SYSTEM}, {"role": "user", "content": request}]
     loop_time = asyncio.get_running_loop().time
     started = loop_time()
     async with ctx.runtime.lease("code", Priority.CHAT) as lease:
@@ -440,23 +452,63 @@ def extract_code(reply: str) -> str | None:
     return reply.strip() + "\n"
 
 
-def coder_request(ctx: ToolContext, params: WriteParams, inputs: list[Input]) -> str:
-    """The brief, the expected output, and what each input file looks like."""
+async def _sheet_previews(
+    ctx: ToolContext, box: Sandbox, inputs: list[Input], job_dir: Path
+) -> dict[str, str]:
+    """Each spreadsheet input's sheets, columns and first rows, as pandas reads them in the
+    sandbox, by file name. Empty when there are none, or when the sandbox can't read them
+    (the coder then gets the plain description, as before)."""
+    sheets = {i.name: i.path for i in inputs if i.path.suffix.lower() in SHEET_SUFFIXES}
+    if not sheets:
+        return {}
+    ctx.emit({"type": "progress", "label": "Reading the spreadsheet in the sandbox"})
+    folder = job_dir / "sheets"
+    folder.mkdir(parents=True)
+    script = folder / "main.py"
+    script.write_text(SHEET_PREVIEW)
+    try:
+        result = await box.run(script, sheets, folder)
+    except SandboxError:
+        return {}
+    if not result.ok:
+        return {}
+    shown: dict[str, str] = {}
+    for part in result.stdout.split("== ")[1:]:
+        name, _, text = part.partition("\n")
+        if name in sheets and text.strip():
+            shown[name] = text.rstrip()
+    return shown
+
+
+def coder_request(
+    ctx: ToolContext,
+    params: WriteParams,
+    inputs: list[Input],
+    sheets: dict[str, str] | None = None,
+) -> str:
+    """The brief, the expected output, and what each input file looks like (`sheets`: what
+    pandas read in each spreadsheet, by file name)."""
     parts = [f"Task:\n{params.brief}"]
     if params.expected_output:
         parts.append(f"Expected output:\n{params.expected_output}")
     if inputs:
-        parts.append("Input files:\n" + "\n\n".join(_preview(i) for i in inputs))
+        previews = [_preview(i, (sheets or {}).get(i.name)) for i in inputs]
+        parts.append("Input files:\n" + "\n\n".join(previews))
     else:
         parts.append("There are no input files; everything needed is in the task.")
     return "\n\n".join(parts)
 
 
-def _preview(item: Input) -> str:
+def _preview(item: Input, sheet: str | None = None) -> str:
     size = item.path.stat().st_size
     header = f"/in/{item.name} ({size} bytes)"
     suffix = item.path.suffix.lower()
-    if suffix in {".xlsx", ".xlsm"}:
+    if suffix in SHEET_SUFFIXES and sheet:
+        return (
+            f"{header}: an Excel workbook; read it with pandas.read_excel. Its sheets, their "
+            f"columns and first rows, as pandas reads them:\n{sheet}"
+        )
+    if suffix in SHEET_SUFFIXES:
         return f"{header}: an Excel workbook; read it with pandas.read_excel or openpyxl."
     try:
         with item.path.open(encoding="utf-8", errors="replace") as handle:
