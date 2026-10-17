@@ -332,3 +332,6 @@ If others will use it, turn accounts on (once):  $bin\lectern.cmd user init <nam
 Update: git pull, then install.ps1 again.   Log: $logPath
 Lectern starts when you sign in (the Startup folder); remove its shortcut there to stop that.
 "@
+
+# Done: the root install.ps1 exits with this script's status, not a native command's.
+exit 0

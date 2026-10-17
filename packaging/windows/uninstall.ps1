@@ -77,3 +77,6 @@ if ($Purge) {
 } else {
     Write-Output "Lectern is removed. Kept: $dir\data (models, projects), $dir\lectern.env."
 }
+
+# Done: the root uninstall.ps1 exits with this script's status, not a native command's.
+exit 0
