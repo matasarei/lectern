@@ -490,8 +490,9 @@ class TurnManager:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
-        for key in [k for k in self._channels if k[0] == project_id]:
-            del self._channels[key]
+        for kept in (self._channels, self._token_counts):
+            for key in [k for k in kept if k[0] == project_id]:
+                del kept[key]
         self._project_channels.pop(project_id, None)
 
     async def wait(self, key: Key) -> str | None:

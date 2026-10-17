@@ -416,10 +416,12 @@ def test_removing_a_project_stops_its_chat_first(paths):
             time.sleep(0.01)
         assert app.state.turns.state((pid, 1)) == "running"
 
+        assert (pid, 1) in app.state.turns._token_counts  # made when the turn began
         removed = client.request(
             "DELETE", f"/api/projects/{pid}", json={"name": "Busy"}, headers=headers
         )
         assert removed.status_code == 200
         assert app.state.turns.state((pid, 1)) == "idle"  # stopped, and nothing kept of it
         assert not any(key[0] == pid for key in app.state.turns._turns)
+        assert not any(key[0] == pid for key in app.state.turns._token_counts)
         assert pid not in app.state.projects._dbs  # its database closed, not reopened
