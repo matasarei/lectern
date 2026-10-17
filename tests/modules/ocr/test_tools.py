@@ -109,6 +109,19 @@ def test_a_file_with_text_or_not_a_page_source_is_refused_before_any_card(ctx):
         _question(ctx, name="nothing.pdf")
 
 
+def test_a_pdf_with_text_on_some_pages_and_scans_on_others_is_read_as_pages(ctx, tmp_path):
+    typed = "Dear tenant, the rent is due on the tenth of each month."
+    mixed = write_pdf(tmp_path / "m.pdf", [typed, ""])  # page 2: a scan, no text layer
+    with ctx.sessions.begin() as session:
+        files.write_bytes(ctx.project.root, session, owner_id=LOCAL_USER.id, name="mixed.pdf",
+                          data=mixed.read_bytes(), origin=files.Origin("import"))  # fmt: skip
+    question = _question(ctx, name="mixed.pdf")
+    assert question.startswith(
+        "Start an OCR session for mixed.pdf? 1 of its pages is a scan, with no text; OCR reads "
+        "every page. 2 pages"
+    )
+
+
 def test_keep_layout_reads_a_pdf_with_text_and_the_card_says_why(ctx):
     question = _question(ctx, name="letter.pdf", keep_layout=True, then_export="docx")
     assert question.startswith(

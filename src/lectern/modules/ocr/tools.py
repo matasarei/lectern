@@ -20,6 +20,7 @@ from lectern.modules.ocr.jobs import page_dict
 from lectern.modules.ocr.pages import IMAGE_SUFFIXES, NotAPageSource, page_count
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow, OcrSessionRow, SessionRow
+from lectern.projects.text import scanned_pages
 from lectern.runtime.wiring import cleanup_model, role_model
 
 # Reading plus cleanup, per page, on the minimum tier (docs/acceptance/m3a.md: ~1.5 s + ~12 s)
@@ -48,13 +49,18 @@ def _source(ctx: ToolContext, name: str, *, keep_layout: bool = False) -> Artifa
     suffix = "." + row.path.rsplit(".", 1)[-1].lower() if "." in row.path else ""
     if suffix != ".pdf" and suffix not in IMAGE_SUFFIXES:
         raise ToolError(f"{row.path} isn't a PDF or an image, so it can't be read as pages.")
-    if row.text_status == "indexed" and not keep_layout:
+    # A PDF with text needs no OCR, unless some of its pages are scans with none
+    if row.text_status == "indexed" and not keep_layout and not _has_scans(ctx, row, suffix):
         raise ToolError(
             f"{row.path} has text: read it with document_read, or export it directly with "
             "export_run; no OCR is needed. To keep its tables and layout, or to read its "
             "scanned pages, call ocr_start with keep_layout=true."
         )
     return row
+
+
+def _has_scans(ctx: ToolContext, row: ArtifactRow, suffix: str) -> bool:
+    return suffix == ".pdf" and scanned_pages(files.inside(ctx.project.root, row.path)) > 0
 
 
 def _ocr_model(ctx: ToolContext) -> CatalogEntry | None:
@@ -82,11 +88,15 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
     except NotAPageSource as exc:
         raise ToolError(str(exc)) from None
     minutes = max(1, round(pages * SECONDS_PER_PAGE / 60))
-    why = (
-        "This PDF has text; OCR reads it again to keep its tables and layout. "
-        if row.text_status == "indexed"
-        else ""
-    )
+    why = ""
+    if row.text_status == "indexed":
+        scans = scanned_pages(files.inside(ctx.project.root, row.path))
+        why = (
+            f"{scans} of its pages {'is a scan' if scans == 1 else 'are scans'}, with no text; "
+            "OCR reads every page. "
+            if scans and not params.keep_layout
+            else "This PDF has text; OCR reads it again to keep its tables and layout. "
+        )
     question = (
         f"Start an OCR session for {_name(row)}? {why}{pages} page{'s' if pages != 1 else ''} · "
         f"about {minutes} minute{'s' if minutes != 1 else ''} on this PC · opens in a new tab."

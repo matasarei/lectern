@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx2
 import pytest
 
+from lectern.agent.turns import Channel
 from lectern.core.auth import LOCAL_USER
 from lectern.hardware.tiers import Tier
 from lectern.modules.ocr import store as ocr_store
@@ -135,8 +136,43 @@ def _status(store, project, session_id: int) -> OcrSessionRow:  # noqa: ANN001
         return session.get(OcrSessionRow, session_id)
 
 
+@pytest.fixture(autouse=True)
+def every_event(monkeypatch):  # noqa: ANN001, ANN201
+    """What a session published, every event of it: its channel keeps only the latest of
+    each kind for a tab that opens later, and these tests check what was sent."""
+    publish = Channel.publish
+
+    def recorded(self, event):  # noqa: ANN001, ANN202
+        publish(self, event)
+        self.__dict__.setdefault("published", []).append(event)
+
+    monkeypatch.setattr(Channel, "publish", recorded)
+
+
 def _events(jobs: OcrJobs, project, session_id: int) -> list[dict]:  # noqa: ANN001
-    return jobs.channel((project.id, session_id)).events
+    return jobs.channel((project.id, session_id)).__dict__.get("published", [])
+
+
+def test_a_tab_that_opens_later_gets_each_pages_latest_state_not_every_step(store, tmp_path):
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=3)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+
+    kept = jobs.channel((project.id, sid)).events
+    pages = [e for e in kept if e["type"] == "page"]
+    assert sorted(e["number"] for e in pages) == [1, 2, 3]  # one each, the last
+    assert all((e["status"], e["clean_status"]) == ("done", "done") for e in pages)
+    assert [e["status"] for e in kept if e["type"] == "session"] == ["done"]
+    assert [e["phase"] for e in kept if e["type"] == "phase"] == ["assemble"]
+    assert [e["seq"] for e in kept] == sorted(e["seq"] for e in kept)  # in the order sent
+    assert len(_events(jobs, project, sid)) > len(kept)
 
 
 def test_a_session_is_rasterised_then_every_page_read(store, tmp_path):

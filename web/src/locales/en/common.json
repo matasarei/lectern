@@ -376,6 +376,7 @@
       "turns": "recent"
     },
     "followups": "Waiting",
+    "cancelFollowup": "Cancel: {{label}}",
     "followupRunning": "Follow-up: {{label}}",
     "mention": "Mention a file from the project",
     "pickerLabel": "Project files",
@@ -469,6 +470,7 @@
     "cleanFailed": "This page wasn't cleaned: {{error}}"
   },
   "review": {
+    "unplaced": "Your answer “{{value}}” to “{{raw}}” is no longer in this page's text: the page was cleaned again. Check it in the text below.",
     "questions": "Questions on this page",
     "bar_one": "Page {{page}}: {{count}} question · document: {{total}}",
     "bar_other": "Page {{page}}: {{count}} questions · document: {{total}}",

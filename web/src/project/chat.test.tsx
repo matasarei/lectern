@@ -458,11 +458,20 @@ describe("Pinned items, the summary and the context", () => {
     ];
     renderChat();
     const strip = await screen.findByTestId("followups");
-    expect(strip.textContent).toBe("Waitingafter OCR · lease-scan.pdf: export to ODT");
+    expect(strip.textContent).toBe("Waitingafter OCR · lease-scan.pdf: export to ODT×");
     await events({ type: "turn", status: "running", followup: "after OCR · lease-scan.pdf: export to ODT" });
     expect(screen.getByTestId("followup-turn").textContent).toBe(
       "Follow-up: after OCR · lease-scan.pdf: export to ODT",
     );
+  });
+
+  it("cancels a waiting follow-up with its ×", async () => {
+    chat.followups = [
+      { id: "f1", label: "after OCR · lease-scan.pdf: export to ODT", ocr_session_id: 2, tool: "export.run", what: "export to ODT" },
+    ];
+    renderChat();
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel: after OCR · lease-scan.pdf: export to ODT" }));
+    await waitFor(() => expect(posts).toEqual([{ url: "/api/projects/1/sessions/1/followups/f1", body: "DELETE" }]));
   });
 
   it("marks where the summary ends", async () => {

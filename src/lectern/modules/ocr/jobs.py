@@ -76,6 +76,11 @@ def page_dict(page: OcrPageRow) -> dict:
     }
 
 
+def _event_kind(event: dict) -> tuple[str, int | None]:
+    """What a newer event replaces: the same page's, or the last one of its type."""
+    return event["type"], event.get("number") if event["type"] == "page" else None
+
+
 @dataclass
 class _Queued:
     key: Key
@@ -105,7 +110,9 @@ class OcrJobs:
         self.on_status: Callable[[Project, int, str, str], Awaitable[None]] | None = None
 
     def channel(self, key: Key) -> Channel:
-        return self._channels.setdefault(key, Channel())
+        # A tab that opens later needs where each page, the phase and the session are now,
+        # not every step of a long job: only the latest event of each is kept.
+        return self._channels.setdefault(key, Channel(latest=_event_kind))
 
     def active(self, key: Key) -> bool:
         """This process is running or holding the session's job."""

@@ -60,9 +60,9 @@ def test_it_stops_listening_when_the_browser_closes(served):
     client, _, hub = served
     with client.websocket_connect("/events", subprotocols=PROTOCOLS) as socket:
         socket.receive_json()
-        assert len(hub._queues) == 1
+        assert hub.listening == 1
     # Leaving the block closed the socket and waited for the route to return.
-    assert hub._queues == set()
+    assert hub.listening == 0
 
 
 def test_what_the_browser_sends_is_ignored(served):

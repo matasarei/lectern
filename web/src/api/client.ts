@@ -159,14 +159,25 @@ function socketEvents<T>(
       resolve("aborted");
     };
     signal.addEventListener("abort", abort, { once: true });
-    socket.onopen = onOpen;
+    // A handler that throws (on open or on an event) would throw again on every reopen: the
+    // stream stops with EventError rather than go round.
+    const fail = (error: unknown) => {
+      end();
+      socket.close();
+      reject(new EventError(error));
+    };
+    socket.onopen = () => {
+      try {
+        onOpen();
+      } catch (error) {
+        fail(error);
+      }
+    };
     socket.onmessage = (message) => {
       try {
         onEvent(JSON.parse(String(message.data)) as T);
       } catch (error) {
-        end();
-        socket.close();
-        reject(new EventError(error));
+        fail(error);
       }
     };
     socket.onclose = (event) => {

@@ -45,11 +45,17 @@ class Channel:
     seq: int = 0
     keep: bool = True  # False: live only, nothing kept for a listener that comes later
     forward: Callable[[dict], None] | None = None  # also told every event, after listeners
+    # Kept: only the latest event of each kind this names (an OCR page's newest state), in
+    # the order they came. None: every event.
+    latest: Callable[[dict], object] | None = None
 
     def publish(self, event: dict) -> None:
         self.seq += 1
         event = {**event, "seq": self.seq}
         if self.keep:
+            if self.latest is not None:
+                kind = self.latest(event)
+                self.events = [e for e in self.events if self.latest(e) != kind]
             self.events.append(event)
         for queue in list(self.listeners):
             with contextlib.suppress(asyncio.QueueFull):
@@ -111,6 +117,8 @@ class TurnManager:
         self._starting: set[Key] = set()
         self._follow_ups: dict[asyncio.Task[None], int] = {}  # each with its project's id
         self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
+        # Each chat's token counts, by model, kept between its turns (lectern.agent.context)
+        self._token_counts: dict[Key, dict[str, dict[str, int]]] = {}
 
     def channel(self, key: Key) -> Channel:
         if key not in self._channels:
@@ -212,6 +220,7 @@ class TurnManager:
             downloads=self.downloads,
             sandbox=self.sandbox,
             ocr_jobs=self.ocr_jobs,
+            token_counts=self._token_counts.setdefault(key, {}),
         )
 
     # --- follow-ups: what a chat queued for when an OCR session finishes --------------------
@@ -490,8 +499,9 @@ class TurnManager:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
-        for key in [k for k in self._channels if k[0] == project_id]:
-            del self._channels[key]
+        for kept in (self._channels, self._token_counts):
+            for key in [k for k in kept if k[0] == project_id]:
+                del kept[key]
         self._project_channels.pop(project_id, None)
 
     async def wait(self, key: Key) -> str | None:

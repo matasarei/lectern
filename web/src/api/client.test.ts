@@ -364,6 +364,21 @@ describe("followEvents", () => {
     expect(sockets.all[0].closedByPage).toBe(true);
   });
 
+  it("stops, rather than reconnecting into the same error, when its onConnect throws", async () => {
+    const sockets = installFakeSockets((socket) => socket.open());
+    const controller = new AbortController();
+    const onConnect = () => {
+      throw new TypeError("a bug in the catch-up");
+    };
+
+    const stopped = expect(followEvents(PATH, () => {}, controller.signal, onConnect)).rejects.toBeInstanceOf(EventError);
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAYS_MS.at(-1)! * 2);
+
+    await stopped;
+    expect(sockets.all).toHaveLength(1);
+    expect(sockets.all[0].closedByPage).toBe(true);
+  });
+
   it("leaves no abort listener behind from the sockets and waits it finished", async () => {
     const sockets = installFakeSockets((socket, index) => (index < 3 ? socket.drop() : socket.open()));
     const controller = new AbortController();

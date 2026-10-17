@@ -138,6 +138,15 @@ export function ReviewPage({
           onReopen={(q) => reopen.mutate(q)}
         />
       )}
+      {/* Answers whose words aren't in the page's text any more (it was cleaned again):
+          kept, and said, rather than lost without a word. */}
+      {doc.unplaced
+        .filter((u) => u.page === page)
+        .map((u) => (
+          <p key={u.doubt_id} className="text-xs text-muted" data-testid="unplaced">
+            {t("review.unplaced", { raw: u.raw, value: u.value })}
+          </p>
+        ))}
       <div className="grid gap-3 rounded-lg border border-line bg-surface p-4 text-sm">
         {pageBlocks(doc, page).map((block) => (
           <div key={block.id} className="grid gap-2">
