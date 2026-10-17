@@ -536,6 +536,33 @@ def test_a_card_answered_once_its_session_finished_runs_the_tool_then_and_there(
     assert followups.pending(db, 1) == []  # nothing left to run when the session ends
 
 
+def test_a_card_answered_once_its_session_finished_with_questions_open_waits_for_them(follow):
+    """Finished isn't final while questions are open: the export waits, as one queued before
+    the end would (the hold), and exporting as it is stays the person's own choice."""
+    manager, project, db, ocr_id, _ = follow([])
+
+    def export(ctx: ToolContext, params: _EchoParams) -> ToolResult:  # noqa: ARG001
+        RAN.append(params)
+        return ToolResult("Saved.")
+
+    exporting = AgentTool(name="export.run", description="Export.", params=_EchoParams, run=export)
+    ctx = ToolContext(project=project, sessions=db, user=LOCAL_USER, session_id=1,
+                      registry=Registry([*CORE_TOOLS, exporting]),
+                      ocr_jobs=_Summary(open_doubts=2))  # fmt: skip
+    params = TASK_AFTER.validate({"session": "lease-scan", "tool": "export_run",
+                                  "arguments": {"format": "docx"},
+                                  "label": "export to DOCX"})  # fmt: skip
+    TASK_AFTER.confirm_text(ctx, params)
+    _set_status(db, ocr_id, "done")
+
+    result = asyncio.run(TASK_AFTER.run(ctx, params))
+
+    assert RAN == []
+    assert "open questions" in result.text and "export now as it is" in result.text
+    (waiting,) = followups.pending(db, 1)
+    assert (waiting.ocr_session_id, waiting.tool) == (ocr_id, "export.run")
+
+
 def test_queueing_what_is_already_queued_says_so_whatever_the_arguments(follow):
     """Seen in the real run: after ocr.start(then_export=odt) the 4B called task.after with
     empty arguments again and again. "Already queued" stops it at the first try."""

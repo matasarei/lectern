@@ -261,7 +261,7 @@ async def _after(ctx: ToolContext, params: AfterParams) -> ToolResult:
     chat, tool, arguments, finished = await run_in_threadpool(
         lambda: _checked(ctx, params, finished_ok=True)
     )
-    if finished:
+    if finished and await run_in_threadpool(_clear, ctx, chat.id):
         # Asked while the session ran, answered after it finished: what the person allowed
         # for then runs now (seen: the tool refused, and the 4B had to find export_run itself).
         validated = tool.validate(arguments)
@@ -272,7 +272,23 @@ async def _after(ctx: ToolContext, params: AfterParams) -> ToolResult:
         return replace(
             result, text=f"{chat.title} had already finished, so it ran now: {result.text}"
         )
-    return await run_in_threadpool(_queue, ctx, params, chat, tool, arguments)
+    queued = await run_in_threadpool(_queue, ctx, params, chat, tool, arguments)
+    if finished:  # its Document isn't final: it waits, as an export queued before would
+        return replace(
+            queued,
+            text=f"{chat.title} has finished, but its Document has open questions or a page "
+            f"not cleaned. Queued: {params.label}. It runs once they're resolved, or the "
+            "person can export now as it is.",
+        )
+    return queued
+
+
+def _clear(ctx: ToolContext, session_id: int) -> bool:
+    """Whether the session's Document is final (done, every page cleaned, no question open).
+    Without the OCR jobs (tests) it counts as final, as the chat's follow-ups do."""
+    if ctx.ocr_jobs is None:
+        return True
+    return ctx.ocr_jobs.summary(ctx.project, session_id)["clear"]
 
 
 def _queue(
