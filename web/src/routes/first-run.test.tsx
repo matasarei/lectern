@@ -165,6 +165,14 @@ describe("First run: the sandbox card", () => {
     expect(screen.queryByRole("link", { name: "How to install Podman or Docker" })).toBeNull();
   });
 
+  it("links the guide when neither is installed", async () => {
+    renderPage();
+    sandboxAnswer = { runtime: null, version: null, engine_running: false, found: [] };
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Neither Podman nor Docker is installed.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "How to install Podman or Docker" })).toBeTruthy();
+  });
+
   it("says so when a check fails", async () => {
     renderPage();
     const button = await screen.findByRole("button", { name: "Check again" });
