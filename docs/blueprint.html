@@ -383,7 +383,7 @@ table.dir td.child2{padding-left:38px;color:var(--muted)}
 </header>
 
 <nav class="toc" aria-label="Sections">
-  <a href="#summary">Summary</a><a href="#concepts">Concepts</a><a href="#tiers">Hardware tiers</a><a href="#mocks">Mocks</a><a href="#pipeline">OCR pipeline</a><a href="#agent">Agent &amp; data</a><a href="#context">Context</a><a href="#agents-module">Agents &amp; terminal</a><a href="#storage">Storage &amp; security</a><a href="#runtime">Model runtime</a><a href="#modules">Module contract</a><a href="#stack">Tech stack</a><a href="#models">Model picks</a><a href="#plan">MVP plan</a><a href="#risks">Risks & open</a><a href="#sources">Sources</a>
+  <a href="#summary">Summary</a><a href="#concepts">Concepts</a><a href="#tiers">Hardware tiers</a><a href="#mocks">Mocks</a><a href="#pipeline">OCR pipeline</a><a href="#agent">Agent &amp; data</a><a href="#context">Context</a><a href="#storage">Storage &amp; security</a><a href="#runtime">Model runtime</a><a href="#modules">Module contract</a><a href="#stack">Tech stack</a><a href="#models">Model picks</a><a href="#plan">MVP plan</a><a href="#risks">Risks & open</a><a href="#sources">Sources</a>
 </nav>
 
 <section id="summary">
@@ -962,39 +962,12 @@ sequenceDiagram
   <p class="why"><b>Prompt caching.</b> The context is ordered from most stable to least stable (tools, pinned, summary, recent turns, excerpts), so the runner can reuse its cache across turns. The cache is lost when the model is swapped out. llama-server can save the cache to disk (<code>--slot-save-path</code>) to shorten the first reply after a swap. <span class="tag">to test in M0</span></p>
 </section>
 
-<section id="agents-module">
-  <h2>Agents &amp; terminal <span class="tag">after the MVP</span></h2>
-  <p>Coding agents such as Claude Code (<code>claude</code>) and Antigravity (<code>agy</code>) run inside Lectern as a <b>module</b>, not as a separate app or a different kind of project. That way one project can mix Lectern's own work with theirs, for example: OCR a scanned spec, then have Claude Code implement it in the same folder.</p>
-  <div class="grid2">
-    <div style="display:grid;gap:10px;align-content:start">
-      <h3>What the module adds</h3>
-      <ul style="margin:0;padding-left:20px;display:grid;gap:6px;max-width:70ch">
-        <li><b>Terminal session type:</b> a tab with a real terminal (xterm.js), connected over a WebSocket to a terminal process <b>inside a container</b>. Presets: Claude Code, Antigravity (<code>agy</code>), Shell.</li>
-        <li><b>Code-project preset:</b> link an existing folder and open an agent terminal instead of an empty chat. Overview shows the folder tree, respecting <code>.gitignore</code>. The Lectern chat is still available.</li>
-        <li><b>Files the agents write</b> appear in Overview through the folder watcher, marked as changed outside Lectern.</li>
-        <li><b>Later: Lectern as an MCP server</b> offering <code>project.search</code>, <code>document.read</code>, <code>ocr.start</code> and the export tools, so an agent in the terminal can read OCR documents and start sessions.</li>
-        <li><b>Optional: local models.</b> llama-server has an Anthropic-compatible <code>/v1/messages</code> endpoint, so Claude Code could use a model from the runtime. With 4–9B models this is an experiment, not a default.</li>
-      </ul>
-    </div>
-    <div style="display:grid;gap:10px;align-content:start">
-      <h3>Isolation</h3>
-      <ul style="margin:0;padding-left:20px;display:grid;gap:6px;max-width:70ch">
-        <li><b>Never on the host.</b> A shell that the browser can reach turns any localhost security failure into full control of the machine. Each terminal session is a container, started with the Docker/Podman detection the Sandbox module already has.</li>
-        <li><b>Mounts:</b> the project folder, read-write, at <code>/work</code>, plus a persistent volume per agent for its login and settings, so you sign in once.</li>
-        <li><b>Image:</b> <code>lectern-agents</code>, which is separate from <code>lectern-sandbox</code>. It has network access, because the agents call their cloud models; the calculation sandbox has none.</li>
-        <li><b>Limits:</b> non-root user, dropped capabilities, and memory and CPU limits. The container is stopped when the tab closes or after an idle timeout.</li>
-        <li><b>Off by default:</b> you turn the module on in Settings, with a warning. Without Docker or Podman it isn't available.</li>
-      </ul>
-    </div>
-  </div>
-</section>
-
 <section id="storage">
   <h2>Storage, security &amp; first run</h2>
   <div class="grid2">
     <div style="display:grid;gap:10px;align-content:start">
       <h3>Projects are real folders</h3>
-      <p>A project is <b>managed</b>: a folder under the Lectern projects root. A <b>linked</b> project (an existing folder, such as a git repository, that Lectern indexes without moving it, with a folder watcher marking files "changed outside Lectern" in Overview) comes after the MVP, with the Agents &amp; terminal module that needs it; the tables have <code>root_kind</code> and <code>root_path</code> for it from M0a onward. Removing a project moves its folder to its owner's trash for 30 days.</p>
+      <p>A project is <b>managed</b>: a folder under the Lectern projects root. A <b>linked</b> project (an existing folder, such as a git repository, that Lectern indexes without moving it, with a folder watcher marking files "changed outside Lectern" in Overview) comes after the MVP; the tables have <code>root_kind</code> and <code>root_path</code> for it from M0a onward. Removing a project moves its folder to its owner's trash for 30 days.</p>
       <p>Every project is an ordinary folder you can open in Finder or Explorer, back up, or copy to another machine. A SQLite index inside the folder holds the metadata, <code>derived_from</code> links, chat transcripts, jobs and the full-text search index. Files stay files. <span class="tag">answered</span></p>
       <p class="why">Settings, the model catalog and the list of projects live in one app database in the OS app-data folder. Downloaded models are shared by all projects, in a single models folder the user can move. Deleting a file moves it to <code>.lectern/trash/</code> for 30 days.</p>
     </div>
@@ -1022,7 +995,7 @@ sequenceDiagram
     <tr><td>Instructions hidden in documents</td><td class="why">Document text, OCR output, file contents and tool results are wrapped as data and labelled with their source in the prompt. The system prompt says text inside them is never an instruction. Actions that change the project still need a card, whatever the model decides.</td></tr>
     <tr><td>Paths escaping the project</td><td class="why">Artifact paths are resolved inside the project folder. Symlinks and <code>..</code> are refused.</td></tr>
     <tr><td>WebSockets</td><td class="why">Browsers don't apply same-origin rules to WebSockets, so every upgrade must carry an allowed <code>Origin</code> and the token (sent as the <code>lectern.token.&lt;token&gt;</code> subprotocol, because browsers can't set custom headers on a WebSocket). With accounts on it is the login's token, beside the login's cookie, and a socket for someone else's chat or OCR session is closed as not found. A socket stays open for hours, so while it is open it is asked again every ten seconds whether it would still be let in, and closed when not: signed out, a new password, the account disabled. Built in M0a, before anything uses it.</td></tr>
-    <tr><td>Agent terminals (after the MVP)</td><td class="why">Never run on the host. Each terminal runs in its own Docker/Podman container with only the project folder mounted. The module is off until you turn it on, and it is admin-only.</td></tr>
+    <tr><td>Shell access</td><td class="why">None. No page or API opens a shell or a terminal, on the host or in a container. The only code Lectern runs that it didn't ship is the scripts its models write, in the sandbox.</td></tr>
     <tr><td>Generated code</td><td class="why">Runs only in the sandbox: no network, input files read-only, resource limits, killed after a time limit.</td></tr>
     <tr><td>Data leaving the machine</td><td class="why">None. No telemetry, no cloud models. The only network calls are model and image downloads, and update checks, which you can turn off.</td></tr>
   </table></div>
@@ -1162,7 +1135,7 @@ export default defineModule({
   </ol>
   <h3>After the MVP</h3>
   <ol class="steps">
-    <li><b>Login and multiple users</b> came first, ahead of the terminal: Lectern was to be opened to the web for a household. It is built: accounts the admin creates, passwords as Argon2id hashes, logins kept on the server, two roles (admin and member), a workspace per person. An install where <code>lectern user init</code> never ran behaves as before. The MVP had left room for it:
+    <li><b>Login and multiple users</b> came first: Lectern was to be opened to the web for a household. It is built: accounts the admin creates, passwords as Argon2id hashes, logins kept on the server, two roles (admin and member), a workspace per person. An install where <code>lectern user init</code> never ran behaves as before. The MVP had left room for it:
       <ul style="margin:6px 0 0;padding-left:20px;display:grid;gap:4px">
         <li>every API route got the user from a single <code>current_user</code> dependency, which returned the one local user;</li>
         <li>every table that belongs to a person had an <code>owner_id</code> column;</li>
@@ -1170,11 +1143,10 @@ export default defineModule({
         <li>projects lived under a folder per user (<code>users/local/</code>, still the first admin's).</li>
       </ul>
       So it took one migration of the app database (six columns on <code>users</code>, a <code>logins</code> table) and none of the project databases. Still to come: a second factor or passkeys, and a queue shared fairly between people for the GPU (today a chat goes ahead of a job, and otherwise requests are served in the order they came, whoever's they are).</li>
-    <li><b>Agents &amp; terminal module</b> is next; see <a href="#agents-module">Agents &amp; terminal</a>. It is admin-only from its first day.</li>
     <li><b>Cutting images out of scans</b>, which fills the existing <code>images/</code> folder and figure blocks.</li>
     <li><b>More modules</b>, such as transcription, translation and image generation, through the same module contract.</li>
   </ol>
-  <p class="why">Not in the MVP: linked projects and the folder watcher (with the Agents &amp; terminal module), cutting images out of scans (the schema, the <code>images/</code> folder and figure blocks with positions are already in place), installing modules at runtime, retrieval search over documents (RAG), a desktop wrapper.</p>
+  <p class="why">Not in the MVP: linked projects and the folder watcher, cutting images out of scans (the schema, the <code>images/</code> folder and figure blocks with positions are already in place), installing modules at runtime, retrieval search over documents (RAG), a desktop wrapper.</p>
   <p class="why">Settled later, not needed to start: keeping old versions of files, automatic updates for the app and the model catalog, CI on all three OSes with GPU runners, keyboard shortcut map, accessibility review, themes.</p>
 </section>
 
