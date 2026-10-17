@@ -275,3 +275,64 @@ def test_a_download_stopped_midway_ends_the_wait(make_ctx):
     with pytest.raises(ToolError, match="stopped before it finished.*not computed"):
         write(ctx)
     assert handle.requests == []
+
+
+def test_a_file_the_brief_names_is_given_to_the_script_when_no_inputs_are(make_ctx):
+    """Seen on the 4B: code_write("Read the file hours.xlsx … sum the 'Hours' column") with
+    no inputs. /in was empty, the coder was told there were no input files, and its scripts
+    failed to open hours.xlsx three fixes running, twice, until the turn ran out of calls."""
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "total 39.25\n", "", 0.2))
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours")
+    add(ctx, "notes.md", "not named in the brief")
+
+    write(ctx, name="sum-hours", brief="Read the file hours.xlsx and sum its 'Hours' column.")
+
+    assert list(sandbox.runs[0]["inputs"]) == ["hours.xlsx"]  # mounted, and nothing else
+    assert "/in/hours.xlsx" in handle.requests[0]["messages"][1]["content"]
+    manifest = json.loads((ctx.project.root / "scripts" / "sum-hours.json").read_text())
+    assert [i["path"] for i in manifest["inputs"]] == ["hours.xlsx"]  # code.run gives it too
+
+
+@pytest.mark.parametrize(
+    ("brief", "mounted"),
+    [
+        ("Sum the hours in data/hours.xlsx, the 'Hours' column.", ["hours.xlsx"]),  # by its path
+        ("Sum HOURS.XLSX's 'Hours' column.", ["hours.xlsx"]),  # case aside
+        ("Sum the 'Hours' column of week-hours.xlsx.", []),  # another name, not in the project
+        ("Penalty on 250.00 at 0.5% per day for 50 days.", []),  # no file at all
+    ],
+)
+def test_only_files_the_brief_names_exactly_are_given(make_ctx, brief, mounted):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "ok\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours", folder="data")
+
+    write(ctx, name="sum-hours", brief=brief)
+
+    assert list(sandbox.runs[0]["inputs"]) == mounted
+
+
+def test_inputs_given_are_used_as_they_are_whatever_the_brief_names(make_ctx):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "ok\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours")
+    add(ctx, "rent.csv", "month,amount")
+
+    write(
+        ctx, name="sum-rent", brief="Sum rent.csv; hours.xlsx is not needed.", inputs=["rent.csv"]
+    )
+
+    assert list(sandbox.runs[0]["inputs"]) == ["rent.csv"]
+
+
+def test_a_name_two_files_share_gives_neither_unless_the_path_is_named(make_ctx):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "ok\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD, GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours", folder="2025")
+    add(ctx, "hours.xlsx", "Day,Hours", folder="2026")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+    write(ctx, name="sum-hours-2026", brief="Sum the 'Hours' column of 2026/hours.xlsx.")
+
+    assert [list(run["inputs"]) for run in sandbox.runs] == [[], ["hours.xlsx"]]

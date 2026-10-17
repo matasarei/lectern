@@ -86,6 +86,26 @@ def find_inputs(ctx: ToolContext, names: list[str]) -> list[Input]:
     return found
 
 
+def named_in(ctx: ToolContext, text: str) -> list[str]:
+    """The project files `text` names, by path or by file name (case aside), outside
+    scripts/. A file name two files share names neither: the brief doesn't say which."""
+    lowered = text.casefold()
+    rows = [r for r in _live(ctx) if not r.path.startswith(f"{SCRIPTS}/")]
+
+    def said(name: str) -> bool:
+        return re.search(rf"(?<![\w./-]){re.escape(name.casefold())}(?![\w-])", lowered) is not None
+
+    by_name: dict[str, list[str]] = {}
+    for row in rows:
+        by_name.setdefault(Path(row.path).name.casefold(), []).append(row.path)
+    return [
+        row.path
+        for row in rows
+        if said(row.path)
+        or (said(Path(row.path).name) and len(by_name[Path(row.path).name.casefold()]) == 1)
+    ]
+
+
 def inputs_sha(inputs: list[Input]) -> str:
     listing = "\n".join(sorted(f"{i.name}:{i.sha256}" for i in inputs))
     return hashlib.sha256(listing.encode()).hexdigest()
@@ -309,7 +329,11 @@ class WriteParams(BaseModel):
 
 
 async def _code_write(ctx: ToolContext, params: WriteParams) -> ToolResult:
-    inputs = await run_in_threadpool(find_inputs, ctx, params.inputs)
+    # A call with no inputs whose brief names a project file ("Read hours.xlsx and sum…") is
+    # given that file: seen on the 4B, the script found an empty /in and the turn ran out of
+    # model calls on fixes that couldn't help.
+    names = params.inputs or await run_in_threadpool(named_in, ctx, params.brief)
+    inputs = await run_in_threadpool(find_inputs, ctx, names)
     box = await ensure_image(ctx)
     await ensure_coder(ctx)
     job_dir = ctx.project.root / files.DATA_DIR / "jobs" / uuid.uuid4().hex[:12]
