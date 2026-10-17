@@ -454,7 +454,13 @@ async def run_turn(run: TurnRun) -> str:
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
             tps = reply.tps or tps
-            if hold and not reply.calls and not reply.shown and calls_left:
+            if (
+                hold
+                and not reply.calls
+                and not reply.shown
+                and reply.content.strip()
+                and calls_left
+            ):
                 checked = True
                 calls_left -= 1
                 check = await _call(run, _with_check(history, reply.content), hold=True)

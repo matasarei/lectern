@@ -289,3 +289,11 @@ def test_a_held_replys_time_to_first_token_is_when_it_was_shown(store, monkeypat
         return next(e for e in seen if e["type"] == "done")["ttft"]
 
     assert ttft(sandbox=True) > ttft(sandbox=False)
+
+
+def test_an_empty_reply_isnt_checked(store):
+    manager, project, handle = _manager(store, [text_reply("")])
+
+    status, _ = _run(manager, project, SUM)
+
+    assert status == "done" and len(handle.requests) == 1  # nothing in it to compute
