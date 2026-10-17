@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from lectern.app import create_app
 from lectern.core.auth import LOCAL_USER, User
-from lectern.core.tables import UserRow
+from lectern.core.tables import ProjectRow, UserRow
 from lectern.projects import files
 from lectern.projects.files import Origin
 from lectern.projects.tables import MessageRow
@@ -356,3 +357,23 @@ def test_removing_a_project_needs_the_token(api):
     refused = _remove(client, {"Origin": BASE}, project["id"], "Kept")
     assert refused.status_code == 401
     assert Path(project["folder"]).is_dir()
+
+
+def test_the_app_deletes_projects_removed_more_than_30_days_ago_when_it_starts(paths):
+    removed_at = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    before = create_app(paths, clock=lambda: removed_at)
+    store = before.state.projects
+    old, recent = store.create(LOCAL_USER, "Old"), store.create(LOCAL_USER, "Recent")
+    store.move_to_trash(store.remove(LOCAL_USER, old.id, "Old"))
+    store.clock = lambda: removed_at + timedelta(days=2)
+    store.move_to_trash(store.remove(LOCAL_USER, recent.id, "Recent"))
+    store.dispose()
+    before.state.engine.dispose()
+
+    app = create_app(paths, clock=lambda: removed_at + timedelta(days=31))
+    with TestClient(app, base_url=BASE):  # started, then stopped: the stop waits for the purge
+        pass
+    assert [p.name for p in paths.projects_trash("local").iterdir()] == ["Recent 20260903-120000"]
+    with app.state.sessions() as session:
+        assert session.get(ProjectRow, old.id) is None
+        assert session.get(ProjectRow, recent.id) is not None
