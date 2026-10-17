@@ -45,6 +45,9 @@ from lectern.runtime.supervisor import ModelRuntime, NotAvailable, Priority
 MAX_MODEL_CALLS = 8
 TEMPERATURE = 0.6
 RESULT_PREVIEW = 600  # characters of a tool result shown in the chat line
+# A reply held for the exact-results check streams once it's longer than this: an essay
+# isn't a bare sum (the longest sum answered from memory in the calc set was a few hundred).
+HOLD_CHARS = 1500
 
 
 @dataclass
@@ -149,6 +152,7 @@ class Reply:
     tokens: int = 0
     first_token_at: float | None = None
     tps: float | None = None
+    shown: bool = False  # a held reply that grew past HOLD_CHARS was streamed after all
 
 
 async def call_model(run: TurnRun, history: History) -> Reply:
@@ -446,11 +450,11 @@ async def run_turn(run: TurnRun) -> str:
             history = await run_in_threadpool(load_history, run)
             # A reply that could be a sum from memory isn't shown until it's known not to be
             hold = not called_a_tool and not checked and _may_check(run, history)
-            reply = await _call(run, history, hold=hold)
+            reply = await _call(run, history, hold=hold, release_after=HOLD_CHARS)
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
             tps = reply.tps or tps
-            if hold and not reply.calls and calls_left:
+            if hold and not reply.calls and not reply.shown and calls_left:
                 checked = True
                 calls_left -= 1
                 check = await _call(run, _with_check(history, reply.content), hold=True)
@@ -458,7 +462,7 @@ async def run_turn(run: TurnRun) -> str:
                 tps = check.tps or tps
                 if check.calls:  # it was an exact result: computed now, the draft dropped
                     reply = check
-            if hold:
+            if hold and not reply.shown:
                 _show(run, reply.content)
             message_id = await run_in_threadpool(
                 lambda r=reply: store_message(
@@ -542,25 +546,38 @@ class _Unknown:
     name = "unknown"
 
 
-async def _call(run: TurnRun, history: History, *, hold: bool = False) -> Reply:
+async def _call(
+    run: TurnRun, history: History, *, hold: bool = False, release_after: int | None = None
+) -> Reply:
     """call_model, keeping the text streamed so far in `stats["partial"]`, so a stop in the
     middle of a reply can still store it. `hold`: the reply's text isn't streamed (the loop
-    shows it once it's checked), and a stop meanwhile stores none of it: nobody saw it."""
+    shows it once it's checked), and a stop meanwhile stores none of it: nobody saw it.
+    `release_after`: a held reply longer than that many characters streams after all, from
+    the start, and comes back `shown`."""
     original = run.emit
     run.stats["partial"] = ""
+    held: list[str] = []
+    released = False
 
     def emit(event: dict) -> None:
+        nonlocal released
         if event.get("type") == "delta":
-            if hold:
-                return
+            if hold and not released:
+                held.append(event["text"])
+                if release_after is None or sum(map(len, held)) <= release_after:
+                    return
+                released = True
+                event = {**event, "text": "".join(held)}
             run.stats["partial"] += event["text"]
         original(event)
 
     run.emit = emit
     try:
-        return await call_model(run, history)
+        reply = await call_model(run, history)
     finally:
         run.emit = original
+    reply.shown = released
+    return reply
 
 
 # --- the exact-results check (docs/acceptance/m1b.md) -------------------------------------

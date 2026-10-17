@@ -225,3 +225,26 @@ def test_a_follow_up_after_a_tool_isnt_checked_though_the_older_message_has_a_nu
     assert loop._may_check(run, loop.History([asked], [], None))
     assert not loop._may_check(run, loop.History(after_a_tool, [], None))
     assert not loop._may_check(run, loop.History([], [], None))
+
+
+def test_a_long_reply_streams_once_past_the_hold_and_isnt_checked(store):
+    """An essay about the 1920s isn't a bare sum: past HOLD_CHARS it streams, from the start."""
+    first, second, rest = "a" * 1000, "b" * (loop.HOLD_CHARS - 999), "c" * 10
+    manager, project, handle = _manager(store, [text_reply(first, second, rest)])
+
+    status, seen = _run(manager, project, "Write 3 paragraphs about the 1920s.")
+
+    assert status == "done" and len(handle.requests) == 1  # no check
+    assert [e["text"] for e in seen if e["type"] == "delta"] == [first + second, rest]
+    assert transcript(store, project)[-1] == ("assistant", first + second + rest, None)
+
+
+def test_a_long_answer_to_the_check_is_still_never_shown(store):
+    manager, project, handle = _manager(
+        store, [text_reply("It's 4172.03."), text_reply("x" * (loop.HOLD_CHARS + 100))]
+    )
+
+    status, seen = _run(manager, project, SUM)
+
+    assert status == "done" and len(handle.requests) == 2
+    assert _shown(seen) == "It's 4172.03."  # the draft, as with any other text
