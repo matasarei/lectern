@@ -22,7 +22,8 @@ the internet is for downloading the models and llama.cpp.
 - **A chat that works on your files.** It finds, searches and reads a project's files, writes
   new ones, and asks before deleting anything.
 - **Exact answers by running code.** For a calculation it writes a Python script and runs it
-  in a sandbox, with no network, instead of guessing (when Podman or Docker is installed).
+  in a sandbox, with no network, instead of guessing (when
+  [Podman or Docker](#the-script-sandbox-podman-or-docker) is installed).
 - **Scanned pages to text.** An OCR session reads a PDF or a page image page by page, printed
   or handwritten, asks you about the words it isn't sure of, and builds a Document you can
   export as Markdown, DOCX or ODT.
@@ -72,6 +73,29 @@ The details for each system are below: [Linux](#install-on-a-linux-server),
    add people on the Users page, and give them a way in: see
    [Accounts](#accounts-a-login-for-each-person) and
    [Reaching it from other computers](#reaching-it-from-other-computers).
+
+### The script sandbox: Podman or Docker
+
+Answers that need exact numbers (sums, dates, counts) come from a script Lectern runs in a
+container, with no network and only the files it was given. That needs Podman or Docker on
+this computer; without one, Lectern still works, and marks such answers "not computed".
+Podman is tried first. Lectern looks for either on its `PATH`, and checks again on its own
+once one is running (first run has a **Check again** button).
+
+- **Mac:** [Podman](https://podman.io/docs/installation#macos)
+  (`brew install podman`, then `podman machine init` and `podman machine start`), or
+  [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/). Both run a
+  small Linux machine; start it before you ask for a calculation.
+- **Linux:** Podman from your distribution (`sudo dnf install podman`,
+  `sudo apt install podman`); it needs no service of its own. Or Docker Engine, with your
+  user in the `docker` group, which amounts to root on that machine (Podman needs no such
+  group).
+- **Windows:** [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
+  or [Podman Desktop](https://podman-desktop.io/), both on WSL 2 (`wsl --install`, then
+  restart).
+
+The first calculation builds the sandbox's image once, and asks first: it downloads about
+250 MB and takes about 430 MB on disk.
 
 **Working on Lectern itself:** `make` installs the Python and web dependencies and builds the
 web UI; `uv run lectern serve` then runs it from the checkout on `http://127.0.0.1:8765`. How

@@ -141,6 +141,7 @@
     "sandboxStopped": "{{runtime}} is installed but not running. Start it so Lectern can run the scripts its models write.",
     "sandboxMissing": "Neither Podman nor Docker is installed.",
     "sandboxWhy": "Without one, Lectern can't run scripts, so answers that need exact numbers are marked not computed. Everything else works.",
+    "sandboxGuide": "How to install Podman or Docker",
     "sandboxCheck": "Check again",
     "sandboxChecking": "Checking…"
   },

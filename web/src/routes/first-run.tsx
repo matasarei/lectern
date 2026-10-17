@@ -33,6 +33,8 @@ const DISK_HEADROOM = 1024 ** 3;
 // While no engine is running, check again this often, so starting Docker or Podman shows up
 // without a reload.
 const SANDBOX_POLL_MS = 10_000;
+// How to install Podman or Docker, for each system: the README's section.
+const SANDBOX_GUIDE = "https://github.com/matasarei/lectern#the-script-sandbox-podman-or-docker";
 const ENGINE_POLL_MS = 1_000;
 
 /** Setting Lectern up is an admin's: it downloads models and picks the engine. Anybody else
@@ -284,6 +286,9 @@ function SandboxCard({ initial }: { initial: SandboxStatus }) {
       {!sandbox.engine_running && (
         <>
           <p className="text-sm text-muted">{t("firstRun.sandboxWhy")}</p>
+          <a className="w-fit text-sm text-accent underline" href={SANDBOX_GUIDE} target="_blank" rel="noopener noreferrer">
+            {t("firstRun.sandboxGuide")}
+          </a>
           <button
             className="btn-secondary mt-2 w-fit"
             disabled={check.isFetching}
