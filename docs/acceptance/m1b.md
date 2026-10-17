@@ -112,6 +112,13 @@ The same Mac and models (`LECTERN_TIER=minimum`: Qwen3.5-4B, Qwen2.5-Coder-1.5B)
 
 The first three are the coder's mistakes, the gap described above, not the rule.
 
+After the review's fixes (`7a17d87`), the calc set was run twice more. The check now:
+- runs only when the turn answers the person's message itself, not on a follow-up;
+- holds a reply only up to 1,500 characters, then streams the rest unchecked;
+- skips an empty reply.
+
+`code.run` was used in 20 and 19 of 20. The one without it was xlsx-sum again: it called tools, but its scripts couldn't read the file. The wrong answers again came from scripts (penalty 25.00, vat 300.00).
+
 The check costs nothing where it doesn't apply, and didn't break the general questions:
 - **The tools set** (34 prompts): 33 and 32 passed, against 30 and 30 on `main`. The failures are the known ones: due-day ran out of model calls in its search loops (both runs), and find-notes once.
 - **"What do you know about Old Church Slavonic?"** (Russian and English, 5 runs each): all 10 answered from general knowledge, none refused. Two Russian answers didn't name Cyril, which the set looks for. Those questions have no number, so the check never ran on them.
