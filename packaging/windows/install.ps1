@@ -268,6 +268,14 @@ try {
 } catch {
     # The tray app was quit for the switch: it's started again as it is now (the new one, or
     # the old one put back), on whichever version app\venv points at.
+    # The old link went but the new one wasn't made: the version in use is linked again.
+    if ($previous -and -not (Test-Path -LiteralPath $venv)) {
+        try {
+            New-Item -ItemType Junction -Path $venv -Target $previous | Out-Null
+        } catch {
+            [Console]::Error.WriteLine("install.ps1: couldn't link $venv to $previous again: $($_.Exception.Message)")
+        }
+    }
     if ($wasOpen) {
         if (-not (Test-Path -LiteralPath $trayExe) -and (Test-Path -LiteralPath (Join-Path $app 'tray.old'))) {
             Rename-Item -LiteralPath (Join-Path $app 'tray.old') -NewName 'tray'
