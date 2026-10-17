@@ -248,3 +248,18 @@ def test_a_long_answer_to_the_check_is_still_never_shown(store):
 
     assert status == "done" and len(handle.requests) == 2
     assert _shown(seen) == "It's 4172.03."  # the draft, as with any other text
+
+
+def test_a_held_replys_time_to_first_token_is_when_it_was_shown(store, monkeypatch):
+    """Held and checked, its first token reached the person after the check, not when the
+    model wrote it: the same reply, unheld, has the shorter time."""
+    from .test_loop import _ticking_clock
+
+    def ttft(sandbox: bool) -> float:  # noqa: FBT001
+        _ticking_clock(monkeypatch)
+        manager, project, _ = _manager(store, [text_reply("1648."), text_reply("NO_CALC")],
+                                       sandbox=sandbox)  # fmt: skip
+        _, seen = _run(manager, project, "When was the Peace of Westphalia? In 1 word.")
+        return next(e for e in seen if e["type"] == "done")["ttft"]
+
+    assert ttft(sandbox=True) > ttft(sandbox=False)

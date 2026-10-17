@@ -462,8 +462,8 @@ async def run_turn(run: TurnRun) -> str:
                 tps = check.tps or tps
                 if check.calls:  # it was an exact result: computed now, the draft dropped
                     reply = check
-            if hold and not reply.shown:
-                _show(run, reply.content)
+            if hold and not reply.shown and _show(run, reply.content):
+                first_token = first_token or time.perf_counter()  # when it was seen
             message_id = await run_in_threadpool(
                 lambda r=reply: store_message(
                     run,
@@ -558,15 +558,16 @@ async def _call(
     run.stats["partial"] = ""
     held: list[str] = []
     released = False
+    released_at: float | None = None
 
     def emit(event: dict) -> None:
-        nonlocal released
+        nonlocal released, released_at
         if event.get("type") == "delta":
             if hold and not released:
                 held.append(event["text"])
                 if release_after is None or sum(map(len, held)) <= release_after:
                     return
-                released = True
+                released, released_at = True, time.perf_counter()
                 event = {**event, "text": "".join(held)}
             run.stats["partial"] += event["text"]
         original(event)
@@ -577,6 +578,8 @@ async def _call(
     finally:
         run.emit = original
     reply.shown = released
+    if hold:  # its first token is when the person first saw text, not when it was written
+        reply.first_token_at = released_at
     return reply
 
 
@@ -604,7 +607,8 @@ def _with_check(history: History, draft: str) -> History:
     return History([*history.messages, *asked], history.attachments, history.state)
 
 
-def _show(run: TurnRun, text: str) -> None:
-    """A held reply's text, once it stands: all at once."""
+def _show(run: TurnRun, text: str) -> bool:
+    """A held reply's text, once it stands: all at once. Whether there was any."""
     if text:
         run.emit({"type": "delta", "text": text})
+    return bool(text)
