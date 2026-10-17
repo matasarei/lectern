@@ -33,8 +33,8 @@ the internet is for downloading the models and llama.cpp.
   through a tunnel, from anywhere.
 
 - **Hardware:** 4 GB VRAM + 16 GB RAM at least; 8 GB VRAM + 16 GB RAM recommended.
-- **Installers:** Linux (x86_64, systemd) and macOS (Apple Silicon, 13 or newer). Windows isn't
-  packaged yet.
+- **Installers:** Linux (x86_64, systemd), macOS (Apple Silicon, 13 or newer) and Windows (x64,
+  10 or 11).
 - **Status:** pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html); open it
   in a browser.
 
@@ -57,7 +57,7 @@ in `~/.lectern`. Update with `cd ~/.lectern/src && git pull && make install`; re
 `make uninstall` (keeps your models, projects and settings) or `make purge` (asks, then
 removes those too), in the same folder.
 The details for each system are below: [Linux](#install-on-a-linux-server),
-[Mac](#install-on-a-mac).
+[Mac](#install-on-a-mac), [Windows](#install-on-windows).
 
 ## Using it
 
@@ -348,6 +348,53 @@ What it gives and what it costs, measured with the 4B chat model on an M4 Max:
 
 OCR models always run on llama.cpp. Lectern starts MLX's server with a key of its own, as it
 does llama.cpp's: a web page can't use the model, and neither can another user of the Mac.
+
+## Install on Windows
+
+On Windows, Lectern runs straight on the PC, with a small tray app (by the clock) that starts
+and stops it. Lectern runs for as long as the tray app does.
+
+**Needs:** a 64-bit PC with Windows 10 or 11, Git and Node.js
+(`winget install Git.Git OpenJS.NodeJS.LTS`, then open a new window), and internet for the
+first run. Python isn't needed: the installer brings its own. The tray app is compiled on
+your PC by the C# compiler that comes with Windows (.NET Framework 4).
+
+1. **Clone Lectern and run one script, as yourself** (not as administrator), in PowerShell:
+   ```powershell
+   git clone https://github.com/matasarei/lectern.git $HOME\.lectern\src
+   cd $HOME\.lectern\src; powershell -ExecutionPolicy Bypass -File install.ps1
+   ```
+   Everything goes in `%USERPROFILE%\.lectern`, laid out as
+   [on Linux](#install-on-a-linux-server) (`src`, `app`, `data`, `lectern.env`,
+   `bin\lectern-url.cmd`, `bin\lectern.cmd`). The installer adds Lectern to the Start menu and
+   to the Startup folder, and starts it.
+2. **Use the tray icon's menu** (right-click it; double-click opens Lectern):
+
+   | | |
+   |---|---|
+   | Open Lectern | opens it in your browser, signed in (the link carries the access token) |
+   | Stop / Start, Restart | Lectern itself; the tray app stays |
+   | Show Log | `%LOCALAPPDATA%\Lectern\Logs\lectern.log`; the access link is never written to it |
+   | Quit Lectern | stops Lectern and every model it has loaded, then closes the tray app |
+
+   Opening Lectern again from the Start menu opens it in the browser. The first run checks
+   the hardware, lets you pick the chat model, and downloads it with the llama.cpp build for
+   your GPU (CUDA, Vulkan or the CPU).
+
+**Update:** `cd $HOME\.lectern\src; git pull; powershell -ExecutionPolicy Bypass -File install.ps1`.
+A running Lectern is quit, replaced and started again; one that wasn't running is replaced and
+left stopped. Your data and settings are kept, and if anything fails to build, the running
+Lectern and its version stay as they were.
+**Start at sign-in:** the installer puts it in the Startup folder; delete the shortcut there
+(`shell:startup` in the Run box) to stop that.
+**Settings:** `%USERPROFILE%\.lectern\lectern.env`, then Restart in the menu.
+**Uninstall:** `powershell -ExecutionPolicy Bypass -File uninstall.ps1` removes the tray app,
+its shortcuts, its log and `.lectern\app`; it keeps `.lectern\data` and `.lectern\lectern.env`
+unless you add `-Purge`, which asks first. `.lectern\src` always stays.
+**The script sandbox** needs Docker Desktop or Podman Desktop (both on WSL 2): see
+[The script sandbox](#the-script-sandbox-podman-or-docker).
+**Even if the tray app is ended** (Task Manager), nothing is left behind: Lectern and every
+model runner it started end with it.
 
 ## Models
 
