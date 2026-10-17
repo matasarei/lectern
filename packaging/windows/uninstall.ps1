@@ -28,6 +28,13 @@ $app = Join-Path $dir 'app'
 $trayExe = Join-Path $app 'tray\Lectern.exe'
 $events = 'Local\Lectern-' + $dir.ToLowerInvariant().Replace('\', '_').Replace(':', '_')
 
+# Its folders are app, bin and data: under a LECTERN_DIR that isn't an install (C:\, say)
+# those names are someone else's. An install has its settings, or its versions folder.
+if (-not ((Test-Path -LiteralPath (Join-Path $dir 'lectern.env')) -or
+          (Test-Path -LiteralPath (Join-Path $app 'versions')))) {
+    Exit-Uninstall "there's no Lectern installed in $dir (no lectern.env, no app\versions); nothing was removed."
+}
+
 # A wipe deletes every model and project, and nothing brings them back: only y or yes goes on.
 if ($Purge) {
     $answer = Read-Host "This deletes the models, projects and settings in $dir. Go on? [y/N]"
