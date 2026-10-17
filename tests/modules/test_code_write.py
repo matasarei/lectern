@@ -299,6 +299,7 @@ def test_a_file_the_brief_names_is_given_to_the_script_when_no_inputs_are(make_c
     [
         ("Sum the hours in data/hours.xlsx, the 'Hours' column.", ["hours.xlsx"]),  # by its path
         ("Sum HOURS.XLSX's 'Hours' column.", ["hours.xlsx"]),  # case aside
+        ("Sum the 'Hours' column of /in/hours.xlsx.", ["hours.xlsx"]),  # as the script sees it
         ("Sum the 'Hours' column of week-hours.xlsx.", []),  # another name, not in the project
         ("Penalty on 250.00 at 0.5% per day for 50 days.", []),  # no file at all
     ],

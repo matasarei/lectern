@@ -89,7 +89,8 @@ def find_inputs(ctx: ToolContext, names: list[str]) -> list[Input]:
 def named_in(ctx: ToolContext, text: str) -> list[str]:
     """The project files `text` names, by path or by file name (case aside), outside
     scripts/. A file name two files share names neither: the brief doesn't say which."""
-    lowered = text.casefold()
+    # "/in/hours.xlsx" is how the script will see it (the tool's own description says so)
+    lowered = re.sub(r"(?<![\w.-])/in/", " ", text.casefold())
     rows = [r for r in _live(ctx) if not r.path.startswith(f"{SCRIPTS}/")]
 
     def said(name: str) -> bool:
