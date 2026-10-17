@@ -139,6 +139,12 @@ prompts:
     prompt: "In two sentences: what was the Peace of Westphalia, and when was it signed?"
     text: ["1648"]
     forbid: [artifact.write, artifact.trash, code.write]
+  # The question that was refused ("no access to external sources … no files in the
+  # project"). An answer names Cyril; a refusal doesn't.
+  - id: general-language
+    prompt: "Что ты знаешь о старославянском языке? Коротко."
+    text: ["кирил"]
+    forbid: [artifact.write, artifact.trash, code.write]
   # Worded like producing something, but nobody asked for a file.
   - id: unasked-fact
     prompt: "Give me one interesting fact about Kyiv, in one sentence."

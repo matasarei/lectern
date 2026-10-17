@@ -59,5 +59,8 @@ sed -e "s|@VERSION@|$version|g" -e "s|@LECTERN_DIR@|$dir|g" "$here/tray/Info.pli
     > "$bundle/Contents/Info.plist"
 # Ad hoc: no developer identity. Apple Silicon runs nothing unsigned, and a bundle whose
 # Info.plist changed after its binary was signed doesn't verify.
-codesign --force --sign - "$bundle" 2>/dev/null \
-    || { rm -rf "$bundle"; die "signing the app failed (codesign --force --sign - $bundle)."; }
+# What codesign says is shown only when it fails (it also talks when it succeeds).
+if ! signed="$(codesign --force --sign - "$bundle" 2>&1)"; then
+    rm -rf "$bundle"
+    die "signing the app failed (codesign --force --sign - $bundle): $signed"
+fi

@@ -54,3 +54,13 @@ def test_the_prompt_lets_general_questions_be_answered_from_what_the_model_knows
     prompt = system_prompt("x", sandbox=True)
     assert "General questions" in prompt and "from your own knowledge" in prompt
     assert "Never make up what a file says" in prompt
+
+
+def test_exact_results_come_before_general_questions_and_need_no_file():
+    """Read first, the general-questions line made the 4B answer about half the calc set
+    from memory ("That's general knowledge"). Below the exact-results rule it does so less
+    often (code_run in 14-16 of 20 against 10-11), and still answers general questions."""
+    for sandbox in (True, False):
+        prompt = system_prompt("x", sandbox=sandbox)
+        assert prompt.index("- Exact results") < prompt.index("- General questions")
+        assert "even with no file" in prompt

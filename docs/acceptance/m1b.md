@@ -74,6 +74,20 @@ The scripts in each run's project show which model made each mistake:
 
 The test run only catches scripts that crash. Bigger models on the recommended and comfortable tiers should make fewer of these mistakes; that's the next thing to measure. Tighter coder rules (print labelled, human-readable results) would help both models.
 
+### Again on 2026-10-15: the rule broken, by the general-knowledge prompt
+
+The same Mac and models (`LECTERN_TIER=minimum`: Qwen3.5-4B, Qwen2.5-Coder-1.5B), a scratch home with the models linked in, Docker 29.4.3. Run twice: on the MVP plan's integration tree (`origin/main` + its branches, none of which touches the prompt) and on `origin/main` itself (`0c7aa5a`).
+
+| | Integration tree | `origin/main` |
+|---|---|---|
+| Passed | 11/20 | 8/20 |
+| `code.run` used | 11/20 | 11/20 |
+| Right answer | 19/20 | 16/20 |
+
+**The criterion is not met:** on each tree 9 prompts were answered without `code.run`. On both: weekday, median, increase, workdays, durations, power and xlsx-sum; on the integration tree also vat and ratio, on `origin/main` also percent and days-between. The answers say why: "That's general knowledge, not from the project's files", or "This is a simple calculation, so I can compute it directly". The cause is the prompt's rule for general questions (`src/lectern/agent/prompts.py`, from `68300aa` and `e92e5de`, 2026-10-08, backlog #11): a 4B reads a sum with no file in it as general knowledge, and the rule lets it answer from what it knows. Most of those answers were right, which is the danger the rule against it exists for. Still to fix: exact results go through `code_run` whatever the question is about; measured by this set, several runs.
+
+Also: **xlsx-sum** failed on both (the scripts failed 3–5 times reading `hours.xlsx`), and **csv-count** on `origin/main` ran out of model calls (it passed on the other tree; in September it passed in run 1 and ran out in run 2). Not looked into.
+
 ## Notes
 
 - **Real-engine tests** (`pytest -m sandbox` with `LECTERN_TEST_SANDBOX_IMAGE=python:3-slim`) pass on this Mac:

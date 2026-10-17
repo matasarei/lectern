@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -11,6 +12,7 @@ from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
+from sqlalchemy.exc import SQLAlchemyError
 
 from lectern import __version__
 from lectern.agent.core_tools import CORE_TOOLS
@@ -41,6 +43,17 @@ from lectern.runtime.supervisor import ModelRuntime
 from lectern.runtime.wiring import build_runtime
 from lectern.web import WEB_DIST, mount_web
 
+log = logging.getLogger(__name__)
+
+
+def _purge_removed(projects: ProjectStore) -> None:
+    """The start-up purge. A database error is logged then and there; raised, it would wait
+    unseen in its task until the app stops, and then cut the stop short."""
+    try:
+        projects.purge_removed()
+    except SQLAlchemyError:
+        log.exception("removed projects weren't purged; they're tried again at the next start")
+
 
 def create_app(
     paths: Paths | None = None,
@@ -59,7 +72,8 @@ def create_app(
 
     `dev`: serve the developer tools (/api/dev); LECTERN_DEV=1 when not given.
 
-    `clock`: the time sign-ins and logins go by (a test sets it instead of waiting).
+    `clock`: the time sign-ins, logins and removed projects go by (a test sets it instead
+    of waiting).
 
     `login_check_seconds`: how often an open event socket asks whether its opener is still
     signed in."""
@@ -76,11 +90,15 @@ def create_app(
         entries = {m.id: m for m in catalog.load().models}
         app.state.downloads.resume_interrupted(entries)
         app.state.tool_env.start()  # is a container engine running? (in the background)
+        # Projects removed more than 30 days ago go for good: in a thread, so a large folder
+        # being deleted doesn't hold up the start.
+        purging = asyncio.create_task(asyncio.to_thread(_purge_removed, app.state.projects))
         yield
         await app.state.turns.stop_all()  # a reply in progress keeps what it wrote
         await app.state.ocr_jobs.stop_all()  # an OCR batch shows as paused when read again
         await app.state.runtime.stop_all()  # every llama-server process ends with the app
         await app.state.downloads.stop_all()
+        await purging
         app.state.projects.dispose()
 
     app = FastAPI(
@@ -102,7 +120,7 @@ def create_app(
     migrate(engine)
     app.state.engine = engine
     app.state.sessions = make_sessionmaker(engine)
-    app.state.projects = ProjectStore(paths, app.state.sessions)
+    app.state.projects = ProjectStore(paths, app.state.sessions, clock)
     app.state.downloads = downloads or DownloadManager(paths.models, app.state.sessions)
     app.state.runtime = runtime or build_runtime(
         paths, app.state.downloads, probe(), app.state.sessions

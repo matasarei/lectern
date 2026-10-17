@@ -187,19 +187,31 @@ def _until(condition, what: str, timeout: float = 20.0) -> None:  # noqa: ANN001
     raise AssertionError(f"never happened: {what}")
 
 
-def _arguments(pid: int) -> str:
+def _ps(pid: int, column: str) -> str:
+    """One of ps's columns for the process ("args=", "stat="); "" once it's gone."""
     shown = subprocess.run(  # noqa: S603
-        ["/bin/ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True, timeout=60
+        ["/bin/ps", "-o", column, "-p", str(pid)], capture_output=True, text=True, timeout=60
     )
-    return shown.stdout
+    return shown.stdout.strip()
 
 
 def _alive(pid: int) -> bool:
+    """Running, not just a number: a killed process whose parent is gone stays a zombie until
+    launchd collects it, and os.kill(pid, 0) still finds a zombie."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    return not _ps(pid, "stat=").startswith("Z")
+
+
+def _text(path: Path) -> str:
+    """The log so far. The app writes the pid file a moment before its first log line, so a
+    test that has just seen the pid file may find no log yet."""
+    try:
+        return path.read_text()
+    except FileNotFoundError:
+        return ""
 
 
 @pytest.fixture
@@ -247,7 +259,7 @@ def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_qui
         _until(pid_file.exists, "the app started Lectern and wrote its process id")
         lectern = int(pid_file.read_text())
         assert _alive(lectern)
-        _until(lambda: log.exists() and "an ordinary line" in log.read_text(), "the log")
+        _until(lambda: "an ordinary line" in _text(log), "the log")
         assert "SECRET" not in log.read_text() and "token" not in log.read_text()
         assert log.stat().st_mode & 0o777 == 0o600
 
@@ -257,6 +269,23 @@ def test_the_app_runs_lectern_keeps_the_token_out_of_its_log_and_stops_it_on_qui
     assert stopped.read_text().strip() == "interrupted"  # SIGINT, as Ctrl+C: runners stop too
     assert "left running" not in log.read_text()  # nothing was left for the app to end
     assert not _alive(lectern) and not pid_file.exists()
+
+
+@needs_a_desktop
+def test_a_log_past_its_limit_is_moved_aside_when_lectern_starts(tmp_path, installed):
+    """Only the start at launch can be driven from here; the one from Restart, in the menu,
+    goes through the same start() and is checked by hand."""
+    folder, bundle = installed
+    log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
+    log.parent.mkdir(parents=True)
+    log.write_bytes(b"an old line\n" * 500_000)  # 6 MB, past the 5 MB limit
+    with _app(tmp_path, bundle) as app:
+        _until(lambda: "---- Lectern 1.0.0 started" in _text(log), "the app's first log line")
+        app.send_signal(signal.SIGTERM)
+        assert app.wait(timeout=20) == 0
+    older = log.with_name("lectern.log.1")
+    assert older.stat().st_size == 6_000_000
+    assert "an old line" not in log.read_text() and log.stat().st_size < 10_000
 
 
 @needs_a_desktop
@@ -278,7 +307,7 @@ def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, install
         _until(runner_file.exists, "Lectern started its runner")
         runner = int(runner_file.read_text())
         stack.callback(lambda: _alive(runner) and os.kill(runner, signal.SIGKILL))
-        _until(lambda: "an ordinary line" in log.read_text(), "Lectern is up")
+        _until(lambda: "an ordinary line" in _text(log), "Lectern is up")
 
         app.send_signal(signal.SIGTERM)  # Shut Down
         assert app.wait(timeout=20) == 0
@@ -302,21 +331,26 @@ def test_the_app_takes_over_a_lectern_left_running_and_says_its_log_is_paused(
     with _app(tmp_path, bundle) as crashed:
         _until(pid_file.exists, "the app started Lectern")
         lectern = int(pid_file.read_text())
+        # The app's own first line, written just after the pid file: killed before it, the
+        # app would leave no log, and no "started" line to count below.
+        _until(lambda: "---- Lectern 1.0.0 started" in _text(log), "the app's first log line")
         if caught == "running":
-            _until(lambda: "an ordinary line" in log.read_text(), "Lectern is up")
+            _until(lambda: "an ordinary line" in _text(log), "Lectern is up")
         crashed.kill()  # the app is force-quit: Lectern lives on
         crashed.wait()
     assert _alive(lectern)
 
     with _app(tmp_path, bundle) as app:
-        _until(lambda: f"took over Lectern (process {lectern})" in log.read_text(), "the take-over")
+        _until(lambda: f"took over Lectern (process {lectern})" in _text(log), "the take-over")
         assert "isn't kept until Restart" in log.read_text()
         assert int(pid_file.read_text()) == lectern  # no second Lectern was started
         assert log.read_text().count("---- Lectern 1.0.0 started") == 1
 
         stopped = folder / "app/venv/bin/lectern.stopped"
         if caught == "still starting":  # let it become Lectern, so SIGINT is its to handle
-            _until(lambda: "app/venv/bin/lectern" in _arguments(lectern), "the start script ended")
+            _until(
+                lambda: "app/venv/bin/lectern" in _ps(lectern, "args="), "the start script ended"
+            )
         app.send_signal(signal.SIGTERM)
         assert app.wait(timeout=20) == 0
     if caught == "running":  # (caught earlier, the stand-in may not have set its trap yet)
@@ -368,8 +402,13 @@ FAKES = {
     '[ "$1" != --version ] || exit 0; '
     'if [ -n "${FAIL_SWIFTC:-}" ]; then echo "error: it does not compile" >&2; exit 1; fi; '
     'while [ $# -gt 0 ]; do if [ "$1" = -o ]; then : > "$2"; fi; shift; done',
-    "codesign": 'echo "codesign $*" >> "$LOG"',
+    # FAIL_CODESIGN: signing fails, saying why.
+    "codesign": 'echo "codesign $*" >> "$LOG"; '
+    'if [ -n "${FAIL_CODESIGN:-}" ]; then echo "errSecInternalComponent" >&2; exit 1; fi',
     "open": 'echo "open $*" >> "$LOG"',
+    # FAIL_MV_NEW: the new app can't be moved into place (the swap is cut short).
+    "mv": 'if [ -n "${FAIL_MV_NEW:-}" ] && [ "$1" != "${1%.app.new}" ]; then '
+    'echo "mv: rename failed" >&2; exit 1; fi; exec /bin/mv "$@"',
     # The running app is the process whose id is in STATE/app-pid, for as long as it lives
     # (a killed child of the test is a zombie until the test collects it: not running).
     "pgrep": 'p="$(cat "$STATE/app-pid" 2>/dev/null)"; [ -n "$p" ] || exit 1; '
@@ -462,6 +501,28 @@ def test_an_app_whose_icon_cant_be_drawn_is_still_installed(tmp_path):
     bundle = _bundle(tmp_path)
     assert (bundle / "Contents/MacOS/Lectern").exists()
     assert not (bundle / "Contents/Resources").exists()
+
+
+def test_a_signing_failure_says_why(tmp_path):
+    done = _install(tmp_path, _wheel(tmp_path, "0.1.0"), FAIL_CODESIGN="1")
+    assert done.returncode != 0
+    assert "signing the app failed" in done.stderr and "errSecInternalComponent" in done.stderr
+
+
+def test_an_install_in_another_folder_doesnt_take_over_the_app(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    other = tmp_path / "home/elsewhere"
+    done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), LECTERN_DIR=str(other))
+    assert done.returncode != 0
+    assert f"runs the Lectern in {_home(tmp_path)}, not {other}" in done.stderr
+    assert _version(_bundle(tmp_path)) == "0.1.0" and not other.exists()
+
+
+def test_the_same_folder_with_a_trailing_slash_is_the_same_install(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), LECTERN_DIR=f"{_home(tmp_path)}/")
+    assert done.returncode == 0, done.stderr
+    assert _version(_bundle(tmp_path)) == "0.2.0"
 
 
 def test_on_a_mac_run_as_root_it_refuses(tmp_path):
@@ -675,6 +736,33 @@ def test_a_failed_update_leaves_the_app_and_the_version_as_they_were(tmp_path, f
     assert _opens(tmp_path) == 1
 
 
+def test_a_step_failing_after_the_app_was_quit_opens_it_again(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    url = _home(tmp_path) / "bin/lectern-url"
+    url.chmod(0o444)  # it can't be written again: a step after the switch fails
+    try:
+        with _open_app(tmp_path) as app:
+            done = _install(tmp_path, _wheel(tmp_path, "0.2.0"))
+            assert app.wait(timeout=10) == -15  # it was quit for the switch
+    finally:
+        url.chmod(0o755)
+    assert done.returncode != 0
+    assert "opened again" in done.stderr
+    assert _opens(tmp_path) == 2  # the first install's, and this one's on the way out
+    assert _bundle(tmp_path).exists()
+
+
+def test_a_swap_cut_short_puts_the_old_app_back_and_opens_it(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    bundle = _bundle(tmp_path)
+    with _open_app(tmp_path) as app:
+        done = _install(tmp_path, _wheel(tmp_path, "0.2.0"), FAIL_MV_NEW="1")
+        assert app.wait(timeout=10) == -15
+    assert done.returncode != 0 and "opened again" in done.stderr
+    assert _version(bundle) == "0.1.0" and not bundle.with_name("Lectern.app.old").exists()
+    assert _opens(tmp_path) == 2
+
+
 def test_an_update_that_doesnt_start_says_so_and_keeps_the_previous_version(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     home = _home(tmp_path)
@@ -763,6 +851,66 @@ def test_uninstall_with_an_app_that_wont_quit_removes_nothing(tmp_path):
         done = _uninstall(tmp_path, LECTERN_QUIT_WAIT="2")
     assert done.returncode == 1 and "didn't quit" in done.stderr
     assert _bundle(tmp_path).exists() and (_home(tmp_path) / "app/venv").exists()
+
+
+def test_uninstall_stops_a_lectern_left_running_without_the_app_and_nothing_else(tmp_path):
+    """The app was force-quit and Lectern lived on: its files mustn't go from under it, and it
+    is stopped as the app would (SIGINT, so it stops its models too)."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home = _home(tmp_path)
+    marker, ready = tmp_path / "stopped", tmp_path / "ready"
+    lectern = home / "app/venv/bin/lectern"
+    lectern.write_text(
+        f"#!/bin/sh\ntrap 'echo interrupted > \"{marker}\"; exit 0' INT\n"
+        f': > "{ready}"\nwhile :; do sleep 0.1; done\n'
+    )
+    lectern.chmod(0o755)
+    left = subprocess.Popen([str(lectern), "serve"])  # noqa: S603
+    try:
+        _until(ready.exists, "Lectern is running, its SIGINT handled")
+        (home / "app/lectern.pid").write_text(f"{left.pid}\n")
+        done = _uninstall(tmp_path)
+        assert done.returncode == 0, done.stderr
+        assert left.wait(timeout=10) == 0 and marker.read_text().strip() == "interrupted"
+        assert not (home / "app").exists()
+    finally:
+        left.kill()
+        left.wait()
+
+
+def test_uninstall_with_a_lectern_that_wont_stop_removes_nothing(tmp_path):
+    """SIGINT, then SIGTERM, and it's still there: nothing goes from under it."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home, ready = _home(tmp_path), tmp_path / "ready"
+    lectern = home / "app/venv/bin/lectern"
+    lectern.write_text(
+        f"#!/bin/sh\ntrap '' INT TERM\n: > \"{ready}\"\nwhile :; do sleep 0.1; done\n"
+    )
+    lectern.chmod(0o755)
+    left = subprocess.Popen([str(lectern), "serve"])  # noqa: S603
+    try:
+        _until(ready.exists, "Lectern is running, ignoring SIGINT and SIGTERM")
+        (home / "app/lectern.pid").write_text(f"{left.pid}\n")
+        done = _uninstall(tmp_path, LECTERN_QUIT_WAIT="1")
+        assert done.returncode == 1
+        assert f"Lectern (process {left.pid}) didn't stop; nothing was removed." in done.stderr
+        assert left.poll() is None
+        assert _bundle(tmp_path).exists() and (home / "app/venv").exists()
+    finally:
+        left.kill()
+        left.wait()
+
+
+def test_uninstall_never_signals_another_process_with_the_number_in_the_pid_file(tmp_path):
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    other = subprocess.Popen(["/bin/sleep", "600"])  # noqa: S603
+    try:
+        (_home(tmp_path) / "app/lectern.pid").write_text(f"{other.pid}\n")
+        assert _uninstall(tmp_path).returncode == 0
+        assert other.poll() is None
+    finally:
+        other.kill()
+        other.wait()
 
 
 def test_uninstall_on_a_mac_run_as_root_refuses(tmp_path):

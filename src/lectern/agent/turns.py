@@ -115,7 +115,7 @@ class TurnManager:
         # Chats whose message is being stored and whose turn hasn't started yet: a second
         # send in that gap must see the chat as busy.
         self._starting: set[Key] = set()
-        self._follow_ups: set[asyncio.Task[None]] = set()
+        self._follow_ups: dict[asyncio.Task[None], int] = {}  # each with its project's id
         self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
         # Each chat's token counts, by model, kept between its turns (lectern.agent.context)
         self._token_counts: dict[Key, dict[str, dict[str, int]]] = {}
@@ -307,8 +307,8 @@ class TurnManager:
             self._hold(project, sessions, chat_id, ocr_session_id, summary, tools),
             name=f"hold-{project.id}-{chat_id}-{ocr_session_id}",
         )
-        self._follow_ups.add(task)
-        task.add_done_callback(self._follow_ups.discard)
+        self._follow_ups[task] = project.id
+        task.add_done_callback(lambda t: self._follow_ups.pop(t, None))
         task.add_done_callback(lambda _t: self._follow_up_keys.discard(key))
 
     async def _hold(self, project: Project, sessions: object, chat_id: int,
@@ -371,8 +371,8 @@ class TurnManager:
             self._follow_up(project, sessions, chat_id, follow, status, notice),
             name=f"follow-up-{project.id}-{chat_id}-{follow.id}",
         )
-        self._follow_ups.add(task)
-        task.add_done_callback(self._follow_ups.discard)
+        self._follow_ups[task] = project.id
+        task.add_done_callback(lambda t: self._follow_ups.pop(t, None))
         task.add_done_callback(lambda _t: self._follow_up_keys.discard(key))
 
     async def follow_ups_settled(self) -> None:
@@ -472,6 +472,27 @@ class TurnManager:
     async def stop_all(self) -> None:
         for key in list(self._turns):
             await self.stop(key)
+
+    async def stop_project(self, project_id: int) -> None:
+        """A removed project: its chats' turns are stopped, then its follow-ups that haven't
+        run are dropped (a stopped turn still looks for follow-ups on its way out, so the
+        turns go first), and nothing is kept of them here. Until none is left: a follow-up
+        can start a turn while another is being stopped."""
+        while True:
+            turns = [k for k in self._turns if k[0] == project_id]
+            follow_ups = [t for t, p in self._follow_ups.items() if p == project_id]
+            if not turns and not follow_ups:
+                break
+            for key in turns:
+                await self.stop(key)
+                del self._turns[key]
+            for task in follow_ups:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        for key in [k for k in self._channels if k[0] == project_id]:
+            del self._channels[key]
+        self._project_channels.pop(project_id, None)
 
     async def wait(self, key: Key) -> str | None:
         """For tests and shutdown: the turn's final status."""

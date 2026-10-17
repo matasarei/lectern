@@ -408,9 +408,27 @@ describe("A project that isn't there, or isn't yours", () => {
     }));
     // The client as the app makes it: a query that fails is tried again, a second later.
     renderAt("/projects/7", new QueryClient());
-    expect(await screen.findByText("No such project.")).toBeTruthy();
+    expect(
+      await screen.findByText("This project isn't here: it was removed, or it isn't yours."),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Projects" })).toBeTruthy();
     expect(screen.queryByText("Loading…")).toBeNull();
     expect(asked.filter((url) => url === "/api/projects/7")).toHaveLength(1);
+  });
+
+  it("is said in a tab left open when the project is removed from another", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderAt("/projects/1", client);
+    expect(await screen.findByText("Lease archive 1998")).toBeTruthy();
+
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({ detail: "No such project." }), { status: 404 }),
+    ));
+    await act(() => client.invalidateQueries({ queryKey: ["project", 1] })); // as on focus
+    expect(
+      await screen.findByText("This project isn't here: it was removed, or it isn't yours."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 
   it("is still asked for again when the server couldn't answer", async () => {
