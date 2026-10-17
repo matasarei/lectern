@@ -407,3 +407,27 @@ def test_a_removed_project_whose_folder_was_deleted_by_hand_is_purged_too(timed,
         shutil.rmtree(session.get(ProjectRow, project.id).root_path)
     clock.now += timedelta(days=31)
     assert timed.purge_removed() == 1
+
+
+def test_a_removed_linked_project_keeps_its_folder_where_it_is(timed, clock, tmp_path, paths):
+    """A linked folder is the person's own: removing the project never moves or deletes it."""
+    mine = tmp_path / "Documents/lease"
+    mine.mkdir(parents=True)
+    (mine / "contract.docx").write_bytes(b"PK")
+    with timed.app_sessions.begin() as session:
+        row = ProjectRow(
+            owner_id=LOCAL_USER.id, name="Lease", root_kind="linked", root_path=str(mine)
+        )
+        session.add(row)
+        session.flush()
+        project_id = row.id
+
+    timed.move_to_trash(timed.remove(LOCAL_USER, project_id, "Lease"))
+    assert (mine / "contract.docx").read_bytes() == b"PK"
+    assert not paths.projects_trash("local").exists()
+
+    clock.now += timedelta(days=31)
+    assert timed.purge_removed() == 1
+    assert (mine / "contract.docx").read_bytes() == b"PK"
+    with timed.app_sessions() as session:
+        assert session.get(ProjectRow, project_id) is None

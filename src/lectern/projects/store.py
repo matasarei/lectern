@@ -163,10 +163,13 @@ class ProjectStore:
     def move_to_trash(self, project: Project) -> None:
         """A removed project's folder into its owner's trash, its database closed first. A
         folder that can't be moved (a file still open in it, on Windows) stays where it is:
-        the project is removed either way, and the purge deletes it from there."""
+        the project is removed either way, and the purge deletes it from there. A linked
+        project's folder is the person's own: it stays where it is, only its row goes."""
         self._forget_db(project.id)
         with self.app_sessions.begin() as session:
             row = session.get(ProjectRow, project.id)
+            if row.root_kind != "managed":
+                return
             owner = session.get(UserRow, row.owner_id)
             trash = self.paths.projects_trash(owner.name)
             stamp = row.removed_at.strftime("%Y%m%d-%H%M%S")
@@ -182,15 +185,21 @@ class ProjectStore:
 
     def purge_removed(self, *, days: int = files.TRASH_DAYS) -> int:
         """Delete the projects removed more than `days` ago, folder and row. One whose folder
-        can't be deleted keeps its row, and is tried again next time. Returns how many went."""
+        can't be deleted keeps its row, and is tried again next time. A linked project loses
+        only its row. Returns how many went."""
         cutoff = self.clock() - timedelta(days=days)
         purged = 0
         with self.app_sessions() as session:
             rows = session.scalars(select(ProjectRow).where(ProjectRow.removed_at.is_not(None)))
-            due = [(r.id, Path(r.root_path)) for r in rows if _aware(r.removed_at) < cutoff]
-        for project_id, root in due:
+            due = [
+                (r.id, Path(r.root_path), r.root_kind == "managed")
+                for r in rows
+                if _aware(r.removed_at) < cutoff
+            ]
+        for project_id, root, managed in due:
             try:
-                shutil.rmtree(root)
+                if managed:
+                    shutil.rmtree(root)
             except FileNotFoundError:
                 pass  # deleted by hand already
             except OSError as exc:
