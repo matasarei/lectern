@@ -19,9 +19,11 @@ const ITEMS: ProjectItems = {
 };
 
 let requested: string[] = [];
+let body = "# Reply\n<script>alert(1)</script>"; // what a file's content answers
 
 beforeEach(() => {
   requested = [];
+  body = "# Reply\n<script>alert(1)</script>";
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
@@ -30,10 +32,15 @@ beforeEach(() => {
       expect(new Headers(init?.headers).get("X-Lectern-Token")).toBe("t");
       if (url.endsWith("/5/content")) return new Response(new Blob(["png"], { type: "image/png" }));
       if (url === "/api/projects/1/ocr") return new Response(JSON.stringify({ id: 7, kind: "ocr" }));
-      return new Response("# Reply\n<script>alert(1)</script>");
+      return new Response(body);
     }),
   );
-  vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:preview", revokeObjectURL: () => {} });
+  // Still a constructor: loading a module on demand (the Markdown viewer) makes URLs.
+  class PreviewUrl extends URL {
+    static createObjectURL = () => "blob:preview";
+    static revokeObjectURL = () => {};
+  }
+  vi.stubGlobal("URL", PreviewUrl);
 });
 
 afterEach(() => {
@@ -41,22 +48,49 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderFile(a: Artifact | undefined, onOpen: (tab: Tab) => void = () => {}) {
+function renderFile(a: Artifact | undefined, onOpen: (tab: Tab) => void = () => {}, items = ITEMS) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <FileTab projectId={1} artifact={a} items={ITEMS} onOpen={onOpen} />
+      <FileTab projectId={1} artifact={a} items={items} onOpen={onOpen} />
     </QueryClientProvider>,
   );
 }
 
 describe("File tab", () => {
   it("shows text as text, never as HTML", async () => {
-    const { container } = renderFile(artifact({}));
+    const { container } = renderFile(artifact({ name: "notes.txt", mime: "text/plain" }));
     const pre = await screen.findByText(/<script>alert\(1\)<\/script>/);
     expect(pre.tagName).toBe("PRE");
     expect(container.querySelector("script")).toBeNull();
     expect(requested).toEqual(["/api/projects/1/artifacts/4/content"]);
+  });
+
+  it("shows Markdown as Markdown, its raw HTML never as HTML", async () => {
+    const { container } = renderFile(artifact({}));
+    expect((await screen.findByText("Reply")).tagName).toBe("H3");
+    expect(screen.getByTestId("markdown-preview")).toBeTruthy();
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("pre")).toBeNull();
+  });
+
+  it("keeps a published Document's lines, and joins them in other Markdown", async () => {
+    body = "Account 1234\nBalance 56.00";
+    const ocr = {
+      ...ITEMS,
+      sessions: [...ITEMS.sessions, { id: 2, kind: "ocr" as const, title: "statement.pdf", messages: 0,
+                                     ocr: null, created_at: "", updated_at: "" }],
+    };  // prettier-ignore
+    const published = artifact({ name: "document.md", from: { kind: "session", id: 2, note: null, title: null } });
+    const { container } = renderFile(published, () => {}, ocr);
+    await screen.findByTestId("markdown-preview");
+    await waitFor(() => expect(container.querySelector("p")?.innerHTML).toBe("Account 1234<br>\nBalance 56.00"));
+    cleanup();
+
+    const written = renderFile(artifact({}), () => {}, ocr); // a chat's own .md: Markdown's rules
+    await screen.findByTestId("markdown-preview");
+    await waitFor(() => expect(written.container.querySelector("p")?.textContent).toBe("Account 1234\nBalance 56.00"));
+    expect(written.container.querySelector("br")).toBeNull();
   });
 
   it("shows where it came from, and opens it", () => {

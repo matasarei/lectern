@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 ANSWER_RESERVE = 1536
 PINNED_SHARE = 0.5  # of what's left after the prompt, tools and answer
+PINS_SHARE = 0.25  # the most pins may take of what's left after the prompt and tools
 TOOL_OVERHEAD_TOKENS = 4  # per message, for the chat template's markers
 
 
@@ -43,17 +44,25 @@ class Built:
     left_out: int = 0  # older messages not sent this time
     released: int = 0  # tool results replaced by stubs
     stubbed_files: list[str] = field(default_factory=list)
+    pins_left_out: int = 0  # the oldest pins, when they don't all fit this model's context
     parts: dict[str, int] = field(default_factory=dict)  # tokens per part
     budget: int = 0
 
 
 class Counter:
     """Counts tokens with the runner's own tokenizer when there is one, remembering answers
-    by text, and estimates (a character count divided by 3) when there isn't."""
+    by text, and estimates (a character count divided by 3) when there isn't.
 
-    def __init__(self, tokenize: Callable[[str], Awaitable[int]] | None = None) -> None:
+    `cache`: the answers to remember them in. One kept per chat and model outlives the
+    counter, so a call doesn't send every message to the tokenizer again."""
+
+    def __init__(
+        self,
+        tokenize: Callable[[str], Awaitable[int]] | None = None,
+        cache: dict[str, int] | None = None,
+    ) -> None:
         self._tokenize = tokenize
-        self._cache: dict[str, int] = {}
+        self._cache: dict[str, int] = {} if cache is None else cache
 
     async def count(self, text: str) -> int:
         if not text:
@@ -116,9 +125,13 @@ async def build(
     budget = ctx - answer_reserve(ctx)
     tools_tokens = await counter.count(json.dumps(tools, ensure_ascii=False)) if tools else 0
     system_tokens = await counter.count(system) + TOOL_OVERHEAD_TOKENS
-    # Pinned items and the summary always go in whole: pins are short by rule, and the
-    # summary is written to a fixed size (see compaction.py).
-    pinned = _pins_section(pins) + _followups_section(followups)
+    # Pins go in whole, as many as fit a share of the context (newest first: on a small model
+    # 20 of them would crowd out the chat). The summary is written to a fixed size
+    # (see compaction.py).
+    pins, pins_left_out = await _fitting_pins(
+        list(pins), int((budget - tools_tokens - system_tokens) * PINS_SHARE), counter
+    )
+    pinned = _pins_section(pins, pins_left_out) + _followups_section(followups)
     summarised = (
         f"\n\n# Earlier in this chat (summary)\n{summary.strip()}" if summary.strip() else ""
     )
@@ -178,6 +191,7 @@ async def build(
         left_out=left_out,
         released=released,
         stubbed_files=stubbed,
+        pins_left_out=pins_left_out,
         parts={
             "system": system_tokens,
             "tools": tools_tokens,
@@ -197,11 +211,32 @@ def _followups_section(followups: list[str]) -> str:
     return f"\n\n# Pending follow-ups (they run when their session finishes)\n{lines}"
 
 
-def _pins_section(pins: list[tuple[str, str]]) -> str:
+async def _fitting_pins(
+    pins: list[tuple[str, str]], share: int, counter: Counter
+) -> tuple[list[tuple[str, str]], int]:
+    """The newest pins that fit `share` tokens, in the order they were pinned, and how many
+    older ones are left out."""
+    kept: list[tuple[str, str]] = []
+    used = 0
+    for kind, text in reversed(pins):
+        used += await counter.count(f"- ({kind}) {text}\n")
+        if used > share:
+            break
+        kept.append((kind, text))
+    return kept[::-1], len(pins) - len(kept)
+
+
+def _pins_section(pins: list[tuple[str, str]], left_out: int = 0) -> str:
     if not pins:
         return ""
     lines = "\n".join(f"- ({kind}) {text}" for kind, text in pins)
-    return f"\n\n# Pinned by the person (these hold; follow them)\n{lines}"
+    more = (
+        f"\n({left_out} older pinned item{'s' if left_out != 1 else ''} left out: this "
+        "model's context is too small for all of them.)"
+        if left_out
+        else ""
+    )
+    return f"\n\n# Pinned by the person (these hold; follow them)\n{lines}{more}"
 
 
 async def _pinned(

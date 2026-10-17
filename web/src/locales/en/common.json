@@ -141,6 +141,7 @@
     "sandboxStopped": "{{runtime}} is installed but not running. Start it so Lectern can run the scripts its models write.",
     "sandboxMissing": "Neither Podman nor Docker is installed.",
     "sandboxWhy": "Without one, Lectern can't run scripts, so answers that need exact numbers are marked not computed. Everything else works.",
+    "sandboxGuide": "How to install Podman or Docker",
     "sandboxCheck": "Check again",
     "sandboxChecking": "Checking…"
   },
@@ -236,7 +237,13 @@
     "new": "New project",
     "empty": "No projects yet. A project is a folder for your chats and files.",
     "folder": "Folder: {{folder}}",
-    "settings": "Models & memory"
+    "settings": "Models & memory",
+    "remove": "Remove {{name}}",
+    "removeTitle": "Remove {{name}}?",
+    "removeWhat": "Its chats and OCR sessions stop, and its folder, with every file and scan in it, moves to the trash folder beside your projects folder, where its files can still be copied out. After 30 days it's deleted for good.",
+    "removeType": "To confirm, type the project's name: {{name}}",
+    "removeCancel": "Cancel",
+    "removeConfirm": "Remove"
   },
   "project": {
     "overview": "Overview",
@@ -248,6 +255,7 @@
     "vramIdle": "{{budget}} · nothing loaded",
     "back": "Projects",
     "missing": "This tab's item is no longer in the project.",
+    "gone": "This project isn't here: it was removed, or it isn't yours.",
     "fileTab": "File",
     "chatTab": "Chat",
     "ocrTab": "OCR · {{title}}",
@@ -369,6 +377,7 @@
       "turns": "recent"
     },
     "followups": "Waiting",
+    "cancelFollowup": "Cancel: {{label}}",
     "followupRunning": "Follow-up: {{label}}",
     "mention": "Mention a file from the project",
     "pickerLabel": "Project files",
@@ -457,9 +466,12 @@
     "openDocument": "Open the document (version {{version}})",
     "notCleanedYet": "Not cleaned yet: this is the raw OCR text. The cleaned text and its questions come next.",
     "notFinished": "Not finished: {{what}}. Answer the questions in the Document (clean a failed page again here); the final document, and any export waiting for it, come after.",
+    "exportAsItIs_one": "as it is: its open question is marked",
+    "exportAsItIs_other": "as it is: its {{count}} open questions are marked",
     "cleanFailed": "This page wasn't cleaned: {{error}}"
   },
   "review": {
+    "unplaced": "Your answer “{{value}}” to “{{raw}}” is no longer in this page's text: the page was cleaned again. Check it in the text below.",
     "questions": "Questions on this page",
     "bar_one": "Page {{page}}: {{count}} question · document: {{total}}",
     "bar_other": "Page {{page}}: {{count}} questions · document: {{total}}",
@@ -504,7 +516,8 @@
   "export": {
     "label": "Export:",
     "anyway": "Export anyway",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "formatsFailed": "The export formats couldn't be read: {{detail}}"
   },
   "ocrSteps": {
     "read": "Reading",

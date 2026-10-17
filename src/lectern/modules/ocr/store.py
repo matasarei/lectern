@@ -13,6 +13,7 @@ import functools
 import hashlib
 import json
 import threading
+import weakref
 from dataclasses import asdict
 from pathlib import Path
 
@@ -48,6 +49,24 @@ class CannotOpen(Exception):
     """This file can't become an OCR session. The message says why, for the person."""
 
 
+def check_source(db: sessionmaker[Session], *, owner_id: int, artifact_id: int) -> None:
+    """CannotOpen unless the file is the owner's PDF or image, still in the project: before
+    anything else is asked of a new session (create_session checks it again)."""
+    with db() as session:
+        _page_source(session.get(ArtifactRow, artifact_id), owner_id)
+
+
+def _page_source(source: ArtifactRow | None, owner_id: int) -> str:
+    """The file's name, when it's one an OCR session can read."""
+    if source is None or source.owner_id != owner_id or source.trashed_at is not None:
+        raise CannotOpen("That file isn't in the project any more.")
+    name = source.path.rsplit("/", 1)[-1]
+    suffix = Path(name).suffix.lower()
+    if suffix != ".pdf" and suffix not in IMAGE_SUFFIXES:
+        raise CannotOpen(f"{name} isn't a PDF or an image, so it can't be read as pages.")
+    return name
+
+
 def create_session(
     root: Path, db: sessionmaker[Session], *, owner_id: int, artifact_id: int
 ) -> tuple[SessionRow, OcrSessionRow]:
@@ -55,12 +74,7 @@ def create_session(
     The job fills it."""
     with db.begin() as session:
         source = session.get(ArtifactRow, artifact_id)
-        if source is None or source.owner_id != owner_id or source.trashed_at is not None:
-            raise CannotOpen("That file isn't in the project any more.")
-        name = source.path.rsplit("/", 1)[-1]
-        suffix = Path(name).suffix.lower()
-        if suffix != ".pdf" and suffix not in IMAGE_SUFFIXES:
-            raise CannotOpen(f"{name} isn't a PDF or an image, so it can't be read as pages.")
+        name = _page_source(source, owner_id)
         folder = files.free_name(root, Path(name).stem or "OCR")
         (root / folder / PAGES_DIR).mkdir(parents=True)
         row = SessionRow(owner_id=owner_id, kind="ocr", title=name, titled=True)
@@ -301,7 +315,11 @@ class NoSuchDoubt(LookupError):
     """The Document has no such doubt (or, to reopen, none resolved by that id)."""
 
 
-_locks: dict[tuple[str, int], threading.RLock] = {}
+# Held weakly: a session's lock lives while someone holds it (two writers at once get the
+# same one), and goes with the last, rather than one per session for as long as the app runs.
+_locks: weakref.WeakValueDictionary[tuple[str, int], threading.RLock] = (
+    weakref.WeakValueDictionary()
+)
 _locks_guard = threading.Lock()
 
 

@@ -160,3 +160,77 @@ def test_handle_exit_without_a_running_loop_sets_the_flag_directly(paths):
     app = create_app(paths)
     LecternServer(server_config(app, 18765)).handle_exit(signal.SIGINT, None)
     assert app.state.shutting_down.is_set()
+
+
+def _serving(server):  # noqa: ANN001, ANN202
+    """The server running in a thread of its own, as `lectern serve` runs it."""
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    for _ in range(100):
+        if server.started:
+            break
+        time.sleep(0.05)
+    assert server.started, "the server didn't start"
+    return thread
+
+
+def test_closing_standard_input_stops_the_server_as_ctrl_c_does(paths):
+    from lectern.app import create_app
+    from lectern.cli import LecternServer
+
+    app = create_app(paths)
+    read, write = os.pipe()
+    with os.fdopen(read, "rb") as stdin:
+        server = LecternServer(
+            server_config(app, _free_port()), stop_on_stdin_close=True, stdin=stdin
+        )
+        thread = _serving(server)
+        os.write(write, b"anything written is ignored\n")
+        os.close(write)
+        thread.join(timeout=SHUTDOWN_GRACE_SECONDS + 5)
+    assert not thread.is_alive()
+    assert server.should_exit and app.state.shutting_down.is_set()
+
+
+def test_standard_input_is_left_alone_unless_asked(paths):
+    from lectern.app import create_app
+    from lectern.cli import LecternServer
+
+    app = create_app(paths)
+    read, write = os.pipe()
+    with os.fdopen(read, "rb") as stdin:
+        server = LecternServer(server_config(app, _free_port()), stdin=stdin)
+        thread = _serving(server)
+        os.close(write)
+        thread.join(timeout=1)
+        assert thread.is_alive() and not server.should_exit  # still serving
+        server.handle_exit(signal.SIGINT, None)
+        thread.join(timeout=SHUTDOWN_GRACE_SECONDS + 5)
+    assert not thread.is_alive()
+
+
+def test_serve_stops_when_its_standard_input_closes(tmp_path):
+    """The flag as the Windows tray app uses it: a real `lectern serve`, its stdin a pipe."""
+    port = _free_port()
+    env = {**os.environ, "LECTERN_HOME": str(tmp_path / "home")}
+    log = tmp_path / "serve.log"
+    with log.open("wb") as out:
+        process = subprocess.Popen(  # noqa: S603 (fixed argv)
+            [sys.executable, "-c", "from lectern.cli import app; app()", "serve",
+             "--no-browser", "--port", str(port), "--stop-on-stdin-close"],
+            stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, env=env,
+        )  # fmt: skip
+    try:
+        for _ in range(100):
+            try:
+                if httpx2.get(f"http://127.0.0.1:{port}/health", timeout=1).status_code == 200:
+                    break
+            except httpx2.HTTPError:
+                time.sleep(0.1)
+        process.stdin.close()
+        assert process.wait(timeout=SHUTDOWN_GRACE_SECONDS + 10) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+    output = log.read_text()
+    assert "Application shutdown complete" in output and "Traceback" not in output

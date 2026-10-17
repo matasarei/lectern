@@ -147,6 +147,15 @@ def test_a_chat_on_mlx_without_its_usual_model_starts_no_session(api):
         assert session.scalars(select(OcrSessionRow)).all() == []  # nothing was opened
 
 
+def test_a_file_that_isnt_a_scan_says_so_even_when_the_cleanup_model_is_missing(api):
+    """The file is checked first: a missing model doesn't matter for a file OCR can't read."""
+    client, headers, app, project, ids, _ = api
+    app.state.runtime.cleanup_key = lambda: "main@qwen3.5-4b"  # its model isn't on disk
+    refused = client.post(f"/api/projects/{project.id}/ocr",
+                          json={"artifact_id": ids["notes.txt"]}, headers=headers)  # fmt: skip
+    assert refused.status_code == 400 and "isn't a PDF or an image" in refused.json()["detail"]
+
+
 def test_only_a_pdf_or_image_starts_a_session(api):
     client, headers, _, project, ids, _ = api
     refused = client.post(f"/api/projects/{project.id}/ocr",

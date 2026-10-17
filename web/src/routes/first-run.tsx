@@ -33,6 +33,8 @@ const DISK_HEADROOM = 1024 ** 3;
 // While no engine is running, check again this often, so starting Docker or Podman shows up
 // without a reload.
 const SANDBOX_POLL_MS = 10_000;
+// How to install Podman or Docker, for each system: the README's section.
+const SANDBOX_GUIDE = "https://github.com/matasarei/lectern#the-script-sandbox-podman-or-docker";
 const ENGINE_POLL_MS = 1_000;
 
 /** Setting Lectern up is an admin's: it downloads models and picks the engine. Anybody else
@@ -284,6 +286,9 @@ function SandboxCard({ initial }: { initial: SandboxStatus }) {
       {!sandbox.engine_running && (
         <>
           <p className="text-sm text-muted">{t("firstRun.sandboxWhy")}</p>
+          <a className="w-fit text-sm text-accent underline" href={SANDBOX_GUIDE} target="_blank" rel="noopener noreferrer">
+            {t("firstRun.sandboxGuide")}
+          </a>
           <button
             className="btn-secondary mt-2 w-fit"
             disabled={check.isFetching}
@@ -330,11 +335,13 @@ function ModelChoice({
       </>
     );
   }
+  // One line: on a narrow screen the list is capped (its widest option would push the card
+  // past the page), and the quantisation stays beside it.
   return (
-    <>
+    <span className="inline-flex max-w-full items-center">
       <select
         aria-label={t("firstRun.chooseModel")}
-        className="max-w-full rounded border border-line bg-paper px-2 py-1 disabled:opacity-60"
+        className="max-w-60 rounded border border-line bg-paper px-2 py-1 disabled:opacity-60 sm:max-w-full"
         value={model.id}
         disabled={disabled}
         onChange={(e) => onChoose(e.target.value)}
@@ -352,8 +359,8 @@ function ModelChoice({
           </option>
         ))}
       </select>
-      {detail}
-    </>
+      {quant && <span className="shrink-0 whitespace-nowrap text-muted">&nbsp;· {quant}</span>}
+    </span>
   );
 }
 

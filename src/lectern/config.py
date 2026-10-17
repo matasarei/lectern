@@ -43,6 +43,10 @@ class Paths:
     def projects_root(self, user_name: str) -> Path:
         return self.users / user_name / "projects"
 
+    def projects_trash(self, user_name: str) -> Path:
+        """Removed projects, for 30 days (lectern.projects.store)."""
+        return self.users / user_name / "trash"
+
 
 def lectern_home() -> Path:
     override = os.environ.get("LECTERN_HOME")

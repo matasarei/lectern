@@ -17,6 +17,7 @@ from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection
 
+from lectern.agent import followups
 from lectern.agent import state as pins
 from lectern.agent.state import load as chat_state_of
 from lectern.agent.turns import Busy, TurnManager
@@ -291,6 +292,20 @@ async def run_follow_up(
     if not await turns(request).run_follow_up_now(project, session_id, followup_id):
         raise HTTPException(404, "Nothing is waiting with that id.")
     return {"id": followup_id}
+
+
+@router.delete("/projects/{project_id}/sessions/{session_id}/followups/{followup_id}")
+def cancel_follow_up(
+    project_id: int, session_id: int, followup_id: str, request: Request, user: CurrentUser
+) -> dict:
+    """The person drops what the chat queued for when an OCR session finishes. One that has
+    already started (or run) is no longer waiting: 404."""
+    project = open_project(request, project_id, user)
+    open_session(request, project, session_id, user)
+    taken = followups.take(store(request).db(project), session_id, followup_id)
+    if taken is None:
+        raise HTTPException(404, "Nothing is waiting with that id.")
+    return {"id": taken.id, "label": taken.label}
 
 
 @router.delete("/projects/{project_id}/sessions/{session_id}/pins/{pin_id}")

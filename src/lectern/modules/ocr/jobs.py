@@ -78,6 +78,11 @@ def page_dict(page: OcrPageRow) -> dict:
     }
 
 
+def _event_kind(event: dict) -> tuple[str, int | None]:
+    """What a newer event replaces: the same page's, or the last one of its type."""
+    return event["type"], event.get("number") if event["type"] == "page" else None
+
+
 @dataclass
 class _Queued:
     key: Key
@@ -107,7 +112,9 @@ class OcrJobs:
         self.on_status: Callable[[Project, int, str, str], Awaitable[None]] | None = None
 
     def channel(self, key: Key) -> Channel:
-        return self._channels.setdefault(key, Channel())
+        # A tab that opens later needs where each page, the phase and the session are now,
+        # not every step of a long job: only the latest event of each is kept.
+        return self._channels.setdefault(key, Channel(latest=_event_kind))
 
     def active(self, key: Key) -> bool:
         """This process is running or holding the session's job."""
@@ -248,6 +255,22 @@ class OcrJobs:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
 
+    async def forget(self, project_id: int) -> None:
+        """A removed project: its sessions leave the queue, the one running is stopped where
+        it is (the worker starts again for other projects' sessions), and nothing of its
+        sessions is kept here. Nothing is written to the project: it's going to the trash."""
+        self._queue = collections.deque(q for q in self._queue if q.key[0] != project_id)
+        if self._current is not None and self._current[0] == project_id and self._worker:
+            self._worker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._worker
+            if self._queue:
+                self._worker = asyncio.create_task(self._work(), name="ocr-jobs")
+        for kept in (self._channels, self._pause_signals, self._only, self._since):
+            for key in [k for k in kept if k[0] == project_id]:
+                del kept[key]
+        self._pausing = {k for k in self._pausing if k[0] != project_id}
+
     async def idle(self) -> None:
         """For tests: until the queue is empty and nothing is running."""
         while self._worker is not None and not self._worker.done():
@@ -275,6 +298,29 @@ class OcrJobs:
                 self._only.pop(queued.key, None)
             await self.tell(queued.project, queued.key[1])
 
+    def notice(self, project: Project, session_id: int) -> tuple[str, str]:
+        """The session's status, and the line that says where it stands: finished, not
+        finished yet (questions open, a page not cleaned), or stopped."""
+        summary = self.summary(project, session_id)
+        with self.projects.db(project)() as session:
+            title = session.get(SessionRow, session_id).title
+            error = session.get(OcrSessionRow, session_id).error
+        if summary["status"] != "done":
+            return summary["status"], f"OCR · {title} stopped: {error or 'it failed'}."
+        pages = f"{summary['pages']} page{'s' if summary['pages'] != 1 else ''}"
+        if summary["clear"]:
+            return "done", f"OCR · {title} finished · {pages}."
+        # Not "finished" while the Document isn't final: questions open, a page not cleaned
+        open_parts = []
+        if count := summary["open_doubts"]:
+            open_parts.append(f"{count} open question{'s' if count != 1 else ''}")
+        if failed := summary["failed_pages"]:
+            word = "page" if len(failed) == 1 else "pages"
+            listed = ", ".join(str(n) for n in failed)
+            open_parts.append(f"{word} {listed} couldn't be cleaned")
+        still = "; ".join(open_parts)
+        return "done", f"OCR · {title} isn't finished yet: {pages} read · {still}."
+
     async def tell(self, project: Project, session_id: int) -> None:
         """A job ended done or failed, or its Document changed (a question answered): tell
         `on_status` (the chat's follow-ups), with a line saying where it stands. A follow-up
@@ -282,29 +328,7 @@ class OcrJobs:
         isn't over, so it says nothing."""
         if self.on_status is None:
             return
-
-        def notice() -> tuple[str, str]:
-            summary = self.summary(project, session_id)
-            with self.projects.db(project)() as session:
-                title = session.get(SessionRow, session_id).title
-                error = session.get(OcrSessionRow, session_id).error
-            if summary["status"] != "done":
-                return summary["status"], f"OCR · {title} stopped: {error or 'it failed'}."
-            pages = f"{summary['pages']} page{'s' if summary['pages'] != 1 else ''}"
-            if summary["clear"]:
-                return "done", f"OCR · {title} finished · {pages}."
-            # Not "finished" while the Document isn't final: questions open, a page not cleaned
-            open_parts = []
-            if count := summary["open_doubts"]:
-                open_parts.append(f"{count} open question{'s' if count != 1 else ''}")
-            if failed := summary["failed_pages"]:
-                word = "page" if len(failed) == 1 else "pages"
-                listed = ", ".join(str(n) for n in failed)
-                open_parts.append(f"{word} {listed} couldn't be cleaned")
-            still = "; ".join(open_parts)
-            return "done", f"OCR · {title} isn't finished yet: {pages} read · {still}."
-
-        status, text = await asyncio.to_thread(notice)
+        status, text = await asyncio.to_thread(self.notice, project, session_id)
         if status in ("done", "failed"):
             try:
                 await self.on_status(project, session_id, status, text)

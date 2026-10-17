@@ -214,6 +214,10 @@ class LlamaCppInstaller:
         """Bytes to download for the variant (0 once it's installed)."""
         if self.server_path(variant) is not None:
             return 0
+        return self.variant_bytes(variant)
+
+    def variant_bytes(self, variant: str) -> int:
+        """What the variant's downloads weigh, installed or not."""
         return sum(a.size for a in self.variants.get(variant, ()))
 
     async def install(self, variant: str, on_bytes: Callable[[int], None] = lambda n: None) -> Path:

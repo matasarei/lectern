@@ -171,7 +171,12 @@ function StatusStrip({
         </p>
       )}
       {session.status === "done" && document && (
-        <ExportButtons projectId={projectId} artifactId={document.artifact_id} onOpen={onOpen} />
+        <ExportButtons
+          projectId={projectId}
+          artifactId={document.artifact_id}
+          onOpen={onOpen}
+          note={openQuestions > 0 ? t("ocr.exportAsItIs", { count: openQuestions }) : undefined}
+        />
       )}
       {session.error && <ErrorNote message={session.error} />}
       {error && <ErrorNote message={error instanceof ApiError ? error.detail : t("common.loadFailed")} />}

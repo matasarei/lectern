@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx2
 import pytest
 
+from lectern.agent.turns import Channel
 from lectern.core.auth import LOCAL_USER
 from lectern.hardware.tiers import Tier
 from lectern.modules.ocr import store as ocr_store
@@ -135,8 +136,43 @@ def _status(store, project, session_id: int) -> OcrSessionRow:  # noqa: ANN001
         return session.get(OcrSessionRow, session_id)
 
 
+@pytest.fixture(autouse=True)
+def every_event(monkeypatch):  # noqa: ANN001, ANN201
+    """What a session published, every event of it: its channel keeps only the latest of
+    each kind for a tab that opens later, and these tests check what was sent."""
+    publish = Channel.publish
+
+    def recorded(self, event):  # noqa: ANN001, ANN202
+        publish(self, event)
+        self.__dict__.setdefault("published", []).append(event)
+
+    monkeypatch.setattr(Channel, "publish", recorded)
+
+
 def _events(jobs: OcrJobs, project, session_id: int) -> list[dict]:  # noqa: ANN001
-    return jobs.channel((project.id, session_id)).events
+    return jobs.channel((project.id, session_id)).__dict__.get("published", [])
+
+
+def test_a_tab_that_opens_later_gets_each_pages_latest_state_not_every_step(store, tmp_path):
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=3)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+
+    kept = jobs.channel((project.id, sid)).events
+    pages = [e for e in kept if e["type"] == "page"]
+    assert sorted(e["number"] for e in pages) == [1, 2, 3]  # one each, the last
+    assert all((e["status"], e["clean_status"]) == ("done", "done") for e in pages)
+    assert [e["status"] for e in kept if e["type"] == "session"] == ["done"]
+    assert [e["phase"] for e in kept if e["type"] == "phase"] == ["assemble"]
+    assert [e["seq"] for e in kept] == sorted(e["seq"] for e in kept)  # in the order sent
+    assert len(_events(jobs, project, sid)) > len(kept)
 
 
 def test_a_session_is_rasterised_then_every_page_read(store, tmp_path):
@@ -308,6 +344,60 @@ def test_one_job_runs_at_a_time_and_the_next_waits_queued(store, tmp_path):
 
     asyncio.run(go())
     assert _status(store, first, sid1).status == _status(store, second, sid2).status == "done"
+
+
+def test_a_removed_projects_running_job_stops_and_another_projects_still_runs(store, tmp_path):
+    server = FakeServer()
+    server.hold = asyncio.Queue()
+    runtime, _ = _runtime(server)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    removed, sid1 = _session(store, tmp_path / "a", pages=2)
+    other, sid2 = _session(store, tmp_path / "b", pages=1)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(removed, sid1)
+        await jobs.start(other, sid2)
+        while not server.hold._getters:  # the removed project's page 1 is being read
+            await asyncio.sleep(0)
+        await jobs.forget(removed.id)
+        assert not jobs.active((removed.id, sid1))
+        assert not any(key[0] == removed.id for key in jobs._channels)
+        server.hold.put_nowait(None)  # the other project's page
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert _status(store, other, sid2).status == "done"
+    assert server.requests == ["ocr-model"]  # the removed one's page never came back as read
+    assert [p.status for p in ocr_store.pages(store.db(removed), sid1)] == [
+        "recognising", "pending"
+    ]  # fmt: skip
+
+
+def test_a_removed_projects_queued_job_leaves_the_queue(store, tmp_path):
+    server = FakeServer()
+    server.hold = asyncio.Queue()
+    runtime, _ = _runtime(server)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    other, sid1 = _session(store, tmp_path / "a", pages=1)
+    removed, sid2 = _session(store, tmp_path / "b", pages=1)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(other, sid1)
+        await jobs.start(removed, sid2)
+        while not server.hold._getters:
+            await asyncio.sleep(0)
+        await jobs.forget(removed.id)
+        server.hold.put_nowait(None)
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert _status(store, other, sid1).status == "done"
+    assert _status(store, removed, sid2).status == "queued"  # never taken up
+    assert len(server.requests) == 1
 
 
 def test_after_a_chat_takes_the_gpu_ocr_waits_for_the_chat_to_be_idle(store, tmp_path):

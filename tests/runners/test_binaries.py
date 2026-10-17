@@ -162,6 +162,16 @@ def test_second_install_downloads_nothing(tmp_path):
     assert len(requests) == count
 
 
+def test_once_installed_nothing_is_left_to_download_but_the_build_still_has_its_size(tmp_path):
+    main = _tar({f"b/{SERVER}": b"x"})
+    installer, _ = _installer(tmp_path, {"main.tar.gz": main})
+    assert installer.size("test") == installer.variant_bytes("test") == len(main)
+
+    asyncio.run(installer.install("test"))
+
+    assert (installer.size("test"), installer.variant_bytes("test")) == (0, len(main))
+
+
 def test_zip_builds_are_unpacked(tmp_path):
     installer, _ = _installer(tmp_path, {"main.zip": _zip({f"b/{SERVER}": b"x"})})
     assert asyncio.run(installer.install("test")).read_bytes() == b"x"

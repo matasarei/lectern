@@ -308,6 +308,7 @@ export interface ToolRef {
   id: number;
   name: string;
   ref: string | null;
+  hold?: boolean; // on the session of a message saying its exports wait for the Document
 }
 
 /** What the chat's event stream sends. Every event also has `seq`. */

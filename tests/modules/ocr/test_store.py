@@ -233,3 +233,14 @@ def test_answering_while_a_page_is_cleaned_again_keeps_that_page_in_the_document
     assert doc.blocks[0].doubts[0].value == "15"
     ocr = ocr_store.reopen(project.root, db, sid, "d1.1")
     assert ocr_store.load_document(project.root, ocr).pages[0].failed is None
+
+
+def test_a_sessions_document_lock_is_shared_while_held_and_not_kept_after(tmp_path):
+    import gc
+
+    held = ocr_store.document_lock(tmp_path, 7)
+    assert ocr_store.document_lock(tmp_path, 7) is held  # a second writer waits on the same
+    assert ocr_store.document_lock(tmp_path, 8) is not held
+    del held
+    gc.collect()
+    assert (str(tmp_path), 7) not in ocr_store._locks  # nobody holds it: nothing kept

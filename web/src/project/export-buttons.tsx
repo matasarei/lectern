@@ -19,10 +19,12 @@ export function ExportButtons({
   projectId,
   artifactId,
   onOpen,
+  note,
 }: {
   projectId: number;
   artifactId: number; // what to export: a session's document.md, a Markdown file…
   onOpen: (tab: Tab) => void;
+  note?: string; // beside the buttons: what an export now would be ("as it is, with …")
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -49,6 +51,16 @@ export function ExportButtons({
       if (error instanceof ApiError && error.status === 409) setAsking({ format, detail: error.detail });
     },
   });
+  // The formats couldn't be read: said, not taken for "no export module installed"
+  if (formats.isError) {
+    return (
+      <ErrorNote
+        message={t("export.formatsFailed", {
+          detail: formats.error instanceof ApiError ? formats.error.detail : t("common.loadFailed"),
+        })}
+      />
+    );
+  }
   if (!formats.data?.length) return null;
   const failed = run.error && !(run.error instanceof ApiError && run.error.status === 409);
 
@@ -66,6 +78,7 @@ export function ExportButtons({
             {f.format.toUpperCase()}
           </button>
         ))}
+        {note && <span className="text-xs text-muted">{note}</span>}
       </div>
       {asking && (
         <div className="flex flex-wrap items-center gap-2" role="alert">

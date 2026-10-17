@@ -317,6 +317,36 @@ def test_export_now_on_someone_elses_chat_is_not_found(api):
     assert client.post(url, headers=headers).status_code == 404
 
 
+def test_a_waiting_follow_up_is_cancelled_once_and_never_runs(api):
+    from lectern.agent import followups
+
+    client, headers, app, pid, handle = api([])
+    project = app.state.projects.get(User(id=1, name="local"), pid)
+    db = app.state.projects.db(project)
+    waiting = followups.add(db, 1, ocr_session_id=5, tool="export.run",
+                            arguments={"format": "odt"}, label="after OCR · scan: export to ODT",
+                            what="export to ODT")  # fmt: skip
+    url = f"/api/projects/{pid}/sessions/1/followups/{waiting.id}"
+
+    cancelled = client.delete(url, headers=headers)
+    again = client.delete(url, headers=headers)
+
+    assert cancelled.status_code == 200 and cancelled.json()["label"] == waiting.label
+    assert again.status_code == 404
+    assert client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()["followups"] == []
+    assert followups.waiting_on(db, 5) == []  # its session finishing finds nothing to run
+    assert handle.requests == []
+
+
+def test_cancelling_on_someone_elses_chat_is_not_found(api):
+    client, headers, app, _, _ = api([])
+    with app.state.sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = app.state.projects.create(User(id=2, name="other"), "Theirs")
+    url = f"/api/projects/{theirs.id}/sessions/1/followups/abc"
+    assert client.delete(url, headers=headers).status_code == 404
+
+
 def test_a_tool_results_refs_are_kept_with_it(api):
     client, headers, _, pid, _ = api(
         [tool_reply("project_find", {"query": "lease"}), text_reply("Found it.")]
@@ -366,3 +396,32 @@ def test_the_project_page_hears_a_tab_its_chat_opens(paths, free_port, live_serv
 
     tab = {"kind": "session", "id": 1}
     assert heard == [{"type": "open_tab", "session_id": 1, "tab": tab, "seq": 1}]
+
+
+def test_removing_a_project_stops_its_chat_first(paths):
+    hold = asyncio.Event()  # the model never answers: the turn is still running
+    app, handle = _app(paths, [text_reply("slow")], hold=hold)
+    client = TestClient(app, base_url=BASE)
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+    with client:
+        project = client.post("/api/projects", json={"name": "Busy"}, headers=headers).json()
+        pid = project["id"]
+        sent = client.post(
+            f"/api/projects/{pid}/sessions/1/messages", json={"text": "one"}, headers=headers
+        )
+        assert sent.status_code == 202
+        deadline = time.monotonic() + 5
+        while not handle.requests:  # the turn has asked the model
+            assert time.monotonic() < deadline, "the turn never asked the model"
+            time.sleep(0.01)
+        assert app.state.turns.state((pid, 1)) == "running"
+
+        assert (pid, 1) in app.state.turns._token_counts  # made when the turn began
+        removed = client.request(
+            "DELETE", f"/api/projects/{pid}", json={"name": "Busy"}, headers=headers
+        )
+        assert removed.status_code == 200
+        assert app.state.turns.state((pid, 1)) == "idle"  # stopped, and nothing kept of it
+        assert not any(key[0] == pid for key in app.state.turns._turns)
+        assert not any(key[0] == pid for key in app.state.turns._token_counts)
+        assert pid not in app.state.projects._dbs  # its database closed, not reopened

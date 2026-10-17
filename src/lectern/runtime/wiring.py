@@ -299,5 +299,9 @@ class Engine:
     def size(self) -> int:
         return self.installer.size(self.variant)
 
+    def variant_bytes(self) -> int:
+        """What the build weighs, installed or not (size() is 0 once it's installed)."""
+        return self.installer.variant_bytes(self.variant)
+
     async def install(self) -> None:
         await install_reporting(self.installer, self.variant, self.runtime.engine_progress)

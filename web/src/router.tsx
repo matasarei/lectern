@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   redirect,
 } from "@tanstack/react-router";
@@ -13,8 +14,6 @@ import { FirstRunPage } from "./routes/first-run";
 import { PasswordPage, SignedIn } from "./routes/login";
 import { ProjectPage } from "./routes/project";
 import { ProjectsPage } from "./routes/projects";
-import { ModelsPage } from "./routes/settings/models";
-import { UsersPage } from "./routes/settings/users";
 
 function Shell() {
   return (
@@ -52,13 +51,14 @@ const firstRunRoute = createRoute({
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/models",
-  component: ModelsPage,
+  // The settings pages are loaded when opened: most visits never go there.
+  component: lazyRouteComponent(() => import("./routes/settings/models"), "ModelsPage"),
 });
 
 const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/users",
-  component: UsersPage,
+  component: lazyRouteComponent(() => import("./routes/settings/users"), "UsersPage"),
 });
 const passwordRoute = createRoute({
   getParentRoute: () => rootRoute,

@@ -45,11 +45,17 @@ class Channel:
     seq: int = 0
     keep: bool = True  # False: live only, nothing kept for a listener that comes later
     forward: Callable[[dict], None] | None = None  # also told every event, after listeners
+    # Kept: only the latest event of each kind this names (an OCR page's newest state), in
+    # the order they came. None: every event.
+    latest: Callable[[dict], object] | None = None
 
     def publish(self, event: dict) -> None:
         self.seq += 1
         event = {**event, "seq": self.seq}
         if self.keep:
+            if self.latest is not None:
+                kind = self.latest(event)
+                self.events = [e for e in self.events if self.latest(e) != kind]
             self.events.append(event)
         for queue in list(self.listeners):
             with contextlib.suppress(asyncio.QueueFull):
@@ -109,8 +115,10 @@ class TurnManager:
         # Chats whose message is being stored and whose turn hasn't started yet: a second
         # send in that gap must see the chat as busy.
         self._starting: set[Key] = set()
-        self._follow_ups: set[asyncio.Task[None]] = set()
+        self._follow_ups: dict[asyncio.Task[None], int] = {}  # each with its project's id
         self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
+        # Each chat's token counts, by model, kept between its turns (lectern.agent.context)
+        self._token_counts: dict[Key, dict[str, dict[str, int]]] = {}
 
     def channel(self, key: Key) -> Channel:
         if key not in self._channels:
@@ -212,6 +220,7 @@ class TurnManager:
             downloads=self.downloads,
             sandbox=self.sandbox,
             ocr_jobs=self.ocr_jobs,
+            token_counts=self._token_counts.setdefault(key, {}),
         )
 
     # --- follow-ups: what a chat queued for when an OCR session finishes --------------------
@@ -237,6 +246,12 @@ class TurnManager:
         its turns."""
         sessions = await run_in_threadpool(self.projects.db, project)
         stale = await run_in_threadpool(followups.stale, sessions, chat_id)
+        # A finished session says where it stands as its own signal would have: questions
+        # still open aren't "finished".
+        if (notice_of := getattr(self.ocr_jobs, "notice", None)) is not None:
+            done = {f.ocr_session_id for f, status, _ in stale if status == "done"}
+            lines = {i: (await run_in_threadpool(notice_of, project, i))[1] for i in done}
+            stale = [(f, s, lines.get(f.ocr_session_id, notice)) for f, s, notice in stale]
         waiting = [(chat_id, f) for f, status, _ in stale if status != "done"]
         for ocr_id in dict.fromkeys(f.ocr_session_id for f, status, _ in stale if status == "done"):
             done = [(chat_id, f) for f, status, _ in stale
@@ -298,8 +313,8 @@ class TurnManager:
             self._hold(project, sessions, chat_id, ocr_session_id, summary, tools),
             name=f"hold-{project.id}-{chat_id}-{ocr_session_id}",
         )
-        self._follow_ups.add(task)
-        task.add_done_callback(self._follow_ups.discard)
+        self._follow_ups[task] = project.id
+        task.add_done_callback(lambda t: self._follow_ups.pop(t, None))
         task.add_done_callback(lambda _t: self._follow_up_keys.discard(key))
 
     async def _hold(self, project: Project, sessions: object, chat_id: int,
@@ -329,6 +344,9 @@ class TurnManager:
             run.emit = channel.publish
             channel.publish({"type": "turn", "status": "running", "followup": ""})
             refs = await run_in_threadpool(followups.notice_refs, sessions, ocr_session_id)
+            # Marked as the hold: once its export has run, the page shows no buttons for
+            # another one under it.
+            refs = [{**r, "hold": True} if r["kind"] == "session" else r for r in refs]
             title = refs[0]["name"] if refs else "the scan"
             text = followups.hold_text(title, summary, [f.what or f.label for f in unheld])
             message_id = await run_in_threadpool(
@@ -362,8 +380,8 @@ class TurnManager:
             self._follow_up(project, sessions, chat_id, follow, status, notice),
             name=f"follow-up-{project.id}-{chat_id}-{follow.id}",
         )
-        self._follow_ups.add(task)
-        task.add_done_callback(self._follow_ups.discard)
+        self._follow_ups[task] = project.id
+        task.add_done_callback(lambda t: self._follow_ups.pop(t, None))
         task.add_done_callback(lambda _t: self._follow_up_keys.discard(key))
 
     async def follow_ups_settled(self) -> None:
@@ -463,6 +481,28 @@ class TurnManager:
     async def stop_all(self) -> None:
         for key in list(self._turns):
             await self.stop(key)
+
+    async def stop_project(self, project_id: int) -> None:
+        """A removed project: its chats' turns are stopped, then its follow-ups that haven't
+        run are dropped (a stopped turn still looks for follow-ups on its way out, so the
+        turns go first), and nothing is kept of them here. Until none is left: a follow-up
+        can start a turn while another is being stopped."""
+        while True:
+            turns = [k for k in self._turns if k[0] == project_id]
+            follow_ups = [t for t, p in self._follow_ups.items() if p == project_id]
+            if not turns and not follow_ups:
+                break
+            for key in turns:
+                await self.stop(key)
+                del self._turns[key]
+            for task in follow_ups:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        for kept in (self._channels, self._token_counts):
+            for key in [k for k in kept if k[0] == project_id]:
+                del kept[key]
+        self._project_channels.pop(project_id, None)
 
     async def wait(self, key: Key) -> str | None:
         """For tests and shutdown: the turn's final status."""

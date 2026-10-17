@@ -16,6 +16,7 @@ let pushChat: (event: object) => void = () => {}; // the open chat's event strea
 let pushProject: (event: object) => void = () => {}; // the project's event stream
 let endChat: () => void = () => {}; // the server stops (a restart): the chat's stream ends
 let sockets: FakeSockets;
+let tabsGate: Promise<void> | null = null; // the saved tabs answer once it resolves
 
 const RESPONSES: Record<string, unknown> = {
   "/api/projects": [],
@@ -54,6 +55,7 @@ const RESPONSES: Record<string, unknown> = {
 beforeEach(() => {
   puts = [];
   sessionsFail = false;
+  tabsGate = null;
   savedTabs = { open: [{ kind: "session", id: 1 }], active: { kind: "session", id: 1 } };
   window.sessionStorage.setItem("lectern.token", "t");
   // The event streams: the open chat's and the project's send what a test pushes; the
@@ -73,6 +75,8 @@ beforeEach(() => {
         if (init?.method === "PUT") {
           savedTabs = JSON.parse(String(init.body));
           puts.push(savedTabs);
+        } else if (tabsGate) {
+          await tabsGate;
         }
         return new Response(JSON.stringify(savedTabs));
       }
@@ -264,6 +268,25 @@ describe("A tab a chat opens while it isn't showing", () => {
     expect(screen.getByRole("tab", { name: "OCR · lease-scan.pdf" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("is kept when it comes before the saved tabs have loaded, and added once they have", async () => {
+    let release = () => {};
+    tabsGate = new Promise((resolve) => (release = resolve));
+    renderAt("/projects/1");
+    await waitFor(() => expect(sockets.to("/api/projects/1/events")).toHaveLength(1));
+    await act(async () => {
+      pushProject({ seq: 0, type: "replayed" });
+      pushProject(exported);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(puts).toEqual([]); // nothing to add it to yet
+
+    await act(async () => release());
+    await waitFor(() => expect(puts.at(-1)).toEqual({
+      open: [{ kind: "session", id: 1 }, { kind: "artifact", id: 7 }],
+      active: { kind: "session", id: 1 },
+    }));
+  });
+
   it("is added while Overview is showing, and Overview stays", async () => {
     savedTabs = { open: [{ kind: "session", id: 1 }], active: null };
     renderAt("/projects/1");
@@ -408,9 +431,27 @@ describe("A project that isn't there, or isn't yours", () => {
     }));
     // The client as the app makes it: a query that fails is tried again, a second later.
     renderAt("/projects/7", new QueryClient());
-    expect(await screen.findByText("No such project.")).toBeTruthy();
+    expect(
+      await screen.findByText("This project isn't here: it was removed, or it isn't yours."),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Projects" })).toBeTruthy();
     expect(screen.queryByText("Loading…")).toBeNull();
     expect(asked.filter((url) => url === "/api/projects/7")).toHaveLength(1);
+  });
+
+  it("is said in a tab left open when the project is removed from another", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderAt("/projects/1", client);
+    expect(await screen.findByText("Lease archive 1998")).toBeTruthy();
+
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({ detail: "No such project." }), { status: 404 }),
+    ));
+    await act(() => client.invalidateQueries({ queryKey: ["project", 1] })); // as on focus
+    expect(
+      await screen.findByText("This project isn't here: it was removed, or it isn't yours."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 
   it("is still asked for again when the server couldn't answer", async () => {

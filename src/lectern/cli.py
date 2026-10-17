@@ -7,11 +7,12 @@ import contextlib
 import json
 import os
 import socket
+import sys
 import threading
 import time
 import webbrowser
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, BinaryIO
 
 import typer
 import uvicorn
@@ -40,6 +41,12 @@ def serve(
         "(lectern user init): until then, anyone on the network who has the link gets in.",
     ),
     browser: bool = typer.Option(True, help="Open the browser once the server starts."),
+    stop_on_stdin_close: bool = typer.Option(
+        False,
+        "--stop-on-stdin-close",
+        help="Stop, as on Ctrl+C, when standard input closes: how Lectern's Windows tray app "
+        "stops it (Windows has no Ctrl+C to send a process with no console).",
+    ),
     public_url: Annotated[
         list[str] | None,
         typer.Option(
@@ -87,7 +94,9 @@ def serve(
         typer.echo(line)
     if browser:
         open_when_listening(url, port)
-    LecternServer(server_config(lectern_app, port, host)).run()
+    LecternServer(
+        server_config(lectern_app, port, host), stop_on_stdin_close=stop_on_stdin_close
+    ).run()
 
 
 def where_it_runs(
@@ -301,7 +310,43 @@ SHUTDOWN_GRACE_SECONDS = 3
 
 class LecternServer(uvicorn.Server):
     """Tells the app it's shutting down the moment Ctrl+C arrives, before uvicorn starts
-    waiting on connections, so the event streams can end by themselves."""
+    waiting on connections, so the event streams can end by themselves.
+
+    `stop_on_stdin_close`: standard input closing is a Ctrl+C too. What's written to it is
+    ignored."""
+
+    def __init__(
+        self,
+        config: uvicorn.Config,
+        *,
+        stop_on_stdin_close: bool = False,
+        stdin: BinaryIO | None = None,
+    ) -> None:
+        super().__init__(config)
+        self._stop_on_stdin_close = stop_on_stdin_close
+        self._stdin = stdin
+
+    async def serve(self, sockets: list[socket.socket] | None = None) -> None:
+        if self._stop_on_stdin_close:
+            loop = asyncio.get_running_loop()
+            stdin = self._stdin or sys.stdin.buffer
+            threading.Thread(
+                target=self._stop_when_closed, args=(loop, stdin), name="stdin", daemon=True
+            ).start()
+        await super().serve(sockets)
+
+    def _stop_when_closed(self, loop: asyncio.AbstractEventLoop, stdin: BinaryIO) -> None:
+        with contextlib.suppress(OSError, ValueError):
+            while stdin.read(4096):
+                pass
+        with contextlib.suppress(RuntimeError):  # the loop has closed: it's stopping already
+            loop.call_soon_threadsafe(self._stop)
+
+    def _stop(self) -> None:
+        """On the loop: stop as Ctrl+C does (handle_exit), but as a request, not a signal, so
+        uvicorn doesn't raise one again once it's down and the exit status stays 0."""
+        self.config.app.state.shutting_down.set()
+        self.should_exit = True
 
     def handle_exit(self, sig, frame) -> None:  # noqa: ANN001
         # uvicorn installs this with signal.signal, so it runs as a plain signal handler, not

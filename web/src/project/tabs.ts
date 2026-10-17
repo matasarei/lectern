@@ -7,14 +7,20 @@ export function sameTab(a: Tab | null, b: Tab | null): boolean {
   return a !== null && b !== null && a.kind === b.kind && a.id === b.id;
 }
 
+/** A tab as the bar keeps it: an OCR tab's page is for the one time it's opened at it, not
+ * for every time it's shown again from the bar. */
+function kept(tab: Tab): Tab {
+  return { kind: tab.kind, id: tab.id };
+}
+
 export function openTab(tabs: Tabs, tab: Tab): Tabs {
-  const open = tabs.open.some((t) => sameTab(t, tab)) ? tabs.open : [...tabs.open, tab];
+  const open = tabs.open.some((t) => sameTab(t, tab)) ? tabs.open : [...tabs.open, kept(tab)];
   return { open, active: tab };
 }
 
 /** Adds a tab without showing it: something the chat started, while the person stays put. */
 export function addTab(tabs: Tabs, tab: Tab): Tabs {
-  return tabs.open.some((t) => sameTab(t, tab)) ? tabs : { ...tabs, open: [...tabs.open, tab] };
+  return tabs.open.some((t) => sameTab(t, tab)) ? tabs : { ...tabs, open: [...tabs.open, kept(tab)] };
 }
 
 /** Closing the active tab shows its right-hand neighbour, else the left, else Overview. */

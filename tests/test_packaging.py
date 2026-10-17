@@ -352,6 +352,24 @@ def test_every_dockerfile_builds_from_the_pinned_python_image(dockerfile):
     assert froms == [_pin("PYTHON_IMAGE")]
 
 
+def _windows_pin(name: str) -> str:
+    """A value from packaging/windows/pins.ps1, read as text."""
+    text = (ROOT / "packaging/windows/pins.ps1").read_text()
+    found = re.search(rf"^\${name} = ['\"]([^'\"]+)['\"]$", text, re.M)
+    assert found, f"${name} is missing from packaging/windows/pins.ps1"
+    return found.group(1)
+
+
+def test_windows_uses_the_same_uv_as_linux_and_the_mac():
+    assert _windows_pin("UvVersion") == _pin("UV_VERSION")
+    url = _windows_pin("UvWindowsX64Url").replace("$UvVersion", _windows_pin("UvVersion"))
+    assert url == (
+        f"https://github.com/astral-sh/uv/releases/download/{_pin('UV_VERSION')}/"
+        "uv-x86_64-pc-windows-msvc.zip"
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", _windows_pin("UvWindowsX64Sha256"))
+
+
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
 def test_the_scripts_pass_shellcheck():
     scripts = [
@@ -542,7 +560,7 @@ def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
         pytest.skip("make isn't installed")
     shutil.copy(ROOT / "Makefile", tmp_path)
     ran = tmp_path / "ran"
-    (tmp_path / "uninstall.sh").write_text(f'#!/bin/sh\nprintf %s "$*" > {ran}\n')
+    (tmp_path / "uninstall.sh").write_text(f"#!/bin/sh\nprintf %s \"$*\" > '{ran}'\n")
     (tmp_path / "uninstall.sh").chmod(0o755)
     home = tmp_path / "Lectern's home"  # a quote and a space mustn't break the question
     done = subprocess.run(  # noqa: S603
@@ -583,3 +601,80 @@ def test_make_alone_builds_for_development_and_installs_nothing():
     assert shown.returncode == 0, shown.stderr
     assert "uv sync" in shown.stdout and "npm --prefix web run build" in shown.stdout
     assert "install.sh" not in shown.stdout
+
+
+# --- Windows, checked from here: compiled and linted in containers ---------------------------
+
+WINDOWS = ROOT / "packaging/windows"
+# Mono's C# compiler stands in for the csc.exe that ships with Windows (.NET Framework 4,
+# C# 5): the same language version, and the WinForms and Win32 calls the app makes.
+MONO_IMAGE = "mono:6.12@sha256:34d816779b1248b5cfd095770b64ecbaf1798e2aca693a91c11a018dce9c7ad5"
+
+
+def _image_here(image: str) -> bool:
+    """Docker answers and has the image already: these checks never pull hundreds of MB."""
+    docker = shutil.which("docker")
+    if docker is None:
+        return False
+    found = subprocess.run([docker, "image", "inspect", image], capture_output=True, timeout=60)  # noqa: S603
+    return found.returncode == 0
+
+
+@pytest.mark.skipif(not _image_here(MONO_IMAGE), reason=f"needs Docker with {MONO_IMAGE}")
+def test_the_windows_tray_app_compiles_as_csharp_5():
+    built = subprocess.run(  # noqa: S603 (fixed argv)
+        [shutil.which("docker"), "run", "--rm", "--tmpfs", "/work", "-w", "/work",
+         "-v", f"{WINDOWS / 'tray'}:/src:ro", MONO_IMAGE,
+         "mcs", "-langversion:5", "-target:winexe", "-codepage:65001", "-warnaserror",
+         "-r:System.Windows.Forms.dll", "-r:System.Drawing.dll", "-out:/work/Lectern.exe",
+         "/src/Lectern.cs"],
+        capture_output=True, text=True, timeout=300,
+    )  # fmt: skip
+    assert built.returncode == 0, built.stdout + built.stderr
+
+
+def test_the_windows_icon_has_the_sizes_windows_asks_for():
+    from PIL import Image
+
+    with Image.open(WINDOWS / "tray/lectern.ico") as icon:
+        assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= set(icon.info["sizes"])
+
+
+POWERSHELL_IMAGE = (  # 7.4-ubuntu-22.04
+    "mcr.microsoft.com/powershell"
+    "@sha256:62300a213a9293916333df2b014cd3a8f22fb0b0b65f2bb446aaf436bcf8c868"
+)
+WINDOWS_SCRIPTS = [
+    ROOT / "install.ps1",
+    ROOT / "uninstall.ps1",
+    *sorted(WINDOWS.glob("*.ps1")),
+]
+
+
+@pytest.mark.parametrize("script", WINDOWS_SCRIPTS, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_the_windows_scripts_are_ascii(script):
+    """Windows PowerShell 5.1 reads a script with no byte-order mark in the system's code page:
+    anything but ASCII comes out garbled."""
+    script.read_bytes().decode("ascii")
+
+
+@pytest.mark.parametrize("script", WINDOWS_SCRIPTS, ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_the_windows_scripts_never_delete_a_folder_with_remove_item(script):
+    """Remove-Item -Recurse in Windows PowerShell 5.1 follows a junction and deletes what it
+    points at (a models folder linked in from elsewhere): folders go with cmd's rmdir."""
+    for line in script.read_text().splitlines():
+        code = line.split("#", 1)[0]  # what a comment says doesn't count
+        assert not ("Remove-Item" in code and "-Recurse" in code), line
+
+
+@pytest.mark.skipif(
+    not _image_here(POWERSHELL_IMAGE), reason=f"needs Docker with {POWERSHELL_IMAGE}"
+)
+def test_the_windows_scripts_pass_psscriptanalyzer():
+    """Fetches PSScriptAnalyzer from the PowerShell Gallery: run where the image was pulled."""
+    found = subprocess.run(  # noqa: S603 (fixed argv)
+        [shutil.which("docker"), "run", "--rm", "-v", f"{ROOT}:/src:ro", POWERSHELL_IMAGE,
+         "pwsh", "-NoProfile", "-File", "/src/tests/fixtures/analyze_windows.ps1"],
+        capture_output=True, text=True, timeout=600,
+    )  # fmt: skip
+    assert found.returncode == 0, found.stdout + found.stderr

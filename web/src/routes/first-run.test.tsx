@@ -153,6 +153,26 @@ describe("First run: the sandbox card", () => {
     expect(sandboxChecks).toBe(1);
   });
 
+  it("links the guide to installing Podman or Docker until one runs", async () => {
+    renderPage();
+    const guide = await screen.findByRole("link", { name: "How to install Podman or Docker" });
+    expect(guide.getAttribute("href")).toBe("https://github.com/matasarei/lectern#the-script-sandbox-podman-or-docker");
+    expect(guide.getAttribute("rel")).toBe("noopener noreferrer");
+
+    sandboxAnswer = running;
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByText(/Docker 28.1 is running/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "How to install Podman or Docker" })).toBeNull();
+  });
+
+  it("links the guide when neither is installed", async () => {
+    renderPage();
+    sandboxAnswer = { runtime: null, version: null, engine_running: false, found: [] };
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Neither Podman nor Docker is installed.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "How to install Podman or Docker" })).toBeTruthy();
+  });
+
   it("says so when a check fails", async () => {
     renderPage();
     const button = await screen.findByRole("button", { name: "Check again" });
