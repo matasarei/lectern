@@ -15,10 +15,16 @@ export interface OcrStepsInput extends OcrStepInput {
 }
 
 /** When the step at work began: the page being read or cleaned, as the server recorded it
- * (so a reload doesn't start the count again). Null when no page is at either. */
+ * (so a reload doesn't start the count again). Null when no page is at either. The latest of
+ * them: a page an app stopped mid-step is left reading or cleaning, with its older start. */
 export function stepStartedAt(pages: OcrPage[]): string | null {
-  const busy = pages.find((p) => p.status === "recognising" || p.clean_status === "cleaning");
-  return busy?.step_started_at ?? null;
+  return pages
+    .filter((p) => p.status === "recognising" || p.clean_status === "cleaning")
+    .map((p) => p.step_started_at)
+    .reduce<string | null>(
+      (latest, s) => (s !== null && (latest === null || Date.parse(s) > Date.parse(latest)) ? s : latest),
+      null,
+    );
 }
 
 const TICK = "✓"; // a done step's mark, not words

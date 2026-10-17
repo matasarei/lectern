@@ -145,4 +145,12 @@ describe("How long the step at work has been going", () => {
     expect(stepStartedAt([page({ clean_status: "cleaning", step_started_at: STARTED })])).toBe(STARTED);
     expect(stepStartedAt([page({}), page({ status: "pending", clean_status: "pending" })])).toBeNull();
   });
+
+  it("is the latest start when an earlier page was left mid-step by an app that stopped", () => {
+    const page = (over: Partial<OcrPage>) => ({ status: "done", clean_status: "done", step_started_at: null, ...over }) as OcrPage;
+    const left = page({ status: "recognising", step_started_at: "2026-10-14T18:00:00+00:00" });
+    const now = page({ clean_status: "cleaning", step_started_at: STARTED });
+    expect(stepStartedAt([left, now])).toBe(STARTED);
+    expect(stepStartedAt([page({ status: "recognising" })])).toBeNull(); // no start recorded
+  });
 });
