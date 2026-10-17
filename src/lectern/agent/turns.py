@@ -237,6 +237,12 @@ class TurnManager:
         its turns."""
         sessions = await run_in_threadpool(self.projects.db, project)
         stale = await run_in_threadpool(followups.stale, sessions, chat_id)
+        # A finished session says where it stands as its own signal would have: questions
+        # still open aren't "finished".
+        if (notice_of := getattr(self.ocr_jobs, "notice", None)) is not None:
+            done = {f.ocr_session_id for f, status, _ in stale if status == "done"}
+            lines = {i: (await run_in_threadpool(notice_of, project, i))[1] for i in done}
+            stale = [(f, s, lines.get(f.ocr_session_id, notice)) for f, s, notice in stale]
         waiting = [(chat_id, f) for f, status, _ in stale if status != "done"]
         for ocr_id in dict.fromkeys(f.ocr_session_id for f, status, _ in stale if status == "done"):
             done = [(chat_id, f) for f, status, _ in stale
@@ -329,6 +335,9 @@ class TurnManager:
             run.emit = channel.publish
             channel.publish({"type": "turn", "status": "running", "followup": ""})
             refs = await run_in_threadpool(followups.notice_refs, sessions, ocr_session_id)
+            # Marked as the hold: once its export has run, the page shows no buttons for
+            # another one under it.
+            refs = [{**r, "hold": True} if r["kind"] == "session" else r for r in refs]
             title = refs[0]["name"] if refs else "the scan"
             text = followups.hold_text(title, summary, [f.what or f.label for f in unheld])
             message_id = await run_in_threadpool(

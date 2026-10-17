@@ -113,6 +113,9 @@ class FakeEngine:
     def size(self) -> int:
         return 0 if self._installed else 400
 
+    def variant_bytes(self) -> int:
+        return 400
+
     async def install(self) -> None:
         self.installs += 1
         if self.fail:
@@ -139,7 +142,7 @@ def test_first_run_downloads_the_engine_once_and_reports_it(paths):
 
     assert before == {"variant": "linux-cuda12", "status": "none", "bytes_done": 0,
                       "bytes_total": 400, "error": None}  # fmt: skip
-    assert after["status"] == "done"
+    assert (after["status"], after["bytes_done"], after["bytes_total"]) == ("done", 400, 400)
     assert engine.installs == 1
 
 

@@ -289,6 +289,29 @@ class OcrJobs:
                 self._only.pop(queued.key, None)
             await self.tell(queued.project, queued.key[1])
 
+    def notice(self, project: Project, session_id: int) -> tuple[str, str]:
+        """The session's status, and the line that says where it stands: finished, not
+        finished yet (questions open, a page not cleaned), or stopped."""
+        summary = self.summary(project, session_id)
+        with self.projects.db(project)() as session:
+            title = session.get(SessionRow, session_id).title
+            error = session.get(OcrSessionRow, session_id).error
+        if summary["status"] != "done":
+            return summary["status"], f"OCR · {title} stopped: {error or 'it failed'}."
+        pages = f"{summary['pages']} page{'s' if summary['pages'] != 1 else ''}"
+        if summary["clear"]:
+            return "done", f"OCR · {title} finished · {pages}."
+        # Not "finished" while the Document isn't final: questions open, a page not cleaned
+        open_parts = []
+        if count := summary["open_doubts"]:
+            open_parts.append(f"{count} open question{'s' if count != 1 else ''}")
+        if failed := summary["failed_pages"]:
+            word = "page" if len(failed) == 1 else "pages"
+            listed = ", ".join(str(n) for n in failed)
+            open_parts.append(f"{word} {listed} couldn't be cleaned")
+        still = "; ".join(open_parts)
+        return "done", f"OCR · {title} isn't finished yet: {pages} read · {still}."
+
     async def tell(self, project: Project, session_id: int) -> None:
         """A job ended done or failed, or its Document changed (a question answered): tell
         `on_status` (the chat's follow-ups), with a line saying where it stands. A follow-up
@@ -296,29 +319,7 @@ class OcrJobs:
         isn't over, so it says nothing."""
         if self.on_status is None:
             return
-
-        def notice() -> tuple[str, str]:
-            summary = self.summary(project, session_id)
-            with self.projects.db(project)() as session:
-                title = session.get(SessionRow, session_id).title
-                error = session.get(OcrSessionRow, session_id).error
-            if summary["status"] != "done":
-                return summary["status"], f"OCR · {title} stopped: {error or 'it failed'}."
-            pages = f"{summary['pages']} page{'s' if summary['pages'] != 1 else ''}"
-            if summary["clear"]:
-                return "done", f"OCR · {title} finished · {pages}."
-            # Not "finished" while the Document isn't final: questions open, a page not cleaned
-            open_parts = []
-            if count := summary["open_doubts"]:
-                open_parts.append(f"{count} open question{'s' if count != 1 else ''}")
-            if failed := summary["failed_pages"]:
-                word = "page" if len(failed) == 1 else "pages"
-                listed = ", ".join(str(n) for n in failed)
-                open_parts.append(f"{word} {listed} couldn't be cleaned")
-            still = "; ".join(open_parts)
-            return "done", f"OCR · {title} isn't finished yet: {pages} read · {still}."
-
-        status, text = await asyncio.to_thread(notice)
+        status, text = await asyncio.to_thread(self.notice, project, session_id)
         if status in ("done", "failed"):
             try:
                 await self.on_status(project, session_id, status, text)

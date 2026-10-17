@@ -168,9 +168,30 @@ def _find(ctx: ToolContext, params: FindParams) -> ToolResult:
                 found.append(_describe(row, titles, names))
                 refs.append(_file_ref(row))
     if not found:
-        return ToolResult(f"Nothing in this project matches {params.query!r}.")
+        return _in_the_text(ctx, params.query)
     text, _ = page("\n".join(found), None, FIND.max_tokens)
     return ToolResult(text, refs=refs[:20])
+
+
+def _in_the_text(ctx: ToolContext, query: str) -> ToolResult:
+    """Nothing is named like it: the files whose text has it, so the model reads one rather
+    than every file (seen: "meeting" found nothing beside notes.md, headed "Meeting notes",
+    and the 4B opened file after file until its calls ran out)."""
+    with ctx.sessions() as session:
+        rows = {r.id: r for r in _artifacts(session, ctx)}
+        hits = search.search(session, query, limit=10, artifact_ids=list(rows))
+    headings: dict[int, str | None] = {}
+    for hit in hits:
+        headings.setdefault(hit.artifact_id, hit.heading)
+    if not headings:
+        return ToolResult(f"Nothing in this project matches {query!r}, in a name or in a text.")
+    shown = list(headings.items())[:5]
+    lines = [f"{rows[i].path}{f' ({heading})' if heading else ''}" for i, heading in shown]
+    return ToolResult(
+        f"No name matches {query!r}, but the text of these files does:\n" + "\n".join(lines)
+        + "\nRead one with document.read, or find the passages with project.search.",
+        refs=[_file_ref(rows[i]) for i, _ in shown],
+    )  # fmt: skip
 
 
 FIND = AgentTool(
@@ -362,8 +383,15 @@ class TrashParams(BaseModel):
     name: str = Field(min_length=1, description="The file's name, as in project.list.")
 
 
-# Words that ask for a deletion, by their start: "delete", "removing", "trash", "видали"…
-DELETE_STEMS = ("delet", "remov", "trash", "eras", "видал", "прибер", "вилуч", "удал")
+# Words that ask for a deletion: the request, the infinitive and the -ing form, not the past
+# ("what was deleted", "видалено"), which only talks about one.
+DELETE_WORDS = frozenset({
+    "delete", "remove", "trash", "erase", "deleting", "removing", "trashing", "erasing",
+    "видали", "видаліть", "видалити", "видаляй", "видаляйте", "видаляти",
+    "прибери", "приберіть", "прибрати", "прибирай", "прибирайте",
+    "вилучи", "вилучіть", "вилучити", "вилучай",
+    "удали", "удалите", "удалить", "удаляй", "удаляйте", "удалять",
+})  # fmt: skip
 
 
 def asked_to_delete(ctx: ToolContext, path: str) -> bool:
@@ -376,7 +404,7 @@ def asked_to_delete(ctx: ToolContext, path: str) -> bool:
             .order_by(MessageRow.id.desc())
         ).first()
     words = _words(message or "")
-    deleting = any(w.startswith(DELETE_STEMS) for w in words)
+    deleting = bool(words & DELETE_WORDS)
     name = _words(PurePosixPath(path).stem)
     return deleting and bool(name) and name <= words
 

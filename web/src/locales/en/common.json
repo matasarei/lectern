@@ -464,6 +464,8 @@
     "openDocument": "Open the document (version {{version}})",
     "notCleanedYet": "Not cleaned yet: this is the raw OCR text. The cleaned text and its questions come next.",
     "notFinished": "Not finished: {{what}}. Answer the questions in the Document (clean a failed page again here); the final document, and any export waiting for it, come after.",
+    "exportAsItIs_one": "as it is: its open question is marked",
+    "exportAsItIs_other": "as it is: its {{count}} open questions are marked",
     "cleanFailed": "This page wasn't cleaned: {{error}}"
   },
   "review": {
@@ -511,7 +513,8 @@
   "export": {
     "label": "Export:",
     "anyway": "Export anyway",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "formatsFailed": "The export formats couldn't be read: {{detail}}"
   },
   "ocrSteps": {
     "read": "Reading",

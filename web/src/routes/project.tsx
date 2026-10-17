@@ -58,13 +58,26 @@ export function ProjectPage() {
     queryClient.setQueryData(["tabs", id], next);
     save.mutate(next);
   };
+  // Tabs asked for before the saved ones have loaded (a chat's turn ended as the page
+  // opened): kept, and opened once they're in.
+  const early = useRef<{ tab: Tab; focus: boolean }[]>([]);
   const open = (tab: Tab, focus = true) => {
-    if (!tabs) return;
+    if (!tabs) {
+      early.current.push({ tab, focus });
+      return;
+    }
     if (focus) return update(openTab(tabs, tab));
     update(addTab(tabs, tab));
     // Its title comes from the items, which may not list it yet (a session just started)
     void queryClient.invalidateQueries({ queryKey: ["items", id] });
   };
+  useEffect(() => {
+    if (!tabs || early.current.length === 0) return;
+    const asked = early.current;
+    early.current = [];
+    update(asked.reduce((next, { tab, focus }) => (focus ? openTab(next, tab) : addTab(next, tab)), tabs));
+    void queryClient.invalidateQueries({ queryKey: ["items", id] });
+  });
   // A chat that isn't showing still adds the tabs it opens; the showing one opens its own.
   useProjectEvents(id, open);
   const newChat = useMutation({

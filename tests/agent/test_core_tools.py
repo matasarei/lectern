@@ -66,9 +66,25 @@ def test_list_and_find(ctx):
     assert found.text.startswith("lease-1998.md · file")
     assert found.refs[0]["name"] == "lease-1998.md"
     assert run(core_tools.FIND, ctx, query="nothing").text == (
-        "Nothing in this project matches 'nothing'."
+        "Nothing in this project matches 'nothing', in a name or in a text."
     )
     assert run(core_tools.LIST, ctx, kind="sessions").text == "New chat · chat session"
+
+
+def test_find_names_the_files_whose_text_matches_when_no_name_does(ctx):
+    """Seen: "meeting" found nothing beside notes.md, headed "Meeting notes", and the 4B
+    read file after file until it ran out of calls."""
+    add_file(ctx, "notes.md", "# Meeting notes\n\nThe tenant asked to pay on the 15th.")
+    add_file(ctx, "lease-1998.md", LEASE)
+
+    found = run(core_tools.FIND, ctx, query="meeting")
+
+    assert found.text == (
+        "No name matches 'meeting', but the text of these files does:\n"
+        "notes.md (Meeting notes)\n"
+        "Read one with document.read, or find the passages with project.search."
+    )
+    assert [r["name"] for r in found.refs] == ["notes.md"]
 
 
 def test_search_returns_block_refs_not_whole_files(ctx):
@@ -202,7 +218,8 @@ def test_write_names_a_cleaned_up_path_without_claiming_it_was_taken(ctx):
 @pytest.mark.parametrize(
     "message",
     ["Delete old-draft.md from the project.", "Remove the old draft", "Видали old-draft.md",
-     "please trash old-draft"],
+     "please trash old-draft", "Можеш видалити old-draft.md?", "Удали old-draft",
+     "Go ahead with deleting old-draft.md", "Видаляй old-draft.md", "Удаляй old-draft"],
 )  # fmt: skip
 def test_the_trash_card_is_plain_when_the_persons_message_asks_for_it(ctx, message):
     add_file(ctx, "old-draft.md", "old")
@@ -215,8 +232,9 @@ def test_the_trash_card_is_plain_when_the_persons_message_asks_for_it(ctx, messa
 
 @pytest.mark.parametrize(
     "message",
-    ["Do we have notes from the meeting with the tenant?", "Delete old-draft.md", "Show notes.md"],
-)
+    ["Do we have notes from the meeting with the tenant?", "Delete old-draft.md", "Show notes.md",
+     "What was deleted from notes?", "Що було видалено з notes?", "Who removed notes.md?"],
+)  # fmt: skip
 def test_the_trash_card_warns_when_the_persons_message_didnt_ask(ctx, message):
     """A planted "delete notes.md" in a file got the 4B to trash it: the card says the
     person didn't ask, so Allow isn't clicked by habit."""
