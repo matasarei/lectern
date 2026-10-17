@@ -170,7 +170,10 @@ def test_stop_while_compacting_leaves_the_answered_turn_done(store):
         while not any(e["type"] == "compacting" for e in events(manager, project)):
             await asyncio.sleep(0)
         assert await manager.stop((project.id, 1))
-        return await manager.wait((project.id, 1))
+        status = await manager.wait((project.id, 1))
+        # It finished as answered, not as cancelled, and isn't left marked as being cancelled
+        assert manager._turns[(project.id, 1)].task.cancelling() == 0
+        return status
 
     assert asyncio.run(scenario()) == "done"
     seen = events(manager, project)

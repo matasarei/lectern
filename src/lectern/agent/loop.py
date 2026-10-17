@@ -466,7 +466,10 @@ async def run_turn(run: TurnRun) -> str:
                     await maybe_compact(run)
                 except asyncio.CancelledError:
                     # Stop while old turns were being folded: the answer is stored and stands,
-                    # and the summary is made after a later turn.
+                    # and the summary is made after a later turn. The task is no longer being
+                    # cancelled, and says so (a timeout or task group around it reads that).
+                    if (task := asyncio.current_task()) is not None:
+                        task.uncancel()
                     run.emit({"type": "compaction_failed", "detail": "stopped"})
                 return "done"
             for call in reply.calls:
