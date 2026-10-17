@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS
@@ -15,11 +16,37 @@ from lectern.agent.prompts import EXACT_CHECK
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
 from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
+from lectern.projects.tables import MessageRow
 
 from .fake_model import FakeHandle, make_runtime, sse, text_reply, tool_reply
-from .test_loop import transcript, turn, until
 
 RAN: list[str] = []
+
+
+def transcript(store, project):  # noqa: ANN001, ANN201
+    with store.db(project)() as session:
+        rows = session.scalars(select(MessageRow).order_by(MessageRow.id)).all()
+    return [(r.role, r.content, r.tool_name) for r in rows]
+
+
+async def turn(manager, project, text):  # noqa: ANN001, ANN201
+    await manager.send(project, LOCAL_USER, 1, text, [])
+    return await manager.wait((project.id, 1))
+
+
+async def until(condition, timeout: float = 5.0) -> None:  # noqa: ANN001
+    """Wait for `condition()` to hold; fail instead of hanging when it never does."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not condition():
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("timed out waiting for the condition")
+        await asyncio.sleep(0.01)
+
+
+def _ticking_clock(monkeypatch) -> None:  # noqa: ANN001
+    """Every look at the clock is one second after the last, the same way each run."""
+    now = iter(range(1, 10_000))
+    monkeypatch.setattr(loop.time, "perf_counter", lambda: float(next(now)))
 
 
 class _Brief(BaseModel):
@@ -253,7 +280,6 @@ def test_a_long_answer_to_the_check_is_still_never_shown(store):
 def test_a_held_replys_time_to_first_token_is_when_it_was_shown(store, monkeypatch):
     """Held and checked, its first token reached the person after the check, not when the
     model wrote it: the same reply, unheld, has the shorter time."""
-    from .test_loop import _ticking_clock
 
     def ttft(sandbox: bool) -> float:  # noqa: FBT001
         _ticking_clock(monkeypatch)
