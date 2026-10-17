@@ -308,8 +308,12 @@ import pandas as pd
 
 for path in sorted(Path("/in").iterdir()):
     print(f"== {{path.name}}")
-    for name, frame in pd.read_excel(path, sheet_name=None, nrows={PREVIEW_LINES}).items():
-        print(f"sheet {{name!r}}: " + ", ".join(str(c) for c in frame.columns))
+    sheets = pd.read_excel(path, sheet_name=None, nrows={PREVIEW_LINES})
+    for name, frame in sheets.items():
+        columns = ", ".join(str(c) for c in frame.columns)
+        # One sheet is just the file's table: a name shown would end up in the output
+        # ("Total hours in Week 1"), and the chat would take that for a part of it.
+        print(f"sheet {{name!r}}: {{columns}}" if len(sheets) > 1 else f"columns: {{columns}}")
         print(frame.to_string(index=False))
 """
 

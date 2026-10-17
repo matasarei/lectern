@@ -349,7 +349,7 @@ def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandb
     def behave(code, inputs, out):  # noqa: ANN001, ANN202
         if code == SHEET_PREVIEW:  # what pandas prints of each sheet, inside the sandbox
             return RunResult(
-                0, "== hours.xlsx\nsheet 'Week 1': Day, Hours\nDay  Hours\nMon    7.5\n", "", 0.4
+                0, "== hours.xlsx\ncolumns: Day, Hours\nDay  Hours\nMon    7.5\n", "", 0.4
             )
         return RunResult(0, "total 39.25\n", "", 0.2)
 
@@ -360,7 +360,7 @@ def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandb
     write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
 
     asked = handle.requests[0]["messages"][1]["content"]
-    assert "sheet 'Week 1': Day, Hours" in asked and "Mon    7.5" in asked
+    assert "columns: Day, Hours" in asked and "Mon    7.5" in asked
     assert [r["code"] == SHEET_PREVIEW for r in sandbox.runs] == [True, False]  # once, first
 
 
