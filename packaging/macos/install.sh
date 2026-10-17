@@ -45,6 +45,7 @@ esac
 Command Line Tools (swiftc): xcode-select --install"
 
 dir="${LECTERN_DIR:-$HOME/.lectern}"
+dir="${dir%/}"  # ~/.lectern/ is ~/.lectern: one spelling, compared below
 # It goes into the app's Info.plist and into bin/lectern-serve: plain paths only.
 case "$dir" in
     /*) ;;
@@ -63,10 +64,21 @@ binary="$bundle/Contents/MacOS/Lectern"
 identifier_of() {
     sed -n '/<key>CFBundleIdentifier<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$1" 2>/dev/null || true
 }
+# The install folder an app was built for (its LecternDir).
+dir_of() {
+    sed -n '/<key>LecternDir<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$1" 2>/dev/null || true
+}
 # Another app that happens to be called Lectern is never replaced.
 if [ -e "$bundle" ] \
     && [ "$(identifier_of "$bundle/Contents/Info.plist")" != "$(identifier_of "$here/tray/Info.plist")" ]; then
     die "$bundle is another app, not this one: move it away first."
+fi
+# There is one Lectern.app: an install in another folder (LECTERN_DIR) would take it over.
+built_for="$(dir_of "$bundle/Contents/Info.plist")"
+built_for="${built_for%/}"
+if [ -e "$bundle" ] && [ -n "$built_for" ] && [ "$built_for" != "$dir" ]; then
+    die "$bundle runs the Lectern in $built_for, not $dir. Uninstall that one first \
+(LECTERN_DIR=$built_for ./uninstall.sh), or install there."
 fi
 
 # --- uv ---------------------------------------------------------------------------------
@@ -97,6 +109,19 @@ models_before="$HOME/Library/Application Support/Lectern/models"
 offer_models=""
 if [ -d "$models_before" ] && [ ! -e "$data/models" ]; then offer_models=1; fi
 
+# Lectern.app was open, and a step after it was quit failed: open it again as it is now (the
+# new app, or the old one put back), on whichever version app/venv points at.
+reopen_after_a_failure() {
+    status=$?
+    [ "$status" -ne 0 ] || return 0
+    if [ ! -e "$bundle" ] && [ -e "$bundle.old" ]; then mv "$bundle.old" "$bundle"; fi
+    if [ -e "$bundle" ]; then
+        open -g "$bundle" --args --background || true
+        echo "install.sh: Lectern.app was opened again, as it was before this step." >&2
+    fi
+    exit "$status"
+}
+
 # --- the switch ---------------------------------------------------------------------------
 # An open app is quit first: it handles SIGTERM as its own Shut Down, which stops Lectern cleanly.
 # It's opened again below. An app that isn't open isn't started by an update.
@@ -115,6 +140,9 @@ if pgrep -f "$binary" >/dev/null; then
         die "Lectern.app didn't quit. Shut it down from its menu and run this again; the version \
 in use is unchanged."
     fi
+    # From here a step that fails would leave Lectern closed: it's opened again on the way
+    # out, the old app put back if the swap was cut short.
+    trap reopen_after_a_failure EXIT
 fi
 switch_venv
 rm -rf "$bundle.old"
@@ -138,6 +166,7 @@ chmod 0755 "$dir/bin/lectern-serve"
 write_settings "Restart, in Lectern's menu (its icon in the menu bar)"
 
 # --- start it -----------------------------------------------------------------------------
+trap - EXIT  # the switch is done: from here, starting it is this script's own business
 if [ -z "$start" ]; then
     cat <<CLOSED
 Upgraded to Lectern $version. Lectern wasn't open, so it isn't now: open it from
