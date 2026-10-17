@@ -246,6 +246,22 @@ class OcrJobs:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
 
+    async def forget(self, project_id: int) -> None:
+        """A removed project: its sessions leave the queue, the one running is stopped where
+        it is (the worker starts again for other projects' sessions), and nothing of its
+        sessions is kept here. Nothing is written to the project: it's going to the trash."""
+        self._queue = collections.deque(q for q in self._queue if q.key[0] != project_id)
+        if self._current is not None and self._current[0] == project_id and self._worker:
+            self._worker.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._worker
+            if self._queue:
+                self._worker = asyncio.create_task(self._work(), name="ocr-jobs")
+        for kept in (self._channels, self._pause_signals, self._only, self._since):
+            for key in [k for k in kept if k[0] == project_id]:
+                del kept[key]
+        self._pausing = {k for k in self._pausing if k[0] != project_id}
+
     async def idle(self) -> None:
         """For tests: until the queue is empty and nothing is running."""
         while self._worker is not None and not self._worker.done():

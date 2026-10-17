@@ -101,6 +101,31 @@ def test_accounts_are_added_to_an_install_that_had_one_local_user(tmp_path):
     engine.dispose()
 
 
+def test_projects_made_before_removal_existed_are_not_removed(tmp_path):
+    """0005: every project there was is still a project (removed_at is empty)."""
+    from sqlalchemy import text
+
+    from lectern.core.db import migrate
+
+    engine = make_engine(tmp_path / "app.sqlite")
+    _upgrade(engine, "0004")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO projects (owner_id, name, root_kind, root_path, created_at)"
+                " VALUES (1, 'Lease', 'managed', '/p/lease', '2026-10-01 00:00:00')"
+            )
+        )
+
+    migrate(engine)
+    migrate(engine)  # and again: nothing more to do
+
+    with engine.connect() as connection:
+        rows = connection.execute(text("SELECT name, removed_at FROM projects")).all()
+    assert rows == [("Lease", None)]
+    engine.dispose()
+
+
 def test_the_accounts_tables_refuse_what_cant_be(tmp_path):
     import sqlalchemy as sa
     from sqlalchemy import text

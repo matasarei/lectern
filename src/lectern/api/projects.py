@@ -1,4 +1,4 @@
-"""/api/projects: the projects list, creating a project, and renaming it.
+"""/api/projects: the projects list, creating a project, renaming and removing it.
 
 Every route looks the project up for the current user; an unknown id and someone else's
 project both answer 404, so ids can't be probed.
@@ -18,7 +18,13 @@ from starlette.requests import HTTPConnection
 
 from lectern.core.auth import User, current_user
 from lectern.projects import files, search
-from lectern.projects.store import UNTITLED, Project, ProjectNotFound, ProjectStore
+from lectern.projects.store import (
+    UNTITLED,
+    NameMismatch,
+    Project,
+    ProjectNotFound,
+    ProjectStore,
+)
 from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow, UiStateRow, iso
 
 router = APIRouter()
@@ -56,6 +62,10 @@ class Rename(BaseModel):
     name: str = Field(min_length=1, max_length=400)
 
 
+class RemoveProject(BaseModel):
+    name: str = Field(max_length=400)  # as typed: it must be the project's name exactly
+
+
 @router.get("/projects")
 def list_projects(request: Request, user: CurrentUser) -> list[dict]:
     return [project_dict(p) for p in store(request).list(user)]
@@ -80,6 +90,25 @@ def rename_project(project_id: int, body: Rename, request: Request, user: Curren
         return project_dict(store(request).rename(user, project_id, body.name))
     except ProjectNotFound:
         raise HTTPException(404, "No such project.") from None
+
+
+@router.delete("/projects/{project_id}")
+async def remove_project(
+    project_id: int, body: RemoveProject, request: Request, user: CurrentUser
+) -> dict:
+    """Remove a project, its name typed exactly (the page asks for it; checked here too).
+    From then on it's not found. Its chats' turns and its OCR job are stopped, then its folder
+    goes to its owner's trash for 30 days."""
+    try:
+        project = await run_in_threadpool(store(request).remove, user, project_id, body.name)
+    except ProjectNotFound:
+        raise HTTPException(404, "No such project.") from None
+    except NameMismatch:
+        raise HTTPException(422, "Type the project's name exactly to remove it.") from None
+    await request.app.state.turns.stop_project(project.id)
+    await request.app.state.ocr_jobs.forget(project.id)
+    await run_in_threadpool(store(request).move_to_trash, project)
+    return {"removed": project.id}
 
 
 # --- files ---------------------------------------------------------------------------------

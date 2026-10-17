@@ -84,6 +84,8 @@ class ProjectRow(Base):
     root_kind: Mapped[str] = mapped_column(String(16), default="managed")
     root_path: Mapped[str] = mapped_column(Text)  # absolute path
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Set when its owner removes it: from then on it's in the trash (root_path says where).
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 DOWNLOAD_STATUSES = ("queued", "downloading", "verifying", "done", "failed", "paused")

@@ -94,11 +94,26 @@ export function ProjectPage() {
   const loadingActive = !activeKnown && !checked.includes(activeKey);
 
   if (project.isError) {
+    // Not found: removed (in this tab's time, from another), or never this person's.
+    const gone = project.error instanceof ApiError && project.error.status === 404;
     return (
       <Shell>
-        <ErrorNote
-          message={project.error instanceof ApiError ? project.error.detail : t("common.loadFailed")}
-        />
+        <div className="grid gap-3">
+          <ErrorNote
+            message={
+              gone
+                ? t("project.gone")
+                : project.error instanceof ApiError
+                  ? project.error.detail
+                  : t("common.loadFailed")
+            }
+          />
+          {gone && (
+            <Link to="/projects" className="link-back">
+              {t("project.back")}
+            </Link>
+          )}
+        </div>
       </Shell>
     );
   }

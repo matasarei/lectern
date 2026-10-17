@@ -366,3 +366,30 @@ def test_the_project_page_hears_a_tab_its_chat_opens(paths, free_port, live_serv
 
     tab = {"kind": "session", "id": 1}
     assert heard == [{"type": "open_tab", "session_id": 1, "tab": tab, "seq": 1}]
+
+
+def test_removing_a_project_stops_its_chat_first(paths):
+    hold = asyncio.Event()  # the model never answers: the turn is still running
+    app, handle = _app(paths, [text_reply("slow")], hold=hold)
+    client = TestClient(app, base_url=BASE)
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+    with client:
+        project = client.post("/api/projects", json={"name": "Busy"}, headers=headers).json()
+        pid = project["id"]
+        sent = client.post(
+            f"/api/projects/{pid}/sessions/1/messages", json={"text": "one"}, headers=headers
+        )
+        assert sent.status_code == 202
+        deadline = time.monotonic() + 5
+        while not handle.requests:  # the turn has asked the model
+            assert time.monotonic() < deadline, "the turn never asked the model"
+            time.sleep(0.01)
+        assert app.state.turns.state((pid, 1)) == "running"
+
+        removed = client.request(
+            "DELETE", f"/api/projects/{pid}", json={"name": "Busy"}, headers=headers
+        )
+        assert removed.status_code == 200
+        assert app.state.turns.state((pid, 1)) == "idle"  # stopped, and nothing kept of it
+        assert not any(key[0] == pid for key in app.state.turns._turns)
+        assert pid not in app.state.projects._dbs  # its database closed, not reopened
