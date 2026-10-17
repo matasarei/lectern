@@ -164,9 +164,18 @@ def test_a_session_is_rasterised_then_every_page_read(store, tmp_path):
     assert kinds[-1] == ("session", "done")
 
 
-def test_each_step_of_a_page_says_when_it_began_with_its_zone(store, tmp_path):
-    from datetime import datetime
+def test_each_step_of_a_page_says_when_it_began_with_its_zone(store, tmp_path, monkeypatch):
+    import itertools
+    from datetime import UTC, datetime, timedelta
 
+    from lectern.modules.ocr import jobs as jobs_module
+
+    # A minute passes with every reading of the clock: the cleanup's start can't equal the
+    # reading's unless it was never set again.
+    ticks = itertools.count()
+    moving = lambda: datetime(2026, 10, 15, 9, 0, tzinfo=UTC) + timedelta(minutes=next(ticks))  # noqa: E731
+    monkeypatch.setattr(jobs_module, "now", moving)
+    monkeypatch.setattr(ocr_store, "now", moving)
     server = FakeServer()
     runtime, _ = _runtime(server)
     project, sid = _session(store, tmp_path, pages=1)
@@ -183,7 +192,8 @@ def test_each_step_of_a_page_says_when_it_began_with_its_zone(store, tmp_path):
     cleaning = next(e for e in pages if e["clean_status"] == "cleaning")
     for step in (reading, cleaning):
         assert datetime.fromisoformat(step["step_started_at"]).utcoffset() is not None
-    assert cleaning["step_started_at"] >= reading["step_started_at"]
+    started = [datetime.fromisoformat(s["step_started_at"]) for s in (reading, cleaning)]
+    assert started[1] > started[0]  # the cleanup's own start, not the reading's
     (page,) = ocr_store.pages(store.db(project), sid)
     assert page.step_started_at is not None  # kept: a reload counts from the same moment
 
