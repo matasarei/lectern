@@ -88,7 +88,8 @@ once one is running (first run has a **Check again** button).
   small Linux machine; start it before you ask for a calculation.
 - **Linux:** Podman from your distribution (`sudo dnf install podman`,
   `sudo apt install podman`); it needs no service of its own. Or Docker Engine, with your
-  user in the `docker` group.
+  user in the `docker` group, which amounts to root on that machine (Podman needs no such
+  group).
 - **Windows:** [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
   or [Podman Desktop](https://podman-desktop.io/), both on WSL 2 (`wsl --install`, then
   restart).
