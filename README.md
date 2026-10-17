@@ -93,7 +93,8 @@ once one is running (first run has a **Check again** button).
   or [Podman Desktop](https://podman-desktop.io/), both on WSL 2 (`wsl --install`, then
   restart).
 
-The first calculation builds the sandbox's image (about 430 MB, once) and asks first.
+The first calculation builds the sandbox's image once, and asks first: it downloads about
+250 MB and takes about 430 MB on disk.
 
 **Working on Lectern itself:** `make` installs the Python and web dependencies and builds the
 web UI; `uv run lectern serve` then runs it from the checkout on `http://127.0.0.1:8765`. How
