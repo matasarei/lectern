@@ -19,6 +19,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private static let terminatePatience: TimeInterval = 10
     // What Lectern left running gets this long to end on SIGTERM before it's killed.
     private static let leftoverPatience: TimeInterval = 5
+    // …and then this long for a kill to take it away: SIGKILL lands a moment after it's sent.
+    private static let killPatience: TimeInterval = 2
 
     // The install folder (~/.lectern) and the version, written into Info.plist at build time.
     private let dir = Bundle.main.object(forInfoDictionaryKey: "LecternDir") as? String ?? ""
@@ -232,7 +234,8 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // just ended: the system may tell of its end a moment before it hands its children to
     // launchd, which is when they'd show no parent.) They get SIGTERM, which a model
     // runner ends on, and a few seconds; one that's still there after that is killed (unlike
-    // Lectern, it has nothing under it to leave behind in turn). Then `done` runs.
+    // Lectern, it has nothing under it to leave behind in turn). Then `done` runs, once they're
+    // gone (or the kill's patience is up): the app mustn't leave before them.
     private func endRunnersLeftBehind(then done: @escaping () -> Void) {
         let left = runners.filter {
             let now = parent(of: $0.pid)
@@ -247,12 +250,18 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         left.forEach { kill($0.pid, SIGTERM) }
         writeLog(Data("---- ended \(left.count) process(es) Lectern left running ----\n".utf8))
         let deadline = Date().addingTimeInterval(Self.leftoverPatience)
+        var killed = false
         var check: Timer?
         check = timer(every: 0.2, repeats: true) { [weak self] in
             guard let self else { return }
             let still = left.filter { self.program(of: $0.pid) == $0.program }
-            guard still.isEmpty || Date() >= deadline else { return }
-            still.forEach { kill($0.pid, SIGKILL) }
+            if !still.isEmpty, Date() < deadline { return }  // their time to end on SIGTERM
+            if !still.isEmpty, !killed {
+                still.forEach { kill($0.pid, SIGKILL) }
+                killed = true
+                return
+            }
+            if !still.isEmpty, Date() < deadline.addingTimeInterval(Self.killPatience) { return }
             check?.invalidate()
             done()
         }
