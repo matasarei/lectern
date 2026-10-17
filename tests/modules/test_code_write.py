@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 import pytest
 from sqlalchemy import select
@@ -430,3 +431,39 @@ def test_a_cell_with_two_equals_signs_doesnt_cut_the_preview(make_ctx):
     write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
 
     assert "weekend    0" in handle.requests[0]["messages"][1]["content"]
+
+
+@pytest.mark.sandbox
+@pytest.mark.skipif(
+    not os.environ.get("LECTERN_TEST_SANDBOX_IMAGE"), reason="set LECTERN_TEST_SANDBOX_IMAGE"
+)
+def test_the_preview_in_the_real_sandbox_names_sheets_only_when_there_are_several(tmp_path):
+    """Lectern's own image (with pandas and openpyxl) writes two workbooks, one of one sheet
+    and one of two, and the preview reads them back as the coder will be shown them."""
+    from lectern.modules.sandbox.container import Sandbox
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
+
+    box = Sandbox()
+    if not asyncio.run(box.image_present()):
+        pytest.skip("Lectern's sandbox image isn't built here")
+    maker = tmp_path / "make.py"
+    maker.write_text(
+        "import pandas as pd\n"
+        "pd.DataFrame({'Day': ['Mon'], 'Hours': [7.5]}).to_excel('/out/one.xlsx', "
+        "sheet_name='Week 1', index=False)\n"
+        "with pd.ExcelWriter('/out/two.xlsx') as book:\n"
+        "    pd.DataFrame({'Day': ['Mon'], 'Hours': [7.5]}).to_excel(book, 'Week 1', index=False)\n"
+        "    pd.DataFrame({'Day': ['Tue'], 'Hours': [8]}).to_excel(book, 'Week 2', index=False)\n"
+    )
+    made = asyncio.run(box.run(maker, {}, tmp_path / "make", timeout=60))
+    assert made.ok, made.stderr
+    books = {p.name: p for p in made.outputs}
+    script = tmp_path / "main.py"
+    script.write_text(SHEET_PREVIEW)
+
+    result = asyncio.run(box.run(script, books, tmp_path / "preview", timeout=60))
+
+    assert result.ok, result.stderr
+    one, two = (part for part in result.stdout.split(SHEET_MARK)[1:])
+    assert one.startswith("one.xlsx\ncolumns: Day, Hours\n") and "Week 1" not in one
+    assert "sheet 'Week 1': Day, Hours" in two and "sheet 'Week 2': Day, Hours" in two
