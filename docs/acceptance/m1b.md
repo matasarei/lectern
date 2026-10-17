@@ -104,13 +104,13 @@ The same Mac and models (`LECTERN_TIER=minimum`: Qwen3.5-4B, Qwen2.5-Coder-1.5B)
 | 2 | 20/20 | 18/20 | 18/20 |
 | 3 | 19/20 | 18/20 | 18/20 |
 
-**The criterion is met:** in three runs, no calculation was answered without a tool. The one prompt without `code.run`, xlsx-sum in run 3, gave no answer at all: it ran out of model calls trying to read `hours.xlsx`, as on 2026-10-15. Every wrong answer came from a script:
+**The criterion is met:** in three runs, no calculation was answered without a tool. The one prompt without `code.run`, xlsx-sum in run 3, gave no answer at all: it ran out of model calls trying to read `hours.xlsx`, as on 2026-10-15. Every other failure came from a script, or from the scoring:
 - weekday: "Thursday", where it was a Saturday;
 - penalty: 6,250.00, where it is 62.50;
 - vat: 300.00, where it is 250.00;
-- csv-count: the right count, with a wrong list.
+- csv-count: "Three payments…", the right count written as a word, where the set looks for the number 3.
 
-That is the coder's mistakes, the gap described above, not the rule.
+The first three are the coder's mistakes, the gap described above, not the rule.
 
 The check costs nothing where it doesn't apply, and didn't break the general questions:
 - **The tools set** (34 prompts): 33 and 32 passed, against 30 and 30 on `main`. The failures are the known ones: due-day ran out of model calls in its search loops (both runs), and find-notes once.
