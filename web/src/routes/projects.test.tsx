@@ -68,7 +68,7 @@ describe("Removing a project", () => {
   it("stays off until the name is typed exactly, case and spaces too", async () => {
     renderProjects();
     const { dialog, field, remove } = await openRemove("Lease 1998");
-    expect(within(dialog).getByText(/goes to the trash. After 30 days/)).toBeTruthy();
+    expect(within(dialog).getByText(/moves to the trash folder beside your projects folder/)).toBeTruthy();
 
     for (const typed of ["", "lease 1998", "Lease 1998 ", " Lease 1998", "Lease"]) {
       fireEvent.change(field, { target: { value: typed } });

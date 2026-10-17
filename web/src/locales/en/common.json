@@ -239,7 +239,7 @@
     "settings": "Models & memory",
     "remove": "Remove {{name}}",
     "removeTitle": "Remove {{name}}?",
-    "removeWhat": "Its chats and OCR sessions stop, and its folder, with every file and scan in it, goes to the trash. After 30 days it's deleted for good.",
+    "removeWhat": "Its chats and OCR sessions stop, and its folder, with every file and scan in it, moves to the trash folder beside your projects folder, where its files can still be copied out. After 30 days it's deleted for good.",
     "removeType": "To confirm, type the project's name: {{name}}",
     "removeCancel": "Cancel",
     "removeConfirm": "Remove"
