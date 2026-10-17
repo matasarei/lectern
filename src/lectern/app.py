@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -11,6 +12,7 @@ from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
+from sqlalchemy.exc import SQLAlchemyError
 
 from lectern import __version__
 from lectern.agent.core_tools import CORE_TOOLS
@@ -40,6 +42,17 @@ from lectern.projects.store import ProjectStore
 from lectern.runtime.supervisor import ModelRuntime
 from lectern.runtime.wiring import build_runtime
 from lectern.web import WEB_DIST, mount_web
+
+log = logging.getLogger(__name__)
+
+
+def _purge_removed(projects: ProjectStore) -> None:
+    """The start-up purge. A database error is logged then and there; raised, it would wait
+    unseen in its task until the app stops, and then cut the stop short."""
+    try:
+        projects.purge_removed()
+    except SQLAlchemyError:
+        log.exception("removed projects weren't purged; they're tried again at the next start")
 
 
 def create_app(
@@ -79,7 +92,7 @@ def create_app(
         app.state.tool_env.start()  # is a container engine running? (in the background)
         # Projects removed more than 30 days ago go for good: in a thread, so a large folder
         # being deleted doesn't hold up the start.
-        purging = asyncio.create_task(asyncio.to_thread(app.state.projects.purge_removed))
+        purging = asyncio.create_task(asyncio.to_thread(_purge_removed, app.state.projects))
         yield
         await app.state.turns.stop_all()  # a reply in progress keeps what it wrote
         await app.state.ocr_jobs.stop_all()  # an OCR batch shows as paused when read again

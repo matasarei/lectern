@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from lectern.app import create_app
 from lectern.core.auth import LOCAL_USER, User
@@ -377,3 +378,15 @@ def test_the_app_deletes_projects_removed_more_than_30_days_ago_when_it_starts(p
     with app.state.sessions() as session:
         assert session.get(ProjectRow, old.id) is None
         assert session.get(ProjectRow, recent.id) is not None
+
+
+def test_a_purge_that_fails_at_start_is_logged_and_the_app_still_stops(paths, caplog):
+    app = create_app(paths)
+
+    def broken() -> int:
+        raise OperationalError("DELETE FROM projects", {}, Exception("database is locked"))
+
+    app.state.projects.purge_removed = broken
+    with TestClient(app, base_url=BASE):
+        pass  # the stop doesn't raise the purge's error
+    assert "removed projects weren't purged" in caplog.text
