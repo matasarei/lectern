@@ -431,3 +431,11 @@ def test_a_removed_linked_project_keeps_its_folder_where_it_is(timed, clock, tmp
     assert (mine / "contract.docx").read_bytes() == b"PK"
     with timed.app_sessions() as session:
         assert session.get(ProjectRow, project_id) is None
+
+
+def test_a_project_looked_up_before_its_removal_doesnt_bring_its_folder_back(timed):
+    project = timed.create(LOCAL_USER, "Lease")  # a request has it, from before the removal
+    timed.move_to_trash(timed.remove(LOCAL_USER, project.id, "Lease"))
+    with pytest.raises(ProjectNotFound):
+        timed.db(project)
+    assert not project.root.exists()

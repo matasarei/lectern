@@ -223,6 +223,10 @@ class ProjectStore:
         with self._lock:
             opened = self._dbs.get(project.id)
             if opened is None:
+                # Looked up just before it was removed, asked for after its folder went to the
+                # trash: opening it would make the folder again, empty, where it was.
+                if not project.root.is_dir():
+                    raise ProjectNotFound(project.id)
                 engine = make_engine(project.data_dir / "project.sqlite")
                 migrate(engine, "lectern:project_migrations")
                 opened = (engine, make_sessionmaker(engine))
