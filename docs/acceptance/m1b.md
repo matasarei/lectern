@@ -88,6 +88,41 @@ The same Mac and models (`LECTERN_TIER=minimum`: Qwen3.5-4B, Qwen2.5-Coder-1.5B)
 
 Also: **xlsx-sum** failed on both (the scripts failed 3–5 times reading `hours.xlsx`), and **csv-count** on `origin/main` ran out of model calls (it passed on the other tree; in September it passed in run 1 and ran out in run 2). Not looked into.
 
+### Again on 2026-10-17: the rule met, by a check in the loop
+
+The prompt can't hold the rule on a 4B: on `main`'s prompt (#82) `code.run` was used in 16, 15, 15 and 14 of 20, and any wording that lets a general question be answered from memory also lets sums through. Forcing a tool call in the request isn't possible either: `tool_choice: "required"` isn't enforced by llama.cpp b11236 with this model's template, and MLX's server has no `tool_choice`. So the loop checks the reply instead (`src/lectern/agent/loop.py`, `EXACT_CHECK` in `prompts.py`):
+- when the sandbox is running, the message has a number in it, and the reply came without any tool, the reply is held back, not streamed;
+- the model is asked once whether it states an exact result;
+- if it does, it computes it with `code_write` and `code_run`, and the held reply is never shown;
+- if not, it says `NO_CALC` and the held reply is the answer.
+
+The same Mac and models (`LECTERN_TIER=minimum`: Qwen3.5-4B, Qwen2.5-Coder-1.5B), a scratch home with the models linked in, Docker 29.4.3, the branch `fix/m1b-exact-results-check` (`19e0bca`, on `main` `32f91a1`).
+
+| Run | `code.run` used | Passed | Right answer |
+|---|---|---|---|
+| 1 | 20/20 | 19/20 | 19/20 |
+| 2 | 20/20 | 18/20 | 18/20 |
+| 3 | 19/20 | 18/20 | 18/20 |
+
+**The criterion is met:** in three runs, no calculation was answered without a tool. The one prompt without `code.run`, xlsx-sum in run 3, gave no answer at all: it ran out of model calls trying to read `hours.xlsx`, as on 2026-10-15. Every other failure came from a script, or from the scoring:
+- weekday: "Thursday", where it was a Saturday;
+- penalty: 6,250.00, where it is 62.50;
+- vat: 300.00, where it is 250.00;
+- csv-count: "Three payments…", the right count written as a word, where the set looks for the number 3.
+
+The first three are the coder's mistakes, the gap described above, not the rule.
+
+After the review's fixes (`7a17d87`), the calc set was run twice more. The check now:
+- runs only when the turn answers the person's message itself, not on a follow-up;
+- holds a reply only up to 1,500 characters, then streams the rest unchecked;
+- skips an empty reply.
+
+`code.run` was used in 20 and 19 of 20. The one without it was xlsx-sum again: it called tools, but its scripts couldn't read the file. The wrong answers again came from scripts (penalty 25.00, vat 300.00).
+
+The check costs nothing where it doesn't apply, and didn't break the general questions:
+- **The tools set** (34 prompts): 33 and 32 passed, against 30 and 30 on `main`. The failures are the known ones: due-day ran out of model calls in its search loops (both runs), and find-notes once.
+- **"What do you know about Old Church Slavonic?"** (Russian and English, 5 runs each): all 10 answered from general knowledge, none refused. Two Russian answers didn't name Cyril, which the set looks for. Those questions have no number, so the check never ran on them.
+
 ## Notes
 
 - **Real-engine tests** (`pytest -m sandbox` with `LECTERN_TEST_SANDBOX_IMAGE=python:3-slim`) pass on this Mac:

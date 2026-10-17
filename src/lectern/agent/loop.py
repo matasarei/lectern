@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -30,7 +31,7 @@ from lectern.agent.context import (
     build,
     split_turns,
 )
-from lectern.agent.prompts import system_prompt
+from lectern.agent.prompts import EXACT_CHECK, system_prompt
 from lectern.agent.state import ChatState
 from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
 from lectern.core.auth import User
@@ -44,6 +45,9 @@ from lectern.runtime.supervisor import ModelRuntime, NotAvailable, Priority
 MAX_MODEL_CALLS = 8
 TEMPERATURE = 0.6
 RESULT_PREVIEW = 600  # characters of a tool result shown in the chat line
+# A reply held for the exact-results check streams once it's longer than this: an essay
+# isn't a bare sum (the longest sum answered from memory in the calc set was a few hundred).
+HOLD_CHARS = 1500
 
 
 @dataclass
@@ -148,6 +152,7 @@ class Reply:
     tokens: int = 0
     first_token_at: float | None = None
     tps: float | None = None
+    shown: bool = False  # a held reply that grew past HOLD_CHARS was streamed after all
 
 
 async def call_model(run: TurnRun, history: History) -> Reply:
@@ -436,13 +441,35 @@ async def run_turn(run: TurnRun) -> str:
     tokens = 0
     tps: float | None = None
     failures: dict[str, int] = {}
+    calls_left = MAX_MODEL_CALLS
+    called_a_tool = False
+    checked = False
     try:
-        for _ in range(MAX_MODEL_CALLS):
+        while calls_left:
+            calls_left -= 1
             history = await run_in_threadpool(load_history, run)
-            reply = await _call(run, history)
+            # A reply that could be a sum from memory isn't shown until it's known not to be
+            hold = not called_a_tool and not checked and _may_check(run, history)
+            reply = await _call(run, history, hold=hold, release_after=HOLD_CHARS)
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
             tps = reply.tps or tps
+            if (
+                hold
+                and not reply.calls
+                and not reply.shown
+                and reply.content.strip()
+                and calls_left
+            ):
+                checked = True
+                calls_left -= 1
+                check = await _call(run, _with_check(history, reply.content), hold=True)
+                tokens += check.tokens
+                tps = check.tps or tps
+                if check.calls:  # it was an exact result: computed now, the draft dropped
+                    reply = check
+            if hold and not reply.shown and _show(run, reply.content):
+                first_token = first_token or time.perf_counter()  # when it was seen
             message_id = await run_in_threadpool(
                 lambda r=reply: store_message(
                     run,
@@ -472,6 +499,7 @@ async def run_turn(run: TurnRun) -> str:
                         task.uncancel()
                     run.emit({"type": "compaction_failed", "detail": "stopped"})
                 return "done"
+            called_a_tool = True
             for call in reply.calls:
                 result = await run_tool(run, call, failures)
                 await run_in_threadpool(
@@ -524,19 +552,69 @@ class _Unknown:
     name = "unknown"
 
 
-async def _call(run: TurnRun, history: History) -> Reply:
+async def _call(
+    run: TurnRun, history: History, *, hold: bool = False, release_after: int | None = None
+) -> Reply:
     """call_model, keeping the text streamed so far in `stats["partial"]`, so a stop in the
-    middle of a reply can still store it."""
+    middle of a reply can still store it. `hold`: the reply's text isn't streamed (the loop
+    shows it once it's checked), and a stop meanwhile stores none of it: nobody saw it.
+    `release_after`: a held reply longer than that many characters streams after all, from
+    the start, and comes back `shown`."""
     original = run.emit
     run.stats["partial"] = ""
+    held: list[str] = []
+    released = False
+    released_at: float | None = None
 
     def emit(event: dict) -> None:
+        nonlocal released, released_at
         if event.get("type") == "delta":
+            if hold and not released:
+                held.append(event["text"])
+                if release_after is None or sum(map(len, held)) <= release_after:
+                    return
+                released, released_at = True, time.perf_counter()
+                event = {**event, "text": "".join(held)}
             run.stats["partial"] += event["text"]
         original(event)
 
     run.emit = emit
     try:
-        return await call_model(run, history)
+        reply = await call_model(run, history)
     finally:
         run.emit = original
+    reply.shown = released
+    if hold:  # its first token is when the person first saw text, not when it was written
+        reply.first_token_at = released_at
+    return reply
+
+
+# --- the exact-results check (docs/acceptance/m1b.md) -------------------------------------
+
+
+def _may_check(run: TurnRun, history: History) -> bool:
+    """A reply to the person's message could state a sum from memory: the sandbox is running
+    (its tools are offered only then), the turn answers that message itself (not a follow-up
+    after a tool, whose person's message is an older one), and it has a number in it."""
+    if run.registry.get("code_run") is None or not history.messages:
+        return False
+    asked = history.messages[-1]
+    return asked["role"] == "user" and re.search(r"\d", asked["content"] or "") is not None
+
+
+def _with_check(history: History, draft: str) -> History:
+    """The turn so far, the held draft, and the question whether it states an exact result.
+    Neither is stored: the draft is the answer only if the check says there's nothing to
+    compute (NO_CALC, or anything but a tool call)."""
+    asked = [
+        {"id": None, "role": "assistant", "content": draft},
+        {"id": None, "role": "user", "content": EXACT_CHECK},
+    ]
+    return History([*history.messages, *asked], history.attachments, history.state)
+
+
+def _show(run: TurnRun, text: str) -> bool:
+    """A held reply's text, once it stands: all at once. Whether there was any."""
+    if text:
+        run.emit({"type": "delta", "text": text})
+    return bool(text)

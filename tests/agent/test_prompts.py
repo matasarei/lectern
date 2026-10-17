@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from lectern.agent.prompts import system_prompt
+from lectern.agent.prompts import EXACT_CHECK, system_prompt
 
 
 def test_with_a_sandbox_exact_results_come_from_scripts():
@@ -64,3 +64,10 @@ def test_exact_results_come_before_general_questions_and_need_no_file():
         prompt = system_prompt("x", sandbox=sandbox)
         assert prompt.index("- Exact results") < prompt.index("- General questions")
         assert "even with no file" in prompt
+
+
+def test_the_exact_results_check_names_the_tools_and_its_way_out():
+    """Asked by the loop when a reply to a numbered message came without a tool: it either
+    sends the model to the sandbox or lets it say there's nothing to compute."""
+    assert "code_write" in EXACT_CHECK and "code_run" in EXACT_CHECK
+    assert EXACT_CHECK.rstrip().endswith("NO_CALC")
