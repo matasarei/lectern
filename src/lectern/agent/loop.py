@@ -567,12 +567,13 @@ async def _call(run: TurnRun, history: History, *, hold: bool = False) -> Reply:
 
 
 def _may_check(run: TurnRun, history: History) -> bool:
-    """A reply to the person's latest message could state a sum from memory: the sandbox is
-    running (its tools are offered only then), and the message has a number in it."""
-    if run.registry.get("code_run") is None:
+    """A reply to the person's message could state a sum from memory: the sandbox is running
+    (its tools are offered only then), the turn answers that message itself (not a follow-up
+    after a tool, whose person's message is an older one), and it has a number in it."""
+    if run.registry.get("code_run") is None or not history.messages:
         return False
-    asked = next((m["content"] for m in reversed(history.messages) if m["role"] == "user"), "")
-    return re.search(r"\d", asked or "") is not None
+    asked = history.messages[-1]
+    return asked["role"] == "user" and re.search(r"\d", asked["content"] or "") is not None
 
 
 def _with_check(history: History, draft: str) -> History:

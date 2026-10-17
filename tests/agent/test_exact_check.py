@@ -208,3 +208,20 @@ def test_stop_while_held_stores_nothing_the_person_didnt_see(store):
 
     assert asyncio.run(scenario()) == "stopped"
     assert [r[0] for r in transcript(store, project)] == ["user"]  # not the unchecked draft
+
+
+def test_a_follow_up_after_a_tool_isnt_checked_though_the_older_message_has_a_number():
+    """A follow-up turn (an export run once an OCR session finished) answers a tool's result:
+    the person's message before it ("Scan lease-1998.pdf…") isn't what the reply is about."""
+    from types import SimpleNamespace
+
+    run = SimpleNamespace(registry=Registry([*CORE_TOOLS, *CODE]))
+    asked = {"id": 1, "role": "user", "content": "Scan lease-1998.pdf and export it to DOCX."}
+    after_a_tool = [
+        asked,
+        {"id": 2, "role": "assistant", "content": "", "tool_calls": []},
+        {"id": 3, "role": "tool", "content": "Saved as Lease 1998.docx.", "tool_call_id": "c"},
+    ]
+    assert loop._may_check(run, loop.History([asked], [], None))
+    assert not loop._may_check(run, loop.History(after_a_tool, [], None))
+    assert not loop._may_check(run, loop.History([], [], None))
