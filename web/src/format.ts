@@ -32,6 +32,14 @@ export function formatMemory(bytes: number, locale = "en"): string {
   }).format(gib);
 }
 
+/** A running time on a clock's face: 0:07, 4:32, 1:02:03. */
+export function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const [h, m, sec] = [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60];
+  const two = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${two(m)}:${two(sec)}` : `${m}:${two(sec)}`;
+}
+
 /** "2 minutes ago", "yesterday", in the browser's words. */
 export function formatAgo(iso: string, now: Date = new Date(), locale = "en"): string {
   const time = new Date(iso).getTime();

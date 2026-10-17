@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fileType, formatAgo, formatBytes, formatMemory, formatTokens, percent } from "./format";
+import { fileType, formatAgo, formatBytes, formatElapsed, formatMemory, formatTokens, percent } from "./format";
 
 describe("formatBytes", () => {
   it("uses GB from one gigabyte up", () => {
@@ -59,5 +59,13 @@ describe("formatTokens", () => {
     expect(formatTokens(950)).toBe("950");
     expect(formatTokens(5100)).toBe("5.1k");
     expect(formatTokens(12400)).toBe("12k");
+  });
+});
+
+describe("formatElapsed", () => {
+  it("reads like a clock: minutes and seconds, then hours", () => {
+    expect([0, 7, 42, 272, 3600, 3723].map(formatElapsed)).toEqual([
+      "0:00", "0:07", "0:42", "4:32", "1:00:00", "1:02:03",
+    ]);
   });
 });

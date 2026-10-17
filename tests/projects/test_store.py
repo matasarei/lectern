@@ -439,3 +439,29 @@ def test_a_project_looked_up_before_its_removal_doesnt_bring_its_folder_back(tim
     with pytest.raises(ProjectNotFound):
         timed.db(project)
     assert not project.root.exists()
+
+
+def test_a_project_at_p0008_keeps_its_ocr_pages_with_no_step_started(store, paths):
+    from lectern.projects.tables import ArtifactRow, OcrPageRow, OcrSessionRow
+
+    project = store.create(LOCAL_USER, "Before step times")
+    with store.db(project).begin() as session:
+        source = ArtifactRow(owner_id=LOCAL_USER.id, path="scan.pdf", kind="imported",
+                             mime="application/pdf", size=1, sha256="0" * 64,
+                             from_kind="import")  # fmt: skip
+        session.add(source)
+        ocr = SessionRow(owner_id=LOCAL_USER.id, kind="ocr", title="scan.pdf")
+        session.add(ocr)
+        session.flush()
+        session.add(OcrSessionRow(session_id=ocr.id, source_artifact_id=source.id,
+                                  folder="scan", status="done", pages_total=1))  # fmt: skip
+        session.add(OcrPageRow(session_id=ocr.id, number=1, key="p001", status="done"))
+    store.dispose()
+    _migrate_to(project, "p0008")  # as a project made before the OCR steps were timed
+    _migrate_to(project, "head")
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    with fresh.db(project)() as session:
+        page = session.scalars(select(OcrPageRow)).one()
+    fresh.dispose()
+    assert (page.status, page.step_started_at) == ("done", None)

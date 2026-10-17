@@ -5,7 +5,7 @@ import { apiFetch } from "../api/client";
 import type { OcrSession, ProjectItems, SessionSummary, Tab } from "../api/types";
 import { useRuntime } from "../hooks/useRuntime";
 import { ocrPath, ocrProgress, useOcrEvents } from "./ocr-api";
-import { OcrSteps, type OcrStepsInput } from "./ocr-steps";
+import { OcrSteps, type OcrStepsInput, stepStartedAt } from "./ocr-steps";
 
 /** Under the chat's ocr.start line: the OCR session it began, as steps (Reading, Cleaning,
  * Your questions, then what waits for it). The name opens the session's tab. No Start now
@@ -50,6 +50,7 @@ function finishedInput(summary: SessionSummary, then: string[]): OcrStepsInput {
     failedPages: ocr.failed_pages,
     waitingForChat: false,
     exports: then,
+    stepStartedAt: null,
   };
 }
 
@@ -83,6 +84,7 @@ function LiveLine({
           .map((p) => p.number),
         waitingForChat: live.waitingForChat,
         exports: then,
+        stepStartedAt: stepStartedAt(data.pages),
       }
     : { ...finishedInput(summary, then), read: 0, cleaned: 0 }; // until the session is read
   return <Line summary={summary} onOpen={onOpen} input={input} live />;

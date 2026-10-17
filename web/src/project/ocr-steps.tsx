@@ -1,7 +1,9 @@
 import type { TFunction } from "i18next";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { RuntimeState } from "../api/types";
+import type { OcrPage, RuntimeState } from "../api/types";
+import { formatElapsed } from "../format";
 import { ocrStepText, type OcrStepInput } from "../status";
 
 /** Where an OCR session is, as the whole: what's done, what's going on, what's still to come. */
@@ -9,6 +11,20 @@ export interface OcrStepsInput extends OcrStepInput {
   failedPages: number[]; // read or cleanup failed: the Document isn't final
   waitingForChat: boolean;
   exports: string[]; // what waits for the Document to be clear: "export to DOCX"
+  stepStartedAt: string | null; // when the page at work began its reading or cleanup
+}
+
+/** When the step at work began: the page being read or cleaned, as the server recorded it
+ * (so a reload doesn't start the count again). Null when no page is at either. The latest of
+ * them: a page an app stopped mid-step is left reading or cleaning, with its older start. */
+export function stepStartedAt(pages: OcrPage[]): string | null {
+  return pages
+    .filter((p) => p.status === "recognising" || p.clean_status === "cleaning")
+    .map((p) => p.step_started_at)
+    .reduce<string | null>(
+      (latest, s) => (s !== null && (latest === null || Date.parse(s) > Date.parse(latest)) ? s : latest),
+      null,
+    );
 }
 
 const TICK = "✓"; // a done step's mark, not words
@@ -92,6 +108,7 @@ export function OcrSteps({
   // At work: running, and not waiting for the chat's reply. A model loading counts, since
   // something is happening; queued, paused, done and failed don't.
   const working = input.status === "running" && !input.waitingForChat && !held;
+  const elapsed = useElapsed(working ? input.stepStartedAt : null);
   return (
     <ol className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-sm" data-testid="ocr-steps">
       {steps.map((step, i) => (
@@ -108,6 +125,15 @@ export function OcrSteps({
             {step.key === "export" ? capitalised(input.exports.join(", ")) : t(`ocrSteps.${step.key}`)}
           </span>
           {step.state === "current" && detail && <span className="font-normal text-muted">· {detail}</span>}
+          {step.state === "current" && elapsed !== null && (
+            <span
+              className="font-normal tabular-nums text-muted"
+              title={t("ocrSteps.elapsed", { time: formatElapsed(elapsed) })}
+              data-testid="ocr-elapsed"
+            >
+              · {formatElapsed(elapsed)}
+            </span>
+          )}
           {step.state === "current" && working && (
             <span className="spinner ml-1" aria-hidden data-testid="ocr-working" />
           )}
@@ -115,4 +141,18 @@ export function OcrSteps({
       ))}
     </ol>
   );
+}
+
+/** Whole seconds since `since`, counted again each second; null without a start. */
+function useElapsed(since: string | null): number | null {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!since) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [since]);
+  if (!since) return null;
+  const started = Date.parse(since);
+  // Until the first tick, `now` can be from before a step that has just begun: 0:00 then.
+  return Number.isNaN(started) ? null : Math.max(0, Math.floor((now - started) / 1000));
 }

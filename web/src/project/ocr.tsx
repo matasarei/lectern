@@ -8,7 +8,7 @@ import { ErrorNote } from "../components";
 import { useRuntime } from "../hooks/useRuntime";
 import { HoldNote } from "../status";
 import { ExportButtons } from "./export-buttons";
-import { OcrSteps, type OcrStepsInput } from "./ocr-steps";
+import { OcrSteps, type OcrStepsInput, stepStartedAt } from "./ocr-steps";
 import { ImagePreview } from "./file";
 import { cleanPageAgain, ocrPath, ocrProgress, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
 import { ReviewPage } from "./review";
@@ -113,6 +113,7 @@ function StatusStrip({
     failedPages,
     waitingForChat: false, // HoldNote says it here, with the countdown and Start now
     exports: [], // what the chats queued isn't this tab's: the last step reads Done
+    stepStartedAt: stepStartedAt(session.pages),
   };
   const working = session.status === "running" || session.status === "queued";
   const error = pause.error ?? resume.error ?? startNow.error;

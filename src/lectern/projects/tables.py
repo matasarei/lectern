@@ -232,6 +232,8 @@ class OcrPageRow(ProjectBase):
     clean_status: Mapped[str] = mapped_column(String(16), default="pending")
     clean_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     cleaned_reading: Mapped[int] = mapped_column(Integer, default=0)  # the reading it cleaned
+    # When its reading or its cleanup began (the model was its own): how long it's been going.
+    step_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
