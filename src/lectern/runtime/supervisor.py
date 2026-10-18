@@ -470,9 +470,9 @@ class ModelRuntime:
     async def unload_between_replies(self, role: str | None = None) -> list[str]:
         """Unload idle models (all, or one role's, a copy loaded for it by name included),
         except one a reply is being written with: for a setting that changes which models
-        are wanted. That model changes over with the next turn, and a role's own model a job
-        is using with its next lease. A copy loaded by name that a job is using goes when the
-        job is done with it: nothing asks for it by that name again."""
+        are wanted. That model changes over with the next turn. A role's own model that a job
+        is using changes over with its next lease. A copy loaded by name that a job is using
+        goes when the job is done with it: nothing asks for it by that name again."""
         async with self._cond:
             keys = [r for r in self._residents if role is None or r.partition("@")[0] == role]
             in_use = [r for r in keys if self._residents[r].leases]
