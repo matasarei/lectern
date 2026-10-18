@@ -3,7 +3,7 @@ from __future__ import annotations
 from lectern.projects import text
 from lectern.projects.text import extract, mime_for
 
-from .conftest import write_docx, write_pdf, write_scan_pdf
+from .conftest import add_pages, write_docx, write_pdf, write_scan_pdf
 
 
 def test_markdown_is_chunked_by_heading(tmp_path):
@@ -86,6 +86,17 @@ def test_a_scan_has_no_text_layer(tmp_path):
     got = extract(write_scan_pdf(tmp_path / "scan.pdf"))
     assert got.chunks == []
     assert "no text layer" in (got.note or "")
+
+
+def test_a_scanned_page_has_an_image_and_no_text_and_a_blank_page_isnt_one(tmp_path):
+    from lectern.projects.text import scanned_pages
+
+    typed = write_pdf(tmp_path / "letter.pdf", ["Dear tenant, the rent is due on the tenth."])
+    assert scanned_pages(add_pages(typed, blank=2)) == 0  # a typed letter with blank pages
+    assert scanned_pages(add_pages(typed, scanned=1)) == 1
+    broken = tmp_path / "broken.pdf"
+    broken.write_bytes(b"%PDF-1.4 not really")
+    assert scanned_pages(broken) == 0
 
 
 def test_a_broken_pdf_is_reported(tmp_path):

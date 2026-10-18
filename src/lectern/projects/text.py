@@ -205,11 +205,27 @@ def pdf_pages(path: Path) -> list[str]:
 
 
 def scanned_pages(path: Path) -> int:
-    """How many of a PDF's pages have no text layer (scans among typed pages); 0 when it
-    can't be opened."""
+    """How many of a PDF's pages are scans among typed pages: no text layer, and an image on
+    them. A blank page has neither, and nothing for OCR to read. 0 when it can't be opened."""
+    import pypdfium2 as pdfium
+    import pypdfium2.raw as pdfium_c
+
     with PDFIUM_LOCK:
-        read = _read_pages(path, limit=None)
-    return 0 if read is None else sum(len(t) < PDF_PAGE_MIN_CHARS for t in read[0])
+        try:
+            pdf = pdfium.PdfDocument(path)
+        except pdfium.PdfiumError:
+            return 0
+        try:
+            scans = 0
+            for index in range(len(pdf)):
+                page = pdf[index]
+                images = page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE])
+                if len(_page_text(page)) < PDF_PAGE_MIN_CHARS and next(images, None) is not None:
+                    scans += 1
+                page.close()
+            return scans
+        finally:
+            pdf.close()
 
 
 def _read_pages(path: Path, limit: int | None) -> tuple[list[str], int] | None:
@@ -226,9 +242,7 @@ def _read_pages(path: Path, limit: int | None) -> tuple[list[str], int] | None:
         total = 0
         for index in range(len(pdf)):
             page = pdf[index]
-            textpage = page.get_textpage()
-            text = textpage.get_text_bounded().replace("\r\n", "\n").strip()
-            textpage.close()
+            text = _page_text(page)
             page.close()
             pages.append(text)
             total += len(text)
@@ -237,6 +251,13 @@ def _read_pages(path: Path, limit: int | None) -> tuple[list[str], int] | None:
         return pages, len(pdf)
     finally:
         pdf.close()
+
+
+def _page_text(page) -> str:  # noqa: ANN001 (a pypdfium2 PdfPage, imported lazily)
+    textpage = page.get_textpage()
+    text = textpage.get_text_bounded().replace("\r\n", "\n").strip()
+    textpage.close()
+    return text
 
 
 def _pdf_text(path: Path) -> Extracted:

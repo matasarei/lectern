@@ -46,6 +46,28 @@ def write_scan_pdf(path: Path, pages: int = 2) -> Path:
     return path
 
 
+def add_pages(path: Path, *, blank: int = 0, scanned: int = 0) -> Path:
+    """Pages added to the end of a PDF: blank ones (nothing on them), and scanned ones (one
+    image each, no text layer)."""
+    import pypdfium2 as pdfium
+    from PIL import Image
+
+    pdf = pdfium.PdfDocument(path)
+    for _ in range(blank):
+        pdf.new_page(612, 792)
+    for _ in range(scanned):
+        page = pdf.new_page(612, 792)
+        image = pdfium.PdfImage.new(pdf)
+        image.set_bitmap(pdfium.PdfBitmap.from_pil(Image.new("RGB", (40, 40), "gray")))
+        image.set_matrix(pdfium.PdfMatrix().scale(400, 400))
+        page.insert_obj(image)
+        page.gen_content()
+    out = path.with_suffix(".pages.pdf")  # pdfium can't save over the file it has open
+    pdf.save(out)
+    pdf.close()
+    return out.replace(path)
+
+
 def write_docx(path: Path) -> Path:
     import docx
 
