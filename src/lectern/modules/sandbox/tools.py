@@ -490,7 +490,8 @@ async def _sheet_previews(
 
 
 def _shortened(text: str, limit: int) -> str:
-    """At most `limit` characters, cut at a line, and saying so when it was cut."""
+    """At most `limit` characters, and saying so when it was cut: at the last line that fits,
+    or inside the first one when even that is longer (a sheet of very many columns)."""
     if len(text) <= limit:
         return text
     kept = text[:limit].rsplit("\n", 1)[0]
