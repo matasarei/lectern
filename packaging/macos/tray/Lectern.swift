@@ -39,8 +39,10 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // What Lectern had started when it was asked to stop: its model runners, and anything else
     // it was running, such as a script in the sandbox. It stops them itself on the way out.
     // Any still there once it's gone (it was cut short) are ended by the app, so that stopping
-    // never leaves a model in memory.
-    private var runners: [(pid: pid_t, program: String, parent: pid_t)] = []
+    // never leaves a model in memory. Each is known by when it started, which a number the
+    // system has since given to another process can't share, and which, unlike its program,
+    // doesn't change when one still starting becomes what it runs.
+    private var runners: [(pid: pid_t, started: UInt64, parent: pid_t)] = []
     private var healthTimer: Timer?
     private var stopTimers: [Timer] = []
     private var signalSource: DispatchSourceSignal?
@@ -187,7 +189,9 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         healthTimer?.invalidate()
         detail = ""
         state = .stopping
-        runners = children(of: pid).map { (pid: $0, program: program(of: $0), parent: pid) }
+        runners = children(of: pid).compactMap { child in
+            started(child).map { (pid: child, started: $0, parent: pid) }
+        }
         kill(pid, SIGINT)
         stopTimers = [
             timer(every: Self.interruptPatience, repeats: false) { [weak self] in
@@ -230,7 +234,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     // MARK: What Lectern leaves behind
 
     // Of the processes noted when Lectern was asked to stop, those that outlived it: the same
-    // program under the same number, now with no parent. (Or still under the Lectern that has
+    // start under the same number, now with no parent. (Or still under the Lectern that has
     // just ended: the system may tell of its end a moment before it hands its children to
     // launchd, which is when they'd show no parent.) They get SIGTERM, which a model
     // runner ends on, and a few seconds; one that's still there after that is killed (unlike
@@ -239,8 +243,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
     private func endRunnersLeftBehind(then done: @escaping () -> Void) {
         let left = runners.filter {
             let now = parent(of: $0.pid)
-            return !$0.program.isEmpty && (now == 1 || now == $0.parent)
-                && program(of: $0.pid) == $0.program
+            return (now == 1 || now == $0.parent) && started($0.pid) == $0.started
         }
         runners = []
         guard !left.isEmpty else {
@@ -254,7 +257,7 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         var check: Timer?
         check = timer(every: 0.2, repeats: true) { [weak self] in
             guard let self else { return }
-            let still = left.filter { self.program(of: $0.pid) == $0.program }
+            let still = left.filter { self.started($0.pid) == $0.started }
             if !still.isEmpty, Date() < deadline { return }  // their time to end on SIGTERM
             if !still.isEmpty, !killed {
                 still.forEach { kill($0.pid, SIGKILL) }
@@ -273,16 +276,19 @@ final class LecternApp: NSObject, NSApplicationDelegate {
         return count > 0 ? found.prefix(Int(count)).filter { $0 > 1 } : []
     }
 
-    private func program(of process: pid_t) -> String {
-        var path = [CChar](repeating: 0, count: 4096)
-        return proc_pidpath(process, &path, UInt32(path.count)) > 0 ? String(cString: path) : ""
+    // When the process started, in microseconds; nil once it's gone.
+    private func started(_ process: pid_t) -> UInt64? {
+        bsdInfo(of: process).map { $0.pbi_start_tvsec * 1_000_000 + $0.pbi_start_tvusec }
     }
 
     private func parent(of process: pid_t) -> pid_t? {
+        bsdInfo(of: process).map { pid_t($0.pbi_ppid) }
+    }
+
+    private func bsdInfo(of process: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(process, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return pid_t(info.pbi_ppid)
+        return proc_pidinfo(process, PROC_PIDTBSDINFO, 0, &info, size) == size ? info : nil
     }
 
     // MARK: A Lectern left running
