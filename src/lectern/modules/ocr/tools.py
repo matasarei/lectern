@@ -42,25 +42,26 @@ class StartParams(BaseModel):
     )
 
 
-def _source(ctx: ToolContext, name: str, *, keep_layout: bool = False) -> ArtifactRow:
+def _source(ctx: ToolContext, name: str, *, keep_layout: bool = False) -> tuple[ArtifactRow, int]:
+    """The file to read as pages, and how many of a PDF's pages with text are scans (read
+    here once: it opens the whole PDF)."""
     with ctx.sessions() as session:
         row = _artifact_by_name(session, ctx, name, partial_ok=False)
         session.expunge(row)
     suffix = "." + row.path.rsplit(".", 1)[-1].lower() if "." in row.path else ""
     if suffix != ".pdf" and suffix not in IMAGE_SUFFIXES:
         raise ToolError(f"{row.path} isn't a PDF or an image, so it can't be read as pages.")
+    scans = 0
+    if row.text_status == "indexed" and suffix == ".pdf":
+        scans = scanned_pages(files.inside(ctx.project.root, row.path))
     # A PDF with text needs no OCR, unless some of its pages are scans with none
-    if row.text_status == "indexed" and not keep_layout and not _has_scans(ctx, row, suffix):
+    if row.text_status == "indexed" and not keep_layout and not scans:
         raise ToolError(
             f"{row.path} has text: read it with document_read, or export it directly with "
             "export_run; no OCR is needed. To keep its tables and layout, or to read its "
             "scanned pages, call ocr_start with keep_layout=true."
         )
-    return row
-
-
-def _has_scans(ctx: ToolContext, row: ArtifactRow, suffix: str) -> bool:
-    return suffix == ".pdf" and scanned_pages(files.inside(ctx.project.root, row.path)) > 0
+    return row, scans
 
 
 def _ocr_model(ctx: ToolContext) -> CatalogEntry | None:
@@ -82,7 +83,7 @@ def _cleanup_model(ctx: ToolContext) -> CatalogEntry | None:
 
 
 def _start_question(ctx: ToolContext, params: StartParams) -> str:
-    row = _source(ctx, params.name, keep_layout=params.keep_layout)
+    row, scans = _source(ctx, params.name, keep_layout=params.keep_layout)
     try:
         pages = page_count(files.inside(ctx.project.root, row.path))
     except NotAPageSource as exc:
@@ -90,7 +91,6 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
     minutes = max(1, round(pages * SECONDS_PER_PAGE / 60))
     why = ""
     if row.text_status == "indexed":
-        scans = scanned_pages(files.inside(ctx.project.root, row.path))
         why = (
             f"{scans} of its pages {'is a scan' if scans == 1 else 'are scans'}, with no text; "
             "OCR reads every page. "
@@ -135,7 +135,9 @@ def _start_question(ctx: ToolContext, params: StartParams) -> str:
 async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     if ctx.ocr_jobs is None:
         raise ToolError("OCR sessions can't be started here.")
-    row = await run_in_threadpool(lambda: _source(ctx, params.name, keep_layout=params.keep_layout))
+    row, _scans = await run_in_threadpool(
+        lambda: _source(ctx, params.name, keep_layout=params.keep_layout)
+    )
     for entry in (_ocr_model(ctx), _cleanup_model(ctx)):
         if entry is None or model_download.on_disk(ctx, entry):
             continue

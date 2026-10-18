@@ -16,7 +16,7 @@ from lectern.modules.ocr.tools import NOTE, START
 from lectern.projects import files
 from lectern.runtime.supervisor import NotAvailable
 
-from ...projects.conftest import write_pdf, write_scan_pdf
+from ...projects.conftest import add_pages, write_pdf, write_scan_pdf
 from ..conftest import FakeDownloads
 
 
@@ -111,7 +111,7 @@ def test_a_file_with_text_or_not_a_page_source_is_refused_before_any_card(ctx):
 
 def test_a_pdf_with_text_on_some_pages_and_scans_on_others_is_read_as_pages(ctx, tmp_path):
     typed = "Dear tenant, the rent is due on the tenth of each month."
-    mixed = write_pdf(tmp_path / "m.pdf", [typed, ""])  # page 2: a scan, no text layer
+    mixed = add_pages(write_pdf(tmp_path / "m.pdf", [typed]), scanned=1)  # page 2: a scan
     with ctx.sessions.begin() as session:
         files.write_bytes(ctx.project.root, session, owner_id=LOCAL_USER.id, name="mixed.pdf",
                           data=mixed.read_bytes(), origin=files.Origin("import"))  # fmt: skip
@@ -120,6 +120,25 @@ def test_a_pdf_with_text_on_some_pages_and_scans_on_others_is_read_as_pages(ctx,
         "Start an OCR session for mixed.pdf? 1 of its pages is a scan, with no text; OCR reads "
         "every page. 2 pages"
     )
+
+
+def test_a_typed_pdf_with_a_blank_page_has_text_and_is_read_once(ctx, tmp_path, monkeypatch):
+    """A blank page has no text, but nothing to read either: it isn't a scan."""
+    from lectern.modules.ocr import tools
+
+    typed = "Dear tenant, the rent is due on the tenth of each month."
+    letter = add_pages(write_pdf(tmp_path / "b.pdf", [typed]), blank=1)
+    with ctx.sessions.begin() as session:
+        files.write_bytes(ctx.project.root, session, owner_id=LOCAL_USER.id, name="blank.pdf",
+                          data=letter.read_bytes(), origin=files.Origin("import"))  # fmt: skip
+    with pytest.raises(ToolError, match="blank.pdf has text"):
+        _question(ctx, name="blank.pdf")
+
+    reads: list[str] = []
+    counted = tools.scanned_pages
+    monkeypatch.setattr(tools, "scanned_pages", lambda p: reads.append(p.name) or counted(p))
+    _question(ctx, name="blank.pdf", keep_layout=True)
+    assert len(reads) == 1  # the question reads the PDF once
 
 
 def test_keep_layout_reads_a_pdf_with_text_and_the_card_says_why(ctx):
