@@ -86,6 +86,29 @@ def find_inputs(ctx: ToolContext, names: list[str]) -> list[Input]:
     return found
 
 
+def named_in(ctx: ToolContext, text: str) -> list[str]:
+    """The project files `text` names, by path or by file name (case aside), outside
+    scripts/. A file name two files share names neither: the brief doesn't say which."""
+    # "/in/hours.xlsx" is how the script will see it (the tool's own description says so)
+    lowered = re.sub(r"(?<![\w.-])/in/", " ", text.casefold())
+    rows = [r for r in _live(ctx) if not r.path.startswith(f"{SCRIPTS}/")]
+
+    # Not part of a longer name ("hours.xlsx.bak"), but a sentence's full stop may follow it.
+    def said(name: str) -> bool:
+        found = re.search(rf"(?<![\w./-]){re.escape(name.casefold())}(?![\w-]|\.\w)", lowered)
+        return found is not None
+
+    by_name: dict[str, list[str]] = {}
+    for row in rows:
+        by_name.setdefault(Path(row.path).name.casefold(), []).append(row.path)
+    return [
+        row.path
+        for row in rows
+        if said(row.path)
+        or (said(Path(row.path).name) and len(by_name[Path(row.path).name.casefold()]) == 1)
+    ]
+
+
 def inputs_sha(inputs: list[Input]) -> str:
     listing = "\n".join(sorted(f"{i.name}:{i.sha256}" for i in inputs))
     return hashlib.sha256(listing.encode()).hexdigest()
@@ -279,6 +302,25 @@ CODER_MAX_TOKENS = 1500
 CODER_TEMPERATURE = 0.2
 PREVIEW_LINES = 5
 PREVIEW_LINE_CHARS = 300
+SHEET_SUFFIXES = {".xlsx", ".xlsm"}
+SHEET_PREVIEW_CHARS = 2000  # of one workbook's preview: forty sheets or wide ones are cut
+SHEET_MARK = "\x1e"  # starts each file's part of the preview: no cell holds a record separator
+# Run in the sandbox before the coder is asked: what pandas, the reader its script will use,
+# makes of each spreadsheet in /in. The server itself has no Excel reader.
+SHEET_PREVIEW = f"""from pathlib import Path
+
+import pandas as pd
+
+for path in sorted(Path("/in").iterdir()):
+    print({SHEET_MARK!r} + path.name)
+    sheets = pd.read_excel(path, sheet_name=None, nrows={PREVIEW_LINES})
+    for name, frame in sheets.items():
+        columns = ", ".join(str(c) for c in frame.columns)
+        # One sheet is just the file's table: a name shown would end up in the output
+        # ("Total hours in Week 1"), and the chat would take that for a part of it.
+        print(f"sheet {{name!r}}: {{columns}}" if len(sheets) > 1 else f"columns: {{columns}}")
+        print(frame.to_string(index=False))
+"""
 
 CODER_SYSTEM = """You write one Python 3.12 script for a sandbox. Rules:
 - Input files are in /in (read them from there, e.g. /in/rent.csv). There is no network.
@@ -309,7 +351,11 @@ class WriteParams(BaseModel):
 
 
 async def _code_write(ctx: ToolContext, params: WriteParams) -> ToolResult:
-    inputs = await run_in_threadpool(find_inputs, ctx, params.inputs)
+    # A call with no inputs whose brief names a project file ("Read hours.xlsx and sum…") is
+    # given that file: seen on the 4B, the script found an empty /in and the turn ran out of
+    # model calls on fixes that couldn't help.
+    names = params.inputs or await run_in_threadpool(named_in, ctx, params.brief)
+    inputs = await run_in_threadpool(find_inputs, ctx, names)
     box = await ensure_image(ctx)
     await ensure_coder(ctx)
     job_dir = ctx.project.root / files.DATA_DIR / "jobs" / uuid.uuid4().hex[:12]
@@ -330,10 +376,9 @@ async def _code_write(ctx: ToolContext, params: WriteParams) -> ToolResult:
 async def _write_and_test(
     ctx: ToolContext, box: Sandbox, params: WriteParams, inputs: list[Input], job_dir: Path
 ) -> ToolResult:
-    messages = [
-        {"role": "system", "content": CODER_SYSTEM},
-        {"role": "user", "content": await run_in_threadpool(coder_request, ctx, params, inputs)},
-    ]
+    sheets = await _sheet_previews(ctx, box, inputs, job_dir)
+    request = await run_in_threadpool(coder_request, ctx, params, inputs, sheets)
+    messages = [{"role": "system", "content": CODER_SYSTEM}, {"role": "user", "content": request}]
     loop_time = asyncio.get_running_loop().time
     started = loop_time()
     async with ctx.runtime.lease("code", Priority.CHAT) as lease:
@@ -416,23 +461,72 @@ def extract_code(reply: str) -> str | None:
     return reply.strip() + "\n"
 
 
-def coder_request(ctx: ToolContext, params: WriteParams, inputs: list[Input]) -> str:
-    """The brief, the expected output, and what each input file looks like."""
+async def _sheet_previews(
+    ctx: ToolContext, box: Sandbox, inputs: list[Input], job_dir: Path
+) -> dict[str, str]:
+    """Each spreadsheet input's sheets, columns and first rows, as pandas reads them in the
+    sandbox, by file name. Empty when there are none, or when the sandbox can't read them
+    (the coder then gets the plain description, as before)."""
+    sheets = {i.name: i.path for i in inputs if i.path.suffix.lower() in SHEET_SUFFIXES}
+    if not sheets:
+        return {}
+    ctx.emit({"type": "progress", "label": "Reading the spreadsheet in the sandbox"})
+    folder = job_dir / "sheets"
+    folder.mkdir(parents=True)
+    script = folder / "main.py"
+    script.write_text(SHEET_PREVIEW)
+    try:
+        result = await box.run(script, sheets, folder)
+    except SandboxError:
+        return {}
+    if not result.ok:
+        return {}
+    shown: dict[str, str] = {}
+    for part in result.stdout.split(SHEET_MARK)[1:]:
+        name, _, text = part.partition("\n")
+        if name in sheets and text.strip():
+            shown[name] = _shortened(text.rstrip(), SHEET_PREVIEW_CHARS)
+    return shown
+
+
+def _shortened(text: str, limit: int) -> str:
+    """At most `limit` characters, and saying so when it was cut: at the last line that fits,
+    or inside the first one when even that is longer (a sheet of very many columns)."""
+    if len(text) <= limit:
+        return text
+    kept = text[:limit].rsplit("\n", 1)[0]
+    return f"{kept}\n(shortened here: the workbook has more sheets, columns or rows)"
+
+
+def coder_request(
+    ctx: ToolContext,
+    params: WriteParams,
+    inputs: list[Input],
+    sheets: dict[str, str] | None = None,
+) -> str:
+    """The brief, the expected output, and what each input file looks like (`sheets`: what
+    pandas read in each spreadsheet, by file name)."""
     parts = [f"Task:\n{params.brief}"]
     if params.expected_output:
         parts.append(f"Expected output:\n{params.expected_output}")
     if inputs:
-        parts.append("Input files:\n" + "\n\n".join(_preview(i) for i in inputs))
+        previews = [_preview(i, (sheets or {}).get(i.name)) for i in inputs]
+        parts.append("Input files:\n" + "\n\n".join(previews))
     else:
         parts.append("There are no input files; everything needed is in the task.")
     return "\n\n".join(parts)
 
 
-def _preview(item: Input) -> str:
+def _preview(item: Input, sheet: str | None = None) -> str:
     size = item.path.stat().st_size
     header = f"/in/{item.name} ({size} bytes)"
     suffix = item.path.suffix.lower()
-    if suffix in {".xlsx", ".xlsm"}:
+    if suffix in SHEET_SUFFIXES and sheet:
+        return (
+            f"{header}: an Excel workbook; read it with pandas.read_excel. Its sheets, their "
+            f"columns and first rows, as pandas reads them:\n{sheet}"
+        )
+    if suffix in SHEET_SUFFIXES:
         return f"{header}: an Excel workbook; read it with pandas.read_excel or openpyxl."
     try:
         with item.path.open(encoding="utf-8", errors="replace") as handle:

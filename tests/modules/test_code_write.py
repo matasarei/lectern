@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 import pytest
 from sqlalchemy import select
@@ -12,7 +13,7 @@ from lectern.agent.turns import TurnManager
 from lectern.catalog import catalog
 from lectern.core.auth import LOCAL_USER
 from lectern.hardware.tiers import Tier
-from lectern.modules.sandbox.container import IMAGE, RunResult
+from lectern.modules.sandbox.container import IMAGE, RunResult, SandboxError
 from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code
 from lectern.projects import files
 from lectern.projects.tables import ScriptRunRow
@@ -275,3 +276,203 @@ def test_a_download_stopped_midway_ends_the_wait(make_ctx):
     with pytest.raises(ToolError, match="stopped before it finished.*not computed"):
         write(ctx)
     assert handle.requests == []
+
+
+def test_a_file_the_brief_names_is_given_to_the_script_when_no_inputs_are(make_ctx):
+    """Seen on the 4B: code_write("Read the file hours.xlsx … sum the 'Hours' column") with
+    no inputs. /in was empty, the coder was told there were no input files, and its scripts
+    failed to open hours.xlsx three fixes running, twice, until the turn ran out of calls."""
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "total 39.25\n", "", 0.2))
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours")
+    add(ctx, "notes.md", "not named in the brief")
+
+    write(ctx, name="sum-hours", brief="Read the file hours.xlsx and sum its 'Hours' column.")
+
+    assert list(sandbox.runs[0]["inputs"]) == ["hours.xlsx"]  # mounted, and nothing else
+    assert "/in/hours.xlsx" in handle.requests[0]["messages"][1]["content"]
+    manifest = json.loads((ctx.project.root / "scripts" / "sum-hours.json").read_text())
+    assert [i["path"] for i in manifest["inputs"]] == ["hours.xlsx"]  # code.run gives it too
+
+
+@pytest.mark.parametrize(
+    ("brief", "mounted"),
+    [
+        ("Sum the hours in data/hours.xlsx, the 'Hours' column.", ["hours.xlsx"]),  # by its path
+        ("Sum HOURS.XLSX's 'Hours' column.", ["hours.xlsx"]),  # case aside
+        ("Sum the 'Hours' column of /in/hours.xlsx.", ["hours.xlsx"]),  # as the script sees it
+        ("Sum the 'Hours' column of week-hours.xlsx.", []),  # another name, not in the project
+        ("Sum the 'Hours' column of hours.xlsx.bak.", []),  # a longer name that starts the same
+        ("Penalty on 250.00 at 0.5% per day for 50 days.", []),  # no file at all
+    ],
+)
+def test_only_files_the_brief_names_exactly_are_given(make_ctx, brief, mounted):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "ok\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours", folder="data")
+
+    write(ctx, name="sum-hours", brief=brief)
+
+    assert list(sandbox.runs[0]["inputs"]) == mounted
+
+
+def test_inputs_given_are_used_as_they_are_whatever_the_brief_names(make_ctx):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "ok\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours")
+    add(ctx, "rent.csv", "month,amount")
+
+    write(
+        ctx, name="sum-rent", brief="Sum rent.csv; hours.xlsx is not needed.", inputs=["rent.csv"]
+    )
+
+    assert list(sandbox.runs[0]["inputs"]) == ["rent.csv"]
+
+
+def test_a_name_two_files_share_gives_neither_unless_the_path_is_named(make_ctx):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "ok\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD, GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours", folder="2025")
+    add(ctx, "hours.xlsx", "Day,Hours", folder="2026")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+    write(ctx, name="sum-hours-2026", brief="Sum the 'Hours' column of 2026/hours.xlsx.")
+
+    from lectern.modules.sandbox.tools import SHEET_PREVIEW
+
+    tests = [r for r in sandbox.runs if r["code"] != SHEET_PREVIEW]  # not the sheets' preview
+    assert [list(run["inputs"]) for run in tests] == [[], ["hours.xlsx"]]
+
+
+def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandbox(make_ctx):
+    """Seen on the 4B: told only "an Excel workbook", the coder guessed a column 'hours' for
+    'Hours', and finding the name took a write and a run more than the turn had left."""
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW:  # what pandas prints of each sheet, inside the sandbox
+            return RunResult(
+                0, SHEET_MARK + "hours.xlsx\ncolumns: Day, Hours\nDay  Hours\nMon    7.5\n", "", 0.4
+            )
+        return RunResult(0, "total 39.25\n", "", 0.2)
+
+    sandbox = FakeSandbox(behave=behave)
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "hours.xlsx", "Day,Hours")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+
+    asked = handle.requests[0]["messages"][1]["content"]
+    assert "columns: Day, Hours" in asked and "Mon    7.5" in asked
+    assert [r["code"] == SHEET_PREVIEW for r in sandbox.runs] == [True, False]  # once, first
+
+
+@pytest.mark.parametrize("failure", ["the run failed", "the engine failed"])
+def test_a_spreadsheet_the_sandbox_cant_read_is_described_as_before(make_ctx, failure):
+    """What a failed preview printed before it failed isn't shown: it may be one sheet of
+    several, or a half-written table."""
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW and failure == "the engine failed":
+            raise SandboxError("The sandbox engine stopped answering.")
+        if code == SHEET_PREVIEW:
+            printed = SHEET_MARK + "hours.xlsx\ncolumns: Day, Hours\n"
+            return RunResult(1, printed, "ValueError: Excel file format cannot be determined", 0.4)
+        return RunResult(0, "total 39.25\n", "", 0.2)
+
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+    add(ctx, "hours.xlsx", "not really a workbook")
+
+    result = write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+
+    assert "test run passed" in result.text
+    asked = handle.requests[0]["messages"][1]["content"]
+    assert "read it with pandas.read_excel or openpyxl" in asked  # the plain description
+    assert "as pandas reads them" not in asked and "columns: Day, Hours" not in asked
+
+
+def test_without_a_spreadsheet_input_there_is_no_preview_run(make_ctx):
+    sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "penalty 62.5\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [GOOD], sandbox=sandbox)
+    add(ctx, "rent.csv", "month,amount\nApril,250.00\n")
+
+    write(ctx, inputs=["rent.csv"])
+
+    assert len(sandbox.runs) == 1  # the test run only
+
+
+def test_a_big_workbooks_preview_is_cut_and_says_so(make_ctx):
+    """Forty sheets, or two hundred columns, would crowd the brief out of the coder's request."""
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW, SHEET_PREVIEW_CHARS
+
+    many = "\n".join(f"sheet 'Week {n}': Day, Hours\nDay  Hours\nMon    7.5" for n in range(1, 200))
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW:
+            return RunResult(0, f"{SHEET_MARK}hours.xlsx\n{many}\n", "", 0.4)
+        return RunResult(0, "total 39.25\n", "", 0.2)
+
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+    add(ctx, "hours.xlsx", "Day,Hours")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of every sheet in hours.xlsx.")
+
+    asked = handle.requests[0]["messages"][1]["content"]
+    assert "sheet 'Week 1': Day, Hours" in asked and "sheet 'Week 199'" not in asked
+    assert "(shortened here: the workbook has more sheets, columns or rows)" in asked
+    assert len(asked) < SHEET_PREVIEW_CHARS + 600  # the cut preview, the brief and the header
+
+
+def test_a_cell_with_two_equals_signs_doesnt_cut_the_preview(make_ctx):
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
+
+    shown = "columns: Rule, Hours\nRule  Hours\n== 8 a day   7.5\nweekend    0\n"
+
+    def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW:
+            return RunResult(0, f"{SHEET_MARK}hours.xlsx\n{shown}", "", 0.4)
+        return RunResult(0, "total 7.5\n", "", 0.2)
+
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+    add(ctx, "hours.xlsx", "Rule,Hours")
+
+    write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
+
+    assert "weekend    0" in handle.requests[0]["messages"][1]["content"]
+
+
+@pytest.mark.sandbox
+@pytest.mark.skipif(
+    not os.environ.get("LECTERN_TEST_SANDBOX_IMAGE"), reason="set LECTERN_TEST_SANDBOX_IMAGE"
+)
+def test_the_preview_in_the_real_sandbox_names_sheets_only_when_there_are_several(tmp_path):
+    """Lectern's own image (with pandas and openpyxl) writes two workbooks, one of one sheet
+    and one of two, and the preview reads them back as the coder will be shown them."""
+    from lectern.modules.sandbox.container import Sandbox
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
+
+    box = Sandbox()
+    if not asyncio.run(box.image_present()):
+        pytest.skip("Lectern's sandbox image isn't built here")
+    maker = tmp_path / "make.py"
+    maker.write_text(
+        "import pandas as pd\n"
+        "pd.DataFrame({'Day': ['Mon'], 'Hours': [7.5]}).to_excel('/out/one.xlsx', "
+        "sheet_name='Week 1', index=False)\n"
+        "with pd.ExcelWriter('/out/two.xlsx') as book:\n"
+        "    pd.DataFrame({'Day': ['Mon'], 'Hours': [7.5]}).to_excel(book, 'Week 1', index=False)\n"
+        "    pd.DataFrame({'Day': ['Tue'], 'Hours': [8]}).to_excel(book, 'Week 2', index=False)\n"
+    )
+    made = asyncio.run(box.run(maker, {}, tmp_path / "make", timeout=60))
+    assert made.ok, made.stderr
+    books = {p.name: p for p in made.outputs}
+    script = tmp_path / "main.py"
+    script.write_text(SHEET_PREVIEW)
+
+    result = asyncio.run(box.run(script, books, tmp_path / "preview", timeout=60))
+
+    assert result.ok, result.stderr
+    one, two = (part for part in result.stdout.split(SHEET_MARK)[1:])
+    assert one.startswith("one.xlsx\ncolumns: Day, Hours\n") and "Week 1" not in one
+    assert "sheet 'Week 1': Day, Hours" in two and "sheet 'Week 2': Day, Hours" in two
