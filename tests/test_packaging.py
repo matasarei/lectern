@@ -327,6 +327,18 @@ def test_uninstall_under_a_folder_that_isnt_an_install_removes_nothing(tmp_path,
     assert not any("disable" in line for line in _log(tmp_path))  # the service is left alone
 
 
+def test_uninstall_of_an_install_without_its_settings_still_removes_it(tmp_path):
+    """Either sign of an install is enough: here only its versions folder is left."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home = _home(tmp_path)
+    (home / "lectern.env").unlink()
+
+    done = _install(tmp_path, Path("-"), script="uninstall.sh")
+
+    assert done.returncode == 0, done.stderr
+    assert not (home / "app").exists() and not (home / "bin").exists()
+
+
 def test_uninstall_without_a_user_session_removes_nothing(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     (tmp_path / "state/nobus").touch()

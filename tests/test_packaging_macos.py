@@ -856,6 +856,18 @@ def test_uninstall_on_a_mac_under_a_folder_that_isnt_an_install_removes_nothing(
     assert _bundle(tmp_path).exists() and (_home(tmp_path) / "app/venv").exists()
 
 
+def test_uninstall_on_a_mac_of_an_install_without_its_settings_still_removes_it(tmp_path):
+    """Either sign of an install is enough: here only its versions folder is left."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home = _home(tmp_path)
+    (home / "lectern.env").unlink()
+
+    done = _uninstall(tmp_path)
+
+    assert done.returncode == 0, done.stderr
+    assert not _bundle(tmp_path).exists() and not (home / "app").exists()
+
+
 def test_uninstall_leaves_another_app_called_lectern_alone(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     theirs = {"CFBundleIdentifier": "com.example.reader"}
