@@ -1,6 +1,7 @@
-# Lint, build and test on every pull request and every push to main. Linux only, no GPU and
+# Lint, build and test on every pull request and every push to main. On Linux, no GPU and
 # no container engine: the tests marked `gpu` and `sandbox` skip here, as they do on any
-# machine without LECTERN_TEST_* set (pyproject.toml).
+# machine without LECTERN_TEST_* set (pyproject.toml). On Windows, only the tray app and the
+# install scripts.
 name: CI
 
 on:
@@ -56,3 +57,28 @@ jobs:
         run: |
           uv run pytest
           npm --prefix web test
+
+  # The Linux job checks Lectern.cs with Mono and the scripts with PSScriptAnalyzer only where
+  # their images were pulled, which they aren't there: this compiles the tray app with the
+  # csc.exe a user's Windows has, and lints the scripts on Windows.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # What install.ps1 runs, under Windows PowerShell 5.1 as on a user's machine; a compiler
+      # warning fails it here, though the installer lets it through.
+      - name: Compile the tray app
+        shell: powershell
+        run: |
+          $log = powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build_tray.ps1 -Out "$env:RUNNER_TEMP\tray\Lectern.exe" -Version ci
+          $log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($log -match 'warning CS') { exit 1 }
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: ./tests/fixtures/analyze_windows.ps1 -Root $PWD
