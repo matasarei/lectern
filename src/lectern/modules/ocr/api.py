@@ -32,6 +32,7 @@ from lectern.modules.ocr.jobs import NotNow, OcrJobs, page_dict
 from lectern.modules.ocr.review import match_decisions
 from lectern.projects.store import Project
 from lectern.projects.tables import OcrPageRow, OcrSessionRow, SessionRow, iso, now
+from lectern.runtime.supervisor import NotAvailable
 from lectern.runtime.wiring import cleanup_model
 
 router = APIRouter()
@@ -145,6 +146,15 @@ def _refuse_without_cleanup_model(request: Request) -> None:
         )
 
 
+def _refuse_without_ocr_model(request: Request) -> None:
+    """Nor may the model that reads the pages: started without it, the session stops at its
+    first page. Asked the way the job will ask for it, so the answer is the same."""
+    try:
+        request.app.state.runtime.resolve("ocr")
+    except NotAvailable as exc:
+        raise HTTPException(409, f"{exc} Then start the session again.") from None
+
+
 @router.post("/projects/{project_id}/ocr", status_code=201)
 async def new_ocr(project_id: int, body: NewOcr, request: Request, user: CurrentUser) -> dict:
     project = await run_in_threadpool(open_project, request, project_id, user)
@@ -156,6 +166,7 @@ async def new_ocr(project_id: int, body: NewOcr, request: Request, user: Current
         )
     except ocr_store.CannotOpen as exc:
         raise HTTPException(400, str(exc)) from None
+    await run_in_threadpool(_refuse_without_ocr_model, request)
     await run_in_threadpool(_refuse_without_cleanup_model, request)
     try:
         row, _ = await run_in_threadpool(
