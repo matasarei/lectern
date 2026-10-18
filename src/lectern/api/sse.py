@@ -14,6 +14,7 @@ process alive after Ctrl+C.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 
@@ -81,9 +82,39 @@ async def follow(
 async def pump(
     request: Request, queue: asyncio.Queue[dict], first: list[dict]
 ) -> AsyncIterator[bytes]:
-    """Send `first`, then whatever arrives on `queue`, until the browser goes away or the
-    app starts shutting down, with a keep-alive comment every KEEPALIVE_SECONDS."""
-    stopping: asyncio.Event = request.app.state.shutting_down
-    yield b": connected\n\n"
-    async for event in follow(queue, first, stopping, request.is_disconnected):
-        yield b": keepalive\n\n" if event is None else encode(event)
+    """Send `first`, then whatever arrives on `queue`, with a keep-alive comment every
+    KEEPALIVE_SECONDS, until the browser goes away, the app starts shutting down, or whoever
+    opened the stream is no longer signed in (asked every login_check_seconds, as an event
+    socket asks: signed out, a new password, the account disabled)."""
+    ending = asyncio.Event()
+    watchers = [
+        asyncio.ensure_future(_set_after(ending, request.app.state.shutting_down.wait())),
+        asyncio.ensure_future(_set_after(ending, _signed_out(request))),
+    ]
+    try:
+        yield b": connected\n\n"
+        async for event in follow(queue, first, ending, request.is_disconnected):
+            yield b": keepalive\n\n" if event is None else encode(event)
+    finally:
+        for watcher in watchers:
+            watcher.cancel()
+        # Waited for, so nothing is left pending when the stream is dropped; a cancellation
+        # already on its way out of here must not be replaced by these.
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.gather(*watchers, return_exceptions=True)
+
+
+async def _set_after(event: asyncio.Event, waited: Awaitable[object]) -> None:
+    await waited
+    event.set()
+
+
+async def _signed_out(request: Request) -> None:
+    """Returns once whoever opened the stream is no longer signed in. Never, for a request
+    the guard left nothing to ask about."""
+    still_signed_in = getattr(request.state, "signed_in", None)
+    if still_signed_in is None:
+        await asyncio.Event().wait()
+        return  # not reached: nothing sets that event
+    while await still_signed_in():
+        await asyncio.sleep(request.app.state.login_check_seconds)
