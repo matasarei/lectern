@@ -24,6 +24,14 @@ fi
 dir="${LECTERN_DIR:-$HOME/.lectern}"
 unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/lectern.service"
 
+# Its folders are app, bin and data: under a LECTERN_DIR that isn't an install (~/work, say)
+# those names are someone else's. An install has its settings, or its versions folder.
+if [ ! -f "$dir/lectern.env" ] && [ ! -d "$dir/app/versions" ]; then
+    echo "uninstall.sh: there's no Lectern installed in $dir (no lectern.env, no app/versions);" >&2
+    echo "nothing was removed." >&2
+    exit 1
+fi
+
 if [ -f "$unit" ]; then
     systemctl --user disable --now lectern || true
     rm -f "$unit"

@@ -312,6 +312,21 @@ def test_uninstall_keeps_the_data_unless_purged(tmp_path):
     assert (home / "src").exists()  # the copy it may be running from
 
 
+@pytest.mark.parametrize("args", [(), ("--purge",)], ids=["uninstall", "purge"])
+def test_uninstall_under_a_folder_that_isnt_an_install_removes_nothing(tmp_path, args):
+    """LECTERN_DIR=~/work: its app, bin and data are someone else's."""
+    work = tmp_path / "home/work"
+    for name in ("app", "bin", "data"):
+        (work / name).mkdir(parents=True)
+        (work / name / "keep.txt").write_text("not Lectern's")
+
+    done = _install(tmp_path, Path("-"), script="uninstall.sh", args=args, LECTERN_DIR=str(work))
+
+    assert done.returncode == 1 and "no Lectern installed" in done.stderr
+    assert all((work / name / "keep.txt").exists() for name in ("app", "bin", "data"))
+    assert not any("disable" in line for line in _log(tmp_path))  # the service is left alone
+
+
 def test_uninstall_without_a_user_session_removes_nothing(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     (tmp_path / "state/nobus").touch()
