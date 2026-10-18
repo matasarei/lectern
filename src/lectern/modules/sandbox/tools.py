@@ -93,8 +93,10 @@ def named_in(ctx: ToolContext, text: str) -> list[str]:
     lowered = re.sub(r"(?<![\w.-])/in/", " ", text.casefold())
     rows = [r for r in _live(ctx) if not r.path.startswith(f"{SCRIPTS}/")]
 
+    # Not part of a longer name ("hours.xlsx.bak"), but a sentence's full stop may follow it.
     def said(name: str) -> bool:
-        return re.search(rf"(?<![\w./-]){re.escape(name.casefold())}(?![\w-])", lowered) is not None
+        found = re.search(rf"(?<![\w./-]){re.escape(name.casefold())}(?![\w-]|\.\w)", lowered)
+        return found is not None
 
     by_name: dict[str, list[str]] = {}
     for row in rows:
