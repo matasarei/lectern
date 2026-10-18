@@ -455,6 +455,30 @@ def test_a_socket_is_closed_once_its_login_has_ended(family, end):
     assert (closed.value.code, closed.value.reason) == (4401, "Not signed in")
 
 
+def test_an_http_event_stream_ends_once_its_login_has_ended(paths, free_port, live_server):
+    """As a socket does, though no event comes to wake it: it asks on its own."""
+    import httpx2
+
+    app = create_app(paths, port=free_port, public_urls=[WEB], clock=lambda: NOW,
+                     login_check_seconds=0.01)  # fmt: skip
+    accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
+    olena = accounts.add_user(app.state.sessions, "olena", PASSWORD)
+    login_id, token = accounts.open_login(app.state.sessions, olena.id, NOW)
+    headers = {"Host": "lectern.example", "Cookie": f"__Host-lectern={login_id}",
+               "X-Lectern-Token": token}  # fmt: skip
+
+    with (
+        live_server(app, free_port) as base,
+        httpx2.Client(base_url=base, timeout=5) as client,
+        client.stream("GET", "/api/runtime/events", headers=headers) as stream,
+    ):
+        lines = stream.iter_lines()
+        assert next(lines) == ": connected"
+        accounts.end_login(app.state.sessions, login_id)
+        rest = list(lines)  # a stream still open would time out here instead
+    assert not any(line.startswith(": keepalive") for line in rest)
+
+
 class _Clock:
     """The app's clock, set by the test; `read` says it has been asked the time."""
 

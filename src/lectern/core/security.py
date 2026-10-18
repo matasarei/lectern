@@ -240,7 +240,16 @@ class LocalGuard:
                 detail = "Not signed in" if who.accounts else "Missing or wrong token"
                 await _plain_error(send_with_headers, 401, detail)
                 return
-            scope.setdefault("state", {}).update(user=who.user, login_token=who.token)
+
+            # An event stream stays open as long as a socket does, and asks the same
+            # question while it follows (`lectern.api.sse.pump`).
+            async def still_signed_in() -> bool:
+                again = await self._who(scope, offered, cookie_is_enough=signing_in, seen=False)
+                return again.user is not None
+
+            scope.setdefault("state", {}).update(
+                user=who.user, login_token=who.token, signed_in=still_signed_in
+            )
         await self.app(scope, receive, send_with_headers)
 
     async def _who(
