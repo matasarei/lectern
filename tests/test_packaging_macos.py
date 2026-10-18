@@ -847,7 +847,9 @@ def test_uninstall_on_a_mac_under_a_folder_that_isnt_an_install_removes_nothing(
         (work / name).mkdir(parents=True)
         (work / name / "keep.txt").write_text("not Lectern's")
 
-    done = _uninstall(tmp_path, *args, LECTERN_DIR=str(work))
+    with _open_app(tmp_path) as app:
+        done = _uninstall(tmp_path, *args, LECTERN_DIR=str(work))
+        assert app.poll() is None  # the open app wasn't quit
 
     assert done.returncode == 1 and "no Lectern installed" in done.stderr
     assert all((work / name / "keep.txt").exists() for name in ("app", "bin", "data"))
