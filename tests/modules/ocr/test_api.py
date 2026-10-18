@@ -13,6 +13,7 @@ from lectern.core.auth import LOCAL_USER, User
 from lectern.core.tables import UserRow
 from lectern.projects import files
 from lectern.projects.tables import OcrSessionRow
+from lectern.runtime.supervisor import NotAvailable
 
 from ...projects.conftest import write_scan_pdf
 from .test_jobs import FakeServer, _runtime
@@ -143,6 +144,27 @@ def test_a_chat_on_mlx_without_its_usual_model_starts_no_session(api):
     assert refused.status_code == 409
     assert "needs Qwen3.5 4B (2.7 GB)" in refused.json()["detail"]
     assert "Models & memory" in refused.json()["detail"]
+    with app.state.projects.db(project)() as session:
+        assert session.scalars(select(OcrSessionRow)).all() == []  # nothing was opened
+
+
+def test_without_the_model_that_reads_pages_no_session_is_started(api, monkeypatch):
+    """It would start, then stop at its first page: the tab says what to download first."""
+    client, headers, app, project, ids, _ = api
+    resolve = app.state.runtime.resolve
+
+    def without_ocr(key: str):  # noqa: ANN202
+        if key == "ocr":
+            raise NotAvailable("PaddleOCR-VL isn't downloaded yet. Download it in Models & memory.")
+        return resolve(key)
+
+    monkeypatch.setattr(app.state.runtime, "resolve", without_ocr)
+
+    refused = client.post(f"/api/projects/{project.id}/ocr",
+                          json={"artifact_id": ids["lease-scan.pdf"]}, headers=headers)  # fmt: skip
+
+    assert refused.status_code == 409
+    assert "PaddleOCR-VL isn't downloaded yet" in refused.json()["detail"]
     with app.state.projects.db(project)() as session:
         assert session.scalars(select(OcrSessionRow)).all() == []  # nothing was opened
 
