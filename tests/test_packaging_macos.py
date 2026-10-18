@@ -317,6 +317,46 @@ def test_shutting_down_ends_a_model_runner_lectern_left_behind(tmp_path, install
     assert "ended 1 process(es) Lectern left running" in log.read_text()
 
 
+# A Lectern whose runner is still starting when it's told to stop: the runner becomes its
+# program (exec) once "$0.go" is there, and Lectern ends only after that, without stopping it.
+STARTING_RUNNER = """#!/bin/sh
+echo "Lectern is running at http://127.0.0.1:1/#token=SECRET"
+echo "an ordinary line"
+/bin/sh -c 'trap "" TERM; while [ ! -f "$0.go" ]; do sleep 0.05; done; exec /bin/sleep 600' "$0" &
+runner=$!
+echo "$runner" > "$0.runner"
+trap 'echo interrupted > "$0.stopped"
+while [ "$(ps -o comm= -p "$runner")" != /bin/sleep ]; do sleep 0.05; done
+exit 0' INT
+while :; do sleep 1; done
+"""
+
+
+@needs_a_desktop
+def test_shutting_down_ends_a_runner_that_was_still_starting(tmp_path, installed):
+    """Seen once in 19 runs of the test above: a runner the app noted in the moment between
+    the two programs its start goes through (/bin/sh hands over to /bin/bash) was then a
+    different program, so it wasn't taken for the one noted, and was left running."""
+    folder, bundle = installed
+    lectern = folder / "app/venv/bin/lectern"
+    lectern.write_text(STARTING_RUNNER)
+    runner_file = lectern.with_name("lectern.runner")
+    log = tmp_path / "home/Library/Logs/Lectern/lectern.log"
+    with contextlib.ExitStack() as stack:
+        app = stack.enter_context(_app(tmp_path, bundle))
+        _until(runner_file.exists, "Lectern started its runner")
+        runner = int(runner_file.read_text())
+        stack.callback(lambda: _alive(runner) and os.kill(runner, signal.SIGKILL))
+        _until(lambda: "an ordinary line" in _text(log), "Lectern is up")
+
+        app.send_signal(signal.SIGTERM)  # Shut Down: the app notes the runner, then interrupts
+        _until(lectern.with_name("lectern.stopped").exists, "Lectern was interrupted")
+        lectern.with_name("lectern.go").touch()  # the runner becomes /bin/sleep; Lectern ends
+        assert app.wait(timeout=20) == 0
+        assert not _alive(runner), _text(log)
+    assert "ended 1 process(es) Lectern left running" in log.read_text()
+
+
 @needs_a_desktop
 @pytest.mark.parametrize("caught", ["running", "still starting"])
 def test_the_app_takes_over_a_lectern_left_running_and_says_its_log_is_paused(
