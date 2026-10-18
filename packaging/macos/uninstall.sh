@@ -16,6 +16,16 @@ fi
 here="$(cd "$(dirname "$0")" && pwd)"
 dir="${LECTERN_DIR:-$HOME/.lectern}"
 dir="${dir%/}"  # as install.sh: matched below against the paths Lectern runs from
+
+# Its folders are app, bin and data: under a LECTERN_DIR that isn't an install (~/work, say)
+# those names are someone else's, and the app in ~/Applications may belong to another one.
+# An install has its settings, or its versions folder.
+if [ ! -f "$dir/lectern.env" ] && [ ! -d "$dir/app/versions" ]; then
+    echo "uninstall.sh: there's no Lectern installed in $dir (no lectern.env, no app/versions);" >&2
+    echo "nothing was removed." >&2
+    exit 1
+fi
+
 bundle="$HOME/Applications/Lectern.app"
 binary="$bundle/Contents/MacOS/Lectern"
 

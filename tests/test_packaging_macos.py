@@ -837,6 +837,37 @@ def test_uninstall_on_a_mac_keeps_the_data_unless_purged(tmp_path):
     assert (home / "src").exists()  # the copy it may be running from
 
 
+@pytest.mark.parametrize("args", [(), ("--purge",)], ids=["uninstall", "purge"])
+def test_uninstall_on_a_mac_under_a_folder_that_isnt_an_install_removes_nothing(tmp_path, args):
+    """LECTERN_DIR=~/work: its app, bin and data are someone else's, and so is the app in
+    ~/Applications as far as this uninstall can tell."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    work = tmp_path / "home/work"
+    for name in ("app", "bin", "data"):
+        (work / name).mkdir(parents=True)
+        (work / name / "keep.txt").write_text("not Lectern's")
+
+    with _open_app(tmp_path) as app:
+        done = _uninstall(tmp_path, *args, LECTERN_DIR=str(work))
+        assert app.poll() is None  # the open app wasn't quit
+
+    assert done.returncode == 1 and "no Lectern installed" in done.stderr
+    assert all((work / name / "keep.txt").exists() for name in ("app", "bin", "data"))
+    assert _bundle(tmp_path).exists() and (_home(tmp_path) / "app/venv").exists()
+
+
+def test_uninstall_on_a_mac_of_an_install_without_its_settings_still_removes_it(tmp_path):
+    """Either sign of an install is enough: here only its versions folder is left."""
+    assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
+    home = _home(tmp_path)
+    (home / "lectern.env").unlink()
+
+    done = _uninstall(tmp_path)
+
+    assert done.returncode == 0, done.stderr
+    assert not _bundle(tmp_path).exists() and not (home / "app").exists()
+
+
 def test_uninstall_leaves_another_app_called_lectern_alone(tmp_path):
     assert _install(tmp_path, _wheel(tmp_path, "0.1.0")).returncode == 0
     theirs = {"CFBundleIdentifier": "com.example.reader"}
