@@ -329,7 +329,7 @@ def test_a_file_that_goes_while_the_folder_is_sized_is_not_an_error(paths, sessi
     def seen_then_gone(name: str):  # noqa: ANN202
         def look(path, *args, **kwargs):  # noqa: ANN001, ANN202
             found = real[name](path, *args, **kwargs)
-            if Path(path) == note:
+            if not isinstance(path, int) and os.fspath(path) == str(note):
                 note.unlink(missing_ok=True)
             return found
 
