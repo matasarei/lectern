@@ -195,8 +195,18 @@ def numbers_in(text: str) -> list[float]:
     return found
 
 
+# Small counts are often written out ("Three payments were made…"): read as their numbers by
+# the scoring only, so numbers_in stays what a number in digits is.
+NUMBER_WORDS = {word: value for value, word in enumerate([
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+    "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
+    "nineteen", "twenty",
+])}  # fmt: skip
+
+
 def answer_matches(case: Case, answer: str) -> bool:
-    found = numbers_in(answer)
+    words = re.findall(r"[^\W\d_]+", answer.casefold())
+    found = numbers_in(answer) + [float(NUMBER_WORDS[w]) for w in words if w in NUMBER_WORDS]
     for expected in case.numbers:
         if not any(abs(value - expected) <= TOLERANCE for value in found):
             return False

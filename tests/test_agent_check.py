@@ -31,6 +31,20 @@ def test_an_answer_needs_every_expected_number_and_word():
     assert not answer_matches(day, "Sunday")
 
 
+@pytest.mark.parametrize(
+    ("answer", "matches"),
+    [
+        ("Three payments were made after the 10th.", True),  # seen on the 4B, 2026-10-17
+        ("There were three.", True),
+        ("There were two.", False),
+        ("Twelve payments.", False),
+        ("Threefold more.", False),  # a word, not part of one
+    ],
+)
+def test_a_small_number_written_as_a_word_counts(answer, matches):
+    assert answer_matches(Case("csv-count", "How many?", numbers=(3,)), answer) is matches
+
+
 def test_passing_needs_the_tool_and_the_right_answer():
     case = Case("sum", "Add", numbers=(4172.04,))
     good = Outcome(
