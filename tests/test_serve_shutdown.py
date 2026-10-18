@@ -29,6 +29,25 @@ def test_server_config_gives_up_on_stuck_connections(paths):
     assert config.timeout_graceful_shutdown == SHUTDOWN_GRACE_SECONDS
 
 
+def test_the_server_log_says_when_each_line_happened(paths):
+    """A slow request, or a restart, can only be placed in time if its line says when."""
+    import logging
+
+    from lectern.app import create_app
+
+    server_config(create_app(paths), 18765)  # configures uvicorn's loggers, as serve does
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:50000", "GET", "/health", "1.1", 200), None,
+    )  # fmt: skip
+    record.created = time.mktime((2026, 10, 18, 14, 3, 9, 0, 0, -1))
+    access = logging.getLogger("uvicorn.access").handlers[0].formatter
+    server = logging.getLogger("uvicorn").handlers[0].formatter  # uvicorn.error's lines too
+
+    assert access.format(record).startswith("2026-10-18 14:03:09 ")
+    assert server.format(record).startswith("2026-10-18 14:03:09 ")
+
+
 def _exactly(conn: socket.socket, count: int) -> bytes:
     data = b""
     while len(data) < count:

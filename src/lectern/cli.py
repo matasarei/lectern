@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import json
 import os
 import socket
@@ -16,6 +17,7 @@ from typing import Annotated, BinaryIO
 
 import typer
 import uvicorn
+from uvicorn.config import LOGGING_CONFIG
 
 from lectern.config import DEFAULT_PORT
 
@@ -366,7 +368,18 @@ def server_config(lectern_app, port: int, host: str = LOCAL_HOST) -> uvicorn.Con
         host=host,
         port=port,
         timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
+        log_config=_log_config(),
     )
+
+
+def _log_config() -> dict:
+    """uvicorn's own, with the time at the start of each line: without it a slow request or
+    a restart can't be placed in the log (the hang with three tabs open couldn't be)."""
+    config = copy.deepcopy(LOGGING_CONFIG)
+    for formatter in config["formatters"].values():
+        formatter["fmt"] = "%(asctime)s " + formatter["fmt"]
+        formatter["datefmt"] = "%Y-%m-%d %H:%M:%S"
+    return config
 
 
 def open_when_listening(url: str, port: int, *, wait_seconds: float = 30.0) -> threading.Thread:
