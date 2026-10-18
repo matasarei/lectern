@@ -72,6 +72,7 @@ def find_inputs(ctx: ToolContext, names: list[str]) -> list[Input]:
     """Project files by exact name (case aside). Each is mounted as /in/<its file name>."""
     rows = _live(ctx)
     found: list[Input] = []
+    paths: dict[str, list[str]] = {}  # each file name as the script sees it: the paths given it
     for name in names:
         matches = [r for r in rows if r.path.casefold() == name.casefold()]
         if len(matches) != 1:
@@ -80,9 +81,13 @@ def find_inputs(ctx: ToolContext, names: list[str]) -> list[Input]:
         found.append(
             Input(Path(row.path).name, files.inside(ctx.project.root, row.path), row.sha256, row.id)
         )
-    seen = [i.name for i in found]
-    if len(seen) != len(set(seen)):
-        raise ToolError("Two inputs have the same file name; the script couldn't tell them apart.")
+        paths.setdefault(found[-1].name, []).append(row.path)
+    for name, given in paths.items():
+        if len(given) > 1:
+            raise ToolError(
+                f"{' and '.join(given)} would both be /in/{name}, and the script couldn't tell "
+                "them apart. Give the script one of them per run."
+            )
     return found
 
 
