@@ -134,6 +134,10 @@ class ModelRuntime:
         # What the running turns have written with. A turn leases its model once per model
         # call; between two of them nothing is leased, and the reply's model still stays.
         self._turn_models: set[str] = set()
+        # Copies loaded by name ("main@<model>") that a change of settings found in use: no
+        # lease asks for one by that name again (cleanup's next page asks for the new one), so
+        # each goes when its last lease ends rather than when something needs its room.
+        self._unload_when_free: set[str] = set()
         self._last_message_at: float | None = None
         self._skip_hold = False  # "Start now": the next job admission ignores the window
         self._held: dict | None = None  # the job waiting for the chat, for state()
@@ -295,6 +299,12 @@ class ModelRuntime:
                     self._chat_leases -= 1
                     self._chat_ended = resident.last_used
                 self._emit("release", role=role, model_id=resident.choice.model_id)
+                if (
+                    not resident.leases
+                    and role in self._unload_when_free
+                    and self._residents.get(role) is resident
+                ):
+                    await self._unload(role, reason="changed")
                 self._cond.notify_all()
 
     async def _acquire(self, role: str, priority: Priority, since: float | None) -> Resident:
@@ -445,6 +455,7 @@ class ModelRuntime:
     async def _unload(self, role: str, *, reason: str) -> None:
         resident = self._residents.pop(role)
         self._crashed.discard(role)
+        self._unload_when_free.discard(role)
         await resident.handle.stop()
         self._emit("unloaded", role=role, model_id=resident.choice.model_id, reason=reason)
 
@@ -459,12 +470,15 @@ class ModelRuntime:
     async def unload_between_replies(self, role: str | None = None) -> list[str]:
         """Unload idle models (all, or one role's, a copy loaded for it by name included),
         except one a reply is being written with: for a setting that changes which models
-        are wanted. That model changes over with the next turn."""
+        are wanted. That model changes over with the next turn. A role's own model that a job
+        is using changes over with its next lease. A copy loaded by name that a job is using
+        goes when the job is done with it: nothing asks for it by that name again."""
         async with self._cond:
-            idle = [r for r, res in self._residents.items() if res.leases == 0]
-            if role is not None:
-                idle = [r for r in idle if r.partition("@")[0] == role]
-            return await self._unload_all([r for r in idle if r not in self._turn_models])
+            keys = [r for r in self._residents if role is None or r.partition("@")[0] == role]
+            in_use = [r for r in keys if self._residents[r].leases]
+            self._unload_when_free.update(r for r in in_use if "@" in r)
+            idle = [r for r in keys if r not in in_use and r not in self._turn_models]
+            return await self._unload_all(idle)
 
     async def without_model(
         self, model_id: str, action: Callable[[], Awaitable[None]], *, wait: bool = False

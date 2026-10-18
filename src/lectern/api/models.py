@@ -171,7 +171,8 @@ async def set_role_model(role: str, body: RoleModel, request: Request) -> dict:
         # The role's idle model goes now and the chosen one loads when the role is next used;
         # a model a reply is being written with changes over with the next turn. Cleanup's
         # copies are leased as the chat role's ("main", "main@<model>"): the chat's idle
-        # model goes with them, and loads again with the next reply.
+        # model goes with them, and loads again with the next reply. A copy cleaning a page
+        # goes as that page ends; the next page loads the one chosen.
         leased_as = "main" if role == settings.CLEANUP else role
         await request.app.state.runtime.unload_between_replies(leased_as)
     return await run_in_threadpool(list_models, request)
