@@ -373,6 +373,24 @@ def test_a_copy_loaded_by_name_goes_when_its_job_is_done_with_it_after_a_change(
     assert unloaded == [("main@old", "changed")]
 
 
+def test_a_copy_loaded_again_by_that_name_after_it_went_stays():
+    """Cleanup's model chosen away and back: the copy that went as its page ended is loaded
+    again by the next page that asks for it by name, and isn't unloaded for the old change."""
+    runtime, runner = _runtime(16, {"main@old": 2})
+
+    async def go():
+        async with runtime.lease("main@old"):
+            await runtime.unload_between_replies("main")
+        gone = _residents(runtime)
+        async with runtime.lease("main@old"):
+            pass
+        return gone
+
+    assert asyncio.run(go()) == []
+    assert _residents(runtime) == ["main@old"]
+    assert runner.started == ["main@old-model", "main@old-model"]
+
+
 def test_a_copy_loaded_by_name_stays_after_its_lease_when_nothing_changed():
     runtime, _ = _runtime(16, {"main@old": 2})
 
