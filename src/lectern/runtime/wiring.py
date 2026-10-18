@@ -123,15 +123,21 @@ def _keep_what_is_installed(sessions, downloads: DownloadManager, tier: Tier) ->
     models = catalog.load()
     recommended = models.defaults_for(tier)
     chosen = settings.get(sessions, settings.MODELS_KEY, settings.MODEL_DEFAULTS)
+
+    def on_disk(entry: catalog.CatalogEntry) -> bool:
+        # Or as its MLX build: a Mac set up with MLX has the build and not the GGUF.
+        build = models.mlx_build_of(entry)
+        return downloads.is_downloaded(entry) or (
+            build is not None and downloads.is_downloaded(build)
+        )
+
     kept: dict[str, str] = {}
     for role, choice in chosen.items():
         default = recommended.get(role)
-        if choice is not None or default is None or downloads.is_downloaded(default):
+        if choice is not None or default is None or on_disk(default):
             continue
         installed = [
-            m
-            for m in models.choices_for(role)
-            if m.permissive and tier in m.ctx and downloads.is_downloaded(m)
+            m for m in models.choices_for(role) if m.permissive and tier in m.ctx and on_disk(m)
         ]
         if installed:
             kept[role] = max(installed, key=lambda m: m.size).id

@@ -458,6 +458,15 @@ def test_of_several_installed_models_the_largest_is_kept(started):
     assert chosen["main"] == "qwen3.5-9b"  # and never an MLX build
 
 
+def test_a_model_on_disk_only_as_its_mlx_build_is_kept_too(started):
+    """A Mac set up with MLX has the build and not its GGUF: the role keeps that model, which
+    runs as its build, rather than asking for the new recommendation."""
+    on_disk = {"qwen3.5-9b-mlx"}
+    started("recommended", on_disk)
+    _, chosen = started("comfortable", on_disk)
+    assert chosen["main"] == "qwen3.5-9b"  # the model, as above; MLX runs it as its build
+
+
 def test_on_the_same_computer_a_role_set_back_to_the_recommended_model_stays_there(started):
     """The 9B was chosen and downloaded, then "Use it" put the role back on the recommended
     35B, which stores no choice. Starting again before the 35B is downloaded mustn't undo
