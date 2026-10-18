@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import os
 import shutil
+import stat
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection
 from dataclasses import asdict, dataclass
@@ -644,12 +645,17 @@ def _link_or_copy(source: Path, target: Path) -> None:
 
 
 def _folder_bytes(folder: Path) -> int:
-    """The size of the files in a folder, at any depth; 0 for one that isn't there."""
-    return sum(
-        path.stat().st_size
-        for path in folder.rglob("*")
-        if path.is_file() and not path.is_symlink()
-    )
+    """The size of the files in a folder, at any depth; 0 for one that isn't there. A file
+    that goes while it's counted isn't counted: an update's swap removes the folder's note
+    of its revision while an open page may be asking how big the model is."""
+    total = 0
+    for parent, _, names in os.walk(folder):
+        for name in names:
+            with contextlib.suppress(FileNotFoundError):
+                info = os.lstat(os.path.join(parent, name))
+                if stat.S_ISREG(info.st_mode):  # not a link
+                    total += info.st_size
+    return total
 
 
 class _Progress:

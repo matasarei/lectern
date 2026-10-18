@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import threading
 from pathlib import Path
@@ -314,6 +315,32 @@ def test_an_installed_model_says_its_revision_its_size_and_when(paths, sessions)
     assert installed.revision == entry.revision
     assert installed.bytes == len(MODEL) + len(MMPROJ)
     assert installed.at == _row(sessions, "tiny").updated_at
+
+
+def test_a_file_that_goes_while_the_folder_is_sized_is_not_an_error(paths, sessions, monkeypatch):
+    """An update's swap removes the folder's note of its revision while the model list may
+    be sizing that folder: the note is seen, then gone before its size is read. Seen once
+    in CI as a 500 from GET /api/models."""
+    manager, entry = _installed_tiny(paths, sessions)
+    note = manager.model_dir(entry) / UPDATE_MARKER
+    note.write_text(entry.revision)
+    real = {"stat": os.stat, "lstat": os.lstat}
+
+    def seen_then_gone(name: str):  # noqa: ANN202
+        def look(path, *args, **kwargs):  # noqa: ANN001, ANN202
+            found = real[name](path, *args, **kwargs)
+            if Path(path) == note:
+                note.unlink(missing_ok=True)
+            return found
+
+        return look
+
+    for name in real:
+        monkeypatch.setattr(os, name, seen_then_gone(name))
+
+    model = len(MODEL) + len(MMPROJ)
+    # The note counts or not, depending on whether its size was read before it went.
+    assert manager.installed(entry).bytes in (model, model + len(entry.revision))
 
 
 def test_a_model_with_nothing_on_disk_is_not_installed(paths, sessions):
