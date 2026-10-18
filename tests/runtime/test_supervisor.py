@@ -348,6 +348,77 @@ def test_a_change_to_one_role_unloads_that_roles_models_only():
     assert asyncio.run(go()) == (["main", "main@other"], ["ocr", "code"])
 
 
+def _residents(runtime: ModelRuntime) -> list[str]:
+    return [r["role"] for r in runtime.state()["residents"]]
+
+
+def test_a_copy_loaded_by_name_goes_when_its_job_is_done_with_it_after_a_change():
+    """OCR cleanup's copy of a model, cleaning a page when another cleanup model is chosen
+    (or MLX is switched off): the next page asks for another copy, and nothing asks for
+    this one again. It goes once the page is done, not when something needs its room."""
+    runtime, runner = _runtime(16, {"main": 2, "main@old": 2})
+
+    async def go():
+        async with runtime.events.listen() as queue:
+            async with runtime.lease("main@old"):
+                during = await runtime.unload_between_replies("main")
+                still = _residents(runtime)
+            return during, still, [queue.get_nowait() for _ in range(queue.qsize())]
+
+    during, still, events = asyncio.run(go())
+    assert (during, still) == ([], ["main@old"])  # not from under the page
+    assert _residents(runtime) == []
+    assert not runner.handles[0].alive
+    unloaded = [(e["role"], e["reason"]) for e in events if e["event"] == "unloaded"]
+    assert unloaded == [("main@old", "changed")]
+
+
+def test_a_copy_loaded_by_name_stays_after_its_lease_when_nothing_changed():
+    runtime, _ = _runtime(16, {"main@old": 2})
+
+    async def go():
+        async with runtime.lease("main@old"):
+            pass
+        async with runtime.lease("main@old"):
+            pass
+
+    asyncio.run(go())
+    assert _residents(runtime) == ["main@old"]
+
+
+def test_a_copy_leased_twice_goes_when_the_second_lease_ends():
+    runtime, _ = _runtime(16, {"main@old": 2})
+
+    async def go():
+        first = runtime.lease("main@old")
+        await first.__aenter__()
+        async with runtime.lease("main@old"):
+            await runtime.unload_between_replies()
+        after_one = _residents(runtime)
+        await first.__aexit__(None, None, None)
+        return after_one
+
+    assert asyncio.run(go()) == ["main@old"]
+    assert _residents(runtime) == []
+
+
+def test_a_roles_own_model_in_use_during_a_change_stays_for_its_next_lease():
+    """A role's own model is asked for again by its role, and that lease changes it over if
+    the change gave the role another model: unloading it now would only load it again."""
+    runtime, runner = _runtime(16, {"ocr": 1})
+
+    async def go():
+        async with runtime.lease("ocr"):
+            await runtime.unload_between_replies()
+        left = _residents(runtime)
+        async with runtime.lease("ocr"):
+            pass
+        return left
+
+    assert asyncio.run(go()) == ["ocr"]
+    assert runner.started == ["ocr-model"]
+
+
 def test_a_models_files_can_go_once_every_idle_copy_of_it_is_unloaded():
     sizes = {"ocr": 1, "main": 2, "main@main-model": 2}
     runtime, runner = _runtime(16, sizes)
