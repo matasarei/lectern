@@ -344,6 +344,26 @@ def test_a_name_two_files_share_gives_neither_unless_the_path_is_named(make_ctx)
     assert [list(run["inputs"]) for run in tests] == [[], ["hours.xlsx"]]
 
 
+@pytest.mark.parametrize("given", ["in the brief", "as inputs"])
+def test_two_inputs_with_one_file_name_are_refused_by_name(make_ctx, given):
+    """Both would be /in/hours.xlsx: the error says which two, so the chat can pick one."""
+    ctx, _ = ctx_for(make_ctx, [GOOD])
+    add(ctx, "hours.xlsx", "Day,Hours", folder="2025")
+    add(ctx, "hours.xlsx", "Day,Hours", folder="2026")
+    both = ["2025/hours.xlsx", "2026/hours.xlsx"]
+    call = (
+        {"brief": "Compare the hours in 2025/hours.xlsx and 2026/hours.xlsx."}
+        if given == "in the brief"
+        else {"inputs": both}
+    )
+
+    with pytest.raises(ToolError) as raised:
+        write(ctx, name="compare-hours", **call)
+
+    assert all(path in str(raised.value) for path in both)
+    assert "/in/hours.xlsx" in str(raised.value)
+
+
 def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandbox(make_ctx):
     """Seen on the 4B: told only "an Excel workbook", the coder guessed a column 'hours' for
     'Hours', and finding the name took a write and a run more than the turn had left."""
