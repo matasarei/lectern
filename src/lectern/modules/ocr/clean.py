@@ -36,6 +36,11 @@ EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross t
 CLEAN_TIMEOUT = 600.0
 CONFIRMED_LIMIT = 30  # readings the person confirmed, newest first, given to a later cleanup
 WHY_CHARS = 300  # a fix's reason; a small model has written its whole reasoning there
+# Fixes a reply may list. The 4B has listed every line of a short invoice as a fix that
+# changed nothing ("No change needed") until its reply was cut off; the most a cleaned page
+# listed, in 16 sample pages, was 28. A schema can't say a fix must change something, but
+# it can stop the list, and those that change nothing are dropped afterwards.
+FIXES_MOST = 30
 PAGE_NUMBER = re.compile(
     r"""^\s*[-–—]?\s*
         (?:(?:page|стор\.?|сторінка|с\.)\s*)?   # "Page 3", "стор. 3"
@@ -141,6 +146,7 @@ SCHEMA = {
                 },
                 "required": ["before", "after"],
             },
+            "maxItems": FIXES_MOST,
         },
     },
     "required": ["blocks", "doubts", "fixes"],

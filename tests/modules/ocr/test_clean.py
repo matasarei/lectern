@@ -6,7 +6,13 @@ import json
 import httpx2
 import pytest
 
-from lectern.modules.ocr.clean import CLEAN_PROMPT, WHY_CHARS, CleanFailed, clean_page
+from lectern.modules.ocr.clean import (
+    CLEAN_PROMPT,
+    FIXES_MOST,
+    WHY_CHARS,
+    CleanFailed,
+    clean_page,
+)
 
 GOOD = {
     "blocks": [
@@ -75,6 +81,21 @@ def test_a_page_is_sent_with_its_note_neighbours_and_schema_and_comes_back_as_bl
     assert [b.type for b in page.blocks] == ["heading", "paragraph", "table", "stamp"]
     assert page.doubts[0].candidates == ["10", "15"]
     assert page.fixes[0].after == "Оплата"
+
+
+def test_the_list_of_fixes_is_held_to_a_length_the_reply_has_room_for():
+    """The 4B has listed every line of a short invoice as a fix that changed nothing ("No
+    change needed"), until its reply was cut off. The schema stops the list, so the page
+    comes back; fixes that change nothing are dropped afterwards."""
+    seen: list[dict] = []
+    nothing = {"before": "Due Date", "after": "Due Date", "why": "No change needed."}
+    reply = {**GOOD, "fixes": GOOD["fixes"] + [nothing] * (FIXES_MOST - 1)}
+
+    page = _clean(_client(json.dumps(reply), seen=seen))
+
+    fixes = seen[0]["response_format"]["json_schema"]["schema"]["properties"]["fixes"]
+    assert fixes["maxItems"] == FIXES_MOST
+    assert [f.after for f in page.fixes] == ["Оплата"]
 
 
 def test_an_invalid_reply_is_asked_for_again_once():
