@@ -83,7 +83,7 @@ def test_a_page_is_sent_with_its_note_neighbours_and_schema_and_comes_back_as_bl
     assert page.fixes[0].after == "Оплата"
 
 
-def test_the_list_of_fixes_is_held_to_a_length_the_reply_has_room_for():
+def test_the_schema_caps_the_list_of_fixes():
     """The 4B has listed every line of a short invoice as a fix that changed nothing ("No
     change needed"), until its reply was cut off. The schema stops the list, so the page
     comes back; fixes that change nothing are dropped afterwards."""
