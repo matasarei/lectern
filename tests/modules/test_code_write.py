@@ -13,7 +13,7 @@ from lectern.agent.turns import TurnManager
 from lectern.catalog import catalog
 from lectern.core.auth import LOCAL_USER
 from lectern.hardware.tiers import Tier
-from lectern.modules.sandbox.container import IMAGE, RunResult
+from lectern.modules.sandbox.container import IMAGE, RunResult, SandboxError
 from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code
 from lectern.projects import files
 from lectern.projects.tables import ScriptRunRow
@@ -366,12 +366,18 @@ def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandb
     assert [r["code"] == SHEET_PREVIEW for r in sandbox.runs] == [True, False]  # once, first
 
 
-def test_a_spreadsheet_the_sandbox_cant_read_is_described_as_before(make_ctx):
-    from lectern.modules.sandbox.tools import SHEET_PREVIEW
+@pytest.mark.parametrize("failure", ["the run failed", "the engine failed"])
+def test_a_spreadsheet_the_sandbox_cant_read_is_described_as_before(make_ctx, failure):
+    """What a failed preview printed before it failed isn't shown: it may be one sheet of
+    several, or a half-written table."""
+    from lectern.modules.sandbox.tools import SHEET_MARK, SHEET_PREVIEW
 
     def behave(code, inputs, out):  # noqa: ANN001, ANN202
+        if code == SHEET_PREVIEW and failure == "the engine failed":
+            raise SandboxError("The sandbox engine stopped answering.")
         if code == SHEET_PREVIEW:
-            return RunResult(1, "", "ValueError: Excel file format cannot be determined", 0.4)
+            printed = SHEET_MARK + "hours.xlsx\ncolumns: Day, Hours\n"
+            return RunResult(1, printed, "ValueError: Excel file format cannot be determined", 0.4)
         return RunResult(0, "total 39.25\n", "", 0.2)
 
     ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
@@ -380,7 +386,9 @@ def test_a_spreadsheet_the_sandbox_cant_read_is_described_as_before(make_ctx):
     result = write(ctx, name="sum-hours", brief="Sum the 'Hours' column of hours.xlsx.")
 
     assert "test run passed" in result.text
-    assert "an Excel workbook" in handle.requests[0]["messages"][1]["content"]
+    asked = handle.requests[0]["messages"][1]["content"]
+    assert "read it with pandas.read_excel or openpyxl" in asked  # the plain description
+    assert "as pandas reads them" not in asked and "columns: Day, Hours" not in asked
 
 
 def test_without_a_spreadsheet_input_there_is_no_preview_run(make_ctx):
