@@ -185,7 +185,13 @@ internal sealed class TrayApp : IDisposable
             Refresh();
             return;
         }
-        job.Add(process);
+        if (!job.Add(process))
+        {
+            // Not in the job: quitting or closing the app leaves this Lectern and its models
+            // running, and nothing ends them. Not expected on Windows 10 and 11, which nest jobs.
+            WriteLog("---- couldn't put Lectern in the app's job (error " + Marshal.GetLastWin32Error().ToString()
+                + "): if the app is closed, Lectern and its models may keep running ----");
+        }
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         child = process;
@@ -484,9 +490,10 @@ internal sealed class JobObject : IDisposable
         }
     }
 
-    public void Add(Process process)
+    // False when the process couldn't be put in it (Marshal.GetLastWin32Error says why).
+    public bool Add(Process process)
     {
-        AssignProcessToJobObject(handle, process.Handle);
+        return AssignProcessToJobObject(handle, process.Handle);
     }
 
     public void EndAll()
@@ -541,7 +548,7 @@ internal sealed class JobObject : IDisposable
     [DllImport("kernel32.dll")]
     private static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
     [DllImport("kernel32.dll")]
