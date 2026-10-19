@@ -16,7 +16,7 @@ from lectern.hardware.tiers import Tier
 from lectern.modules.sandbox.container import IMAGE, RunResult, SandboxError
 from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code
 from lectern.projects import files
-from lectern.projects.tables import ScriptRunRow
+from lectern.projects.tables import MessageRow, ScriptRunRow
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable
 
@@ -80,6 +80,40 @@ def test_writes_tests_and_saves_the_script_with_its_manifest(make_ctx):
     assert rows["scripts/penalty.py"].from_kind == "session"
     assert rows["scripts/penalty.json"].from_id == rows["scripts/penalty.py"].id
     assert [r.test_run for r in runs] == [True]
+
+
+def _said(ctx, *messages: tuple[str, str]) -> None:  # noqa: ANN001
+    with ctx.sessions.begin() as session:
+        for role, content in messages:
+            session.add(MessageRow(session_id=ctx.session_id, role=role, content=content))
+
+
+PENALTY = (
+    "Rent is 250.00 UAH a month, due on the 10th. April's rent was paid on 30 May. "
+    "The penalty is 0.5% a day from the due date. How much is the penalty?"
+)
+
+
+def test_the_coder_sees_the_persons_own_message_before_the_task(make_ctx):
+    """The brief is the chat's retelling: on the 4B it carried facts worked out from memory
+    ("20 days late"), and the coder followed them. The person's own words come first, and
+    win where the two differ."""
+    ctx, handle = ctx_for(make_ctx, [GOOD])
+    _said(ctx, ("user", "Hello"), ("assistant", "Hi."), ("user", PENALTY))
+
+    write(ctx, brief="Penalty on 250.00 at 0.5% a day for a rent payment 20 days late.")
+
+    system, request = handle.requests[0]["messages"]
+    assert request["content"].startswith(f"The person asked:\n{PENALTY}\n\nTask:\nPenalty on")
+    assert "the person's message is right" in system["content"]
+
+
+def test_without_a_message_from_the_person_the_coder_gets_the_task_alone(make_ctx):
+    ctx, handle = ctx_for(make_ctx, [GOOD])
+
+    write(ctx)
+
+    assert handle.requests[0]["messages"][1]["content"].startswith("Task:\n")
 
 
 def test_code_run_right_after_reuses_the_test_run(make_ctx):
