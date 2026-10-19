@@ -131,3 +131,36 @@ The check costs nothing where it doesn't apply, and didn't break the general que
   - `/out` is collected;
   - a run is killed at its time limit.
 - **Not checked yet:** rootless Podman, where the Linux server has Podman. MLX as either model.
+
+## The scripts' own answers (2026-10-19)
+
+The calc set checks the final answer; on 2026-10-19 every wrong script output was also traced
+to its cause, from the brief the chat wrote and the script the coder returned.
+
+**Before** (9 calc runs, minimum tier, Qwen2.5-Coder 1.5B): 13 wrong script outputs. 7 came
+from the brief: the 4B put in facts it worked out from memory ("20 days late", "due 10 May",
+"1 March 2027 is a Sunday", VAT = gross / (1 + rate), "inclusive of both dates"), and the coder,
+which saw only the brief, followed them. 6 were the coder's own mistakes on a correct brief.
+
+**The change:** the coder also gets the person's own message, which wins over the brief on a
+number, a date or a condition; and the chat's rule says to copy the person's numbers and dates
+into the brief as given (code.write's brief field: work nothing out there, the script does).
+
+| 3 calc runs each | calc passed | brief-caused | coder's own |
+|---|---|---|---|
+| 1.5B, both changes | 17, 19, 17 | 1 | 6 |
+| 1.5B, the brief rule alone | 18, 18, 20 | 1 | about 6 |
+| 7B (recommended tier), both changes | 19, 19, 19 | 1 | 2 |
+
+The brief-caused mistakes fell from 7 in 9 runs to 1 in 3. The coder's own stay: on the 1.5B
+about two a run, varying from try to try; on the 7B two, both the same one. Both coders read
+"VAT included in a gross price" as gross × rate (300 instead of 250), with the question in
+front of them.
+
+**Tried and taken out:** writing every script twice and answering only when they agree (a
+third deciding). On the 1.5B: calc 18, 18, 19; 56% more time per calculation (3.9 s → 6.1 s);
+3 of its 4 "couldn't be confirmed" results were false (the same result printed with other
+labels or decimals, or equal to a number in the question), one turn ended with no answer, and
+two scripts agree on a mistake they share (VAT). Its criterion (at most one of the coder's
+mistakes reaching the answer in 3 runs) wasn't met, so it was reverted.
+
