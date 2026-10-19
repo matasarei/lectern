@@ -382,6 +382,22 @@ def test_the_link_still_opens_lectern_on_this_computer_as_the_admin(family):
     assert _projects_of(app, "yevhen") == ["Mine"]
 
 
+def test_the_link_is_refused_once_its_account_is_disabled(family):
+    """The link signs in as the account `lectern user init` made (user 1). Another admin can
+    disable it; the link then lets nobody in, as a password wouldn't. The way back is at the
+    terminal: `lectern user enable`."""
+    app, _, _ = family
+    accounts.add_user(app.state.sessions, "anna", PASSWORD, admin=True)
+    accounts.set_disabled(app.state.sessions, "yevhen", True)
+    here = _browser(app, BASE, at="127.0.0.1")
+    link = {"X-Lectern-Token": app.state.token}
+
+    assert here.get(API_GET, headers=link).status_code == 401
+
+    accounts.set_disabled(app.state.sessions, "yevhen", False)
+    assert here.get(API_GET, headers=link).status_code == 200
+
+
 def test_the_link_is_refused_to_another_computer_that_names_this_one(family):
     """Listening on the network, a request can carry `Host: 127.0.0.1:8765` from anywhere:
     the link is this computer's only when the connection is too."""
