@@ -544,10 +544,10 @@ class _Unknown:
 
 async def _call(run: TurnRun, history: History, *, hold: bool = False) -> Reply:
     """call_model, keeping the text streamed so far in `stats["partial"]`, so a stop in the
-    middle of a reply can still store it. `hold`: the reply's text isn't streamed (the loop
-    shows it once it's checked), and a stop meanwhile stores none of it: nobody saw it.
-    However long the reply: a sum worked out from memory can run to thousands of
-    characters (March's working days, day by day, in 1,917)."""
+    middle of a reply can still store it. `hold`: the reply's text isn't streamed, however
+    long it is (a sum worked out from memory can run to thousands of characters: March's
+    working days, day by day, in 1,917); the loop shows it once it's checked, and a stop
+    meanwhile stores none of it: nobody saw it."""
     original = run.emit
     run.stats["partial"] = ""
 
