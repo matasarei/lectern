@@ -39,8 +39,11 @@ def write(ctx, **arguments):
     return asyncio.run(CODE_WRITE.run(ctx, CODE_WRITE.validate({**BRIEF, **arguments})))
 
 
-def ctx_for(make_ctx, replies, *, sandbox=None, downloads=None, answers=(), runtime=None):  # noqa: ANN001
-    handle = FakeHandle([reply(r) for r in replies])
+def ctx_for(make_ctx, replies, *, sandbox=None, downloads=None, answers=(), runtime=None,  # noqa: ANN001
+            second=GOOD):  # fmt: skip
+    """`second`: the coder's reply when it is asked for a second script, to confirm the first
+    (None: `replies` holds every reply)."""
+    handle = FakeHandle([reply(r) for r in [*replies, *([second] if second else [])]])
     ctx = make_ctx(
         sandbox or FakeSandbox(behave=lambda c, i, o: RunResult(0, "penalty 62.5\n", "", 0.3)),
         answers=answers,
@@ -116,6 +119,73 @@ def test_without_a_message_from_the_person_the_coder_gets_the_task_alone(make_ct
     assert handle.requests[0]["messages"][1]["content"].startswith("Task:\n")
 
 
+def _by_code(outputs: dict[str, str]) -> FakeSandbox:
+    """A sandbox whose test run prints what `outputs` gives for a script with that text in it."""
+
+    def behave(code, inputs, out):  # noqa: ANN001
+        printed = next(text for marker, text in outputs.items() if marker in code)
+        return RunResult(0, printed, "", 0.1)
+
+    return FakeSandbox(behave=behave)
+
+
+def _script(marker: str) -> str:
+    return f"```python\nprint({marker!r})\n```"
+
+
+def test_a_second_script_confirms_the_first_before_it_is_saved(make_ctx):
+    """Written the same way twice, a script that's wrong one time in ten is caught when the
+    two disagree. The second is written from scratch: none of the first is shown to it.
+    Numbers the task gave (250.00, 0.5%, 50) don't count: only what the scripts worked out."""
+    sandbox = _by_code({"one": "Penalty on 250.00 at 0.5% for 50 days: 62.50 UAH\n",
+                        "two": "penalty 62.5\n"})  # fmt: skip
+    ctx, handle = ctx_for(make_ctx, [_script("one"), _script("two")], sandbox=sandbox, second=None)
+
+    result = write(ctx)
+
+    assert result.text.startswith("Wrote scripts/penalty.py")
+    assert "one" in (ctx.project.root / "scripts" / "penalty.py").read_text()  # the first
+    assert len(handle.requests) == 2
+    assert len(handle.requests[1]["messages"]) == 2  # a fresh conversation: system and task
+    assert any(e.get("label") == "Checking with a second script" for e in ctx.events)
+
+
+def test_when_two_scripts_disagree_a_third_decides(make_ctx):
+    sandbox = _by_code({"one": "Penalty: 2500.00 UAH\n", "two": "Penalty: 62.50 UAH\n",
+                        "three": "The penalty is 62.5\n"})  # fmt: skip
+    replies = [_script("one"), _script("two"), _script("three")]
+    ctx, handle = ctx_for(make_ctx, replies, sandbox=sandbox, second=None)
+
+    write(ctx)
+
+    assert "two" in (ctx.project.root / "scripts" / "penalty.py").read_text()  # agreed with
+    assert len(handle.requests) == 3
+
+
+def test_three_scripts_that_all_disagree_give_no_answer(make_ctx):
+    sandbox = _by_code({"one": "Penalty: 2500.00\n", "two": "Penalty: 62.50\n",
+                        "three": "Penalty: 125.00\n"})  # fmt: skip
+    replies = [_script("one"), _script("two"), _script("three")]
+    ctx, _ = ctx_for(make_ctx, replies, sandbox=sandbox, second=None)
+
+    with pytest.raises(ToolError) as refused:
+        write(ctx)
+
+    assert "couldn't be confirmed" in str(refused.value)
+    assert "2500.00" in str(refused.value) and "62.50" in str(refused.value)
+    assert not (ctx.project.root / "scripts").exists()
+
+
+def test_a_second_script_that_cant_be_written_leaves_the_first(make_ctx):
+    """Nothing to compare with isn't a disagreement: the first script stands, as before."""
+    ctx, handle = ctx_for(make_ctx, [GOOD, *["no code"] * 4], second=None)
+
+    result = write(ctx)
+
+    assert result.text.startswith("Wrote scripts/penalty.py")
+    assert len(handle.requests) == 5
+
+
 def test_code_run_right_after_reuses_the_test_run(make_ctx):
     ctx, _ = ctx_for(make_ctx, [GOOD])
     add(ctx, "rent.csv", "a\n1\n")
@@ -124,7 +194,7 @@ def test_code_run_right_after_reuses_the_test_run(make_ctx):
     result = asyncio.run(CODE_RUN.run(ctx, CODE_RUN.validate({"name": "penalty"})))
 
     assert "the stored result of an identical earlier run" in result.text
-    assert len(ctx.sandbox.runs) == 1  # only the test run
+    assert len(ctx.sandbox.runs) == 2  # only the test runs: the script and the one confirming it
 
 
 def test_up_to_three_fixes_without_reloading_the_model(make_ctx):
@@ -215,7 +285,7 @@ def test_a_failed_download_is_reported(make_ctx):
 
 
 def test_main_and_code_swap_when_they_dont_fit_together(make_ctx):
-    handle = FakeHandle([reply(GOOD)])
+    handle = FakeHandle([reply(GOOD), reply(GOOD)])  # the script, and the one confirming it
     # The fake model reports 2 GB in use once loaded; 2 + 7 > 8 GB, so code can't join main.
     runtime = make_runtime(handle, weights=7 * GIB, per_role=True)
 
@@ -365,7 +435,7 @@ def test_inputs_given_are_used_as_they_are_whatever_the_brief_names(make_ctx):
 
 def test_a_name_two_files_share_gives_neither_unless_the_path_is_named(make_ctx):
     sandbox = FakeSandbox(behave=lambda c, i, o: RunResult(0, "ok\n", "", 0.2))
-    ctx, _ = ctx_for(make_ctx, [GOOD, GOOD], sandbox=sandbox)
+    ctx, _ = ctx_for(make_ctx, [GOOD, GOOD, GOOD], sandbox=sandbox)  # two writes, two scripts each
     add(ctx, "hours.xlsx", "Day,Hours", folder="2025")
     add(ctx, "hours.xlsx", "Day,Hours", folder="2026")
 
@@ -375,7 +445,8 @@ def test_a_name_two_files_share_gives_neither_unless_the_path_is_named(make_ctx)
     from lectern.modules.sandbox.tools import SHEET_PREVIEW
 
     tests = [r for r in sandbox.runs if r["code"] != SHEET_PREVIEW]  # not the sheets' preview
-    assert [list(run["inputs"]) for run in tests] == [[], ["hours.xlsx"]]
+    # Each write: the script and the one confirming it, run with the same inputs.
+    assert [list(run["inputs"]) for run in tests] == [[], [], ["hours.xlsx"], ["hours.xlsx"]]
 
 
 @pytest.mark.parametrize("given", ["in the brief", "as inputs"])
@@ -418,7 +489,8 @@ def test_the_coder_sees_a_spreadsheets_columns_as_pandas_reads_them_in_the_sandb
 
     asked = handle.requests[0]["messages"][1]["content"]
     assert "columns: Day, Hours" in asked and "Mon    7.5" in asked
-    assert [r["code"] == SHEET_PREVIEW for r in sandbox.runs] == [True, False]  # once, first
+    # The preview once, first; then each script's test run (the script, the one confirming it).
+    assert [r["code"] == SHEET_PREVIEW for r in sandbox.runs] == [True, False, False]
 
 
 @pytest.mark.parametrize("failure", ["the run failed", "the engine failed"])
@@ -453,7 +525,7 @@ def test_without_a_spreadsheet_input_there_is_no_preview_run(make_ctx):
 
     write(ctx, inputs=["rent.csv"])
 
-    assert len(sandbox.runs) == 1  # the test run only
+    assert len(sandbox.runs) == 2  # the test runs only: the script and the one confirming it
 
 
 def test_a_big_workbooks_preview_is_cut_and_says_so(make_ctx):
