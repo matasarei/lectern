@@ -117,6 +117,8 @@ After the review's fixes (`7a17d87`), the calc set was run twice more. The check
 - holds a reply only up to 1,500 characters, then streams the rest unchecked;
 - skips an empty reply.
 
+Since 2026-10-19 the whole reply is held, however long: a sum worked out from memory can run past 1,500 characters (March 2027's working days, day by day, in 1,917 on 2026-10-18), and was then shown unchecked. On `main` before the change, none of 57 turns with a number in the question (calc set three times, tools set once) got a text reply first, so the wait is rarely paid.
+
 `code.run` was used in 20 and 19 of 20. The one without it was xlsx-sum again: it called tools, but its scripts couldn't read the file. The wrong answers again came from scripts (penalty 25.00, vat 300.00).
 
 The check costs nothing where it doesn't apply, and didn't break the general questions:

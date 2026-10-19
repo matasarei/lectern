@@ -254,21 +254,45 @@ def test_a_follow_up_after_a_tool_isnt_checked_though_the_older_message_has_a_nu
     assert not loop._may_check(run, loop.History([], [], None))
 
 
-def test_a_long_reply_streams_once_past_the_hold_and_isnt_checked(store):
-    """An essay about the 1920s isn't a bare sum: past HOLD_CHARS it streams, from the start."""
-    first, second, rest = "a" * 1000, "b" * (loop.HOLD_CHARS - 999), "c" * 10
-    manager, project, handle = _manager(store, [text_reply(first, second, rest)])
+# March 2027's working days, worked out day by day in text: answered from memory in 1,917
+# characters on the 4B (2026-10-18), past the 1,500 a held reply used to stream after.
+WORKED_OUT = "Here is every day of March 2027: " + "Monday 1 is a working day, " * 70 + "so 23."
+
+
+def test_a_long_sum_answered_from_memory_is_held_whole_and_computed_instead(store):
+    manager, project, handle = _manager(store, [
+        text_reply(WORKED_OUT[:1000], WORKED_OUT[1000:]),
+        tool_reply("code_write", {"brief": "Count Monday-to-Friday days in March 2027."}),
+        tool_reply("code_run", {}, call_id="call_2"),
+        text_reply("There are **23** working days in March 2027."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, "How many working days are in March 2027?")
+
+    assert len(WORKED_OUT) > 1500
+    assert status == "done" and RAN == ["code.write", "code.run"]
+    assert _shown(seen) == "There are **23** working days in March 2027."
+    assert "Monday 1" not in str(seen) and "Monday 1" not in str(transcript(store, project))
+
+
+def test_a_long_reply_with_nothing_to_compute_is_shown_whole_once_checked(store):
+    """An essay about the 1920s isn't a sum, but its question has a number: it waits for the
+    check like any other reply that might be one, then appears at once."""
+    essay = "a" * 1000 + "b" * 1000 + "c" * 10
+    manager, project, handle = _manager(
+        store, [text_reply(essay[:1000], essay[1000:2000], essay[2000:]), text_reply("NO_CALC")]
+    )
 
     status, seen = _run(manager, project, "Write 3 paragraphs about the 1920s.")
 
-    assert status == "done" and len(handle.requests) == 1  # no check
-    assert [e["text"] for e in seen if e["type"] == "delta"] == [first + second, rest]
-    assert transcript(store, project)[-1] == ("assistant", first + second + rest, None)
+    assert status == "done" and len(handle.requests) == 2  # checked
+    assert [e["text"] for e in seen if e["type"] == "delta"] == [essay]
+    assert transcript(store, project)[-1] == ("assistant", essay, None)
 
 
 def test_a_long_answer_to_the_check_is_still_never_shown(store):
     manager, project, handle = _manager(
-        store, [text_reply("It's 4172.03."), text_reply("x" * (loop.HOLD_CHARS + 100))]
+        store, [text_reply("It's 4172.03."), text_reply("x" * 3000)]
     )
 
     status, seen = _run(manager, project, SUM)
