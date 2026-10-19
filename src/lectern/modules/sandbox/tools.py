@@ -22,7 +22,6 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.agent import model_download
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult, page
-from lectern.core.numbers import numbers_in
 from lectern.modules.sandbox.container import IMAGE, RunResult, Sandbox, SandboxError
 from lectern.projects import files
 from lectern.projects.tables import ArtifactRow, MessageRow, ScriptRunRow
@@ -390,6 +389,7 @@ async def _write_and_test(
 ) -> ToolResult:
     sheets = await _sheet_previews(ctx, box, inputs, job_dir)
     request = await run_in_threadpool(coder_request, ctx, params, inputs, sheets)
+    messages = [{"role": "system", "content": CODER_SYSTEM}, {"role": "user", "content": request}]
     loop_time = asyncio.get_running_loop().time
     started = loop_time()
     async with ctx.runtime.lease("code", Priority.CHAT) as lease:
@@ -400,108 +400,46 @@ async def _write_and_test(
                 "seconds": round(loop_time() - started, 1),
             }
         )
-        first = await _working_script(ctx, box, lease, request, inputs, job_dir / "first")
-        # A small coding model is wrong now and then in ways that vary from try to try
-        # (0.5% read as 0.5, 23.5 as 26): two scripts written apart are checked against each
-        # other, and a third decides when they differ. What one says is what gets answered.
-        written = [first]
-        for which in ("second", "third"):
-            ctx.emit({"type": "progress", "label": f"Checking with a {which} script"})
-            try:
-                written.append(
-                    await _working_script(ctx, box, lease, request, inputs, job_dir / which)
+        problem = ""
+        for attempt in range(MAX_FIXES + 1):
+            if problem:
+                messages.append({"role": "user", "content": problem})
+                ctx.emit(
+                    {"type": "progress", "label": f"Fixing the script ({attempt}/{MAX_FIXES})"}
                 )
-            except ToolError:
-                break  # no other script to be had
-            agreed = _agreed(written, request)
-            if agreed is not None:
-                code, result = agreed
+            reply = await _ask_coder(lease.client, messages)
+            messages.append({"role": "assistant", "content": reply})
+            code = extract_code(reply)
+            if code is None:
+                problem = "There was no ```python block. Reply with the whole script in one."
+                continue
+            try:
+                compile(code, "main.py", "exec")  # parses only; nothing runs here
+            except SyntaxError as exc:
+                problem = f"The script doesn't compile: {exc.msg} (line {exc.lineno}). Fix it."
+                continue
+            attempt_dir = job_dir / f"try-{attempt}"
+            attempt_dir.mkdir(parents=True)
+            candidate = attempt_dir / "main.py"
+            candidate.write_text(code)
+            ctx.emit({"type": "progress", "label": "Test run in the sandbox"})
+            try:
+                result = await box.run(candidate, {i.name: i.path for i in inputs}, attempt_dir)
+            except SandboxError as exc:
+                raise ToolError(f"{exc} Say the result is not computed.") from None
+            if result.ok:
                 return await run_in_threadpool(
                     _save_script, ctx, params, inputs, code, result, lease.model_id
                 )
-    if len(written) == 1:  # nothing to compare with: the first stands, as before
-        code, result = first
-        return await run_in_threadpool(
-            _save_script, ctx, params, inputs, code, result, lease.model_id
-        )
-    printed = " vs ".join(repr(r.stdout.strip()[:200]) for _, r in written)
-    raise ToolError(
-        f"Scripts written for this gave different results ({printed}): the result couldn't be "
-        "confirmed. Say so, and show what they printed."
-    )
-
-
-async def _working_script(
-    ctx: ToolContext,
-    box: Sandbox,
-    lease,
-    request: str,
-    inputs: list[Input],
-    job_dir: Path,  # noqa: ANN001
-) -> tuple[str, RunResult]:
-    """A script from a fresh conversation with the coder whose test run passed, after up to
-    MAX_FIXES fixes; ToolError when none did."""
-    messages = [{"role": "system", "content": CODER_SYSTEM}, {"role": "user", "content": request}]
-    problem = ""
-    for attempt in range(MAX_FIXES + 1):
-        if problem:
-            messages.append({"role": "user", "content": problem})
-            ctx.emit({"type": "progress", "label": f"Fixing the script ({attempt}/{MAX_FIXES})"})
-        reply = await _ask_coder(lease.client, messages)
-        messages.append({"role": "assistant", "content": reply})
-        code = extract_code(reply)
-        if code is None:
-            problem = "There was no ```python block. Reply with the whole script in one."
-            continue
-        try:
-            compile(code, "main.py", "exec")  # parses only; nothing runs here
-        except SyntaxError as exc:
-            problem = f"The script doesn't compile: {exc.msg} (line {exc.lineno}). Fix it."
-            continue
-        attempt_dir = job_dir / f"try-{attempt}"
-        attempt_dir.mkdir(parents=True)
-        candidate = attempt_dir / "main.py"
-        candidate.write_text(code)
-        ctx.emit({"type": "progress", "label": "Test run in the sandbox"})
-        try:
-            result = await box.run(candidate, {i.name: i.path for i in inputs}, attempt_dir)
-        except SandboxError as exc:
-            raise ToolError(f"{exc} Say the result is not computed.") from None
-        if result.ok:
-            return code, result
-        problem = (
-            "The test run failed"
-            + (" (it took too long)" if result.timed_out else f" with exit {result.exit_code}")
-            + f". Error output:\n{result.stderr[-ERROR_TAIL:]}\nFix the script."
-        )
+            problem = (
+                "The test run failed"
+                + (" (it took too long)" if result.timed_out else f" with exit {result.exit_code}")
+                + f". Error output:\n{result.stderr[-ERROR_TAIL:]}\nFix the script."
+            )
     raise ToolError(
         f"Couldn't write a working script after {MAX_FIXES} fixes. Last problem: {problem[:600]} "
         "Show the formula and say the result is not computed."
     )
-
-
-def _agreed(written: list[tuple[str, RunResult]], request: str) -> tuple[str, RunResult] | None:
-    """The first script another agrees with, or None. Two agree when they worked out the same
-    numbers (those the request gave are left out: echoing them isn't a result), or, printing no
-    such number, share a word the request doesn't have ("Saturday"), or printed the same."""
-    given_numbers = {round(n, 6) for n in numbers_in(request)}
-    given_words = set(re.findall(r"[a-z]{4,}", request.lower()))
-
-    def worked_out(result: RunResult) -> tuple[set[float], set[str]]:
-        found = {round(n, 6) for n in numbers_in(result.stdout)} - given_numbers
-        return found, set(re.findall(r"[a-z]{4,}", result.stdout.lower())) - given_words
-
-    for i, (code, result) in enumerate(written):
-        numbers, words = worked_out(result)
-        for _, other in written[i + 1 :]:
-            if result.stdout.strip() == other.stdout.strip():
-                return code, result
-            other_numbers, other_words = worked_out(other)
-            if (numbers or other_numbers) and numbers == other_numbers:
-                return code, result
-            if not numbers and not other_numbers and words & other_words:
-                return code, result
-    return None
 
 
 async def _ask_coder(client, messages: list[dict]) -> str:  # noqa: ANN001
