@@ -346,7 +346,10 @@ class WriteParams(BaseModel):
     brief: str = Field(
         min_length=10,
         max_length=4000,
-        description="What the script must compute, with every number and date it needs.",
+        description=(
+            "What the script must compute, with the person's numbers, dates and file names as "
+            "they gave them. Work nothing out here: the script does."
+        ),
     )
     inputs: list[str] = Field(
         default_factory=list,

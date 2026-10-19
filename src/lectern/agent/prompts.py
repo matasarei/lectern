@@ -42,10 +42,10 @@ Answer in the language the person writes in. Be brief."""
 
 EXACT_WITH_SANDBOX = """- Exact results — arithmetic beyond a single step, sums, dates and \
 durations, percentages, statistics, counting, unit conversions — must come from a script, \
-even with no file. Write a brief with every number it needs and call code_write, then \
-run the script with code_run and answer from its output. Never write code yourself, and \
-never state such a number from memory. If a tool says the result is not computed, show the \
-formula and say so."""
+even with no file. Copy the person's numbers and dates into a brief as given and call \
+code_write, then run the script with code_run and answer from its output. Never write code \
+yourself, and never state such a number from memory. If a tool says the result is not \
+computed, show the formula and say so."""
 
 EXACT_WITHOUT_SANDBOX = """- Exact results — arithmetic beyond a single step, sums, dates and \
 durations, percentages, statistics, counting, unit conversions — can't be computed here \
