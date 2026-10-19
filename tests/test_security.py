@@ -586,3 +586,19 @@ def test_a_socket_opened_with_the_link_on_this_computer_stays_when_accounts_are_
             assert asked.wait(5)
         socket.portal.call(app.state.runtime.events.publish, {"type": "still", "n": 1})
         assert socket.receive_json() == {"type": "still", "n": 1}
+
+
+def test_a_socket_opened_with_the_link_on_this_computer_is_closed_once_its_account_is_disabled(
+    paths,
+):
+    """The link's socket asks the guard again, as any socket does: once another admin has
+    disabled the account the link signs in as, it is let in no more."""
+    app = create_app(paths, port=PORT, public_urls=[WEB], login_check_seconds=0.01)
+    accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
+    accounts.add_user(app.state.sessions, "anna", PASSWORD, admin=True)
+    with _follow_with_the_link(app, here=True) as socket:
+        assert socket.receive_json()["type"] == "state"
+        accounts.set_disabled(app.state.sessions, "yevhen", True)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_json()
+    assert (closed.value.code, closed.value.reason) == (4401, "Not signed in")
