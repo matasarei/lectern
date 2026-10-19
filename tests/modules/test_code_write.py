@@ -108,6 +108,25 @@ def test_the_coder_sees_the_persons_own_message_before_the_task(make_ctx):
     assert "the person's message is right" in system["content"]
 
 
+def test_a_long_message_from_the_person_is_cut_before_it_reaches_the_coder(make_ctx):
+    """A chat message may be 100,000 characters (a pasted table and "sum column B"); the
+    coder's context is 8,192 tokens. The brief has the task: the start of the person's own
+    words is enough to check it against."""
+    from lectern.modules.sandbox.tools import PERSON_CHARS
+
+    ctx, handle = ctx_for(make_ctx, [GOOD])
+    pasted = "".join(f"row {i}, 250.00\n" for i in range(3000))  # about 45,000 characters
+    _said(ctx, ("user", pasted + "Sum the second column."))
+
+    write(ctx)
+
+    request = handle.requests[0]["messages"][1]["content"]
+    asked = request.split("\n\nTask:\n", 1)[0]
+    assert asked.startswith("The person asked:\nrow 0, 250.00")
+    assert len(asked) < PERSON_CHARS + 200
+    assert asked.endswith("(cut here: the message goes on)")
+
+
 def test_without_a_message_from_the_person_the_coder_gets_the_task_alone(make_ctx):
     ctx, handle = ctx_for(make_ctx, [GOOD])
 

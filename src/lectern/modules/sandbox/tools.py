@@ -306,6 +306,9 @@ MAX_FIXES = 3
 CODER_MAX_TOKENS = 1500
 CODER_TEMPERATURE = 0.2
 PREVIEW_LINES = 5
+# Of the person's own message given to the coder: a message may be 100,000 characters (a
+# pasted table), the coder's context 8,192 tokens, and the brief carries the task anyway.
+PERSON_CHARS = 2000
 PREVIEW_LINE_CHARS = 300
 SHEET_SUFFIXES = {".xlsx", ".xlsm"}
 SHEET_PREVIEW_CHARS = 2000  # of one workbook's preview: forty sheets or wide ones are cut
@@ -532,7 +535,8 @@ def coder_request(
 
 
 def _person_asked(ctx: ToolContext) -> str:
-    """The person's latest message in this chat; empty when there's none (outside a turn)."""
+    """The person's latest message in this chat, its first PERSON_CHARS characters; empty when
+    there's none (outside a turn)."""
     with ctx.sessions() as session:
         asked = session.scalar(
             select(MessageRow.content)
@@ -540,7 +544,10 @@ def _person_asked(ctx: ToolContext) -> str:
             .order_by(MessageRow.id.desc())
             .limit(1)
         )
-    return (asked or "").strip()
+    asked = (asked or "").strip()
+    if len(asked) <= PERSON_CHARS:
+        return asked
+    return asked[:PERSON_CHARS] + "\n(cut here: the message goes on)"
 
 
 def _preview(item: Input, sheet: str | None = None) -> str:
