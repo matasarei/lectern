@@ -160,19 +160,39 @@ def test_without_the_sandbox_there_is_no_check(store):
     assert status == "done" and len(handle.requests) == 1
 
 
-def test_a_turn_that_called_a_tool_is_answered_as_ever(store):
+def test_a_reply_after_only_reading_the_project_is_held_and_checked(store):
+    """Finding a file is reading, not computing: the answer after it could still be a sum
+    from memory, so it waits for the check like a direct one, then appears at once."""
     manager, project, handle = _manager(store, [
         tool_reply("project_find", {"query": "invoice-2020"}),
         text_reply("There's no ", "invoice-2020.pdf here."),
+        text_reply("NO_CALC"),
     ])  # fmt: skip
 
     status, seen = _run(manager, project, "Is there a file called invoice-2020.pdf?")
 
-    assert status == "done" and len(handle.requests) == 2
-    assert [e["text"] for e in seen if e["type"] == "delta"] == [
-        "There's no ",
-        "invoice-2020.pdf here.",
-    ]
+    assert status == "done" and len(handle.requests) == 3  # checked
+    deltas = [e["text"] for e in seen if e["type"] == "delta"]
+    assert deltas == ["There's no invoice-2020.pdf here."]  # held, then at once
+
+
+def test_a_count_worked_out_after_reading_a_file_is_computed_instead(store):
+    """csv-count on the 4B (2026-10-19): it found the file, read it, and counted in text.
+    Read is all it did, so the count is checked, and computed."""
+    manager, project, handle = _manager(store, [
+        tool_reply("project_find", {"query": "payments.csv"}),
+        tool_reply("document_read", {"name": "payments.csv"}, call_id="call_2"),
+        text_reply("Looking at the dates, ", "4 payments were made after the 10th."),
+        tool_reply("code_write", {"brief": "Count payments after day 10."}, call_id="call_3"),
+        tool_reply("code_run", {}, call_id="call_4"),
+        text_reply("**3** payments were made after the 10th."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, "How many payments were made after the 10th?")
+
+    assert status == "done" and RAN == ["code.write", "code.run"]
+    assert _shown(seen) == "**3** payments were made after the 10th."
+    assert "4 payments" not in str(seen) and "4 payments" not in str(transcript(store, project))
 
 
 def test_text_before_a_tool_call_in_a_held_reply_still_shows(store):
@@ -251,6 +271,12 @@ def test_a_follow_up_after_a_tool_isnt_checked_though_the_older_message_has_a_nu
     ]
     assert loop._may_check(run, loop.History([asked], [], None))
     assert not loop._may_check(run, loop.History(after_a_tool, [], None))
+    # After tools that only read the project, the reply still answers the person's message.
+    read = {"id": 3, "role": "tool", "content": "…", "tool_call_id": "c", "name": "document.read"}
+    after_reading = [asked, {"id": 2, "role": "assistant", "content": "", "tool_calls": []}, read]
+    assert loop._may_check(run, loop.History(after_reading, [], None))
+    ran = {**read, "name": "code.run"}
+    assert not loop._may_check(run, loop.History([*after_reading, ran], [], None))
     assert not loop._may_check(run, loop.History([], [], None))
 
 

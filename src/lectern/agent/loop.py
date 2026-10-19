@@ -438,14 +438,13 @@ async def run_turn(run: TurnRun) -> str:
     tps: float | None = None
     failures: dict[str, int] = {}
     calls_left = MAX_MODEL_CALLS
-    called_a_tool = False
     checked = False
     try:
         while calls_left:
             calls_left -= 1
             history = await run_in_threadpool(load_history, run)
             # A reply that could be a sum from memory isn't shown until it's known not to be
-            hold = not called_a_tool and not checked and _may_check(run, history)
+            hold = not checked and _may_check(run, history)
             reply = await _call(run, history, hold=hold)
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
@@ -489,7 +488,6 @@ async def run_turn(run: TurnRun) -> str:
                         task.uncancel()
                     run.emit({"type": "compaction_failed", "detail": "stopped"})
                 return "done"
-            called_a_tool = True
             for call in reply.calls:
                 result = await run_tool(run, call, failures)
                 await run_in_threadpool(
@@ -571,14 +569,27 @@ async def _call(run: TurnRun, history: History, *, hold: bool = False) -> Reply:
 # --- the exact-results check (docs/acceptance/m1b.md) -------------------------------------
 
 
+# Tools that only read the project. A reply after them still answers the person's message, and
+# can still be a sum from memory: csv-count on the 4B found its file, read it, and counted in
+# text (2026-10-19).
+READS = frozenset(
+    {"project.list", "project.find", "project.search", "document.outline", "document.read"}
+)
+
+
 def _may_check(run: TurnRun, history: History) -> bool:
     """A reply to the person's message could state a sum from memory: the sandbox is running
-    (its tools are offered only then), the turn answers that message itself (not a follow-up
-    after a tool, whose person's message is an older one), and it has a number in it."""
-    if run.registry.get("code_run") is None or not history.messages:
+    (its tools are offered only then), the turn answers that message itself, right after it
+    or after tools that only read (not a follow-up after another tool, an export once an OCR
+    session finished: its person's message is an older one), and it has a number in it."""
+    if run.registry.get("code_run") is None:
         return False
-    asked = history.messages[-1]
-    return asked["role"] == "user" and re.search(r"\d", asked["content"] or "") is not None
+    for message in reversed(history.messages):
+        if message["role"] == "user":
+            return re.search(r"\d", message["content"] or "") is not None
+        if message["role"] == "tool" and message.get("name") not in READS:
+            return False
+    return False
 
 
 def _with_check(history: History, draft: str) -> History:
