@@ -176,6 +176,9 @@ class Logins(Protocol):
         """The user that login is, and its token. `seen`: whether asking counts as the
         browser using its login."""
 
+    def local_user_disabled(self) -> bool:
+        """Whether the account this computer's link signs in as (user 1) is disabled."""
+
 
 @dataclass(frozen=True)
 class Asker:
@@ -275,7 +278,13 @@ class LocalGuard:
         # reaching the port can send `Host: 127.0.0.1`), so the connection must be local too.
         client = scope.get("client") or ("", 0)
         here = _host(scope) in self.local_hosts and client[0] in THIS_COMPUTER
-        if here and _tokens_match(offered, self.token):
+        # Not once that account is disabled: the link is its key, as a password is. The way
+        # back is at the terminal (`lectern user enable`).
+        if (
+            here
+            and _tokens_match(offered, self.token)
+            and not await asyncio.to_thread(self.logins.local_user_disabled)
+        ):
             return Asker(self.local_user, None, accounts=True)
         return Asker(None, None, accounts=True)
 

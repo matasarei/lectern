@@ -285,6 +285,10 @@ class Logins:
     def find(self, login_id: str, *, seen: bool = True) -> tuple[User, str] | None:
         return find_login(self.sessions, login_id, self.clock(), seen=seen)
 
+    def local_user_disabled(self) -> bool:
+        with self.sessions() as session:
+            return bool(session.get(UserRow, LOCAL_USER_ID).disabled)
+
 
 # --- inside ---------------------------------------------------------------------------------------
 

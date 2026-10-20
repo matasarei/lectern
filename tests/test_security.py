@@ -382,6 +382,22 @@ def test_the_link_still_opens_lectern_on_this_computer_as_the_admin(family):
     assert _projects_of(app, "yevhen") == ["Mine"]
 
 
+def test_the_link_is_refused_once_its_account_is_disabled(family):
+    """The link signs in as the account `lectern user init` made (user 1). Another admin can
+    disable it; the link then lets nobody in, as a password wouldn't. The way back is at the
+    terminal: `lectern user enable`."""
+    app, _, _ = family
+    accounts.add_user(app.state.sessions, "anna", PASSWORD, admin=True)
+    accounts.set_disabled(app.state.sessions, "yevhen", True)
+    here = _browser(app, BASE, at="127.0.0.1")
+    link = {"X-Lectern-Token": app.state.token}
+
+    assert here.get(API_GET, headers=link).status_code == 401
+
+    accounts.set_disabled(app.state.sessions, "yevhen", False)
+    assert here.get(API_GET, headers=link).status_code == 200
+
+
 def test_the_link_is_refused_to_another_computer_that_names_this_one(family):
     """Listening on the network, a request can carry `Host: 127.0.0.1:8765` from anywhere:
     the link is this computer's only when the connection is too."""
@@ -570,3 +586,19 @@ def test_a_socket_opened_with_the_link_on_this_computer_stays_when_accounts_are_
             assert asked.wait(5)
         socket.portal.call(app.state.runtime.events.publish, {"type": "still", "n": 1})
         assert socket.receive_json() == {"type": "still", "n": 1}
+
+
+def test_a_socket_opened_with_the_link_on_this_computer_is_closed_once_its_account_is_disabled(
+    paths,
+):
+    """The link's socket asks the guard again, as any socket does: once another admin has
+    disabled the account the link signs in as, it is let in no more."""
+    app = create_app(paths, port=PORT, public_urls=[WEB], login_check_seconds=0.01)
+    accounts.init_admin(app.state.sessions, "yevhen", PASSWORD)
+    accounts.add_user(app.state.sessions, "anna", PASSWORD, admin=True)
+    with _follow_with_the_link(app, here=True) as socket:
+        assert socket.receive_json()["type"] == "state"
+        accounts.set_disabled(app.state.sessions, "yevhen", True)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_json()
+    assert (closed.value.code, closed.value.reason) == (4401, "Not signed in")
