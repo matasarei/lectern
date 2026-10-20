@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from lectern.agent.tools import AgentTool
 from lectern.modules import ToolEnv
+from lectern.modules.web.tools import WEB_TOOLS
 
 
 class WebModule:
@@ -14,7 +15,7 @@ class WebModule:
     def tools(self, env: ToolEnv) -> list[AgentTool]:
         if not env.web:
             return []
-        return []
+        return list(WEB_TOOLS)
 
 
 module = WebModule()

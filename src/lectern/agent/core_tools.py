@@ -11,6 +11,7 @@ import math
 import re
 from pathlib import PurePosixPath
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -78,11 +79,18 @@ def _describe(row: ArtifactRow, titles: dict[int, str], names: dict[int, str]) -
         "failed": "text unreadable",
     }[row.text_status]
     origin = {
-        "import": "imported",
+        "import": f"imported from {host}" if (host := _web_host(row.from_note)) else "imported",
         "session": f"from chat {titles.get(row.from_id or 0, '?')!r}",
         "artifact": f"from {names.get(row.from_id or 0, '?')}",
     }[row.from_kind]
     return f"{row.path} · file · {_size(row.size)} · {text} · {origin}"
+
+
+def _web_host(note: str | None) -> str | None:
+    """The host of a page saved from the web (its URL is kept as the file's from note)."""
+    if not note or not note.startswith(("http://", "https://")):
+        return None
+    return urlsplit(note).hostname
 
 
 def _size(n: int) -> str:

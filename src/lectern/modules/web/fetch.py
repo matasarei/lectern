@@ -80,7 +80,21 @@ def check_url(url: str) -> httpx2.URL:
         raise FetchRefused(f"{url!r} has no host.")
     if parsed.port is not None and parsed.port not in (80, 443) and parsed.port < 1024:
         raise FetchRefused(f"Port {parsed.port} isn't one a web page is opened on.")
+    # Refused by the name alone, before any lookup; any other name is checked once resolved.
+    host = parsed.host.rstrip(".")
+    if host == "localhost" or host.endswith(".localhost") or not _public_literal(host):
+        raise FetchRefused(
+            f"{parsed.host} is this computer or its local network: only public pages are opened."
+        )
     return parsed
+
+
+def _public_literal(host: str) -> bool:
+    """False for a host written as an address that isn't public; True for any name."""
+    try:
+        return is_public(host)
+    except ValueError:  # a name, not an address
+        return True
 
 
 async def _public_address(url: httpx2.URL, resolver: Resolver) -> str:
