@@ -683,24 +683,29 @@ function ConfirmCard({
   onDecide: (confirmationId: number, approve: boolean) => void;
 }) {
   const { t } = useTranslation();
+  // A card's kind names its buttons; the first means yes either way.
+  const [title, yes, no, said, unsaid] =
+    card.kind === "retry"
+      ? ["chat.retryTitle", "chat.tryAgain", "chat.stop", "chat.triedAgain", "chat.searchStopped"]
+      : ["chat.confirmTitle", "chat.allow", "chat.deny", "chat.allowed", "chat.denied"];
   return (
     <div
       className="grid gap-2 rounded-lg border border-accent bg-accent-soft p-3 text-sm"
       role="alertdialog"
-      aria-label={t("chat.confirmTitle")}
+      aria-label={t(title)}
     >
       <p className="font-semibold">{card.text}</p>
       {card.approved === null ? (
         <div className="flex gap-2">
           <button className="btn-primary" onClick={() => onDecide(card.confirmation_id, true)}>
-            {t("chat.allow")}
+            {t(yes)}
           </button>
           <button className="btn-secondary" onClick={() => onDecide(card.confirmation_id, false)}>
-            {t("chat.deny")}
+            {t(no)}
           </button>
         </div>
       ) : (
-        <p className="text-muted">{card.approved ? t("chat.allowed") : t("chat.denied")}</p>
+        <p className="text-muted">{card.approved ? t(said) : t(unsaid)}</p>
       )}
     </div>
   );

@@ -782,18 +782,21 @@ function WebSearchCard({ admin }: { admin: boolean }) {
   return (
     <Card title={t("webSearch.title")}>
       {admin ? (
-        <label className="flex gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={values.enabled}
-            disabled={save.isPending}
-            onChange={(e) => save.mutate(e.target.checked)}
-          />
-          <span>
-            {t("webSearch.enable")}
-            <span className="block text-muted">{what}</span>
-          </span>
-        </label>
+        <>
+          <label className="flex gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={values.enabled}
+              disabled={save.isPending}
+              onChange={(e) => save.mutate(e.target.checked)}
+            />
+            <span>
+              {t("webSearch.enable")}
+              <span className="block text-muted">{what}</span>
+            </span>
+          </label>
+          <BraveKey isSet={current.data.brave_key} />
+        </>
       ) : (
         // Nothing to press for a member, as with the rest of the page: what it is, and why.
         <p className="grid gap-1 text-sm" data-testid="web-search-state">
@@ -808,6 +811,67 @@ function WebSearchCard({ admin }: { admin: boolean }) {
         />
       )}
     </Card>
+  );
+}
+
+/** The Brave Search API key: set or removed, never shown. The field is cleared once saved. */
+function BraveKey({ isSet }: { isSet: boolean }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [key, setKey] = useState("");
+  const change = useMutation({
+    mutationFn: (next: string | null) =>
+      apiFetch<WebSettings>("/api/web/key", {
+        method: next === null ? "DELETE" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: next === null ? undefined : JSON.stringify({ key: next }),
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["web-settings"], data);
+      setKey("");
+    },
+  });
+  return (
+    <form
+      className="grid gap-2 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (key.trim()) change.mutate(key.trim());
+      }}
+    >
+      <span className="font-semibold">{t("webSearch.keyTitle")}</span>
+      <span className="text-muted">{t("webSearch.keyWhy")}</span>
+      <span data-testid="brave-key-state">{t(isSet ? "webSearch.keySet" : "webSearch.keyNone")}</span>
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="password"
+          autoComplete="off"
+          className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1"
+          aria-label={t("webSearch.keyField")}
+          placeholder={t("webSearch.keyField")}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <button type="submit" className="btn-primary" disabled={!key.trim() || change.isPending}>
+          {t("webSearch.keySave")}
+        </button>
+        {isSet && (
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={change.isPending}
+            onClick={() => change.mutate(null)}
+          >
+            {t("webSearch.keyRemove")}
+          </button>
+        )}
+      </div>
+      {change.error && (
+        <ErrorNote
+          message={change.error instanceof ApiError ? change.error.detail : t("common.loadFailed")}
+        />
+      )}
+    </form>
   );
 }
 

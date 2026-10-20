@@ -196,8 +196,12 @@ export interface RuntimeSettings {
   mlx_available: boolean;
 }
 
+export type CardKind = "allow" | "retry";
+
 export interface WebSettings {
   values: { enabled: boolean };
+  /** Whether an admin set a Brave Search API key. The key itself is never sent. */
+  brave_key: boolean;
   /** Where searches go, in the order they're tried; pages opened go to their own sites. */
   hosts: string[];
 }
@@ -333,7 +337,15 @@ export type ChatEvent = { seq: number } & (
   | { type: "delta"; text: string }
   | { type: "assistant"; message_id: number; tool_calls: ToolCall[] }
   | { type: "tool"; call_id: string; name: string; arguments: string }
-  | { type: "confirm"; confirmation_id: number; call_id: string; name: string; text: string }
+  | {
+      type: "confirm";
+      confirmation_id: number;
+      call_id: string;
+      name: string;
+      text: string;
+      /** Which buttons: Allow / Don't allow, or Try again / Stop. Older servers send none. */
+      kind?: CardKind;
+    }
   | { type: "confirmed"; confirmation_id: number; approved: boolean }
   | {
       type: "tool_result";

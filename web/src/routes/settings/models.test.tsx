@@ -67,7 +67,10 @@ const RESPONSES: Record<string, unknown> = {
                    chat_during_job: ["pause_job_after_current_item"] },
     mlx_supported: true, mlx_available: true,
   },
-  "/api/web/settings": { values: { enabled: false }, hosts: ["duckduckgo.com", "wikipedia.org"] },
+  "/api/web/settings": {
+    values: { enabled: false }, brave_key: false,
+    hosts: ["duckduckgo.com", "search.yahoo.com", "wikipedia.org"],
+  },
 };
 
 /** As the server: the list says what each role, and cleanup, can be given. A role takes the
@@ -94,10 +97,12 @@ let afterUpdate: (() => void) | null = null; // what the server's list says once
 let posts: { url: string; body: unknown }[] = [];
 let overrides: Record<string, unknown> = {};
 let webPuts: unknown[] = [];
+let keyCalls: { method: string; body: unknown }[] = [];
 let webRefusal: { status: number; detail: string } | null = null;
 
 beforeEach(() => {
   webPuts = [];
+  keyCalls = [];
   webRefusal = null;
   puts = [];
   choices = [];
@@ -112,6 +117,14 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/web/key") {
+        // As the server: the settings again, saying only whether there is a key.
+        keyCalls.push({ method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+        const set = init?.method === "PUT";
+        const hosts = set ? ["api.search.brave.com", "duckduckgo.com", "search.yahoo.com", "wikipedia.org"]
+                          : (RESPONSES["/api/web/settings"] as { hosts: string[] }).hosts;
+        return new Response(JSON.stringify({ ...(RESPONSES["/api/web/settings"] as object), brave_key: set, hosts }));
+      }
       if (init?.method === "POST" && url.endsWith("/update")) {
         posts.push({ url, body: null });
         if (refusal) return new Response(JSON.stringify({ detail: refusal }), { status: 409 });
@@ -899,13 +912,38 @@ describe("Web search on Models & memory", () => {
 
     const toggle = (await screen.findByLabelText(/Let the chat search the web/)) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
-    expect(screen.getByText(/Searches go to duckduckgo.com, wikipedia.org/)).toBeTruthy();
+    expect(screen.getByText(/Searches go to duckduckgo.com, search.yahoo.com, wikipedia.org/)).toBeTruthy();
     expect(screen.getByText(/nothing is sent until you allow it/)).toBeTruthy();
 
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle.checked).toBe(true));
     expect(webPuts).toEqual([{ enabled: true }]);
     expect(puts).toEqual([]); // the GPU's settings are left as they were
+  });
+
+  it("saves a Brave Search API key, never shows it, and removes it", async () => {
+    renderPage();
+
+    expect((await screen.findByTestId("brave-key-state")).textContent).toBe(
+      "No key: searches go to DuckDuckGo, then Yahoo.",
+    );
+    expect(screen.queryByRole("button", { name: "Remove key" })).toBeNull();
+    const field = screen.getByLabelText("New key") as HTMLInputElement;
+    expect(field.type).toBe("password");
+    const save = screen.getByRole("button", { name: "Save key" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true); // nothing typed yet
+
+    fireEvent.change(field, { target: { value: "  BSA-test-key-not-real  " } });
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.getByTestId("brave-key-state").textContent).toBe("A key is set."));
+    expect(keyCalls).toEqual([{ method: "PUT", body: { key: "BSA-test-key-not-real" } }]);
+    expect(field.value).toBe(""); // cleared once saved
+    expect(document.body.textContent).not.toContain("BSA-test-key-not-real");
+    expect(screen.getByText(/Searches go to api.search.brave.com, duckduckgo.com/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove key" }));
+    await waitFor(() => expect(screen.getByTestId("brave-key-state").textContent).toContain("No key"));
+    expect(keyCalls.at(-1)).toEqual({ method: "DELETE", body: null });
   });
 
   it("shows why a switch was refused, and stays as it was", async () => {
@@ -963,9 +1001,10 @@ describe("Models & memory, for someone who isn't an admin", () => {
 
     const state = await screen.findByTestId("web-search-state");
     expect(state.textContent).toContain("Web search is on");
-    expect(state.textContent).toContain("Searches go to duckduckgo.com, wikipedia.org");
+    expect(state.textContent).toContain("Searches go to duckduckgo.com, search.yahoo.com, wikipedia.org");
     expect(state.textContent).toContain("Only an admin can switch web search on or off.");
     expect(screen.queryByLabelText(/Let the chat search the web/)).toBeNull();
+    expect(screen.queryByLabelText("New key")).toBeNull(); // the key is the admin's
   });
 
   it("says when it is off", async () => {

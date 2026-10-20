@@ -255,6 +255,44 @@ describe("Chat", () => {
     expect(within(card).getByText("Allowed")).toBeTruthy();
   });
 
+  it("asks Try again or Stop when a search couldn't be done, and sends the answer", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "search", attachments: [] },
+      { type: "confirm", confirmation_id: 8, call_id: "c9", name: "web.search", kind: "retry",
+        text: "Web search didn't answer after 4 tries (DuckDuckGo is resting). Try again?" },
+    );
+
+    const card = screen.getByRole("alertdialog", { name: "Try again?" });
+    expect(within(card).queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(within(card).getByRole("button", { name: "Stop" })).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toEqual({ url: "/api/projects/1/sessions/1/confirmations/8", body: { approve: true } });
+
+    await act(async () => {
+      push({ seq: 3, type: "confirmed", confirmation_id: 8, approved: true });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(within(card).getByText("Trying again")).toBeTruthy();
+  });
+
+  it("stops a search from the card", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "search", attachments: [] },
+      { type: "confirm", confirmation_id: 8, call_id: "c9", name: "web.search", kind: "retry",
+        text: "Web search didn't answer after 4 tries. Try again?" },
+    );
+    const card = screen.getByRole("alertdialog", { name: "Try again?" });
+    fireEvent.click(within(card).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body).toEqual({ approve: false }); // the card's Stop, not the turn's
+    expect(posts[0].url).toBe("/api/projects/1/sessions/1/confirmations/8");
+  });
+
   it("puts a card under the line of the call it asks about, not below the reply's text", async () => {
     chat.messages.push(
       message(5, { content: "delete old.md" }),
