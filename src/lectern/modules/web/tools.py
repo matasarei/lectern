@@ -66,7 +66,7 @@ async def _search(
     while True:
         for attempt in range(1, TRIES + 1):
             try:
-                source, hits = await sources.search(params.query, order, SEARCH_LIMIT)
+                source, hits, passed_over = await sources.search(params.query, order, SEARCH_LIMIT)
             except sources.NoAnswer as exc:
                 failed = exc
                 if attempt < TRIES:
@@ -80,7 +80,7 @@ async def _search(
                     })  # fmt: skip
                     await SLEEP(exc.wait)
                 continue
-            return _results(params.query, source, hits)
+            return _results(params.query, source, hits, passed_over)
         question = f"Web search didn't answer after {TRIES} tries ({failed}). Try again?"
         if not await ctx.confirm(question, kind="retry"):
             return ToolResult(
@@ -90,13 +90,19 @@ async def _search(
             )
 
 
-def _results(query: str, source: sources.SearchSource, hits: list[sources.Hit]) -> ToolResult:
+def _results(
+    query: str, source: sources.SearchSource, hits: list[sources.Hit], passed_over: list[str]
+) -> ToolResult:
+    # Why an earlier source didn't answer (a refused or used-up Brave key): said, so the
+    # person hears of it, rather than hidden behind the free engine that answered instead.
+    why = f"\n(Searched {source.host} because {'; '.join(passed_over)}. Tell the person.)"
+    note = why if passed_over else ""
     if not hits:
         return ToolResult(
             f"{source.host} found nothing for “{query}”. Try other words once, or say the "
-            "search found nothing."
+            f"search found nothing.{note}"
         )
-    lines = [f"Results from {source.host} for “{query}”:"]
+    lines = [f"Results from {source.host} for “{query}”:{note}"]
     for n, hit in enumerate(hits, 1):
         lines.append(f"{n}. {hit.title}\n   {hit.url}\n   {hit.snippet}")
     lines.append(

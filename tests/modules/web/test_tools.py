@@ -14,7 +14,7 @@ from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
 from lectern.modules import ToolEnv
 from lectern.modules.web import WebModule, fetch, tools, wiki
-from lectern.modules.web.sources import Hit, SourceFailed
+from lectern.modules.web.sources import Hit, Resting, SourceFailed
 from lectern.modules.web.tools import FETCH, LOOKUP, SEARCH, WEB_TOOLS
 from lectern.projects.tables import ArtifactRow
 
@@ -46,7 +46,7 @@ class Source:
         if self.busy:
             self.busy -= 1
             self.rest = 12.0
-            raise SourceFailed("DuckDuckGo is resting between searches")
+            raise Resting("DuckDuckGo is resting between searches")
         self.rest = 0.0
         if self.error:
             raise SourceFailed(self.error)
@@ -518,3 +518,24 @@ def test_stopping_the_turn_while_it_waits_ends_it_at_once(store, web, monkeypatc
 
     assert asyncio.run(asyncio.wait_for(scenario(), 5)) == "stopped"
     assert len(web.source.asked) == 1
+
+
+def test_a_result_says_why_the_first_source_was_passed_over(ctx, web):
+    brave = Source(error="The Brave Search API refused the key; an admin can change it")
+    brave.host = "api.search.brave.com"
+    search = tools.search_tool([brave, web.source])
+    result = run(search, ctx, query="q").text
+    assert result.startswith(
+        "Results from duckduckgo.com for “q”:\n(Searched duckduckgo.com because The Brave Search "
+        "API refused the key; an admin can change it. Tell the person.)\n1. HTTPX streaming"
+    )
+
+
+def test_a_rest_isnt_mentioned_in_a_result(ctx, web):
+    resting = Source()
+    resting.host = "duckduckgo.com"
+    resting.busy = 1
+    web.source.host = "search.yahoo.com"
+    search = tools.search_tool([resting, web.source])
+    result = run(search, ctx, query="q").text
+    assert result.startswith("Results from search.yahoo.com for “q”:\n1.")

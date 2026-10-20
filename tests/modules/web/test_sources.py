@@ -227,15 +227,27 @@ def test_the_next_source_is_asked_only_when_one_fails():
         Source("b", [Hit("t", "u", "")]),
         Source("c"),
     )
-    source, hits = asyncio.run(sources.search("q", [first, second, third], 8))
+    source, hits, passed_over = asyncio.run(sources.search("q", [first, second, third], 8))
     assert source is second
     assert hits == [Hit("t", "u", "")]
     assert third.asked == 0
 
 
+def test_why_a_source_was_passed_over_comes_back_but_not_a_rest():
+    refused = Source("brave", error="The Brave Search API refused the key; an admin can change it")
+    resting = Source("ddg")
+    resting.search = lambda query, limit: (_ for _ in ()).throw(
+        sources.Resting("DuckDuckGo is resting between searches")
+    )
+    answering = Source("yahoo", [Hit("t", "u", "")])
+    source, _, passed_over = asyncio.run(sources.search("q", [refused, resting, answering], 8))
+    assert source is answering
+    assert passed_over == ["The Brave Search API refused the key; an admin can change it"]
+
+
 def test_a_source_that_answers_with_nothing_is_the_answer():
     empty, other = Source("a"), Source("b", [Hit("t", "u", "")])
-    source, hits = asyncio.run(sources.search("q", [empty, other], 8))
+    source, hits, _ = asyncio.run(sources.search("q", [empty, other], 8))
     assert (source, hits, other.asked) == (empty, [], 0)
 
 

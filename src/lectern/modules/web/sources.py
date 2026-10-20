@@ -42,6 +42,10 @@ class SourceFailed(Exception):
     """A source couldn't answer. The message says why, in words the model can pass on."""
 
 
+class Resting(SourceFailed):
+    """A free engine wasn't asked: it's resting between searches. Not worth telling anyone."""
+
+
 class NoAnswer(SourceFailed):
     """No source answered this try. `wait` is how long until one may be asked again."""
 
@@ -115,7 +119,7 @@ class ScrapedEngine:
 
     def search(self, query: str, limit: int) -> list[Hit]:
         if not self._take_turn():
-            raise SourceFailed(f"{self.name} is resting between searches")
+            raise Resting(f"{self.name} is resting between searches")
         engine = self._engine()
         payload = engine.build_payload(
             query=query, region="us-en", safesearch="moderate", timelimit=None
@@ -156,11 +160,13 @@ class Yahoo(ScrapedEngine):
 
 async def search(
     query: str, sources: Sequence[SearchSource], limit: int
-) -> tuple[SearchSource, list[Hit]]:
+) -> tuple[SearchSource, list[Hit], list[str]]:
     """One try down the order: the hits from the first source that answers (an answer with
-    no hits is an answer), and which one it was. NoAnswer, with every source's reason and how
-    long until one may be asked again, when none does."""
+    no hits is an answer), which one it was, and why the ones before it didn't answer (a rest
+    left out), so a refused API key is said rather than covered by the next engine. NoAnswer,
+    with every source's reason and how long until one may be asked again, when none does."""
     reasons: list[str] = []
+    passed_over: list[str] = []
     for source in sources:
         try:
             hits = await asyncio.wait_for(
@@ -168,11 +174,15 @@ async def search(
             )
         except SourceFailed as e:
             reasons.append(str(e))
+            if not isinstance(e, Resting):
+                passed_over.append(str(e))
             continue
         except TimeoutError:
-            reasons.append(f"{source.host} didn't answer within {SEARCH_SECONDS:.0f} s")
+            reason = f"{source.host} didn't answer within {SEARCH_SECONDS:.0f} s"
+            reasons.append(reason)
+            passed_over.append(reason)
             continue
-        return source, hits
+        return source, hits, passed_over
     resting = [wait for s in sources if (wait := s.ready_in()) > 0]
     raise NoAnswer(
         "; ".join(reasons) or "no search source is set up",
