@@ -106,10 +106,18 @@ The first calculation builds the sandbox's image once, and asks first: it downlo
 Off until an admin switches it on in **Models & memory**, under **Web search**; it then
 applies to every chat on this Lectern, a member's too. The chat can then:
 
-- **search the web** through DuckDuckGo, for anything specific or current (an error message,
-  a software version, news). The query goes to `html.duckduckgo.com`. DuckDuckGo has no
-  official API: the [ddgs](https://pypi.org/project/ddgs/) library reads its results page, so
-  a change there or a rate limit can stop it working for a while, and the chat then says so;
+- **search the web**, for anything specific or current (an error message, a software version,
+  news). The query goes to the first of these that can answer:
+  1. the **Brave Search API**, if an admin saved a key for it under **Web search** (get one
+     at [brave.com/search/api](https://brave.com/search/api/)). The key stays on this
+     computer, in a file only Lectern's user can read, and the page never shows it again;
+  2. **DuckDuckGo** (`html.duckduckgo.com`), then **Yahoo** (`search.yahoo.com`). Neither has
+     an API for this: the [ddgs](https://pypi.org/project/ddgs/) library reads their results
+     pages, and they limit how often one computer may search. So each rests 30 seconds after
+     every search, for all chats together, and a search goes to whichever isn't resting.
+     When neither can answer, the chat says it's waiting and carries on by itself; after four
+     tries it asks whether to **Try again** or **Stop**. With a key, these two are only the
+     fallback;
 - **look a subject up on Wikipedia**, in the question's language, through Wikipedia's own API
   (`<language>.wikipedia.org`);
 - **open a page** by its address and save it in the project, as Markdown (a PDF stays a PDF),
