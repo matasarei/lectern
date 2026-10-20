@@ -135,6 +135,19 @@ def test_without_a_message_from_the_person_the_coder_gets_the_task_alone(make_ct
     assert handle.requests[0]["messages"][1]["content"].startswith("Task:\n")
 
 
+def test_the_coder_is_shown_how_a_tax_included_in_a_price_is_worked_out(make_ctx):
+    """Both coders computed "20% VAT included in a gross price of 1,500.00" as 1500 * 0.2 =
+    300, every time (10 of 10 each), the person's question in front of them. A worked example
+    fixed the 7B (9 of 10) and kept "VAT on a net price" right; the 1.5B ignores it."""
+    ctx, handle = ctx_for(make_ctx, [GOOD])
+
+    write(ctx)
+
+    system = " ".join(handle.requests[0]["messages"][0]["content"].split())  # as wrapped
+    assert "20% VAT included in 120.00 is 120.00 * 0.2 / 1.2 = 20.00" in system
+    assert "20% VAT on 100.00 is 20.00" in system
+
+
 def test_code_run_right_after_reuses_the_test_run(make_ctx):
     ctx, _ = ctx_for(make_ctx, [GOOD])
     add(ctx, "rent.csv", "a\n1\n")

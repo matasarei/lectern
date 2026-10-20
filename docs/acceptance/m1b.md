@@ -168,3 +168,11 @@ labels or decimals, or equal to a number in the question), one turn ended with n
 two scripts agree on a mistake they share (VAT). Its criterion (at most one of the coder's
 mistakes reaching the answer in 3 runs) wasn't met, so it was reverted.
 
+**VAT, again on 2026-10-20:** the coder's rules now carry a worked example of a tax included in
+a price (120.00 * 0.2 / 1.2) and of one on a net price. Asked alone, 10 times each, every
+script run in the sandbox: the 7B returned 250 in 9 of 10 (300 before, 10 of 10), and "20% VAT
+on a net price of 1,250.00" stayed 250 in 10 of 10; the 1.5B still returns 300 in 10 of 10.
+The calc set, 2 runs each: 7B 20, 18 (vat right in both), 1.5B 18, 18 (vat right in one). A
+rule with the formula and no example (amount * rate / (1 + rate)) fixed the 7B too, but broke
+the net-price case in 4 of 10, so it wasn't used. On the minimum tier the VAT mistake stays.
+
