@@ -6,11 +6,13 @@ from __future__ import annotations
 
 from lectern.agent.tools import AgentTool
 from lectern.modules import ToolEnv
+from lectern.modules.web import api
 from lectern.modules.web.tools import WEB_TOOLS
 
 
 class WebModule:
     id = "web"
+    router = api.router  # /api/web/settings
 
     def tools(self, env: ToolEnv) -> list[AgentTool]:
         if not env.web:
