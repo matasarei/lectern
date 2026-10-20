@@ -37,6 +37,11 @@ def test_the_ocr_module_is_found_and_brings_its_chat_tools():
     assert names == ["ocr.start", "ocr.note"]  # with or without a sandbox
 
 
+def test_the_web_module_is_found_and_offers_nothing_until_switched_on():
+    (web,) = [m for m in load_modules() if m.id == "web"]
+    assert web.tools(ToolEnv(sandbox=True)) == []  # off is the default
+
+
 def test_a_modules_tools_follow_what_is_available():
     env = {"now": ToolEnv(sandbox=False)}
     build = tool_registry(CORE_TOOLS, [DemoModule()], lambda: env["now"])

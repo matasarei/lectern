@@ -4,7 +4,7 @@ module built outside this repository installs the same way the built-in ones do.
 
 The agent's tool list is rebuilt for every turn from the core tools and each module's
 tools for what's available right now (`ToolEnv`), so the sandbox's tools appear when Docker
-or Podman starts and go away when it stops.
+or Podman starts and go away when it stops, and the web tools follow the admin's switch.
 
 A module may also bring API routes: a `router` attribute (a FastAPI APIRouter), mounted
 under /api behind the same user check as every other route. An export module brings
@@ -37,6 +37,7 @@ class ToolEnv:
     """What the machine offers right now, for deciding which tools a turn gets."""
 
     sandbox: bool  # a container engine is running
+    web: bool = False  # an admin switched web search on (the `web` setting)
 
 
 @runtime_checkable
