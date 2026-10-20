@@ -36,6 +36,9 @@ class Source:
     def __init__(self, hits: list[Hit] | None = None, error: str | None = None) -> None:
         self.hits, self.error, self.asked = hits or [], error, []
 
+    def ready_in(self) -> float:
+        return 0.0
+
     def search(self, query: str, limit: int) -> list[Hit]:
         self.asked.append((query, limit))
         if self.error:
@@ -112,7 +115,8 @@ def test_the_module_offers_the_three_tools_when_switched_on():
 
 def test_each_card_says_what_goes_where(ctx):
     assert SEARCH.confirm_text(ctx, SEARCH.validate({"query": "httpx stream"})) == (
-        "Search the web for “httpx stream”? The query goes to duckduckgo.com."
+        "Search the web for “httpx stream”? The query goes to duckduckgo.com, then "
+        "search.yahoo.com."
     )
     assert LOOKUP.confirm_text(ctx, LOOKUP.validate({"query": "Сковорода", "language": "uk"})) == (
         "Look up “Сковорода” on Wikipedia? It goes to uk.wikipedia.org."

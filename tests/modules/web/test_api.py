@@ -42,8 +42,9 @@ def test_web_search_is_off_until_switched_on(app):
     answer = _local(app).get("/api/web/settings")
     assert answer.status_code == 200
     assert answer.json() == {
-        "values": {"enabled": False}, "hosts": ["duckduckgo.com", "wikipedia.org"],
-    }  # fmt: skip
+        "values": {"enabled": False},
+        "hosts": ["duckduckgo.com", "search.yahoo.com", "wikipedia.org"],
+    }
 
 
 def test_the_local_user_switches_it_on_and_off(app):

@@ -7,10 +7,11 @@ from urllib.parse import unquote
 import httpx2
 import pytest
 from ddgs.engines.duckduckgo import Duckduckgo
+from ddgs.engines.yahoo import Yahoo as YahooEngine
 from ddgs.exceptions import DDGSException, TimeoutException
 
 from lectern.modules.web import sources, wiki
-from lectern.modules.web.sources import DuckDuckGo, Hit, SourceFailed
+from lectern.modules.web.sources import DuckDuckGo, Hit, NoAnswer, SourceFailed, Yahoo
 
 RESULTS = """<html><body>
 <div class="result results_links results_links_deep web-result">
@@ -30,6 +31,14 @@ RESULTS = """<html><body>
 </div></div>
 </body></html>"""
 
+# Yahoo's desktop page, as ddgs reads it: a result's link goes through Yahoo's redirect.
+YAHOO = """<html><body>
+<div class="dd algo algo-sr relsrch Sr"><div class="compTitle">
+  <a href="https://r.search.yahoo.com/_ylt=x/RU=https%3a%2f%2fexample.org%2fy/RK=2/RS=z">
+    <h3>Yahoo result</h3></a></div>
+  <div class="compText"><p>Its snippet.</p></div></div>
+</body></html>"""
+
 
 class Answer:
     def __init__(self, status: int, text: str = "") -> None:
@@ -43,7 +52,7 @@ class FakeHttp:
         self.answers, self.requests = answers, []
 
     def request(self, method: str, url: str, **kwargs):
-        self.requests.append((method, url, kwargs.get("data")))
+        self.requests.append((method, url, kwargs.get("data") or kwargs.get("params")))
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
@@ -58,16 +67,24 @@ class Clock:
         return self.now
 
 
-def duckduckgo(*answers: Answer | Exception, clock: Clock | None = None):
-    """The real engine (its payload and its parsing of the page), over a fake connection."""
+def scraped(kind, engine_class, *answers: Answer | Exception, clock: Clock | None = None):
+    """The real ddgs engine (its request and its parsing of the page), over a fake connection."""
     http = FakeHttp(list(answers))
 
-    def engine() -> Duckduckgo:
-        made = Duckduckgo(timeout=10)
+    def engine():
+        made = engine_class(timeout=10)
         made.http_client = http
         return made
 
-    return DuckDuckGo(engine, clock or Clock()), http
+    return kind(engine, clock or Clock()), http
+
+
+def duckduckgo(*answers: Answer | Exception, clock: Clock | None = None):
+    return scraped(DuckDuckGo, Duckduckgo, *answers, clock=clock)
+
+
+def yahoo(*answers: Answer | Exception, clock: Clock | None = None):
+    return scraped(Yahoo, YahooEngine, *answers, clock=clock)
 
 
 def test_a_search_posts_the_query_to_duckduckgo_only():
@@ -76,6 +93,16 @@ def test_a_search_posts_the_query_to_duckduckgo_only():
     ((method, url, data),) = http.requests
     assert (method, url) == ("POST", "https://html.duckduckgo.com/html/")
     assert data["q"] == "python unhashable list"
+
+
+def test_a_yahoo_search_gets_yahoo_only_and_follows_its_redirect_links():
+    source, http = yahoo(Answer(200, YAHOO))
+    assert source.search("odfdo python", 8) == [
+        Hit("Yahoo result", "https://example.org/y", "Its snippet.")
+    ]
+    ((method, url, params),) = http.requests
+    assert method == "GET" and url.startswith("https://search.yahoo.com/search;")
+    assert params["p"] == "odfdo python"
 
 
 def test_hits_have_a_title_url_and_snippet_cut_to_300_characters():
@@ -98,21 +125,65 @@ def test_a_page_with_no_results_is_an_empty_list_not_a_failure():
     assert source.search("zzzz", 8) == []
 
 
-def test_a_limit_is_a_failure_and_duckduckgo_isnt_asked_again_for_a_while():
+def test_an_engine_rests_30_seconds_after_every_request():
     clock = Clock()
     page = Answer(200, RESULTS.format(long="x"))
-    source, http = duckduckgo(Answer(202, "<html>anomaly</html>"), page, clock=clock)
+    source, http = duckduckgo(page, page, clock=clock)
 
-    with pytest.raises(SourceFailed, match="limiting searches from this computer"):
-        source.search("q", 8)
-    clock.now += DuckDuckGo.PAUSE_SECONDS - 1
-    with pytest.raises(SourceFailed, match="limiting searches"):
+    assert len(source.search("q", 8)) == 2
+    assert source.ready_in() == sources.REST_SECONDS
+    clock.now += sources.REST_SECONDS - 1
+    with pytest.raises(SourceFailed, match="DuckDuckGo is resting between searches"):
         source.search("q", 8)
     assert len(http.requests) == 1  # the second wasn't sent
+    assert source.ready_in() == 1
 
     clock.now += 1
+    assert source.ready_in() == 0
     assert len(source.search("q", 8)) == 2
-    assert len(http.requests) == 2
+
+
+def test_a_refused_request_starts_the_rest_too():
+    clock = Clock()
+    source, http = duckduckgo(Answer(202, "<html>anomaly</html>"), clock=clock)
+    with pytest.raises(SourceFailed, match="limiting searches from this computer"):
+        source.search("q", 8)
+    with pytest.raises(SourceFailed, match="resting"):
+        source.search("q", 8)
+    assert len(http.requests) == 1
+
+
+def test_two_chats_at_once_get_one_request_through():
+    clock = Clock()
+    page = Answer(200, RESULTS.format(long="x"))
+    source, http = duckduckgo(page, page, clock=clock)
+    start = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def chat() -> None:
+        start.wait()
+        try:
+            source.search("q", 8)
+            outcomes.append("hits")
+        except SourceFailed:
+            outcomes.append("resting")
+
+    threads = [threading.Thread(target=chat) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert sorted(outcomes) == ["hits", "resting"]
+    assert len(http.requests) == 1
+
+
+def test_the_engines_rest_apart():
+    clock = Clock()
+    ddg, _ = duckduckgo(Answer(200, RESULTS.format(long="x")), clock=clock)
+    yah, _ = yahoo(Answer(200, YAHOO), clock=clock)
+    ddg.search("q", 8)
+    assert yah.ready_in() == 0
+    assert len(yah.search("q", 8)) == 1
 
 
 @pytest.mark.parametrize(
@@ -129,10 +200,19 @@ def test_a_failure_becomes_a_reason_the_model_can_pass_on(answer, reason):
         source.search("q", 8)
 
 
+def test_a_real_engine_gets_a_desktop_browsers_fingerprint():
+    # A phone's gets Yahoo's mobile page, which ddgs reads as no results.
+    engine = Yahoo()._desktop_engine()
+    assert engine.http_client.client.impersonate_os in sources.DESKTOP
+
+
 class Source:
-    def __init__(self, id: str, hits=None, error: str | None = None) -> None:
+    def __init__(self, id: str, hits=None, error: str | None = None, rest: float = 0) -> None:
         self.id, self.host, self.hits, self.error = id, f"{id}.example", hits or [], error
-        self.asked = 0
+        self.asked, self.rest = 0, rest
+
+    def ready_in(self) -> float:
+        return self.rest
 
     def search(self, query: str, limit: int) -> list[Hit]:
         self.asked += 1
@@ -160,10 +240,20 @@ def test_a_source_that_answers_with_nothing_is_the_answer():
 
 
 def test_every_reason_is_given_when_all_sources_fail():
-    with pytest.raises(SourceFailed, match="a is down; b is down"):
-        asyncio.run(
-            sources.search("q", [Source("a", error="a is down"), Source("b", error="b is down")], 8)
-        )
+    failing = [Source("a", error="a is down"), Source("b", error="b is down")]
+    with pytest.raises(NoAnswer, match="a is down; b is down") as no:
+        asyncio.run(sources.search("q", failing, 8))
+    assert no.value.wait == sources.REST_SECONDS  # nobody resting: wait a whole rest
+
+
+def test_no_answer_says_how_long_until_the_first_engine_is_back():
+    resting = [
+        Source("a", error="a is resting", rest=12),
+        Source("b", error="b is resting", rest=4),
+    ]
+    with pytest.raises(NoAnswer) as no:
+        asyncio.run(sources.search("q", resting, 8))
+    assert no.value.wait == 4
 
 
 def test_a_source_slower_than_the_limit_is_given_up(monkeypatch):

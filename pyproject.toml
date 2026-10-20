@@ -24,6 +24,7 @@ dependencies = [
     "odfdo>=3.26,<4",
     "argon2-cffi>=25.1",
     "ddgs>=9.16,<9.17",
+    "primp>=2.0,<3",
 ]
 
 [project.optional-dependencies]
