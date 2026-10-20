@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from typing import Protocol, runtime_checkable
 
@@ -38,6 +38,7 @@ class ToolEnv:
 
     sandbox: bool  # a container engine is running
     web: bool = False  # an admin switched web search on (the `web` setting)
+    web_key: str | None = field(default=None, repr=False)  # an admin's Brave Search API key
 
 
 @runtime_checkable

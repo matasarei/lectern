@@ -89,7 +89,7 @@ def web(monkeypatch) -> Web:
         fetch, "fetch", partial(real_fetch, transport=transport, resolver=internet.resolve)
     )
     monkeypatch.setattr(wiki, "lookup", partial(real_lookup, transport=transport))
-    monkeypatch.setattr(tools, "SOURCES", [internet.source])
+    internet.search = tools.search_tool([internet.source])  # web.search over the fake source
     return internet
 
 
@@ -156,7 +156,8 @@ def test_dont_allow_sends_nothing(store, web, wire, arguments):
     web.pages["example.com/docs"] = html(DOCS)
     web.articles["Skovoroda"] = "A philosopher."
     handle = FakeHandle([tool_reply(wire, arguments), text_reply("I didn't look it up.")])
-    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, *WEB_TOOLS]))
+    registry = Registry([*CORE_TOOLS, web.search, LOOKUP, FETCH])
+    manager = TurnManager(make_runtime(handle), store, registry)
     project = store.create(LOCAL_USER, "Research")
 
     async def scenario() -> str:
@@ -182,7 +183,7 @@ def test_search_results_name_the_source_and_each_hit(ctx, web):
     web.source.hits = [
         Hit(f"Title {n}", f"https://example.com/{n}", f"Snippet {n}.") for n in (1, 2)
     ]
-    result = run(SEARCH, ctx, query="httpx streaming").text
+    result = run(web.search, ctx, query="httpx streaming").text
 
     assert web.source.asked == [("httpx streaming", 8)]
     assert result.startswith("Results from duckduckgo.com for “httpx streaming”:\n")
@@ -194,7 +195,7 @@ def test_search_results_name_the_source_and_each_hit(ctx, web):
 
 def test_a_search_that_fails_says_so_plainly(ctx, web):
     web.source.error = "DuckDuckGo didn't answer in time"
-    assert run(SEARCH, ctx, query="x").text == (
+    assert run(web.search, ctx, query="x").text == (
         "Web search isn't working right now (DuckDuckGo didn't answer in time). Don't search "
         "again for this answer: tell the person it isn't working, and don't guess what it would "
         "have found."
@@ -203,7 +204,7 @@ def test_a_search_that_fails_says_so_plainly(ctx, web):
 
 def test_a_search_with_no_hits_says_so(ctx, web):
     web.source.hits = []
-    assert run(SEARCH, ctx, query="zzzz").text == (
+    assert run(web.search, ctx, query="zzzz").text == (
         "duckduckgo.com found nothing for “zzzz”. Try other words once, or say the search found "
         "nothing."
     )

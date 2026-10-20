@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -11,6 +14,7 @@ from lectern.core import accounts
 LOCAL = "http://127.0.0.1:8765"
 WEB = "https://lectern.example"
 PASSWORD = "we walked to the lake in may"  # noqa: S105 (made up for the tests)
+KEY = "BSA-test-key-not-real"  # made up for the tests
 
 
 @pytest.fixture
@@ -43,6 +47,7 @@ def test_web_search_is_off_until_switched_on(app):
     assert answer.status_code == 200
     assert answer.json() == {
         "values": {"enabled": False},
+        "brave_key": False,
         "hosts": ["duckduckgo.com", "search.yahoo.com", "wikipedia.org"],
     }
 
@@ -90,3 +95,76 @@ def test_switching_it_on_gives_the_next_turn_the_web_tools(app):
     assert not names() & {"web_search", "wiki_lookup", "web_fetch"}
     _local(app).put("/api/web/settings", json={"enabled": True})
     assert {"web_search", "wiki_lookup", "web_fetch"} <= names()
+
+
+# --- the Brave Search API key ---------------------------------------------------------------
+
+
+def test_an_admin_sets_a_key_and_only_its_presence_comes_back(app, paths):
+    client = _local(app)
+    answer = client.put("/api/web/key", json={"key": f"  {KEY}  "})
+    assert answer.status_code == 200
+    assert answer.json()["brave_key"] is True
+    assert answer.json()["hosts"][0] == "api.search.brave.com"  # asked first
+    for response in (answer, client.get("/api/web/settings")):
+        assert KEY not in response.text
+    assert paths.web_search_key_file.read_text() == KEY  # trimmed
+    if sys.platform != "win32":
+        assert os.stat(paths.web_search_key_file).st_mode & 0o777 == 0o600
+
+
+def test_a_new_key_replaces_the_old_and_removing_it_goes_back_to_the_free_engines(app, paths):
+    client = _local(app)
+    client.put("/api/web/key", json={"key": "first-key-123"})
+    client.put("/api/web/key", json={"key": KEY})
+    assert paths.web_search_key_file.read_text() == KEY
+    answer = client.delete("/api/web/key")
+    assert answer.json()["brave_key"] is False
+    assert answer.json()["hosts"] == ["duckduckgo.com", "search.yahoo.com", "wikipedia.org"]
+    assert not paths.web_search_key_file.exists()
+    assert client.delete("/api/web/key").status_code == 200  # no key to remove: no error
+
+
+@pytest.mark.parametrize("key", ["", "short", "two words here", "tab\tinside", "x" * 201])
+def test_a_key_that_cant_be_one_is_refused(app, paths, key):
+    assert _local(app).put("/api/web/key", json={"key": key}).status_code == 422
+    assert not paths.web_search_key_file.exists()
+
+
+def test_only_an_admin_sets_or_removes_the_key(app, paths):
+    _accounts(app)
+    admin, member = _signed_in(app, "yevhen"), _signed_in(app, "olena")
+    stranger = TestClient(app, base_url=WEB, headers={"Origin": WEB})
+
+    assert member.put("/api/web/key", json={"key": KEY}).status_code == 403
+    assert stranger.put("/api/web/key", json={"key": KEY}).status_code == 401
+    assert not paths.web_search_key_file.exists()
+    assert admin.put("/api/web/key", json={"key": KEY}).status_code == 200
+    assert member.delete("/api/web/key").status_code == 403
+    assert stranger.delete("/api/web/key").status_code == 401
+    assert member.get("/api/web/settings").json()["brave_key"] is True  # a member sees there is one
+    assert KEY not in member.get("/api/web/settings").text
+    assert paths.web_search_key_file.exists()
+
+
+def test_with_a_key_the_next_turns_search_asks_brave_first(app):
+    client = _local(app)
+    client.put("/api/web/settings", json={"enabled": True})
+
+    def search_order() -> list[str]:
+        search = app.state.turns._registry().get("web_search")
+        return search.confirm_text(None, search.validate({"query": "q"}))
+
+    assert "api.search.brave.com" not in search_order()
+    client.put("/api/web/key", json={"key": KEY})
+    assert "The query goes to api.search.brave.com, then duckduckgo.com" in search_order()
+    client.delete("/api/web/key")
+    assert "api.search.brave.com" not in search_order()
+
+
+def test_the_key_isnt_read_while_web_search_is_off(app, monkeypatch):
+    _local(app).put("/api/web/key", json={"key": KEY})
+    read = []
+    monkeypatch.setattr("lectern.app.read_secret", lambda path: read.append(path))
+    app.state.turns._registry()
+    assert read == []

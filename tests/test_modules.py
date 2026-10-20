@@ -187,3 +187,8 @@ def test_a_check_that_fails_answers_no_engine_instead_of_leaving_turns_waiting()
     waiting.start()
     waiting.join(5)
     assert seen == [ToolEnv(sandbox=False)]
+
+
+def test_a_turns_env_never_shows_the_web_key():
+    env = ToolEnv(sandbox=False, web=True, web_key="BSA-test-key-not-real")
+    assert "BSA-test-key-not-real" not in repr(env)

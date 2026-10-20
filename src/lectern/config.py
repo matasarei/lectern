@@ -25,6 +25,11 @@ class Paths:
         return self.home / "token"
 
     @property
+    def web_search_key_file(self) -> Path:
+        """An admin's Brave Search API key, readable by the owner only (the web module)."""
+        return self.home / "brave-search.key"
+
+    @property
     def app_db(self) -> Path:
         return self.home / "lectern.sqlite"
 

@@ -28,7 +28,12 @@ from lectern.core import settings
 from lectern.core.accounts import Logins
 from lectern.core.auth import LOCAL_USER
 from lectern.core.db import make_engine, make_sessionmaker, migrate
-from lectern.core.security import LocalGuard, load_or_create_token, parse_public_urls
+from lectern.core.security import (
+    LocalGuard,
+    load_or_create_token,
+    parse_public_urls,
+    read_secret,
+)
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.modules import (
@@ -140,7 +145,10 @@ def create_app(
         """What the machine offers, and what an admin has switched on. The switch is read for
         each turn (one small query), so a change shows from the next turn."""
         web = settings.get(app.state.sessions, settings.WEB_KEY, settings.WEB_DEFAULTS)
-        return replace(app.state.tool_env(), web=web["enabled"] is True)
+        enabled = web["enabled"] is True
+        # The key is read for each turn too, so a new one is used from the next turn.
+        key = read_secret(paths.web_search_key_file) if enabled else None
+        return replace(app.state.tool_env(), web=enabled, web_key=key)
 
     app.state.turns = TurnManager(
         app.state.runtime,

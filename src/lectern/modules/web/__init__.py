@@ -7,7 +7,7 @@ from __future__ import annotations
 from lectern.agent.tools import AgentTool
 from lectern.modules import ToolEnv
 from lectern.modules.web import api
-from lectern.modules.web.tools import WEB_TOOLS
+from lectern.modules.web.tools import web_tools
 
 
 class WebModule:
@@ -17,7 +17,7 @@ class WebModule:
     def tools(self, env: ToolEnv) -> list[AgentTool]:
         if not env.web:
             return []
-        return list(WEB_TOOLS)
+        return web_tools(env.web_key)
 
 
 module = WebModule()
