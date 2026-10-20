@@ -17,13 +17,17 @@
 Lectern is a local, modular AI workbench. You work in **projects**: folders of chats, OCR
 sessions and the files they produce. Every model runs on your own machine, through llama.cpp
 (CUDA, Vulkan, Metal, CPU) or MLX on Apple Silicon, so what you type and import stays on it;
-the internet is for downloading the models and llama.cpp.
+the internet is for downloading the models and llama.cpp, and for web search once an admin
+switches it on.
 
 - **A chat that works on your files.** It finds, searches and reads a project's files, writes
   new ones, and asks before deleting anything.
 - **Exact answers by running code.** For a calculation it writes a Python script and runs it
   in a sandbox, with no network, instead of guessing (when
   [Podman or Docker](#the-script-sandbox-podman-or-docker) is installed).
+- **Web search, when you allow it.** Switched on, the chat can search the web and Wikipedia
+  and save a page into the project, and asks you before each one: see
+  [Web search](#web-search).
 - **Scanned pages to text.** An OCR session reads a PDF or a page image page by page, printed
   or handwritten, asks you about the words it isn't sure of, and builds a Document you can
   export as Markdown, DOCX or ODT.
@@ -96,6 +100,27 @@ once one is running (first run has a **Check again** button).
 
 The first calculation builds the sandbox's image once, and asks first: it downloads about
 250 MB and takes about 430 MB on disk.
+
+### Web search
+
+Off until an admin switches it on in **Models & memory**, under **Web search**; it then
+applies to every chat on this Lectern, a member's too. The chat can then:
+
+- **search the web** through DuckDuckGo, for anything specific or current (an error message,
+  a software version, news). The query goes to `html.duckduckgo.com`. DuckDuckGo has no
+  official API: the [ddgs](https://pypi.org/project/ddgs/) library reads its results page, so
+  a change there or a rate limit can stop it working for a while, and the chat then says so;
+- **look a subject up on Wikipedia**, in the question's language, through Wikipedia's own API
+  (`<language>.wikipedia.org`);
+- **open a page** by its address and save it in the project, as Markdown (a PDF stays a PDF),
+  with the address in its **Where it came from**. Only public addresses are opened: this
+  computer, its local network and cloud metadata addresses are refused, also after a
+  redirect, and a page stops at 2 MB or 20 seconds.
+
+Each one shows a card in the chat first, with the words or the address it would send and
+where, and nothing is sent until you choose **Allow**. A queued follow-up (`task.after`) can't
+use them, since nobody would be there to answer. What a page says is given to the chat as
+data, never as instructions.
 
 **Working on Lectern itself:** `make` installs the Python and web dependencies and builds the
 web UI; `uv run lectern serve` then runs it from the checkout on `http://127.0.0.1:8765`. How
