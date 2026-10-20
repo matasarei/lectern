@@ -157,7 +157,10 @@ def test_with_a_key_the_next_turns_search_asks_brave_first(app):
 
     assert "api.search.brave.com" not in search_order()
     client.put("/api/web/key", json={"key": KEY})
-    assert "The query goes to api.search.brave.com, then duckduckgo.com" in search_order()
+    assert search_order().endswith(
+        "The query goes to api.search.brave.com, or, if it's busy, duckduckgo.com or "
+        "search.yahoo.com."
+    )
     client.delete("/api/web/key")
     assert "api.search.brave.com" not in search_order()
 

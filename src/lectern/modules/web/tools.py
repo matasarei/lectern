@@ -4,6 +4,7 @@ be queued to run unattended (task.after refuses tools that ask)."""
 
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 from urllib.parse import unquote
@@ -19,6 +20,10 @@ from lectern.modules.web.page import decode, to_text
 from lectern.projects import files
 
 SEARCH_LIMIT = 8
+# A search that no source can answer waits and tries again by itself, this many tries in
+# all, then asks the person whether to go on (another TRIES) or stop.
+TRIES = 4
+SLEEP = asyncio.sleep  # how a search waits (a test passes time without waiting)
 WIKI_LIMIT = 3
 # One of each for the whole process, so their rests are shared by every chat.
 FREE_SOURCES: list[sources.SearchSource] = [sources.DuckDuckGo(), sources.Yahoo()]
@@ -37,7 +42,9 @@ def sources_for(key: str | None) -> list[sources.SearchSource]:
 
 
 def _hosts(order: list[sources.SearchSource]) -> str:
-    return ", then ".join(s.host for s in order)
+    """Every host the query may go to: the first, and the ones asked when it's busy."""
+    first, *rest = [s.host for s in order]
+    return f"{first}, or, if it's busy, {' or '.join(rest)}" if rest else first
 
 
 # --- web.search ----------------------------------------------------------------------------
@@ -56,19 +63,40 @@ def _search_question(params: SearchParams, order: list[sources.SearchSource]) ->
 async def _search(
     ctx: ToolContext, params: SearchParams, order: list[sources.SearchSource]
 ) -> ToolResult:
-    try:
-        source, hits = await sources.search(params.query, order, SEARCH_LIMIT)
-    except sources.SourceFailed as exc:
-        return ToolResult(
-            f"Web search isn't working right now ({exc}). Don't search again for this answer: "
-            "tell the person it isn't working, and don't guess what it would have found."
-        )
+    while True:
+        for attempt in range(1, TRIES + 1):
+            try:
+                source, hits = await sources.search(params.query, order, SEARCH_LIMIT)
+            except sources.NoAnswer as exc:
+                failed = exc
+                if attempt < TRIES:
+                    # The model isn't asked in between: the chat says it's waiting, and the
+                    # same search goes on when an engine has rested.
+                    ctx.emit({
+                        "type": "progress",
+                        "label": f"Web search is busy: trying again (try {attempt + 1} of {TRIES})",
+                        "seconds": math.ceil(exc.wait),
+                        "line": str(exc),
+                    })  # fmt: skip
+                    await SLEEP(exc.wait)
+                continue
+            return _results(params.query, source, hits)
+        question = f"Web search didn't answer after {TRIES} tries ({failed}). Try again?"
+        if not await ctx.confirm(question, kind="retry"):
+            return ToolResult(
+                f"Web search isn't working right now ({failed}). Don't search again for this "
+                "answer: tell the person it isn't working, and don't guess what it would have "
+                "found."
+            )
+
+
+def _results(query: str, source: sources.SearchSource, hits: list[sources.Hit]) -> ToolResult:
     if not hits:
         return ToolResult(
-            f"{source.host} found nothing for “{params.query}”. Try other words once, or say the "
+            f"{source.host} found nothing for “{query}”. Try other words once, or say the "
             "search found nothing."
         )
-    lines = [f"Results from {source.host} for “{params.query}”:"]
+    lines = [f"Results from {source.host} for “{query}”:"]
     for n, hit in enumerate(hits, 1):
         lines.append(f"{n}. {hit.title}\n   {hit.url}\n   {hit.snippet}")
     lines.append(

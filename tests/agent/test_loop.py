@@ -191,6 +191,7 @@ def test_dont_allow_tells_the_model_and_moves_nothing(setup, store):
         key = (project.id, 1)
         await until(lambda: manager.state(key) == "waiting")
         card = next(e for e in events(manager, project) if e["type"] == "confirm")
+        assert card["kind"] == "allow"  # a tool's own card: Allow / Don't allow
         manager.decide(key, card["confirmation_id"], False)
         return await manager.wait(key)
 

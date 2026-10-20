@@ -348,8 +348,8 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
             raise TurnFailed(str(exc)) from None
         return ToolResult(f"Error: {exc} Fix the arguments and call it again.")
 
-    async def ask(question: str) -> bool:
-        return await _confirm(run, call, tool.name, question, function["arguments"])
+    async def ask(question: str, kind: str = "allow") -> bool:
+        return await _confirm(run, call, tool.name, question, function["arguments"], kind)
 
     context = ToolContext(
         project=run.project,
@@ -385,7 +385,9 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         return ToolResult(f"Error: {exc}")
 
 
-async def _confirm(run: TurnRun, call: dict, name: str, text: str, arguments: str) -> bool:
+async def _confirm(
+    run: TurnRun, call: dict, name: str, text: str, arguments: str, kind: str = "allow"
+) -> bool:
     def create() -> int:
         with run.sessions.begin() as session:
             row = ConfirmationRow(
@@ -404,6 +406,7 @@ async def _confirm(run: TurnRun, call: dict, name: str, text: str, arguments: st
             "call_id": call["id"],
             "name": name,
             "text": text,
+            "kind": kind,  # which buttons the page shows
         }
     )
     try:

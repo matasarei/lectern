@@ -35,12 +35,19 @@ class Source:
 
     def __init__(self, hits: list[Hit] | None = None, error: str | None = None) -> None:
         self.hits, self.error, self.asked = hits or [], error, []
+        self.busy = 0  # how many more searches it refuses as resting
+        self.rest = 0.0
 
     def ready_in(self) -> float:
-        return 0.0
+        return self.rest
 
     def search(self, query: str, limit: int) -> list[Hit]:
         self.asked.append((query, limit))
+        if self.busy:
+            self.busy -= 1
+            self.rest = 12.0
+            raise SourceFailed("DuckDuckGo is resting between searches")
+        self.rest = 0.0
         if self.error:
             raise SourceFailed(self.error)
         return self.hits
@@ -90,6 +97,13 @@ def web(monkeypatch) -> Web:
     )
     monkeypatch.setattr(wiki, "lookup", partial(real_lookup, transport=transport))
     internet.search = tools.search_tool([internet.source])  # web.search over the fake source
+    internet.slept = []
+
+    async def sleep(seconds: float) -> None:  # time passes at once
+        await asyncio.sleep(0)
+        internet.slept.append(seconds)
+
+    monkeypatch.setattr(tools, "SLEEP", sleep)
     return internet
 
 
@@ -115,7 +129,7 @@ def test_the_module_offers_the_three_tools_when_switched_on():
 
 def test_each_card_says_what_goes_where(ctx):
     assert SEARCH.confirm_text(ctx, SEARCH.validate({"query": "httpx stream"})) == (
-        "Search the web for “httpx stream”? The query goes to duckduckgo.com, then "
+        "Search the web for “httpx stream”? The query goes to duckduckgo.com, or, if it's busy, "
         "search.yahoo.com."
     )
     assert LOOKUP.confirm_text(ctx, LOOKUP.validate({"query": "Сковорода", "language": "uk"})) == (
@@ -193,8 +207,8 @@ def test_search_results_name_the_source_and_each_hit(ctx, web):
     assert tools.WEB_TEXT_IS_DATA in result
 
 
-def test_a_search_that_fails_says_so_plainly(ctx, web):
-    web.source.error = "DuckDuckGo didn't answer in time"
+def test_a_search_that_fails_says_so_plainly_once_nobody_says_try_again(ctx, web):
+    web.source.error = "DuckDuckGo didn't answer in time"  # every try; nobody answers the card
     assert run(web.search, ctx, query="x").text == (
         "Web search isn't working right now (DuckDuckGo didn't answer in time). Don't search "
         "again for this answer: tell the person it isn't working, and don't guess what it would "
@@ -372,3 +386,135 @@ def test_a_second_fetch_of_the_same_page_never_replaces_the_first(ctx, web):
     assert sorted(r.path for r in saved(ctx)) == [
         "example.com-streaming-httpx (2).md", "example.com-streaming-httpx.md",
     ]  # fmt: skip
+
+
+# --- waiting for an engine, and trying again ---------------------------------------------------
+
+
+def watching(ctx: ToolContext, answers: list[bool]) -> tuple[list[dict], list[tuple[str, str]]]:
+    """What the chat would show: the events the tool sends, and the cards it asks, answered in
+    turn from `answers`."""
+    events: list[dict] = []
+    cards: list[tuple[str, str]] = []
+
+    async def confirm(question: str, kind: str = "allow") -> bool:
+        await asyncio.sleep(0)
+        cards.append((question, kind))
+        return answers.pop(0)
+
+    ctx.emit = events.append
+    ctx.confirm = confirm
+    return events, cards
+
+
+def test_a_busy_search_says_so_waits_and_goes_on_by_itself(ctx, web):
+    web.source.busy = 2
+    events, cards = watching(ctx, [])
+    result = run(web.search, ctx, query="httpx streaming").text
+
+    assert result.startswith("Results from duckduckgo.com")
+    assert len(web.source.asked) == 3
+    assert web.slept == [12.0, 12.0]  # until the engine has rested
+    assert events == [
+        {"type": "progress", "label": "Web search is busy: trying again (try 2 of 4)",
+         "seconds": 12, "line": "DuckDuckGo is resting between searches"},
+        {"type": "progress", "label": "Web search is busy: trying again (try 3 of 4)",
+         "seconds": 12, "line": "DuckDuckGo is resting between searches"},
+    ]  # fmt: skip
+    assert cards == []
+
+
+def test_after_four_tries_the_person_is_asked_and_stop_ends_the_search(ctx, web):
+    web.source.busy = 100
+    _, cards = watching(ctx, [False])
+    result = run(web.search, ctx, query="q").text
+
+    assert len(web.source.asked) == 4
+    assert len(web.slept) == 3
+    assert cards == [(
+        "Web search didn't answer after 4 tries (DuckDuckGo is resting between searches). "
+        "Try again?", "retry",
+    )]  # fmt: skip
+    assert result.startswith("Web search isn't working right now")
+    assert "Don't search again for this answer" in result
+
+
+def test_try_again_runs_four_more_tries_and_the_search_goes_on(ctx, web):
+    web.source.busy = 5  # four tries, then one more after Try again
+    _, cards = watching(ctx, [True])
+    result = run(web.search, ctx, query="q").text
+
+    assert len(cards) == 1
+    assert len(web.source.asked) == 6
+    assert result.startswith("Results from duckduckgo.com")
+
+
+def test_try_again_twice_then_stop(ctx, web):
+    web.source.busy = 100
+    _, cards = watching(ctx, [True, True, False])
+    run(web.search, ctx, query="q")
+    assert len(cards) == 3
+    assert len(web.source.asked) == 12
+
+
+def test_a_search_that_finds_nothing_doesnt_wait(ctx, web):
+    web.source.hits = []
+    events, cards = watching(ctx, [])
+    assert run(web.search, ctx, query="zzzz").text.startswith("duckduckgo.com found nothing")
+    assert (web.slept, events, cards) == ([], [], [])
+
+
+def test_the_retry_card_and_the_wait_through_a_real_turn(store, web, monkeypatch):
+    web.source.busy = 100
+    handle = FakeHandle([tool_reply("web_search", {"query": "q"}), text_reply("It isn't working.")])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, web.search]))
+    project = store.create(LOCAL_USER, "Research")
+    key = (project.id, 1)
+
+    async def scenario() -> str:
+        await manager.send(project, LOCAL_USER, 1, "Search for q", [])
+        while manager.state(key) != "waiting":
+            await asyncio.sleep(0.01)
+        allow = next(e for e in manager.channel(key).events if e["type"] == "confirm")
+        assert allow["kind"] == "allow"  # the search's own card first
+        manager.decide(key, allow["confirmation_id"], True)
+        while len([e for e in manager.channel(key).events if e["type"] == "confirm"]) < 2:
+            await asyncio.sleep(0.01)
+        retry = [e for e in manager.channel(key).events if e["type"] == "confirm"][-1]
+        assert retry["kind"] == "retry"
+        assert retry["text"].startswith("Web search didn't answer after 4 tries")
+        manager.decide(key, retry["confirmation_id"], False)
+        return await manager.wait(key)
+
+    assert asyncio.run(asyncio.wait_for(scenario(), 5)) == "done"
+    progress = [e for e in manager.channel(key).events if e["type"] == "progress"]
+    assert [e["label"] for e in progress][-1] == "Web search is busy: trying again (try 4 of 4)"
+    assert len(handle.requests) == 2  # no model call while it waited
+
+
+def test_stopping_the_turn_while_it_waits_ends_it_at_once(store, web, monkeypatch):
+    web.source.busy = 100
+    waiting = asyncio.Event()
+
+    async def forever(seconds: float) -> None:
+        waiting.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(tools, "SLEEP", forever)
+    handle = FakeHandle([tool_reply("web_search", {"query": "q"}), text_reply("unreachable")])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, web.search]))
+    project = store.create(LOCAL_USER, "Research")
+    key = (project.id, 1)
+
+    async def scenario() -> str:
+        await manager.send(project, LOCAL_USER, 1, "Search for q", [])
+        while manager.state(key) != "waiting":
+            await asyncio.sleep(0.01)
+        card = next(e for e in manager.channel(key).events if e["type"] == "confirm")
+        manager.decide(key, card["confirmation_id"], True)
+        await waiting.wait()
+        await manager.stop(key)
+        return await manager.wait(key)
+
+    assert asyncio.run(asyncio.wait_for(scenario(), 5)) == "stopped"
+    assert len(web.source.asked) == 1
