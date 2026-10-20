@@ -24,7 +24,7 @@ from lectern.agent import model_download
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult, page
 from lectern.modules.sandbox.container import IMAGE, RunResult, Sandbox, SandboxError
 from lectern.projects import files
-from lectern.projects.tables import ArtifactRow, ScriptRunRow
+from lectern.projects.tables import ArtifactRow, MessageRow, ScriptRunRow
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable, Priority
 from lectern.runtime.wiring import role_model
@@ -306,6 +306,9 @@ MAX_FIXES = 3
 CODER_MAX_TOKENS = 1500
 CODER_TEMPERATURE = 0.2
 PREVIEW_LINES = 5
+# Of the person's own message given to the coder: a message may be 100,000 characters (a
+# pasted table), the coder's context 8,192 tokens, and the brief carries the task anyway.
+PERSON_CHARS = 2000
 PREVIEW_LINE_CHARS = 300
 SHEET_SUFFIXES = {".xlsx", ".xlsm"}
 SHEET_PREVIEW_CHARS = 2000  # of one workbook's preview: forty sheets or wide ones are cut
@@ -332,6 +335,9 @@ CODER_SYSTEM = """You write one Python 3.12 script for a sandbox. Rules:
 - Only the standard library and numpy, pandas, python-dateutil and openpyxl are installed.
 - Print the result to standard output, clearly labelled. Write files only to /out.
 - Compute everything; never hard-code a result you were asked to compute.
+- The person's own message comes first. Where it and the task differ on a number, a date or a
+  condition, the person's message is right; work out everything else in the script (days
+  between dates, weekdays, totals), whatever the task says they are.
 - Reply with the whole script in one ```python block, and nothing else."""
 
 
@@ -343,7 +349,10 @@ class WriteParams(BaseModel):
     brief: str = Field(
         min_length=10,
         max_length=4000,
-        description="What the script must compute, with every number and date it needs.",
+        description=(
+            "What the script must compute, with the person's numbers, dates and file names as "
+            "they gave them. Work nothing out here: the script does."
+        ),
     )
     inputs: list[str] = Field(
         default_factory=list,
@@ -509,9 +518,12 @@ def coder_request(
     inputs: list[Input],
     sheets: dict[str, str] | None = None,
 ) -> str:
-    """The brief, the expected output, and what each input file looks like (`sheets`: what
-    pandas read in each spreadsheet, by file name)."""
-    parts = [f"Task:\n{params.brief}"]
+    """The person's own message, the brief, the expected output, and what each input file
+    looks like (`sheets`: what pandas read in each spreadsheet, by file name). The brief is
+    the chat's retelling, and on the 4B it carried facts it worked out from memory ("20 days
+    late", "1 March 2027 is a Sunday"): the coder gets the person's words too."""
+    parts = [f"The person asked:\n{asked}"] if (asked := _person_asked(ctx)) else []
+    parts.append(f"Task:\n{params.brief}")
     if params.expected_output:
         parts.append(f"Expected output:\n{params.expected_output}")
     if inputs:
@@ -520,6 +532,22 @@ def coder_request(
     else:
         parts.append("There are no input files; everything needed is in the task.")
     return "\n\n".join(parts)
+
+
+def _person_asked(ctx: ToolContext) -> str:
+    """The person's latest message in this chat, its first PERSON_CHARS characters; empty when
+    there's none (outside a turn)."""
+    with ctx.sessions() as session:
+        asked = session.scalar(
+            select(MessageRow.content)
+            .where(MessageRow.session_id == ctx.session_id, MessageRow.role == "user")
+            .order_by(MessageRow.id.desc())
+            .limit(1)
+        )
+    asked = (asked or "").strip()
+    if len(asked) <= PERSON_CHARS:
+        return asked
+    return asked[:PERSON_CHARS] + "\n(cut here: the message goes on)"
 
 
 def _preview(item: Input, sheet: str | None = None) -> str:
