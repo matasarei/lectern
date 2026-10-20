@@ -50,11 +50,14 @@ async def _search(ctx: ToolContext, params: SearchParams) -> ToolResult:
     try:
         source, hits = await sources.search(params.query, SOURCES, SEARCH_LIMIT)
     except sources.SourceFailed as exc:
-        return ToolResult(f"Web search isn't working right now ({exc}). Say so; don't guess.")
+        return ToolResult(
+            f"Web search isn't working right now ({exc}). Don't search again for this answer: "
+            "tell the person it isn't working, and don't guess what it would have found."
+        )
     if not hits:
         return ToolResult(
-            f"{source.host} found nothing for “{params.query}” (it answers the same way when it "
-            "limits requests). Try other words once, or say the search found nothing."
+            f"{source.host} found nothing for “{params.query}”. Try other words once, or say the "
+            "search found nothing."
         )
     lines = [f"Results from {source.host} for “{params.query}”:"]
     for n, hit in enumerate(hits, 1):

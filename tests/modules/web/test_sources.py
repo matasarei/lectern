@@ -6,74 +6,127 @@ from urllib.parse import unquote
 
 import httpx2
 import pytest
+from ddgs.engines.duckduckgo import Duckduckgo
 from ddgs.exceptions import DDGSException, TimeoutException
 
 from lectern.modules.web import sources, wiki
 from lectern.modules.web.sources import DuckDuckGo, Hit, SourceFailed
 
-
-class FakeDDGS:
-    """Stands in for ddgs.DDGS: records what it was asked, answers with `rows` or raises."""
-
-    calls: list[dict] = []
-
-    def __init__(self, rows=None, error: Exception | None = None) -> None:
-        self.rows, self.error = rows or [], error
-
-    def __call__(self, **kwargs):
-        self.made_with = kwargs
-        return self
-
-    def text(self, query: str, **kwargs):
-        self.calls.append({"query": query, **kwargs})
-        if self.error:
-            raise self.error
-        return self.rows
-
-
-def row(n: int, body: str = "A snippet.") -> dict:
-    return {"title": f" Result\n {n} ", "href": f"https://example.com/{n}", "body": body}
+RESULTS = """<html><body>
+<div class="result results_links results_links_deep web-result">
+  <div class="links_main links_deep result__body">
+    <h2 class="result__title"><a class="result__a" href="https://example.com/1"> Result
+      1 </a></h2>
+    <a class="result__snippet" href="https://example.com/1">A <b>snippet</b>.</a>
+  </div>
+</div>
+<div class="result"><div class="links_main result__body">
+  <h2 class="result__title"><a class="result__a" href="https://example.com/2">Result 2</a></h2>
+  <a class="result__snippet" href="https://example.com/2">{long}</a>
+</div></div>
+<div class="result"><div class="links_main result__body">
+  <h2 class="result__title"><a href="https://duckduckgo.com/y.js?ad=1">An ad</a></h2>
+  <a class="result__snippet" href="https://duckduckgo.com/y.js?ad=1">Buy now</a>
+</div></div>
+</body></html>"""
 
 
-def test_duckduckgo_is_asked_through_its_own_backend_only():
-    fake = FakeDDGS([row(1)])
-    DuckDuckGo(fake).search("python unhashable list", 8)
-    assert fake.calls[-1] == {
-        "query": "python unhashable list", "backend": "duckduckgo", "max_results": 8,
-    }  # fmt: skip
-    assert DuckDuckGo.BACKEND == "duckduckgo"  # "auto" would ask Bing, Google, Yandex…
+class Answer:
+    def __init__(self, status: int, text: str = "") -> None:
+        self.status_code, self.text = status, text
+
+
+class FakeHttp:
+    """Stands in for ddgs's HTTP client: answers in turn, records each request."""
+
+    def __init__(self, answers: list[Answer | Exception]) -> None:
+        self.answers, self.requests = answers, []
+
+    def request(self, method: str, url: str, **kwargs):
+        self.requests.append((method, url, kwargs.get("data")))
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def duckduckgo(*answers: Answer | Exception, clock: Clock | None = None):
+    """The real engine (its payload and its parsing of the page), over a fake connection."""
+    http = FakeHttp(list(answers))
+
+    def engine() -> Duckduckgo:
+        made = Duckduckgo(timeout=10)
+        made.http_client = http
+        return made
+
+    return DuckDuckGo(engine, clock or Clock()), http
+
+
+def test_a_search_posts_the_query_to_duckduckgo_only():
+    source, http = duckduckgo(Answer(200, RESULTS.format(long="x")))
+    source.search("python unhashable list", 8)
+    ((method, url, data),) = http.requests
+    assert (method, url) == ("POST", "https://html.duckduckgo.com/html/")
+    assert data["q"] == "python unhashable list"
 
 
 def test_hits_have_a_title_url_and_snippet_cut_to_300_characters():
-    hits = DuckDuckGo(FakeDDGS([row(1, "word " * 200), row(2)])).search("q", 8)
-    assert hits[0].title == "Result 1"
-    assert hits[0].url == "https://example.com/1"
-    assert len(hits[0].snippet) == 300
-    assert hits[0].snippet.endswith("…")
-    assert hits[1] == Hit("Result 2", "https://example.com/2", "A snippet.")
+    source, _ = duckduckgo(Answer(200, RESULTS.format(long="word " * 200)))
+    hits = source.search("q", 8)
+    assert hits[0] == Hit("Result 1", "https://example.com/1", "A snippet.")
+    assert hits[1].url == "https://example.com/2"
+    assert len(hits[1].snippet) == 300
+    assert hits[1].snippet.endswith("…")
+    assert [h.title for h in hits] == ["Result 1", "Result 2"]  # no ad
 
 
-def test_no_more_hits_than_asked_and_none_without_a_web_address():
-    rows = [*(row(n) for n in range(12)), {"title": "x", "href": "javascript:alert(1)"}]
-    assert len(DuckDuckGo(FakeDDGS(rows)).search("q", 8)) == 8
-    assert DuckDuckGo(FakeDDGS([{"title": "x", "href": "/relative"}])).search("q", 8) == []
+def test_no_more_hits_than_asked():
+    source, _ = duckduckgo(Answer(200, RESULTS.format(long="x")))
+    assert len(source.search("q", 1)) == 1
 
 
-def test_no_results_is_an_empty_list_not_a_failure():
-    fake = FakeDDGS(error=DDGSException("No results found."))
-    assert DuckDuckGo(fake).search("q", 8) == []
+def test_a_page_with_no_results_is_an_empty_list_not_a_failure():
+    source, _ = duckduckgo(Answer(200, "<html><body>No results.</body></html>"))
+    assert source.search("zzzz", 8) == []
+
+
+def test_a_limit_is_a_failure_and_duckduckgo_isnt_asked_again_for_a_while():
+    clock = Clock()
+    page = Answer(200, RESULTS.format(long="x"))
+    source, http = duckduckgo(Answer(202, "<html>anomaly</html>"), page, clock=clock)
+
+    with pytest.raises(SourceFailed, match="limiting searches from this computer"):
+        source.search("q", 8)
+    clock.now += DuckDuckGo.PAUSE_SECONDS - 1
+    with pytest.raises(SourceFailed, match="limiting searches"):
+        source.search("q", 8)
+    assert len(http.requests) == 1  # the second wasn't sent
+
+    clock.now += 1
+    assert len(source.search("q", 8)) == 2
+    assert len(http.requests) == 2
 
 
 @pytest.mark.parametrize(
-    ("error", "reason"),
+    ("answer", "reason"),
     [
         (TimeoutException("timed out"), "didn't answer in time"),
-        (DDGSException("ConnectError: dns failure"), "couldn't be read: ConnectError"),
+        (DDGSException("ConnectError: dns failure"), "couldn't be reached: ConnectError"),
+        (Answer(500), "DuckDuckGo answered 500"),
     ],
 )
-def test_a_ddgs_error_becomes_a_reason_the_model_can_pass_on(error, reason):
+def test_a_failure_becomes_a_reason_the_model_can_pass_on(answer, reason):
+    source, _ = duckduckgo(answer)
     with pytest.raises(SourceFailed, match=reason):
-        DuckDuckGo(FakeDDGS(error=error)).search("q", 8)
+        source.search("q", 8)
 
 
 class Source:

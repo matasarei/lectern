@@ -191,16 +191,18 @@ def test_search_results_name_the_source_and_each_hit(ctx, web):
 def test_a_search_that_fails_says_so_plainly(ctx, web):
     web.source.error = "DuckDuckGo didn't answer in time"
     assert run(SEARCH, ctx, query="x").text == (
-        "Web search isn't working right now (DuckDuckGo didn't answer in time). Say so; don't "
-        "guess."
+        "Web search isn't working right now (DuckDuckGo didn't answer in time). Don't search "
+        "again for this answer: tell the person it isn't working, and don't guess what it would "
+        "have found."
     )
 
 
-def test_a_search_with_no_hits_says_it_may_be_a_limit(ctx, web):
+def test_a_search_with_no_hits_says_so(ctx, web):
     web.source.hits = []
-    result = run(SEARCH, ctx, query="zzzz").text
-    assert result.startswith("duckduckgo.com found nothing for “zzzz”")
-    assert "limits requests" in result
+    assert run(SEARCH, ctx, query="zzzz").text == (
+        "duckduckgo.com found nothing for “zzzz”. Try other words once, or say the search found "
+        "nothing."
+    )
 
 
 # --- wiki.lookup --------------------------------------------------------------------------

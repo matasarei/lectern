@@ -7,16 +7,19 @@ answers a different question, and has a tool of its own (wiki.py)."""
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from ddgs import DDGS
+from ddgs.engines.duckduckgo import Duckduckgo
 from ddgs.exceptions import DDGSException, TimeoutException
 
 SNIPPET_CHARS = 300
 SEARCH_SECONDS = 15.0  # one source's answer; ddgs's own request timeout is shorter
-NO_RESULTS = "No results found."  # what ddgs 9.16 raises with, for no results or a rate limit
+# DuckDuckGo's answer when it limits a computer's searches: an "anomaly" page, status 202.
+RATE_LIMITED = 202
+LIMITED = "DuckDuckGo is limiting searches from this computer for now; it lifts within minutes"
 
 
 @dataclass(frozen=True)
@@ -42,31 +45,52 @@ class SearchSource(Protocol):
 class DuckDuckGo:
     id = "duckduckgo"
     host = "duckduckgo.com"
-    # Pinned: ddgs's default, "auto", sends the query to every engine it knows (Bing, Google,
-    # Yandex and more). This one engine posts to html.duckduckgo.com and nowhere else.
-    BACKEND = "duckduckgo"
+    # How long to stop asking after DuckDuckGo said it is limiting this computer: asking again
+    # sooner keeps the limit on (2026-10-20: 202 to every query for over a minute of retries,
+    # lifted after half a minute without one).
+    PAUSE_SECONDS = 120.0
 
-    def __init__(self, client: Callable[..., Any] = DDGS) -> None:
-        self._client = client
+    def __init__(
+        self,
+        engine: Callable[[], Any] = lambda: Duckduckgo(timeout=10),
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._engine = engine
+        self._clock = clock
+        self._paused_until = 0.0
 
     def search(self, query: str, limit: int) -> list[Hit]:
+        if self._clock() < self._paused_until:
+            raise SourceFailed(LIMITED)
+        # ddgs's DuckDuckGo engine, not DDGS().text: that one reports a refused query as "No
+        # results found." (ddgs 9.16), and a limit has to be told from a search that found
+        # nothing. The engine posts to html.duckduckgo.com and nowhere else.
+        engine = self._engine()
+        payload = engine.build_payload(
+            query=query, region="us-en", safesearch="moderate", timelimit=None
+        )
         try:
-            rows = self._client(timeout=10).text(query, backend=self.BACKEND, max_results=limit)
+            response = engine.http_client.request(
+                engine.search_method, engine.search_url, data=payload
+            )
         except TimeoutException as e:
             raise SourceFailed("DuckDuckGo didn't answer in time") from e
         except DDGSException as e:
-            # ddgs gives no results and a refused (rate-limited) query the same way.
-            if str(e) == NO_RESULTS:
-                return []
-            raise SourceFailed(f"DuckDuckGo couldn't be read: {e}") from e
+            raise SourceFailed(f"DuckDuckGo couldn't be reached: {e}") from e
+        if response.status_code == RATE_LIMITED:
+            self._paused_until = self._clock() + self.PAUSE_SECONDS
+            raise SourceFailed(LIMITED)
+        if response.status_code != 200:
+            raise SourceFailed(f"DuckDuckGo answered {response.status_code}")
+        rows = engine.post_extract_results(engine.extract_results(response.text))
         hits = [
             Hit(
-                title=" ".join(str(row.get("title", "")).split()),
-                url=str(row["href"]),
-                snippet=_cut(" ".join(str(row.get("body", "")).split()), SNIPPET_CHARS),
+                title=" ".join(row.title.split()),
+                url=row.href,
+                snippet=_cut(" ".join(row.body.split()), SNIPPET_CHARS),
             )
             for row in rows
-            if str(row.get("href", "")).startswith(("http://", "https://"))
+            if row.href.startswith(("http://", "https://"))
         ]
         return hits[:limit]
 
