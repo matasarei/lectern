@@ -930,6 +930,8 @@ describe("Web search on Models & memory", () => {
     expect(screen.queryByRole("button", { name: "Remove key" })).toBeNull();
     const field = screen.getByLabelText("New key") as HTMLInputElement;
     expect(field.type).toBe("password");
+    // "off" is ignored on a password field: the browser could fill in a saved password.
+    expect(field.getAttribute("autocomplete")).toBe("new-password");
     const save = screen.getByRole("button", { name: "Save key" }) as HTMLButtonElement;
     expect(save.disabled).toBe(true); // nothing typed yet
 

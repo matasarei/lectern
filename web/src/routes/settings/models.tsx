@@ -845,7 +845,7 @@ function BraveKey({ isSet }: { isSet: boolean }) {
       <div className="flex flex-wrap gap-2">
         <input
           type="password"
-          autoComplete="off"
+          autoComplete="new-password"
           className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1"
           aria-label={t("webSearch.keyField")}
           placeholder={t("webSearch.keyField")}
