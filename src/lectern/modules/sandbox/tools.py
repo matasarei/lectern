@@ -338,6 +338,9 @@ CODER_SYSTEM = """You write one Python 3.12 script for a sandbox. Rules:
 - The person's own message comes first. Where it and the task differ on a number, a date or a
   condition, the person's message is right; work out everything else in the script (days
   between dates, weekdays, totals), whatever the task says they are.
+- A tax included in a price is already part of it: 20% VAT included in 120.00 is
+  120.00 * 0.2 / 1.2 = 20.00. A tax on or added to a net price is price * rate: 20% VAT on
+  100.00 is 20.00.
 - Reply with the whole script in one ```python block, and nothing else."""
 
 
