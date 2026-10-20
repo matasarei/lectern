@@ -264,6 +264,15 @@ def test_a_file_nobody_asked_for_waits_for_the_persons_allow(ctx, message):
     assert not (ctx.project.root / "hours-summary.md").exists()
 
 
+def test_a_chat_with_no_message_from_the_person_gets_the_card(ctx):
+    asked = answering(ctx, False)
+
+    with pytest.raises(ToolError, match="didn't allow saving notes.md"):
+        run(core_tools.WRITE, ctx, name="notes.md", text="x")
+
+    assert len(asked) == 1 and not (ctx.project.root / "notes.md").exists()
+
+
 def test_a_file_nobody_asked_for_is_saved_once_allowed(ctx):
     say(ctx, "Draft a reply to the tenant and save it.")
     say(ctx, "Yes, go ahead.")  # the latest message, which the turn answers
