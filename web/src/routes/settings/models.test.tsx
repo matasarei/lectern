@@ -67,6 +67,7 @@ const RESPONSES: Record<string, unknown> = {
                    chat_during_job: ["pause_job_after_current_item"] },
     mlx_supported: true, mlx_available: true,
   },
+  "/api/web/settings": { values: { enabled: false }, hosts: ["duckduckgo.com", "wikipedia.org"] },
 };
 
 /** As the server: the list says what each role, and cleanup, can be given. A role takes the
@@ -92,8 +93,12 @@ let removed: string[] = [];
 let afterUpdate: (() => void) | null = null; // what the server's list says once Update was pressed
 let posts: { url: string; body: unknown }[] = [];
 let overrides: Record<string, unknown> = {};
+let webPuts: unknown[] = [];
+let webRefusal: { status: number; detail: string } | null = null;
 
 beforeEach(() => {
+  webPuts = [];
+  webRefusal = null;
   puts = [];
   choices = [];
   refusal = null;
@@ -143,6 +148,14 @@ beforeEach(() => {
         };
         const chosen = { ...list.chosen, [role]: modelId ?? list.defaults[role] };
         return new Response(JSON.stringify(withChoices({ ...list, chosen })));
+      }
+      if (init?.method === "PUT" && url === "/api/web/settings") {
+        const body = JSON.parse(String(init.body));
+        webPuts.push(body);
+        if (webRefusal) {
+          return new Response(JSON.stringify({ detail: webRefusal.detail }), { status: webRefusal.status });
+        }
+        return new Response(JSON.stringify({ ...(RESPONSES[url] as object), values: body }));
       }
       if (init?.method === "PUT") {
         const body = JSON.parse(String(init.body));
@@ -880,6 +893,32 @@ describe("Models & memory", () => {
   });
 });
 
+describe("Web search on Models & memory", () => {
+  it("is off until an admin switches it on, and says where searches go", async () => {
+    renderPage();
+
+    const toggle = (await screen.findByLabelText(/Let the chat search the web/)) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByText(/Searches go to duckduckgo.com, wikipedia.org/)).toBeTruthy();
+    expect(screen.getByText(/nothing is sent until you allow it/)).toBeTruthy();
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(webPuts).toEqual([{ enabled: true }]);
+    expect(puts).toEqual([]); // the GPU's settings are left as they were
+  });
+
+  it("shows why a switch was refused, and stays as it was", async () => {
+    webRefusal = { status: 403, detail: "Only an admin can do that." };
+    renderPage();
+
+    const toggle = (await screen.findByLabelText(/Let the chat search the web/)) as HTMLInputElement;
+    fireEvent.click(toggle);
+    expect(await screen.findByText("Only an admin can do that.")).toBeTruthy();
+    expect(toggle.checked).toBe(false);
+  });
+});
+
 describe("Models & memory, for someone who isn't an admin", () => {
   beforeEach(() => {
     overrides["/api/login"] = {
@@ -916,6 +955,22 @@ describe("Models & memory, for someone who isn't an admin", () => {
     expect(screen.queryAllByRole("checkbox")).toEqual([]);
     expect(screen.getByText(/Only an admin can download, remove or choose models/)).toBeTruthy();
     expect(screen.queryByText(/or now with Download/)).toBeNull();
+  });
+
+  it("says whether web search is on, and that an admin decides", async () => {
+    overrides["/api/web/settings"] = { ...(RESPONSES["/api/web/settings"] as object), values: { enabled: true } };
+    renderPage();
+
+    const state = await screen.findByTestId("web-search-state");
+    expect(state.textContent).toContain("Web search is on");
+    expect(state.textContent).toContain("Searches go to duckduckgo.com, wikipedia.org");
+    expect(state.textContent).toContain("Only an admin can switch web search on or off.");
+    expect(screen.queryByLabelText(/Let the chat search the web/)).toBeNull();
+  });
+
+  it("says when it is off", async () => {
+    renderPage();
+    expect((await screen.findByTestId("web-search-state")).textContent).toContain("Web search is off");
   });
 });
 

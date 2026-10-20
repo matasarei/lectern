@@ -232,6 +232,14 @@
     "mlxMissing": "MLX isn't installed with this Lectern, so every model runs on llama.cpp. The Mac installer adds it; from a checkout, run `uv sync --extra mlx` and start Lectern again.",
     "mlxWhy": "MLX is Apple's own engine and can be faster on a Mac. Switched on, a model that has an MLX build runs on it: download the build under Models by role. A usual model already on disk goes on running until then. On MLX the chat makes more mistakes when it uses its tools. Scanned pages are still read and cleaned up on llama.cpp: cleaning one loads the model on the clean row beside the chat's."
   },
+  "webSearch": {
+    "title": "Web search",
+    "enable": "Let the chat search the web and open pages",
+    "isOn": "Web search is on: the chat can search the web and open pages.",
+    "isOff": "Web search is off: the chat answers from the project alone.",
+    "what": "The chat asks before each search, Wikipedia lookup or page it opens, and nothing is sent until you allow it. Searches go to {{hosts}}; a page is downloaded from its own site and saved in the project with its address.",
+    "adminOnly": "Only an admin can switch web search on or off. It applies to everyone on this Lectern."
+  },
   "projects": {
     "title": "Projects",
     "new": "New project",
@@ -312,7 +320,8 @@
     "madeByOcr": "made by OCR · {{title}}",
     "documentKind": "Document",
     "documentDetails": "version {{version}} · {{open}} open",
-    "insideFolder": "inside {{name}}/"
+    "insideFolder": "inside {{name}}/",
+    "fromWeb": "from {{host}}"
   },
   "time": {
     "justNow": "just now"
@@ -401,7 +410,8 @@
     "noPreview": "This kind of file can't be shown here yet.",
     "gone": "This file is no longer in the project.",
     "textIndexed": "readable by the chat and search",
-    "imageAlt": "Preview of {{name}}"
+    "imageAlt": "Preview of {{name}}",
+    "fromWeb": "Opened from {{host}} in a chat:"
   },
   "ocr": {
     "open": "Open as OCR session",

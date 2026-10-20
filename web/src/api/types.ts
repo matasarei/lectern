@@ -196,6 +196,12 @@ export interface RuntimeSettings {
   mlx_available: boolean;
 }
 
+export interface WebSettings {
+  values: { enabled: boolean };
+  /** Where searches go, in the order they're tried; pages opened go to their own sites. */
+  hosts: string[];
+}
+
 // --- projects ------------------------------------------------------------------------
 
 export interface Project {

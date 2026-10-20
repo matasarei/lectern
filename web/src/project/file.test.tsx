@@ -101,6 +101,26 @@ describe("File tab", () => {
     expect(opened).toEqual([{ kind: "session", id: 1 }]);
   });
 
+  it("shows a page opened from the web by its host, and links its address", () => {
+    const url = "https://docs.python.org/3/library/html.parser.html";
+    renderFile(artifact({ name: "docs.python.org-html-parser.md",
+                          from: { kind: "import", id: null, note: url, title: null } }));
+    expect(screen.getByText("Opened from docs.python.org in a chat:")).toBeTruthy();
+    const link = screen.getByRole("link", { name: url });
+    expect(link.getAttribute("href")).toBe(url);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("links no note that isn't a web address", () => {
+    for (const note of ["javascript:alert(1)", "from the old archive", "file:///etc/passwd"]) {
+      const { unmount } = renderFile(artifact({ from: { kind: "import", id: null, note, title: null } }));
+      expect(screen.getByText("imported")).toBeTruthy();
+      expect(screen.queryByRole("link")).toBeNull();
+      unmount();
+    }
+  });
+
   it("shows images from a blob URL", async () => {
     renderFile(artifact({ id: 5, name: "stamp.png", mime: "image/png", text: "none", text_note: "no text" }));
     const img = await screen.findByAltText("Preview of stamp.png");

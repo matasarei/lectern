@@ -15,6 +15,7 @@ import type {
   RuntimeState,
   RuntimeSettingsValues,
   SystemReport,
+  WebSettings,
 } from "../../api/types";
 import {
   Card,
@@ -256,6 +257,8 @@ export function ModelsPage() {
       <InstalledCard models={models.data} />
 
       {admin && <SettingsCard />}
+
+      <WebSearchCard admin={admin} />
     </Page>
   );
 }
@@ -745,6 +748,59 @@ function SettingsCard() {
             </span>
           </span>
         </label>
+      )}
+      {save.error && (
+        <ErrorNote
+          message={save.error instanceof ApiError ? save.error.detail : t("common.loadFailed")}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** Whether the chats may search the web and open pages: seen by everyone, switched by an
+ * admin, since it decides for the whole install what may leave it. */
+function WebSearchCard({ admin }: { admin: boolean }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const current = useQuery({
+    queryKey: ["web-settings"],
+    queryFn: () => apiFetch<WebSettings>("/api/web/settings"),
+  });
+  const save = useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiFetch<WebSettings>("/api/web/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["web-settings"], data),
+  });
+  if (!current.data) return null;
+  const { values, hosts } = current.data;
+  const what = t("webSearch.what", { hosts: hosts.join(", ") });
+  return (
+    <Card title={t("webSearch.title")}>
+      {admin ? (
+        <label className="flex gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={values.enabled}
+            disabled={save.isPending}
+            onChange={(e) => save.mutate(e.target.checked)}
+          />
+          <span>
+            {t("webSearch.enable")}
+            <span className="block text-muted">{what}</span>
+          </span>
+        </label>
+      ) : (
+        // Nothing to press for a member, as with the rest of the page: what it is, and why.
+        <p className="grid gap-1 text-sm" data-testid="web-search-state">
+          <span>{t(values.enabled ? "webSearch.isOn" : "webSearch.isOff")}</span>
+          {values.enabled && <span className="text-muted">{what}</span>}
+          <span className="text-muted">{t("webSearch.adminOnly")}</span>
+        </p>
       )}
       {save.error && (
         <ErrorNote
