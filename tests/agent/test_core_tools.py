@@ -164,6 +164,7 @@ def test_page_rejects_a_bad_cursor():
 
 def test_write_creates_a_new_file_from_this_chat_and_never_overwrites(ctx):
     add_file(ctx, "reply.md", "by hand")
+    say(ctx, "Draft a reply and save it as reply.md.")
 
     result = run(core_tools.WRITE, ctx, name="reply.md", text="# Reply\nFrom the model")
 
@@ -211,8 +212,84 @@ def test_session_status_and_tab_open(ctx):
 
 
 def test_write_names_a_cleaned_up_path_without_claiming_it_was_taken(ctx):
+    say(ctx, "Save a summary in drafts/summary.md.")
     result = run(core_tools.WRITE, ctx, name="drafts/summary.md", text="x")
     assert result.text == "Saved as summary.md, 1 B."
+
+
+def answering(ctx, approve):
+    """The person answers every card with `approve`; returns the questions asked."""
+    asked = []
+
+    async def confirm(question):
+        asked.append(question)
+        return approve
+
+    ctx.confirm = confirm
+    return asked
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["Write a two-line summary of the lease and save it as lease-summary.md.",
+     "Put that in notes.md", "Збережи це у файл", "Запиши підсумок, будь ласка",
+     "Сохрани ответ", "Can you store this for later?"],
+)  # fmt: skip
+def test_a_file_the_persons_message_asks_for_is_saved_without_a_card(ctx, message):
+    say(ctx, message)
+    asked = answering(ctx, False)
+
+    result = run(core_tools.WRITE, ctx, name="notes.md", text="x")
+
+    assert result.text.startswith("Saved as notes.md") and asked == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["How many hours in total are listed in hours.xlsx?", "Is there a lease file here?",
+     "Що в файлі hours.md?", "Open the lease, please"],
+)  # fmt: skip
+def test_a_file_nobody_asked_for_waits_for_the_persons_allow(ctx, message):
+    """Seen in 4 of 82 xlsx-sum runs: the 4B, unable to read hours.xlsx, saved notes nobody
+    asked for (hours-summary.md, "Analyzing hours.xlsx to calculate total hours.")."""
+    say(ctx, message)
+    asked = answering(ctx, False)
+
+    with pytest.raises(ToolError, match="didn't allow saving hours-summary.md"):
+        run(core_tools.WRITE, ctx, name="hours-summary.md", text="Analyzing hours.xlsx")
+
+    assert asked == [
+        "Save hours-summary.md as a new file in the project? Your message didn't ask for a file."
+    ]
+    assert not (ctx.project.root / "hours-summary.md").exists()
+
+
+def test_a_chat_with_no_message_from_the_person_gets_the_card(ctx):
+    asked = answering(ctx, False)
+
+    with pytest.raises(ToolError, match="didn't allow saving notes.md"):
+        run(core_tools.WRITE, ctx, name="notes.md", text="x")
+
+    assert len(asked) == 1 and not (ctx.project.root / "notes.md").exists()
+
+
+def test_a_file_nobody_asked_for_is_saved_once_allowed(ctx):
+    say(ctx, "Draft a reply to the tenant and save it.")
+    say(ctx, "Yes, go ahead.")  # the latest message, which the turn answers
+    asked = answering(ctx, True)
+
+    result = run(core_tools.WRITE, ctx, name="reply.md", text="Dear tenant")
+
+    assert result.text.startswith("Saved as reply.md") and len(asked) == 1
+
+
+def test_a_bad_name_is_refused_before_any_card(ctx):
+    asked = answering(ctx, True)
+    with pytest.raises(ToolError, match="Only text files"):
+        run(core_tools.WRITE, ctx, name="hours.xlsx", text="4.9 KB")  # seen
+    with pytest.raises(ToolError):
+        run(core_tools.WRITE, ctx, name=".env", text="x")
+    assert asked == []
 
 
 @pytest.mark.parametrize(
