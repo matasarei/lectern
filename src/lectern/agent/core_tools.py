@@ -346,10 +346,43 @@ class WriteParams(BaseModel):
     text: str = Field(max_length=WRITE_LIMIT, description="The whole content of the new file.")
 
 
-def _write(ctx: ToolContext, params: WriteParams) -> ToolResult:
+# Words that ask for a file to be saved: the request and the infinitive, not "file", which a
+# question about one has ("Is there a lease file here?").
+SAVE_WORDS = frozenset({
+    "save", "saving", "store",
+    "збережи", "збережіть", "зберегти", "зберігай", "запиши", "запишіть", "записати",
+    "сохрани", "сохраните", "сохранить", "сохраняй", "запишите", "записать",
+})  # fmt: skip
+
+
+def asked_for_file(ctx: ToolContext, name: str) -> bool:
+    """Whether the person's latest message asks for this file: a word for saving, or the
+    file's own name ("put it in notes.md")."""
+    message = (_latest_message(ctx) or "").casefold()
+    return bool(_words(message) & SAVE_WORDS) or name.casefold() in message
+
+
+async def _write(ctx: ToolContext, params: WriteParams) -> ToolResult:
     suffix = "." + params.name.rsplit(".", 1)[-1].lower() if "." in params.name else ""
     if suffix not in TEXT_EXTENSIONS:
         raise ToolError("Only text files can be written, e.g. .md, .txt, .csv, .json.")
+    try:
+        name = files.safe_name(params.name)
+    except files.BadName as exc:
+        raise ToolError(str(exc)) from None
+    # Seen: 1 in 20 times it couldn't read hours.xlsx, the 4B saved a note nobody asked for
+    # ("Analyzing hours.xlsx to calculate total hours."), however the prompt put the rule.
+    asked = await run_in_threadpool(asked_for_file, ctx, name)
+    question = f"Save {name} as a new file in the project? Your message didn't ask for a file."
+    if not asked and not await ctx.confirm(question):
+        raise ToolError(
+            f"The person didn't allow saving {name}. Answer in the chat instead; don't save it "
+            "again."
+        )
+    return await run_in_threadpool(_save, ctx, params)
+
+
+def _save(ctx: ToolContext, params: WriteParams) -> ToolResult:
     try:
         with ctx.sessions.begin() as session:
             row = files.write_text(
@@ -371,7 +404,8 @@ WRITE = AgentTool(
     name="artifact.write",
     description=(
         "Save text you wrote as a new file in the project, only when the person asked for a "
-        "file. Never replaces a file: a taken name gets a number."
+        "file; asks them first when their message didn't. Never replaces a file: a taken name "
+        "gets a number."
     ),
     params=WriteParams,
     run=_write,
@@ -394,16 +428,21 @@ DELETE_WORDS = frozenset({
 })  # fmt: skip
 
 
-def asked_to_delete(ctx: ToolContext, path: str) -> bool:
-    """Whether the person's latest message asks to delete this file: a word for deleting,
-    and the file's name ("old-draft.md", or "the old draft")."""
+def _latest_message(ctx: ToolContext) -> str | None:
+    """The person's latest message in this chat: the one the turn answers (a follow-up has
+    none of its own, so it gets the last one before it)."""
     with ctx.sessions() as session:
-        message = session.scalars(
+        return session.scalars(
             select(MessageRow.content)
             .where(MessageRow.session_id == ctx.session_id, MessageRow.role == "user")
             .order_by(MessageRow.id.desc())
         ).first()
-    words = _words(message or "")
+
+
+def asked_to_delete(ctx: ToolContext, path: str) -> bool:
+    """Whether the person's latest message asks to delete this file: a word for deleting,
+    and the file's name ("old-draft.md", or "the old draft")."""
+    words = _words(_latest_message(ctx) or "")
     deleting = bool(words & DELETE_WORDS)
     name = _words(PurePosixPath(path).stem)
     return deleting and bool(name) and name <= words
