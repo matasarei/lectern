@@ -135,6 +135,18 @@ function Origin({
     (kind === "session"
       ? items.sessions.some((s) => s.id === id)
       : items.artifacts.some((a) => a.id === id));
+  const web = webSource(artifact);
+  if (web) {
+    return (
+      <div className="grid gap-1 text-sm">
+        <span className="text-muted">{t("file.from")}</span>
+        <span>{t("file.fromWeb", { host: web.host })}</span>
+        <a className="w-fit break-all text-accent underline" href={web.url} target="_blank" rel="noopener noreferrer">
+          {web.url}
+        </a>
+      </div>
+    );
+  }
   const label =
     kind === "import"
       ? t("overview.fromImport")
@@ -155,6 +167,21 @@ function Origin({
       )}
     </div>
   );
+}
+
+/** A page a chat opened from the web keeps its address as the file's note: the address,
+ * and its host. Only an http(s) address counts, so nothing else becomes a link. */
+export function webSource(artifact: Artifact): { url: string; host: string } | null {
+  const { kind, note } = artifact.from;
+  if (kind !== "import" || !note) return null;
+  try {
+    const url = new URL(note);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? { url: url.href, host: url.hostname }
+      : null;
+  } catch {
+    return null; // a note that isn't an address
+  }
 }
 
 /** Downloads through a blob, because a plain link can't carry the token. */

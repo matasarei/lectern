@@ -23,7 +23,7 @@ CHARS_PER_TOKEN = 3  # a rough, cautious estimate; the context builder counts re
 DEFAULT_MAX_TOKENS = 800
 
 
-async def _nobody_to_ask(_question: str) -> bool:
+async def _nobody_to_ask(_question: str, kind: str = "allow") -> bool:
     return False
 
 
@@ -41,7 +41,9 @@ class ToolContext:
     turn_state: Callable[[int], str] = lambda _session_id: "idle"
     # For tools that wait: ask the person with a card (True = Allow), and report progress
     # to the chat ({"type": "progress", ...}). Outside a turn, nobody can answer: refuse.
-    confirm: Callable[[str], Awaitable[bool]] = field(default=_nobody_to_ask)
+    # The card's kind names its buttons: "allow" (Allow / Don't allow) or "retry" (Try
+    # again / Stop); True is the first either way.
+    confirm: Callable[..., Awaitable[bool]] = field(default=_nobody_to_ask)
     emit: Callable[[dict], None] = lambda _event: None
     # Services a module's tools use; None where the app doesn't provide them (tests).
     runtime: Any = None  # lectern.runtime.supervisor.ModelRuntime

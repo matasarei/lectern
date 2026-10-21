@@ -106,6 +106,16 @@ describe("Overview", () => {
     expect(within(rows[2]).getByText(/14.2 MB · no text layer/)).toBeTruthy();
   });
 
+  it("says which site a page opened from the web came from", () => {
+    const page = artifact(9, "docs.python.org-html-parser.md", {
+      mime: "text/markdown",
+      from: { kind: "import", id: null, note: "https://docs.python.org/3/x.html", title: null },
+    });
+    renderOverview(() => {}, { ...ITEMS, artifacts: [...ITEMS.artifacts, page] });
+    expect(screen.getByTestId("from-9").textContent).toBe("from docs.python.org");
+    expect(screen.getByTestId("from-3").textContent).toBe("imported");
+  });
+
   it("filters by what kind of item it is", () => {
     renderOverview();
     fireEvent.click(screen.getByRole("button", { name: "Produced 1" }));

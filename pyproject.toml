@@ -23,6 +23,8 @@ dependencies = [
     "pillow>=11",
     "odfdo>=3.26,<4",
     "argon2-cffi>=25.1",
+    "ddgs>=9.16,<9.17",
+    "primp>=2.0,<3",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +46,7 @@ ocr = "lectern.modules.ocr:module"
 export-md = "lectern.modules.export_md:module"
 export-docx = "lectern.modules.export_docx:module"
 export-odt = "lectern.modules.export_odt:module"
+web = "lectern.modules.web:module"
 
 [dependency-groups]
 dev = [

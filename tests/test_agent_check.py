@@ -188,7 +188,7 @@ def test_a_conversation_run_checks_compaction_and_the_transcript():
     assert outcome.passed
 
 
-@pytest.mark.parametrize("name", ["calc", "tools", "long"])
+@pytest.mark.parametrize("name", ["calc", "tools", "long", "web"])
 def test_every_set_loads_and_every_prompt_checks_something(name):
     from lectern.dev.agent_check import load
 
@@ -209,6 +209,16 @@ def test_the_tools_set_has_about_30_prompts_and_ends_with_the_trash():
     assert 28 <= len(cases) <= 34  # ~30 (blueprint); grows by a case per real failure seen
     assert cases[-1].tools == ("artifact.trash",)
     assert not any("artifact.trash" in c.tools for c in cases[:-1])
+
+
+def test_the_web_set_keeps_the_projects_own_questions_off_the_web():
+    from lectern.dev.agent_check import load
+
+    cases = {c.id: c for c in load("web").cases}
+    web = {"web.search", "wiki.lookup", "web.fetch"}
+    for case_id in ("project-penalty", "project-tenant", "greeting"):
+        assert web <= set(cases[case_id].forbid), case_id
+    assert {t for c in cases.values() for t in c.tools} >= web  # each tool is reached for
 
 
 def test_the_long_set_is_100_turns_and_quotes_clause_3_3():

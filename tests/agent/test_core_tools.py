@@ -53,6 +53,19 @@ def test_bad_arguments_come_back_as_a_message_the_model_can_use():
         core_tools.LIST.validate({"kind": "everything"})
 
 
+def test_a_file_saved_from_the_web_is_listed_with_its_host(ctx):
+    add_file(ctx, "page.md", "x", files.Origin("import", note="https://docs.python.org/3/x"))
+    add_file(ctx, "notes.md", "x", files.Origin("import", note="from the old archive"))
+    add_file(ctx, "plain.md", "x")
+
+    listed = run(core_tools.LIST, ctx).text.splitlines()
+    assert next(line for line in listed if line.startswith("page.md")).endswith(
+        "· imported from docs.python.org"
+    )
+    assert next(line for line in listed if line.startswith("notes.md")).endswith("· imported")
+    assert next(line for line in listed if line.startswith("plain.md")).endswith("· imported")
+
+
 def test_list_and_find(ctx):
     add_file(ctx, "lease-1998.md", LEASE)
     add_file(ctx, "reply-letter.md", "Dear tenant", files.Origin("session", id=1))

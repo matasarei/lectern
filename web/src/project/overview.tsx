@@ -7,7 +7,7 @@ import type { Artifact, ProjectItems, SearchHit, SessionSummary, Tab } from "../
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
 import { fileType, formatAgo, formatBytes } from "../format";
-import { isPageSource, OpenAsOcr } from "./file";
+import { isPageSource, OpenAsOcr, webSource } from "./file";
 
 type Filter = "all" | "sessions" | "imported" | "produced";
 const FILTERS: Filter[] = ["all", "sessions", "imported", "produced"];
@@ -383,7 +383,10 @@ function DocumentRow({
 function From({ artifact }: { artifact: Artifact }) {
   const { t } = useTranslation();
   const { kind, title } = artifact.from;
-  if (kind === "import") return <>{t("overview.fromImport")}</>;
+  if (kind === "import") {
+    const web = webSource(artifact);
+    return <>{web ? t("overview.fromWeb", { host: web.host }) : t("overview.fromImport")}</>;
+  }
   if (!title) return <>{t("overview.fromGone")}</>;
   return <>{t(kind === "session" ? "overview.fromSession" : "overview.fromArtifact", { title })}</>;
 }

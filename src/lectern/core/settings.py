@@ -29,6 +29,9 @@ MODEL_DEFAULTS: dict[str, Any] = {
     "code": None,
     CLEANUP: None,
 }
+WEB_KEY = "web"
+# Web search (lectern.modules.web): off until an admin switches it on, for the whole install.
+WEB_DEFAULTS: dict[str, Any] = {"enabled": False}
 HARDWARE_KEY = "hardware"
 # The tier this computer had at the last start, to notice that its hardware changed. Never
 # used to decide anything else: the tier itself is worked out from the hardware at each start.

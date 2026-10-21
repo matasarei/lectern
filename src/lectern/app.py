@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -23,14 +24,21 @@ from lectern.api.accounts import SignInGate
 from lectern.api.ws import LOGIN_CHECK_SECONDS
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
+from lectern.core import settings
 from lectern.core.accounts import Logins
 from lectern.core.auth import LOCAL_USER
 from lectern.core.db import make_engine, make_sessionmaker, migrate
-from lectern.core.security import LocalGuard, load_or_create_token, parse_public_urls
+from lectern.core.security import (
+    LocalGuard,
+    load_or_create_token,
+    parse_public_urls,
+    read_secret,
+)
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.modules import (
     EnvProbe,
+    ToolEnv,
     load_modules,
     module_exporters,
     module_routers,
@@ -132,13 +140,21 @@ def create_app(
     app.state.tool_env = EnvProbe()
     app.state.exporters = module_exporters(modules)  # export.run and the Export buttons
     app.state.ocr_jobs = OcrJobs(app.state.runtime, app.state.projects)
+
+    def turn_env() -> ToolEnv:
+        """What the machine offers, and what an admin has switched on. The switch is read for
+        each turn (one small query), so a change shows from the next turn."""
+        web = settings.get(app.state.sessions, settings.WEB_KEY, settings.WEB_DEFAULTS)
+        enabled = web["enabled"] is True
+        # The key is read for each turn too, so a new one is used from the next turn.
+        key = read_secret(paths.web_search_key_file) if enabled else None
+        return replace(app.state.tool_env(), web=enabled, web_key=key)
+
     app.state.turns = TurnManager(
         app.state.runtime,
         app.state.projects,
         # The export tools offer whatever export modules are installed.
-        tool_registry(
-            [*CORE_TOOLS, *export_tools(app.state.exporters)], modules, app.state.tool_env
-        ),
+        tool_registry([*CORE_TOOLS, *export_tools(app.state.exporters)], modules, turn_env),
         downloads=app.state.downloads,
         sandbox=Sandbox(),
         ocr_jobs=app.state.ocr_jobs,

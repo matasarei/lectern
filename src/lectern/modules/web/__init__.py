@@ -1,0 +1,23 @@
+"""The Web module: searching the web and Wikipedia, and opening a page into the project, each
+on the person's Allow. Off until an admin switches it on in Models & memory (the `web`
+setting); its tools are offered from the turn after that."""
+
+from __future__ import annotations
+
+from lectern.agent.tools import AgentTool
+from lectern.modules import ToolEnv
+from lectern.modules.web import api
+from lectern.modules.web.tools import web_tools
+
+
+class WebModule:
+    id = "web"
+    router = api.router  # /api/web/settings
+
+    def tools(self, env: ToolEnv) -> list[AgentTool]:
+        if not env.web:
+            return []
+        return web_tools(env.web_key)
+
+
+module = WebModule()

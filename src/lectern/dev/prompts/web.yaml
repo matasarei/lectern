@@ -1,0 +1,60 @@
+# The web search set: when the chat reaches for web.search, wiki.lookup and web.fetch, and
+# when it must not. It needs web search switched on on the server it runs against (an admin's
+# PUT /api/web/settings {"enabled": true}); with it off, the web cases fail. With Allow (the
+# default) the searches and pages are real: run it where the internet is reachable.
+#
+# `tools`: must be called (any order); "a|b" passes on either. `forbid`: must not be called.
+# `text`: must appear in the answer.
+
+files:
+  - lease-1998.docx        # made at run time: see LEASE_CLAUSES in agent_check.py
+
+prompts:
+  # --- something specific or current: the web ---
+  - id: search-asked
+    prompt: "Search the web for how to fix pip's 'error: externally-managed-environment' on Ubuntu."
+    tools: [web.search]
+  - id: latest-version
+    prompt: "What is the latest version of LibreOffice right now?"
+    tools: [web.search]
+  - id: price
+    prompt: "How much does a Raspberry Pi 5 with 8 GB cost at the moment?"
+    tools: [web.search]
+  - id: search-uk
+    prompt: "Пошукай в інтернеті, яка зараз остання стабільна версія Python."
+    tools: [web.search]
+  - id: search-then-open
+    prompt: "Find the httpx documentation page about streaming responses, open it and save it in the project."
+    tools: [web.search, web.fetch]
+
+  # --- an address the person gives: open it ---
+  - id: open-url
+    prompt: "Open https://docs.python.org/3/library/html.parser.html and tell me what convert_charrefs does."
+    tools: [web.fetch]
+
+  # --- encyclopedic: Wikipedia, or the web, or what the model knows ---
+  - id: wiki-asked
+    prompt: "Look up the Dnipro river on Wikipedia: how long is it?"
+    tools: [wiki.lookup]
+  - id: wiki-uk
+    prompt: "Знайди у Вікіпедії, хто такий Григорій Сковорода."
+    tools: [wiki.lookup]
+  - id: person
+    prompt: "Who was Hryhorii Skovoroda?"
+    text: [Skovoroda]
+    forbid: [web.fetch]
+
+  # --- the project's own files, or nothing to look up: never the web ---
+  - id: project-penalty
+    prompt: "Where does the lease talk about a penalty for late payment?"
+    tools: ["project.search|document.read|document.outline"]
+    forbid: [web.search, wiki.lookup, web.fetch]
+    text: ["3.3"]
+  - id: project-tenant
+    prompt: "Who is the tenant in the lease?"
+    tools: ["document.read|project.search"]
+    forbid: [web.search, wiki.lookup, web.fetch]
+    text: [Ковальчук]
+  - id: greeting
+    prompt: "Hi! How are you today?"
+    forbid: [web.search, wiki.lookup, web.fetch, artifact.write]
