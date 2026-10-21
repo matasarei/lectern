@@ -328,9 +328,15 @@ async def _stream(run: TurnRun, client: httpx2.AsyncClient, body: dict) -> Reply
 # --- tools ---------------------------------------------------------------------------------
 
 
-async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolResult:
+async def run_tool(
+    run: TurnRun,
+    call: dict,
+    failures: dict[str, int],
+    failed: dict[tuple[str, str], str] | None = None,
+) -> ToolResult:
     """Validate, confirm when the tool asks first, run. Raises TurnFailed on a second
-    invalid call in this turn."""
+    invalid call in this turn. `failed` holds this turn's calls that failed, by tool and
+    arguments, with why: the same call again isn't run, or asked about on a card, again."""
     function = call["function"]
     tool = run.registry.get(function["name"])
     shown = tool.name if tool else function["name"]
@@ -347,6 +353,15 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
         if failures[tool.name] > 1:
             raise TurnFailed(str(exc)) from None
         return ToolResult(f"Error: {exc} Fix the arguments and call it again.")
+    # The 4B tries a refused address again and again (2026-10-20: a 403 page four times in
+    # one answer): it would fail the same way, after the same card.
+    key = (tool.name, params.model_dump_json())
+    if failed is not None and key in failed:
+        return ToolResult(
+            f"Error: {tool.name} already failed with these arguments in this answer: "
+            f"{failed[key]} Don't call it with them again: use what you have, or say it "
+            "didn't work."
+        )
 
     async def ask(question: str, kind: str = "allow") -> bool:
         return await _confirm(run, call, tool.name, question, function["arguments"], kind)
@@ -373,7 +388,7 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
                 else f"Run {tool.name}?"
             )
         except ToolError as exc:
-            return ToolResult(f"Error: {exc}")
+            return _failure(failed, key, exc)
         approved = await _confirm(run, call, tool.name, question, function["arguments"])
         if not approved:
             return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
@@ -382,7 +397,15 @@ async def run_tool(run: TurnRun, call: dict, failures: dict[str, int]) -> ToolRe
             return await tool.run(context, params)
         return await run_in_threadpool(tool.run, context, params)
     except ToolError as exc:
-        return ToolResult(f"Error: {exc}")
+        return _failure(failed, key, exc)
+
+
+def _failure(
+    failed: dict[tuple[str, str], str] | None, key: tuple[str, str], exc: ToolError
+) -> ToolResult:
+    if failed is not None:
+        failed[key] = str(exc)
+    return ToolResult(f"Error: {exc}")
 
 
 async def _confirm(
@@ -440,6 +463,7 @@ async def run_turn(run: TurnRun) -> str:
     tokens = 0
     tps: float | None = None
     failures: dict[str, int] = {}
+    failed: dict[tuple[str, str], str] = {}
     calls_left = MAX_MODEL_CALLS
     checked = False
     try:
@@ -492,7 +516,7 @@ async def run_turn(run: TurnRun) -> str:
                     run.emit({"type": "compaction_failed", "detail": "stopped"})
                 return "done"
             for call in reply.calls:
-                result = await run_tool(run, call, failures)
+                result = await run_tool(run, call, failures, failed)
                 await run_in_threadpool(
                     lambda c=call, r=result: store_message(
                         run,

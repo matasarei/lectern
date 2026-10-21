@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS, core_registry
-from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
+from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult
 from lectern.agent.turns import Busy, TurnManager
 from lectern.core.auth import LOCAL_USER
 from lectern.projects import files
@@ -217,6 +217,59 @@ def test_an_unknown_tool_gets_the_list_of_tools(setup):
     manager, project, handle, _ = setup([tool_reply("shell_exec", {"cmd": "ls"}), text_reply("ok")])
     assert asyncio.run(turn(manager, project, "ls")) == "done"
     assert "there is no tool 'shell_exec'" in handle.requests[1]["messages"][-1]["content"]
+
+
+class _OpenParams(BaseModel):
+    url: str
+
+
+def test_a_call_that_failed_isnt_run_or_asked_about_again_in_the_turn(store):
+    opened = []
+
+    def open_page(ctx, params):  # noqa: ANN001, ANN202
+        opened.append(params.url)
+        if params.url == "https://refusing.example/":
+            raise ToolError("refusing.example answered 403.")
+        return ToolResult("Saved.")
+
+    tool = AgentTool(
+        name="demo.open", description="Open a page.", params=_OpenParams, run=open_page,
+        confirm=True, confirm_text=lambda ctx, params: f"Open {params.url}?",
+    )  # fmt: skip
+    refusing, other = {"url": "https://refusing.example/"}, {"url": "https://other.example/"}
+    handle = FakeHandle([
+        tool_reply("demo_open", refusing, "call_1"),
+        tool_reply("demo_open", refusing, "call_2"),
+        tool_reply("demo_open", other, "call_3"),
+        text_reply("Done."),
+    ])  # fmt: skip
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, tool]))
+    project = store.create(LOCAL_USER, "Pages")
+
+    async def scenario():  # noqa: ANN202
+        key = (project.id, 1)
+        await manager.send(project, LOCAL_USER, 1, "open them", [])
+        answered = set()
+        deadline = asyncio.get_running_loop().time() + 5
+        while manager.state(key) != "idle":
+            assert asyncio.get_running_loop().time() < deadline, "the turn didn't end"
+            for card in [e for e in events(manager, project) if e["type"] == "confirm"]:
+                if card["confirmation_id"] not in answered:
+                    answered.add(card["confirmation_id"])
+                    manager.decide(key, card["confirmation_id"], True)
+            await asyncio.sleep(0.01)
+        return await manager.wait(key)
+
+    assert asyncio.run(scenario()) == "done"
+    assert opened == ["https://refusing.example/", "https://other.example/"]
+    cards = [e["text"] for e in events(manager, project) if e["type"] == "confirm"]
+    assert cards == ["Open https://refusing.example/?", "Open https://other.example/?"]
+    again = handle.requests[2]["messages"][-1]["content"]
+    assert again == (
+        "Error: demo.open already failed with these arguments in this answer: "
+        "refusing.example answered 403. Don't call it with them again: use what you have, "
+        "or say it didn't work."
+    )
 
 
 def test_a_turn_stops_after_eight_model_calls(setup):
