@@ -476,7 +476,7 @@ async def run_turn(run: TurnRun) -> str:
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
             tps = reply.tps or tps
-            if hold and not reply.calls and reply.content.strip() and calls_left:
+            if hold and not reply.calls and _states_a_number(reply.content) and calls_left:
                 checked = True
                 calls_left -= 1
                 check = await _call(run, _with_check(history, reply.content), hold=True)
@@ -606,17 +606,25 @@ READS = frozenset(
 
 def _may_check(run: TurnRun, history: History) -> bool:
     """A reply to the person's message could state a sum from memory: the sandbox is running
-    (its tools are offered only then), the turn answers that message itself, right after it
-    or after tools that only read (not a follow-up after another tool, an export once an OCR
-    session finished: its person's message is an older one), and it has a number in it."""
+    (its tools are offered only then), and the turn answers that message itself, right after
+    it or after tools that only read (not a follow-up after another tool, an export once an
+    OCR session finished: its person's message is an older one). Whether the message has a
+    number in it doesn't decide it: a count asked in words ("from one to two hundred") has
+    none, and the 4B answered it from memory 3 times in 3 (2026-10-23)."""
     if run.registry.get("code_run") is None:
         return False
     for message in reversed(history.messages):
         if message["role"] == "user":
-            return re.search(r"\d", message["content"] or "") is not None
+            return True
         if message["role"] == "tool" and message.get("name") not in READS:
             return False
     return False
+
+
+def _states_a_number(draft: str) -> bool:
+    """A held draft is checked only when it has a number in it: one without could be no sum,
+    and is shown with no second model call."""
+    return re.search(r"\d", draft) is not None
 
 
 def _with_check(history: History, draft: str) -> History:
