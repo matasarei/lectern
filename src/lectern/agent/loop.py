@@ -622,7 +622,7 @@ def _may_check(run: TurnRun, history: History) -> bool:
 
 
 def _states_a_number(draft: str) -> bool:
-    """A held draft is checked only when it has a number in it: one without could be no sum,
+    """A held draft is checked only when it has a number in it: one without states no sum,
     and is shown with no second model call."""
     return re.search(r"\d", draft) is not None
 
