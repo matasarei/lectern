@@ -1,7 +1,7 @@
-"""The exact-results check (docs/acceptance/m1b.md): with the sandbox running, a reply to a
-message with a number in it, given without any tool, is held back and the model is asked
-once whether it states an exact result. If it does, it computes it with code_write and
-code_run, and the draft is never shown; if not (NO_CALC), the draft is the answer."""
+"""The exact-results check (docs/acceptance/m1b.md): with the sandbox running, a reply to the
+person's message given without any tool is held back, and if it has a number in it the model
+is asked once whether it states an exact result. If it does, it computes it with code_write
+and code_run, and the draft is never shown; if not (NO_CALC), the draft is the answer."""
 
 from __future__ import annotations
 
@@ -143,13 +143,31 @@ def test_asked_again_and_answering_from_memory_again_shows_the_first_answer(stor
     assert [r[0] for r in transcript(store, project)] == ["user", "assistant"]
 
 
-def test_a_message_with_no_number_is_answered_as_ever(store):
+def test_a_reply_with_no_number_isnt_checked_and_shows_at_once(store):
     manager, project, handle = _manager(store, [text_reply("Hello", ", I can help.")])
 
     status, seen = _run(manager, project, "Hi! What can you help me with?")
 
-    assert status == "done" and len(handle.requests) == 1
-    assert [e["text"] for e in seen if e["type"] == "delta"] == ["Hello", ", I can help."]
+    assert status == "done" and len(handle.requests) == 1  # nothing in it to compute
+    assert [e["text"] for e in seen if e["type"] == "delta"] == ["Hello, I can help."]
+
+
+def test_a_count_asked_in_words_is_computed_instead(store):
+    """digit-count-words on the 4B (2026-10-23): no digit in the question, answered from
+    memory 3 times in 3. The draft has the number, so the draft is what's checked."""
+    manager, project, handle = _manager(store, [
+        text_reply("This is general knowledge. ", "You write the digit one **120** times."),
+        tool_reply("code_write", {"brief": "Count the digit 1 in the numbers 1 to 200."}),
+        tool_reply("code_run", {}, call_id="call_2"),
+        text_reply("You write the digit one **140** times."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, "You write down the numbers from one to two "
+                        "hundred. How many times do you write the digit one?")  # fmt: skip
+
+    assert status == "done" and RAN == ["code.write", "code.run"]
+    assert _shown(seen) == "You write the digit one **140** times."
+    assert "120" not in str(seen) and "120" not in str(transcript(store, project))
 
 
 def test_without_the_sandbox_there_is_no_check(store):
@@ -257,6 +275,33 @@ def test_stop_while_held_stores_nothing_the_person_didnt_see(store):
     assert [r[0] for r in transcript(store, project)] == ["user"]  # not the unchecked draft
 
 
+def test_stop_during_a_held_reply_with_no_number_stores_nothing(store, monkeypatch):
+    """Every reply with no tool is held now, a letter as much as a sum: stopped while it's
+    written, none of it was shown, so none of it is kept (unheld, the partial text is)."""
+    manager, project, _ = _manager(store, [])
+    started: list[bool] = []
+
+    async def writing(run, client, body):  # noqa: ANN001, ANN202, ARG001
+        run.emit({"type": "delta", "text": "Dear tenant, "})
+        started.append(True)
+        await asyncio.Event().wait()  # still writing when the turn is stopped
+
+    monkeypatch.setattr(loop, "_stream", writing)
+
+    async def scenario():  # noqa: ANN202
+        async with manager.channel((project.id, 1)).listen() as (_, queue):
+            await manager.send(project, LOCAL_USER, 1, "Write a letter to the tenant.", [])
+            await until(lambda: bool(started))
+            assert await manager.stop((project.id, 1))
+            status = await manager.wait((project.id, 1))
+            return status, [queue.get_nowait() for _ in range(queue.qsize())]
+
+    status, seen = asyncio.run(scenario())
+
+    assert status == "stopped" and _shown(seen) == ""
+    assert [r[0] for r in transcript(store, project)] == ["user"]
+
+
 def test_a_follow_up_after_a_tool_isnt_checked_though_the_older_message_has_a_number():
     """A follow-up turn (an export run once an OCR session finished) answers a tool's result:
     the person's message before it ("Scan lease-1998.pdf…") isn't what the reply is about."""
@@ -278,6 +323,9 @@ def test_a_follow_up_after_a_tool_isnt_checked_though_the_older_message_has_a_nu
     ran = {**read, "name": "code.run"}
     assert not loop._may_check(run, loop.History([*after_reading, ran], [], None))
     assert not loop._may_check(run, loop.History([], [], None))
+    # A message with no digit may still be answered with a sum: the draft decides.
+    in_words = {"id": 1, "role": "user", "content": "How many days are there in a leap year?"}
+    assert loop._may_check(run, loop.History([in_words], [], None))
 
 
 # March 2027's working days, worked out day by day in text: answered from memory in 1,917
@@ -302,9 +350,9 @@ def test_a_long_sum_answered_from_memory_is_held_whole_and_computed_instead(stor
 
 
 def test_a_long_reply_with_nothing_to_compute_is_shown_whole_once_checked(store):
-    """An essay about the 1920s isn't a sum, but its question has a number: it waits for the
-    check like any other reply that might be one, then appears at once."""
-    essay = "a" * 1000 + "b" * 1000 + "c" * 10
+    """An essay about the 1920s isn't a sum, but it has numbers in it: it waits for the check
+    like any other reply that might be one, then appears at once."""
+    essay = "In 1925 " + "a" * 1000 + "b" * 1000 + "c" * 10
     manager, project, handle = _manager(
         store, [text_reply(essay[:1000], essay[1000:2000], essay[2000:]), text_reply("NO_CALC")]
     )

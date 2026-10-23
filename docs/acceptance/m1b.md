@@ -127,6 +127,43 @@ The check costs nothing where it doesn't apply, and didn't break the general que
 - **The tools set** (34 prompts): 33 and 32 passed, against 30 and 30 on `main`. The failures are the known ones: due-day ran out of model calls in its search loops (both runs), and find-notes once.
 - **"What do you know about Old Church Slavonic?"** (Russian and English, 5 runs each): all 10 answered from general knowledge, none refused. Two Russian answers didn't name Cyril, which the set looks for. Those questions have no number, so the check never ran on them.
 
+### Again on 2026-10-23: a count in words isn't checked
+
+Two prompts added after the 20: "You write down the numbers from 1 to 200. How many times do you write the digit 1?" (`digit-count`, 140), and the same question with the numbers in words (`digit-count-words`). The words one has no digit, so the loop's check (`_may_check` in `src/lectern/agent/loop.py`) doesn't run on it. The same Mac and models (`LECTERN_TIER=minimum`), on `main` `33fc8fc` with the two prompts added.
+
+| Run | Passed | `code.run` used | Right answer | digit-count | digit-count-words |
+|---|---|---|---|---|---|
+| 1 | 18/22 | 21/22 | 19/22 | 140, through `code.run` | 140, no tool |
+| 2 | 19/22 | 21/22 | 20/22 | 140, through `code.run` | 140, no tool |
+| 3 | 18/22 | 21/22 | 19/22 | 140, through `code.run` | 140, no tool |
+
+**The gap is real:** in all three runs the words question was answered from memory, opening with "This is general knowledge, not from the project's files", and worked out place by place in the text. The number was right each time, which is the danger the rule is there for: nothing checked it. With a digit in the question, the check holds the rule (3 of 3 through `code.run`).
+
+The 20 original prompts: `code.run` in 20/20 every run; passed 17, 18, 17. The wrong answers came from scripts, as before: vat 300.00 (twice) and 1,250.00, where it is 250.00; penalty 0.64, 25.00 and 6,250.00, where it is 62.50; workdays 31 and 27, where it is 23 (right in run 2).
+
+**Fixed the same day** (`e2b01e6`): every reply to the person's message given without a tool is held while the sandbox runs, and the draft decides: one with a number in it is checked, one without is shown at once with no second model call. The same Mac, models and scratch home:
+
+| Run | Passed | `code.run` used | Right answer | digit-count | digit-count-words |
+|---|---|---|---|---|---|
+| 1 | 20/22 | 22/22 | 20/22 | 140, through `code.run` | 140, through `code.run` |
+| 2 | 20/22 | 22/22 | 20/22 | 140, through `code.run` | 21, through `code.run` |
+| 3 | 22/22 | 22/22 | 22/22 | 140, through `code.run` | 140, through `code.run` |
+
+No prompt was answered without `code.run`. The wrong answers came from scripts: digit-count-words' brief in run 2 said "1 to 100"; sum 3,191.04 (where it is 4,172.04) and workdays 22 and 29 (where it is 23).
+
+**The tools set** (34 prompts), twice: 30 and 29 passed, right tools 34/34 both times, so the check started no stray `code.write`. The failures aren't the check's: area, search-penalty, due-day and quote-3-3 ran out of model calls in search loops (tool calls, which are never checked); write-summary saved the file but didn't name it ("Done.", as in an earlier run on `main`); general-language's Russian answer didn't name Cyril (as before); calc-penalty's script gave 0.25. Earlier runs of the set: 28 to 33.
+
+**What it costs:** a reply with no tool now appears whole instead of streaming in. On the tools set's six prompts answered without a tool (greeting, general questions), the whole reply took 0.3–2.5 s, 0.96 s on average, against 1.04 s before (the general-history answer has a year in it, so it is checked: 1.1 s against 0.9 s). On a slower card the wait grows with the reply's length.
+
+**The wrong range in a brief** (`5436f06`): run 2's 21 came from the 4B's brief, which turned "from one to two hundred" into "from 1 to 100". The coder gets the person's words too, with the rule that they win over the task, but the 1.5B followed the task and counted 21, right for the wrong range. digit-count-words alone, 15 runs each:
+
+| `code_write`'s brief asks for the person's numbers… | Brief's range right | Answer 140 |
+|---|---|---|
+| "as they gave them" (before) | 12/15: three said 1 to 100, one of them then wrote a second brief for 1 to 200 | 13/15 |
+| "copied as they wrote them, in words when they wrote words" (after) | 15/15 | 15/15 |
+
+The 4B still wrote the range in digits every time, but correctly. Three wrong in 15 isn't far from none, so this may be partly luck. The whole calc set twice after the change: 18 and 20 of 22, `code.run` in 21 and 22. The failures are the known ones (workdays' brief stating March 2027's weekdays from memory; the penalty, durations and csv-count scripts) and one not seen before: stdev's script name ended in `.py` twice, which the name pattern refuses.
+
 ## Notes
 
 - **Real-engine tests** (`pytest -m sandbox` with `LECTERN_TEST_SANDBOX_IMAGE=python:3-slim`) pass on this Mac:

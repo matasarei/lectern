@@ -353,8 +353,9 @@ class WriteParams(BaseModel):
         min_length=10,
         max_length=4000,
         description=(
-            "What the script must compute, with the person's numbers, dates and file names as "
-            "they gave them. Work nothing out here: the script does."
+            "What the script must compute, with the person's numbers, dates and file names "
+            'copied as they wrote them, in words when they wrote words ("from one to two '
+            'hundred"). Work nothing out here: the script does.'
         ),
     )
     inputs: list[str] = Field(

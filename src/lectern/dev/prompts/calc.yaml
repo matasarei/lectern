@@ -1,6 +1,7 @@
-# The 20 calculation prompts (blueprint, M1): every one must be answered through code.run,
-# and the answer must contain the expected numbers (or words). Expected values were computed
-# with Python when this file was written, not by hand; see the comment on each.
+# The 20 calculation prompts (blueprint, M1), and two added since: every one must be answered
+# through code.run, and the answer must contain the expected numbers (or words). Expected
+# values were computed with Python when this file was written, not by hand; see the comment
+# on each.
 #
 # `numbers`: each must appear in the answer (thousands separators and a decimal comma are
 # fine; within 0.005). `text`: each must appear, ignoring case. `files`: imported into the
@@ -76,3 +77,13 @@ prompts:
   - id: xlsx-sum
     prompt: "How many hours in total are listed in hours.xlsx?"
     numbers: [39.25]                      # 7.5 + 8 + 6.25 + 9 + 8.5
+  # Added 2026-10-23, after the blueprint's 20: a count a small model works out in its head to a
+  # believable wrong number (120, 130). The second has no digit in it: the loop's check for a
+  # sum from memory once ran only on a message with one, and the 4B answered it from memory
+  # 3 times in 3 (docs/acceptance/m1b.md). It stays so that gap can't come back unseen.
+  - id: digit-count
+    prompt: "You write down the numbers from 1 to 200. How many times do you write the digit 1?"
+    numbers: [140]                        # "".join(map(str, range(1, 201))).count("1")
+  - id: digit-count-words
+    prompt: "You write down the numbers from one to two hundred. How many times do you write the digit one?"
+    numbers: [140]                        # the same count
