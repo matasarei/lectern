@@ -127,6 +127,20 @@ The check costs nothing where it doesn't apply, and didn't break the general que
 - **The tools set** (34 prompts): 33 and 32 passed, against 30 and 30 on `main`. The failures are the known ones: due-day ran out of model calls in its search loops (both runs), and find-notes once.
 - **"What do you know about Old Church Slavonic?"** (Russian and English, 5 runs each): all 10 answered from general knowledge, none refused. Two Russian answers didn't name Cyril, which the set looks for. Those questions have no number, so the check never ran on them.
 
+### Again on 2026-10-23: a count in words isn't checked
+
+Two prompts added after the 20: "You write down the numbers from 1 to 200. How many times do you write the digit 1?" (`digit-count`, 140), and the same question with the numbers in words (`digit-count-words`). The words one has no digit, so the loop's check (`_may_check` in `src/lectern/agent/loop.py`) doesn't run on it. The same Mac and models (`LECTERN_TIER=minimum`), on `main` `33fc8fc` with the two prompts added.
+
+| Run | Passed | `code.run` used | Right answer | digit-count | digit-count-words |
+|---|---|---|---|---|---|
+| 1 | 18/22 | 21/22 | 19/22 | 140, through `code.run` | 140, no tool |
+| 2 | 19/22 | 21/22 | 20/22 | 140, through `code.run` | 140, no tool |
+| 3 | 18/22 | 21/22 | 19/22 | 140, through `code.run` | 140, no tool |
+
+**The gap is real:** in all three runs the words question was answered from memory, opening with "This is general knowledge, not from the project's files", and worked out place by place in the text. The number was right each time, which is the danger the rule is there for: nothing checked it. With a digit in the question, the check holds the rule (3 of 3 through `code.run`).
+
+The 20 original prompts: `code.run` in 20/20 every run; passed 17, 18, 17. The wrong answers came from scripts, as before: vat 300.00 (twice) and 1,250.00, where it is 250.00; penalty 0.64, 25.00 and 6,250.00, where it is 62.50; workdays 31 and 27, where it is 23 (right in run 2).
+
 ## Notes
 
 - **Real-engine tests** (`pytest -m sandbox` with `LECTERN_TEST_SANDBOX_IMAGE=python:3-slim`) pass on this Mac:
