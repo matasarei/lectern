@@ -61,9 +61,9 @@ def test_passing_needs_the_tool_and_the_right_answer():
     )
 
 
-def test_the_calc_set_has_20_prompts_and_its_files():
+def test_the_calc_set_has_22_prompts_and_its_files():
     cases, files = load_set("calc")
-    assert len(cases) == 20 and len({c.id for c in cases}) == 20
+    assert len(cases) == 22 and len({c.id for c in cases}) == 22
     assert all(c.numbers or c.text for c in cases)
     assert [f.name for f in files] == ["payments.csv", "hours.xlsx"]
     assert all(f.is_file() for f in files)
