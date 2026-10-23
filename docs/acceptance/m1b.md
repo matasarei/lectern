@@ -155,6 +155,15 @@ No prompt was answered without `code.run`. The wrong answers came from scripts: 
 
 **What it costs:** a reply with no tool now appears whole instead of streaming in. On the tools set's six prompts answered without a tool (greeting, general questions), the whole reply took 0.3–2.5 s, 0.96 s on average, against 1.04 s before (the general-history answer has a year in it, so it is checked: 1.1 s against 0.9 s). On a slower card the wait grows with the reply's length.
 
+**The wrong range in a brief** (`5436f06`): run 2's 21 came from the 4B's brief, which turned "from one to two hundred" into "from 1 to 100". The coder gets the person's words too, with the rule that they win over the task, but the 1.5B followed the task and counted 21, right for the wrong range. digit-count-words alone, 15 runs each:
+
+| `code_write`'s brief asks for the person's numbers… | Brief's range right | Answer 140 |
+|---|---|---|
+| "as they gave them" (before) | 12/15: three said 1 to 100, one of them then wrote a second brief for 1 to 200 | 13/15 |
+| "copied as they wrote them, in words when they wrote words" (after) | 15/15 | 15/15 |
+
+The 4B still wrote the range in digits every time, but correctly. Three wrong in 15 isn't far from none, so this may be partly luck. The whole calc set twice after the change: 18 and 20 of 22, `code.run` in 21 and 22. The failures are the known ones (workdays' brief stating March 2027's weekdays from memory; the penalty, durations and csv-count scripts) and one not seen before: stdev's script name ended in `.py` twice, which the name pattern refuses.
+
 ## Notes
 
 - **Real-engine tests** (`pytest -m sandbox` with `LECTERN_TEST_SANDBOX_IMAGE=python:3-slim`) pass on this Mac:
