@@ -275,6 +275,33 @@ def test_stop_while_held_stores_nothing_the_person_didnt_see(store):
     assert [r[0] for r in transcript(store, project)] == ["user"]  # not the unchecked draft
 
 
+def test_stop_during_a_held_reply_with_no_number_stores_nothing(store, monkeypatch):
+    """Every reply with no tool is held now, a letter as much as a sum: stopped while it's
+    written, none of it was shown, so none of it is kept (unheld, the partial text is)."""
+    manager, project, _ = _manager(store, [])
+    started: list[bool] = []
+
+    async def writing(run, client, body):  # noqa: ANN001, ANN202, ARG001
+        run.emit({"type": "delta", "text": "Dear tenant, "})
+        started.append(True)
+        await asyncio.Event().wait()  # still writing when the turn is stopped
+
+    monkeypatch.setattr(loop, "_stream", writing)
+
+    async def scenario():  # noqa: ANN202
+        async with manager.channel((project.id, 1)).listen() as (_, queue):
+            await manager.send(project, LOCAL_USER, 1, "Write a letter to the tenant.", [])
+            await until(lambda: bool(started))
+            assert await manager.stop((project.id, 1))
+            status = await manager.wait((project.id, 1))
+            return status, [queue.get_nowait() for _ in range(queue.qsize())]
+
+    status, seen = asyncio.run(scenario())
+
+    assert status == "stopped" and _shown(seen) == ""
+    assert [r[0] for r in transcript(store, project)] == ["user"]
+
+
 def test_a_follow_up_after_a_tool_isnt_checked_though_the_older_message_has_a_number():
     """A follow-up turn (an export run once an OCR session finished) answers a tool's result:
     the person's message before it ("Scan lease-1998.pdf…") isn't what the reply is about."""
