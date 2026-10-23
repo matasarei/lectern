@@ -141,6 +141,20 @@ Two prompts added after the 20: "You write down the numbers from 1 to 200. How m
 
 The 20 original prompts: `code.run` in 20/20 every run; passed 17, 18, 17. The wrong answers came from scripts, as before: vat 300.00 (twice) and 1,250.00, where it is 250.00; penalty 0.64, 25.00 and 6,250.00, where it is 62.50; workdays 31 and 27, where it is 23 (right in run 2).
 
+**Fixed the same day** (`e2b01e6`): every reply to the person's message given without a tool is held while the sandbox runs, and the draft decides: one with a number in it is checked, one without is shown at once with no second model call. The same Mac, models and scratch home:
+
+| Run | Passed | `code.run` used | Right answer | digit-count | digit-count-words |
+|---|---|---|---|---|---|
+| 1 | 20/22 | 22/22 | 20/22 | 140, through `code.run` | 140, through `code.run` |
+| 2 | 20/22 | 22/22 | 20/22 | 140, through `code.run` | 21, through `code.run` |
+| 3 | 22/22 | 22/22 | 22/22 | 140, through `code.run` | 140, through `code.run` |
+
+No prompt was answered without `code.run`. The wrong answers came from scripts: digit-count-words' brief in run 2 said "1 to 100"; sum 3,191.04 (where it is 4,172.04) and workdays 22 and 29 (where it is 23).
+
+**The tools set** (34 prompts), twice: 30 and 29 passed, right tools 34/34 both times, so the check started no stray `code.write`. The failures aren't the check's: area, search-penalty, due-day and quote-3-3 ran out of model calls in search loops (tool calls, which are never checked); write-summary saved the file but didn't name it ("Done.", as in an earlier run on `main`); general-language's Russian answer didn't name Cyril (as before); calc-penalty's script gave 0.25. Earlier runs of the set: 28 to 33.
+
+**What it costs:** a reply with no tool now appears whole instead of streaming in. On the tools set's six prompts answered without a tool (greeting, general questions), the whole reply took 0.3–2.5 s, 0.96 s on average, against 1.04 s before (the general-history answer has a year in it, so it is checked: 1.1 s against 0.9 s). On a slower card the wait grows with the reply's length.
+
 ## Notes
 
 - **Real-engine tests** (`pytest -m sandbox` with `LECTERN_TEST_SANDBOX_IMAGE=python:3-slim`) pass on this Mac:
