@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -17,7 +18,10 @@ from lectern.projects.tables import ConfirmationRow, MessageRow, SessionRow
 def test_a_new_project_is_a_folder_with_its_database_and_one_empty_chat(store, paths):
     project = store.create(LOCAL_USER, "Lease archive 1998")
 
-    assert project.root == paths.home / "users" / "local" / "projects" / "Lease archive 1998"
+    with store.app_sessions() as session:
+        row = session.get(ProjectRow, project.id)
+    assert project.root == paths.home / "users" / "local" / "projects" / row.uuid
+    assert str(uuid.UUID(row.uuid, version=4)) == row.uuid  # lower case, with hyphens
     assert (project.root / ".lectern" / "project.sqlite").is_file()
     with store.db(project)() as session:
         chats = session.scalars(select(SessionRow)).all()
@@ -27,7 +31,8 @@ def test_a_new_project_is_a_folder_with_its_database_and_one_empty_chat(store, p
 def test_projects_with_the_same_name_get_their_own_folders(store):
     first = store.create(LOCAL_USER, "Notes")
     second = store.create(LOCAL_USER, "Notes")
-    assert (first.root.name, second.root.name) == ("Notes", "Notes 2")
+    assert first.root != second.root
+    assert first.root.parent == second.root.parent
     assert first.name == second.name == "Notes"
 
 
@@ -66,11 +71,13 @@ def test_someone_elses_project_is_not_found(store):
     assert [p.id for p in store.list(other)] == [theirs.id]
 
 
-def test_rename_keeps_the_folder(store):
+def test_rename_keeps_the_folder_and_the_uuid(store):
     project = store.create(LOCAL_USER, "Untitled project")
     renamed = store.rename(LOCAL_USER, project.id, "Payment terms\n")
     assert renamed.name == "Payment terms"
     assert renamed.root == project.root
+    with store.app_sessions() as session:
+        assert session.get(ProjectRow, project.id).uuid == project.root.name
 
 
 def test_reopening_a_project_uses_the_migrated_database(store, paths):
@@ -348,7 +355,15 @@ def test_two_removed_projects_with_one_name_keep_their_own_folders_in_the_trash(
     for project in (first, second):
         timed.move_to_trash(timed.remove(LOCAL_USER, project.id, "Notes"))
     names = sorted(p.name for p in paths.projects_trash("local").iterdir())
-    assert names == ["Notes 2 20261015-093000", "Notes 20261015-093000"]
+    assert names == ["Notes 20261015-093000", "Notes 20261015-093000 2"]
+
+
+def test_a_renamed_project_is_in_the_trash_under_its_name_now(timed, paths):
+    project = timed.create(LOCAL_USER, "Untitled project")
+    timed.rename(LOCAL_USER, project.id, "Lease: 1998")
+    timed.move_to_trash(timed.remove(LOCAL_USER, project.id, "Lease: 1998"))
+    names = [p.name for p in paths.projects_trash("local").iterdir()]
+    assert names == ["Lease- 1998 20261015-093000"]
 
 
 def test_a_removed_project_is_deleted_after_30_days_and_not_before(timed, clock, paths):

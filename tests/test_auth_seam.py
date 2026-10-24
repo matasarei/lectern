@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -308,7 +309,7 @@ def test_a_project_lands_in_its_owners_folder(family, paths):
     for login, folder in (("olena", "olena"), ("yevhen", "local")):  # the admin was `local`
         client, headers = as_(login)
         made = client.post("/api/projects", json={"name": "Scans"}, headers=headers).json()
-        assert made["folder"] == str(paths.home / "users" / folder / "projects" / "Scans")
+        assert Path(made["folder"]).parent == paths.home / "users" / folder / "projects"
 
 
 def test_a_follow_up_runs_as_the_chats_owner(family):

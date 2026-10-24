@@ -126,6 +126,43 @@ def test_projects_made_before_removal_existed_are_not_removed(tmp_path):
     engine.dispose()
 
 
+def test_projects_made_before_uuids_get_one_each_and_keep_their_folders(tmp_path):
+    """0006: a UUID for every project there was, each its own; the folder isn't renamed."""
+    import uuid
+
+    import sqlalchemy as sa
+    from sqlalchemy import text
+
+    from lectern.core.db import migrate
+
+    engine = make_engine(tmp_path / "app.sqlite")
+    _upgrade(engine, "0005")
+    with engine.begin() as connection:
+        for name in ("Lease", "Untitled project"):
+            connection.execute(
+                text(
+                    "INSERT INTO projects (owner_id, name, root_kind, root_path, created_at)"
+                    " VALUES (1, :name, 'managed', :path, '2026-10-01 00:00:00')"
+                ),
+                {"name": name, "path": f"/p/{name}"},
+            )
+
+    migrate(engine)
+    migrate(engine)  # and again: nothing more to do
+
+    with engine.connect() as connection:
+        rows = connection.execute(text("SELECT name, root_path, uuid FROM projects")).all()
+        with pytest.raises(sa.exc.IntegrityError):
+            connection.execute(text("UPDATE projects SET uuid = :u"), {"u": rows[0].uuid})
+    assert [(r.name, r.root_path) for r in rows] == [
+        ("Lease", "/p/Lease"),
+        ("Untitled project", "/p/Untitled project"),
+    ]
+    assert len({r.uuid for r in rows}) == 2
+    assert all(str(uuid.UUID(r.uuid, version=4)) == r.uuid for r in rows)
+    engine.dispose()
+
+
 def test_the_accounts_tables_refuse_what_cant_be(tmp_path):
     import sqlalchemy as sa
     from sqlalchemy import text

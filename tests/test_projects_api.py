@@ -33,7 +33,7 @@ def test_create_list_get_and_rename(api, paths):
     body = created.json()
     assert body["name"] == "Lease archive 1998"
     assert body["first_chat_id"] == 1
-    assert Path(body["folder"]) == paths.projects_root("local") / "Lease archive 1998"
+    assert Path(body["folder"]).parent == paths.projects_root("local")
 
     untitled = client.post("/api/projects", json={}, headers=headers).json()
     assert untitled["name"] == "Untitled project"

@@ -8,6 +8,7 @@ there are accounts (see `lectern.core.accounts`).
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import (
     BigInteger,
@@ -79,6 +80,10 @@ class ProjectRow(Base):
     __table_args__ = (CheckConstraint("root_kind IN ('managed', 'linked')", name="root_kind"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Set once, never changed; a new managed project's folder is named after it.
+    uuid: Mapped[str] = mapped_column(
+        String(36), unique=True, index=True, default=lambda: str(uuid4())
+    )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     root_kind: Mapped[str] = mapped_column(String(16), default="managed")
