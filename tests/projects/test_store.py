@@ -52,9 +52,14 @@ def test_folder_names_are_safe_everywhere(name, folder):
     assert folder_name(name) == folder
 
 
-def test_folder_name_never_leaves_the_projects_root(store, paths):
-    project = store.create(LOCAL_USER, "../../escape")
-    assert project.root.parent == paths.projects_root("local")
+def test_a_project_name_never_takes_its_folder_out_of_the_trash(timed, paths):
+    """The trash is the one place a project's name becomes a folder's."""
+    project = timed.create(LOCAL_USER, "../../escape")
+    timed.move_to_trash(timed.remove(LOCAL_USER, project.id, "../../escape"))
+    (folder,) = paths.projects_trash("local").iterdir()
+    assert folder.name == "_-..-escape 20261015-093000"  # no separator left: one folder
+    with timed.app_sessions() as session:
+        assert Path(session.get(ProjectRow, project.id).root_path) == folder
 
 
 def test_someone_elses_project_is_not_found(store):
