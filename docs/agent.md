@@ -70,11 +70,13 @@ Scripts run in a container through the Podman or Docker command line, whichever 
 Podman tried first (`modules/sandbox/container.py`):
 
 ```
-<engine> run --rm --network none --read-only --cap-drop ALL \
+<engine> run --rm --name <run> --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges --user 65534:65534 --pids-limit 128 \
   --memory 1g --cpus 2 --tmpfs /tmp \
-  --mount <script>:/job/main.py:ro --mount <input>:/in/<name>:ro … \
-  --mount <job>/out:/out  lectern-sandbox:2 python /job/main.py
+  --mount type=bind,source=<script>,target=/job/main.py,readonly \
+  --mount type=bind,source=<input>,target=/in/<name>,readonly … \
+  --mount type=bind,source=<job>/out,target=/out \
+  lectern-sandbox:2 python /job/main.py
 ```
 
 - **The image** is built on the machine the first time, after asking (about 250 MB), from
