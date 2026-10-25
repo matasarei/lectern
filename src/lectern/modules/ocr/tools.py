@@ -1,4 +1,4 @@
-"""The OCR module's chat tools (blueprint, "Tools"):
+"""The OCR module's chat tools (docs/agent.md, "Tools"):
 - ocr.start: an OCR session for a PDF or image, opened in a new tab. It asks first, with a
   card giving the pages, the time it takes and whether the chat model is unloaded meanwhile,
   and it can queue an export for when the session finishes ("convert this scan to ODT").

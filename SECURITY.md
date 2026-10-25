@@ -17,7 +17,8 @@ Lectern is pre-MVP and has no releases yet. Only the latest `main` gets fixes; u
 
 ## How Lectern is protected
 
-What a report is measured against. The details are in the README's install sections.
+What a report is measured against. The details are in the README's install sections, and
+each defence, with where it is in the code, in [`docs/security.md`](docs/security.md).
 
 - **It listens on `127.0.0.1` only**, unless `LECTERN_HOST=0.0.0.0` says otherwise, and that
   needs `LECTERN_PUBLIC_URL`. The model servers it starts stay on `127.0.0.1` either way.

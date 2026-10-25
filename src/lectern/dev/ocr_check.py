@@ -1,4 +1,4 @@
-"""The OCR check (blueprint, M2): score candidate OCR models on your own pages.
+"""The OCR check (M2, docs/acceptance/m2a.md): score candidate OCR models on your own pages.
 
 Each model's text is compared with a reference text you corrected by hand. The main scores
 ignore reading order, which each model picks for itself on tables and side-by-side blocks:

@@ -65,7 +65,7 @@ def _lease() -> Document:
     )
 
 
-def test_the_document_round_trips_through_json_with_the_blueprints_schema_key():
+def test_the_document_round_trips_through_json_with_its_schema_key():
     doc = _lease()
     raw = json.loads(doc.to_json())
 

@@ -1,4 +1,4 @@
-"""The Document an OCR session publishes (blueprint, "Documents made for the chat to read").
+"""The Document an OCR session publishes (docs/ocr.md, "The Document").
 
 `document.json` is the source of truth: blocks (headings, paragraphs, tables, lists,
 signatures, stamps, figures), each with a stable id and its source page, and the doubts in it

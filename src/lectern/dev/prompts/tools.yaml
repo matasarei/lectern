@@ -1,4 +1,4 @@
-# The tool-calling set (blueprint, M1): ~30 prompts that small models get wrong in typical
+# The tool-calling set (M1, docs/acceptance/m1c.md): ~30 prompts that small models get wrong in typical
 # ways: the wrong tool, invented arguments, acting on instructions found inside a file, or
 # changing files when only asked a question.
 #

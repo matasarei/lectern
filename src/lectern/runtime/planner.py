@@ -1,9 +1,9 @@
 """The fit planner: how to load a model into the memory that's left.
 
-Pure functions. The order of tries follows the blueprint: the tier's context with an f16 KV
-cache, then a q8_0 KV cache, then shorter contexts (never below 4096). If even that doesn't
-fit on the GPU, llama.cpp's `--fit` moves layers to the CPU; the planner only checks that the
-result would still be fast enough for chat.
+Pure functions. The order of tries (docs/models.md, "Fitting a model"): the tier's context
+with an f16 KV cache, then a q8_0 KV cache, then shorter contexts (never below 4096). If even
+that doesn't fit on the GPU, llama.cpp's `--fit` moves layers to the CPU; the planner only
+checks that the result would still be fast enough for chat.
 """
 
 from __future__ import annotations

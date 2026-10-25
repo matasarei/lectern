@@ -1,4 +1,4 @@
-# The long-chat test (blueprint, M1): 100 turns in one chat on a small context, then an exact
+# The long-chat test (M1, docs/acceptance/m1c.md): 100 turns in one chat on a small context, then an exact
 # quote from a document. It passes when the quote is exact, compaction ran, and the
 # transcript still has every message. The filler is short on purpose: many turns, each cheap.
 

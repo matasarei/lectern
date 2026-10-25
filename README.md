@@ -39,9 +39,9 @@ switches it on.
 - **Hardware:** 4 GB VRAM + 16 GB RAM at least; 8 GB VRAM + 16 GB RAM recommended.
 - **Installers:** Linux (x86_64, systemd), macOS (Apple Silicon, 13 or newer) and Windows (x64,
   10 or 11).
-- **Status:** MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html); open it in a
-  browser. What was checked on which machine, and what's still to run by hand on Windows and
-  Linux: [`docs/acceptance/m4.md`](docs/acceptance/m4.md).
+- **Status:** MVP. How it works: [`docs/`](docs/README.md). What was checked on which machine,
+  and what's still to run by hand on Windows and Linux:
+  [`docs/acceptance/m4.md`](docs/acceptance/m4.md).
 
 ## Quick start
 

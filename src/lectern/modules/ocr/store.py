@@ -1,7 +1,7 @@
 """An OCR session's files and rows.
 
-The output folder sits in the project, named after the source file, as the blueprint lays it
-out: `<Title>/pages/p001.png`, `p001.ocr.md` (the page's current text) and one
+The output folder sits in the project, named after the source file, as docs/ocr.md lays
+it out: `<Title>/pages/p001.png`, `p001.ocr.md` (the page's current text) and one
 `p001.<model_id>.ocr.md` per model that read it, so readings can be compared. The token
 log-probabilities go beside them in `p001.<model_id>.json`, for M3's doubt spans. These files
 belong to the session: they aren't listed as project files.

@@ -1,6 +1,6 @@
 # M1b acceptance: the script sandbox and the coding model
 
-The blueprint's M1 test for exact answers: 20 calculation prompts, and none may be answered without `code.run`. `lectern dev agent-check --set calc` sends each prompt to a fresh chat and scores it on two things: did the chat use `code.run`, and does the answer contain the expected numbers. The prompts and the expected values are in `src/lectern/dev/prompts/calc.yaml`; the expected values were computed with Python.
+The MVP plan's M1 test for exact answers: 20 calculation prompts, and none may be answered without `code.run`. `lectern dev agent-check --set calc` sends each prompt to a fresh chat and scores it on two things: did the chat use `code.run`, and does the answer contain the expected numbers. The prompts and the expected values are in `src/lectern/dev/prompts/calc.yaml`; the expected values were computed with Python.
 
 ## How to run it
 

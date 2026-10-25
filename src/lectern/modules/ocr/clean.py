@@ -1,4 +1,4 @@
-"""Clean one page: the third phase of OCR (blueprint: "Clean each page").
+"""Clean one page: the third phase of OCR (docs/ocr.md, "How a session runs").
 
 The main model gets the page's raw OCR text (unsure words marked ⟨word?⟩), the page's note,
 and the edges of the pages either side, and answers in JSON that follows a schema: the page's

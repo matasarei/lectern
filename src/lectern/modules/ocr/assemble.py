@@ -1,5 +1,5 @@
-"""Assemble the cleaned pages into one Document: the fourth phase of OCR (blueprint:
-"Assemble"). Code only, no model:
+"""Assemble the cleaned pages into one Document: the fourth phase of OCR (docs/ocr.md,
+"How a session runs"). Code only, no model:
 
 - each block gets its id, `b<page>.<n>` in the order cleanup gave it, so a page cleaned again
   never renumbers another page's blocks;

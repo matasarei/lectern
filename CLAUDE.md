@@ -2,8 +2,9 @@
 
 A local AI workbench: a FastAPI app (`src/lectern`) serving a React/TypeScript UI (`web/`),
 running models on the user's own GPU via llama.cpp or MLX. One local user as installed;
-accounts and a login once `lectern user init` has run. The design is in `docs/blueprint.html`,
-milestone acceptance criteria in `docs/acceptance/`.
+accounts and a login once `lectern user init` has run. How it works is in `docs/` (index:
+`docs/README.md`), what was tested where in `docs/acceptance/`. The docs describe what's built:
+a change in behaviour updates the doc that describes it.
 
 ## Commands
 
