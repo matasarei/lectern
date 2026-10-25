@@ -1129,7 +1129,8 @@ export default defineModule({
 </section>
 
 <section id="plan">
-  <h2>MVP plan</h2>
+  <h2>MVP plan <span class="tag">done</span></h2>
+  <p class="why">M0 to M4 are built and on <code>main</code>. The runs on real machines are recorded in <code>docs/acceptance/</code>, each file naming what was run where and what wasn't.</p>
   <ol class="steps">
     <li><b>M0 · Runtime.</b> Hardware probe and tiers, model catalog, fit planner, runner supervisor with leases, the Models &amp; memory screen. llama-server on CUDA, Vulkan, Metal and CPU; MLX adapter on the Mac. Also: localhost security (Host/Origin checks, install token, WebSocket checks), <code>root_kind</code>/<code>root_path</code> on projects, the first-run flow, and the i18n setup. Done when your 4 GB and 8 GB PCs and a CPU-only machine all finish a chat within the targets, and a 12-page OCR batch swaps exactly once.</li>
     <li><b>M1 · Core + Chat.</b> Projects as real folders with <code>.lectern/project.sqlite</code> (under <code>users/local/</code>, with <code>owner_id</code> on owned tables and a <code>current_user</code> dependency on every route), the artifact store with <code>derived_from</code> links, trash, Overview and tabs (remembered per project), the module registry, streaming chat as an agent loop with the core tools and confirmation cards, the Sandbox module (<code>code.write</code> with the <code>code</code> role and a model swap, <code>code.run</code> on Podman/Docker, the <code>scripts/</code> folder) and the system prompt rules (test: 20 calculation prompts, none answered without <code>code.run</code>), the context builder with pinned state and compaction (test: a 100-turn chat on an 8k context still quotes a document block exactly), files as chat context, and files written by the model saved as artifacts.</li>

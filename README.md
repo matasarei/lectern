@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Licence: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/runs%20on-llama.cpp%20%7C%20MLX-2C6A58" alt="Runs on: llama.cpp, MLX">
   <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS-555" alt="Platforms: Linux, macOS">
-  <img src="https://img.shields.io/badge/status-pre--MVP-orange" alt="Status: pre-MVP">
+  <img src="https://img.shields.io/badge/status-MVP-2C6A58" alt="Status: MVP">
 </p>
 
 <p align="center"><b>An AI workbench that runs on your own computer.</b></p>
@@ -39,8 +39,9 @@ switches it on.
 - **Hardware:** 4 GB VRAM + 16 GB RAM at least; 8 GB VRAM + 16 GB RAM recommended.
 - **Installers:** Linux (x86_64, systemd), macOS (Apple Silicon, 13 or newer) and Windows (x64,
   10 or 11).
-- **Status:** pre-MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html); open it
-  in a browser.
+- **Status:** MVP. The design is in [`docs/blueprint.html`](docs/blueprint.html); open it in a
+  browser. What was checked on which machine, and what's still to run by hand on Windows and
+  Linux: [`docs/acceptance/m4.md`](docs/acceptance/m4.md).
 
 ## Quick start
 
