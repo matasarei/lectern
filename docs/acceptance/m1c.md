@@ -1,6 +1,6 @@
 # M1c acceptance: pinned state, compaction, and the chat's test sets
 
-This covers the blueprint's two remaining M1 tests for the chat:
+This covers the MVP plan's two remaining M1 tests for the chat:
 - **About 30 tool-calling prompts:** the right tools, no forbidden tools, and the right answer.
 - **A 100-turn chat on a small context** that still quotes a document block exactly at the end.
 

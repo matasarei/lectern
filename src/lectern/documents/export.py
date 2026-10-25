@@ -1,7 +1,7 @@
 """Exporting a Document: the contract every export module follows, and what they share.
 
 An exporter takes a Document and nothing else: never raw OCR text, never another
-exporter's output (blueprint, "Export modules"). It declares what it can represent
+exporter's output (docs/ocr.md, "Exports"). It declares what it can represent
 (`capabilities`); what it can't is printed as a visible placeholder, never dropped:
 - an open question is a comment holding its candidates where the format has comments, and
   an inline mark (⟦1? → 10 · 15 · 18⟧) otherwise. It is never written as one of its

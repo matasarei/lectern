@@ -1,4 +1,4 @@
-"""Reviewing a Document: the person's decisions on its doubts (blueprint, "the question card").
+"""Reviewing a Document: the person's decisions on its doubts (docs/ocr.md, "Review").
 
 A decision is kept apart from document.json (in `ocr_decisions`), because the Document is
 assembled again from the page cleanups each time a page is cleaned again. Every assembly

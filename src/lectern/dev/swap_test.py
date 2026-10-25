@@ -1,7 +1,7 @@
 """A fake OCR job for testing the runtime: phase 1 sends every page through the `ocr` role,
-phase 2 every page through `main`, the way the real OCR pipeline will (blueprint: "OCR runs
-in phases, not page by page"). With a budget too small for both models it must swap exactly
-once; with room for both, never.
+phase 2 every page through `main`, the way the real OCR pipeline will (docs/ocr.md, "How a
+session runs"). With a budget too small for both models it must swap exactly once; with room
+for both, never.
 
 This is not the OCR pipeline. It lives in `lectern.dev` so nobody mistakes it for one.
 """

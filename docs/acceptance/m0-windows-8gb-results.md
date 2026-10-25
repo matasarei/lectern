@@ -207,7 +207,7 @@ decision, not a code fix:
   `model loaded` instead, **or**
 - accept it as a known miss for a 9B model on an 8 GB card and document it.
 
-The blueprint reads "first token after a model load" as a stand-in for a swap. On that reading
+The MVP plan reads "first token after a model load" as a stand-in for a swap. On that reading
 the load cost is real and belongs in the number, which argues for raising the target rather than
 changing what is measured.
 

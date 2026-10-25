@@ -1,5 +1,5 @@
-"""The shared test document every exporter must pass (blueprint: "one shared set of test
-documents covering tables that span pages, open and resolved questions, notes, and figures").
+"""The shared test document every exporter must pass (docs/ocr.md, "Exports"): a table
+that spans pages, open and resolved questions, notes, and a figure.
 A plain module: importing a test file would run its tests again in the importer."""
 
 from __future__ import annotations

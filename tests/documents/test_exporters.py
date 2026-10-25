@@ -1,4 +1,4 @@
-"""The shared exporter tests (blueprint: every exporter passes one set of test documents).
+"""The shared exporter tests (docs/ocr.md, "Exports": every exporter passes one set).
 
 Each installed exporter writes the shared lease; its output is read back with a reader for
 its format, and the same things must hold: the table that ran across pages is whole, an

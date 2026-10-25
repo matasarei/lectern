@@ -1,4 +1,4 @@
-"""The chat's system prompt: the blueprint's rules that apply so far.
+"""The chat's system prompt (docs/agent.md, "The system prompt").
 
 It's part of every model call, so it stays short. The exact-results rule depends on the
 turn: with a running sandbox the model must compute through scripts; without one it must

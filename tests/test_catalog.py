@@ -41,7 +41,7 @@ def test_restricted_models_need_a_licence_notice():
         assert entry.defaults == {}
 
 
-def test_minimum_tier_defaults_match_the_blueprint():
+def test_minimum_tier_defaults_match_the_docs():
     ids = {r: e.id for r, e in catalog.load().defaults_for(Tier.MINIMUM).items()}
     assert ids == {
         "main": "qwen3.5-4b",
@@ -51,7 +51,7 @@ def test_minimum_tier_defaults_match_the_blueprint():
     }
 
 
-def test_recommended_tier_defaults_match_the_blueprint():
+def test_recommended_tier_defaults_match_the_docs():
     ids = {r: e.id for r, e in catalog.load().defaults_for(Tier.RECOMMENDED).items()}
     assert ids == {
         "main": "qwen3.5-9b",

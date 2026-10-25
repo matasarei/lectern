@@ -1,7 +1,7 @@
 """The OCR job: an OCR session's pages, read in the background.
 
 Starting a session returns at once; the job runs as a server task and the tab follows it on
-the session's events, like a chat turn. It runs in phases (blueprint: "OCR runs in phases"):
+the session's events, like a chat turn. It runs in phases (docs/ocr.md, "How a session runs"):
 
 1. Rasterise the source into page images, once.
 2. Read each page through its model: `ocr`, `ocr.hand` for a page marked handwritten, or the

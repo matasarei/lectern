@@ -38,7 +38,7 @@ from lectern.hardware.tiers import Tier
 from lectern.runners.base import Runner, RunnerHandle, RunnerSpec
 from lectern.runtime import planner
 
-CHAT_IDLE_RESUME = 120.0  # seconds; the blueprint's "resumes when the chat has been idle"
+CHAT_IDLE_RESUME = 120.0  # seconds the chat is idle before a job may unload it (docs/models.md)
 
 
 class Priority(IntEnum):

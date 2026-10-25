@@ -1,6 +1,6 @@
 # M2a acceptance: the OCR engine and the model-scoring test
 
-This covers the first half of the blueprint's M2: page images, recognition through the `ocr` and `ocr.hand` models, and a test that scores candidate OCR models on your own pages. The OCR session and its tab are M2b.
+This covers the first half of the MVP plan's M2: page images, recognition through the `ocr` and `ocr.hand` models, and a test that scores candidate OCR models on your own pages. The OCR session and its tab are M2b.
 
 ## How to run it
 

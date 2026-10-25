@@ -1,5 +1,5 @@
 """The chat's export tools: export.formats and export.run, over whatever export modules are
-installed (blueprint: "Before offering an export format, call export.formats()").
+installed (docs/ocr.md, "Exports").
 
 export.run always writes a new file, at the project's top level, named after the Document.
 It runs inside the tool call: a Document of a few dozen pages exports in well under a

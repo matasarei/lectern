@@ -1,4 +1,4 @@
-"""Recognise one page: the second phase of OCR (blueprint: "Recognise").
+"""Recognise one page: the second phase of OCR (docs/ocr.md, "How a session runs").
 
 The page's 300 dpi image is scaled down to what the model can take (`max_side`, from the
 catalog), sent with the model's own prompt, and read back as Markdown with HTML tables. Token

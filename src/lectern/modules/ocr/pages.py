@@ -1,4 +1,4 @@
-"""Page images: the first phase of OCR (blueprint: "Rasterise").
+"""Page images: the first phase of OCR (docs/ocr.md, "How a session runs").
 
 Each PDF page becomes a 300 dpi PNG. A page's text layer, if it has one, is kept as a hint
 for later phases. Images are kept as they are, only turned upright (EXIF) and saved as PNG so
