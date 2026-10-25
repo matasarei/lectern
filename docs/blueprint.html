@@ -969,11 +969,11 @@ sequenceDiagram
   <div class="grid2">
     <div style="display:grid;gap:10px;align-content:start">
       <h3>Projects are real folders</h3>
-      <p>A project is <b>managed</b>: a folder under the Lectern projects root. A <b>linked</b> project (an existing folder, such as a git repository, that Lectern indexes without moving it, with a folder watcher marking files "changed outside Lectern" in Overview) comes after the MVP; the tables have <code>root_kind</code> and <code>root_path</code> for it from M0a onward. Removing a project moves its folder to its owner's trash for 30 days.</p>
+      <p>A project is <b>managed</b>: a folder under the Lectern projects root. A <b>linked</b> project (an existing folder, such as a git repository, that Lectern indexes without moving it, with a folder watcher marking files "changed outside Lectern" in Overview) comes after the MVP; the tables have <code>root_kind</code> and <code>root_path</code> for it from M0a onward. The folder is named after the project's UUID, set when it's made and never changed: renaming the project moves nothing, and the UUID can name the project to another install later. Removing a project moves its folder to its owner's trash for 30 days, under the project's name.</p>
       <p>Every project is an ordinary folder you can open in Finder or Explorer, back up, or copy to another machine. A SQLite index inside the folder holds the metadata, <code>derived_from</code> links, chat transcripts, jobs and the full-text search index. Files stay files. <span class="tag">answered</span></p>
       <p class="why">Settings, the model catalog and the list of projects live in one app database in the OS app-data folder. Downloaded models are shared by all projects, in a single models folder the user can move. Deleting a file moves it to <code>.lectern/trash/</code> for 30 days.</p>
     </div>
-    <pre class="code">Lease archive 1998/
+    <pre class="code">4d86298f-d9e5-4e7d-b525-70288e99d5a7/   the project "Lease archive 1998"
 ├── .lectern/
 │   ├── project.sqlite        index, links, transcripts, jobs, search
 │   └── trash/

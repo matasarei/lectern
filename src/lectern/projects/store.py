@@ -1,6 +1,8 @@
 """Projects: the registry in the app database, and each project's own folder and database.
 
-A managed project is a folder under `<LECTERN_HOME>/users/<user>/projects/`. Its database,
+A managed project is a folder under `<LECTERN_HOME>/users/<user>/projects/`, named after the
+project's UUID (one made before 0006 keeps the name it was given), so renaming the project never
+moves it: a job or a sandbox run holds that path while it works. Its database,
 `.lectern/project.sqlite`, is opened (and migrated) the first time it's used, then kept open
 until the app stops.
 
@@ -16,6 +18,7 @@ import re
 import shutil
 import threading
 import unicodedata
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -76,8 +79,9 @@ def clean_name(name: str) -> str:
 
 
 def folder_name(name: str) -> str:
-    """A folder name that works on Windows, macOS and Linux: no path separators or characters
-    Windows refuses, no trailing dots or spaces, not a reserved device name."""
+    """A folder name from a project's name (its folder in the trash) that works on Windows,
+    macOS and Linux: no path separators or characters Windows refuses, no trailing dots or
+    spaces, not a reserved device name."""
     safe = re.sub(r'[<>:"/\\|?*]', "-", clean_name(name))
     safe = safe[:FOLDER_NAME_MAX].rstrip(" .") or UNTITLED
     if safe.startswith("."):
@@ -105,13 +109,17 @@ class ProjectStore:
     def create(self, user: User, name: str = UNTITLED) -> Project:
         """A new managed project: its folder, its database, and one empty chat."""
         name = clean_name(name)
-        parent = self.paths.projects_root(user.name)
-        parent.mkdir(parents=True, exist_ok=True)
-        with self._lock:
-            root = self._free_folder(parent, folder_name(name))
-            root.mkdir()
+        project_uuid = str(uuid.uuid4())
+        root = self.paths.projects_root(user.name) / project_uuid
+        root.mkdir(parents=True)
         with self.app_sessions.begin() as session:
-            row = ProjectRow(owner_id=user.id, name=name, root_kind="managed", root_path=str(root))
+            row = ProjectRow(
+                uuid=project_uuid,
+                owner_id=user.id,
+                name=name,
+                root_kind="managed",
+                root_path=str(root),
+            )
             session.add(row)
             session.flush()
             project = Project.from_row(row)
@@ -140,7 +148,8 @@ class ProjectStore:
             return Project.from_row(_own_row(session, user, project_id))
 
     def rename(self, user: User, project_id: int, name: str) -> Project:
-        """Changes the name shown; the folder keeps its name, so nothing on disk moves."""
+        """Changes the name shown; the folder is named after the project's UUID, so nothing on
+        disk moves."""
         with self.app_sessions.begin() as session:
             row = _own_row(session, user, project_id)
             row.name = clean_name(name)
@@ -174,7 +183,8 @@ class ProjectStore:
             trash = self.paths.projects_trash(owner.name)
             stamp = row.removed_at.strftime("%Y%m%d-%H%M%S")
             with self._lock:
-                target = self._free_folder(trash, f"{project.root.name} {stamp}")
+                # Named for the person looking for it there, not after its UUID.
+                target = self._free_folder(trash, f"{folder_name(row.name)} {stamp}")
                 try:
                     trash.mkdir(parents=True, exist_ok=True)
                     project.root.rename(target)
