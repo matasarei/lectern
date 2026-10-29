@@ -135,18 +135,19 @@ function Find-Wheel([string] $Given) {
     }
     if ((Test-Path (Join-Path $top 'pyproject.toml')) -and (Test-Path (Join-Path $top 'web'))) {
         # A working copy: build its wheel, the web UI first (it writes node_modules and dist here).
+        # Their output goes to the console: left in the pipeline, it would be returned with the path.
         if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
             Exit-Install 'building the web UI needs Node.js (npm): winget install OpenJS.NodeJS.LTS, then open a new window.'
         }
         Write-Host "Building Lectern from $top..."
         $web = Join-Path $top 'web'
-        & npm --prefix $web ci
+        & npm --prefix $web ci | Out-Host
         if ($LASTEXITCODE -ne 0) { Exit-Install 'installing the web UI''s packages failed (see above).' }
-        & npm --prefix $web run build
+        & npm --prefix $web run build | Out-Host
         if ($LASTEXITCODE -ne 0) { Exit-Install 'building the web UI failed (see above).' }
         $dist = Join-Path $top 'dist'
         Remove-Item -Path (Join-Path $dist 'lectern_ai-*.whl') -ErrorAction SilentlyContinue
-        & $uv build --quiet --wheel --out-dir $dist $top
+        & $uv build --quiet --wheel --out-dir $dist $top | Out-Host
         if ($LASTEXITCODE -ne 0) { Exit-Install 'building the app failed (see above).' }
         $built = Get-ChildItem -Path (Join-Path $dist 'lectern_ai-*.whl') | Select-Object -First 1
         if (-not $built) { Exit-Install 'the build made no wheel.' }
