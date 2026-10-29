@@ -630,6 +630,122 @@ def test_make_alone_builds_for_development_and_installs_nothing():
     assert "install.sh" not in shown.stdout
 
 
+# --- the justfile: the Makefile's shorthands, on Windows too ----------------------------------
+
+WINDOWS_HOST = os.name == "nt"
+POWERSHELL_FILE = "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File"
+
+
+@pytest.mark.parametrize(
+    ("recipe", "unix", "windows"),
+    [
+        ("install", "./install.sh", f"{POWERSHELL_FILE} install.ps1"),
+        ("uninstall", "./uninstall.sh", f"{POWERSHELL_FILE} uninstall.ps1"),
+        # On Unix the wipe is the last line of the script that asks first.
+        ("purge", "exec ./uninstall.sh --purge", f"{POWERSHELL_FILE} uninstall.ps1 -Purge"),
+    ],
+)
+def test_just_runs_the_script_at_the_root(recipe, unix, windows):
+    if shutil.which("just") is None:
+        pytest.skip("just isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["just", "--dry-run", "--justfile", str(ROOT / "justfile"), recipe],  # noqa: S607
+        capture_output=True, text=True, timeout=30,
+    )  # fmt: skip
+    assert shown.returncode == 0, shown.stderr
+    # just shows what it would run on stderr.
+    runs = windows if WINDOWS_HOST else unix
+    assert runs in [line.strip() for line in shown.stderr.splitlines()]
+
+
+def test_just_alone_builds_for_development_and_installs_nothing():
+    if shutil.which("just") is None:
+        pytest.skip("just isn't installed")
+    shown = subprocess.run(  # noqa: S603
+        ["just", "--dry-run", "--justfile", str(ROOT / "justfile")],  # noqa: S607
+        capture_output=True, text=True, timeout=30,
+    )  # fmt: skip
+    assert shown.returncode == 0, shown.stderr
+    assert "uv sync" in shown.stderr and "npm --prefix web run build" in shown.stderr
+    assert "install.sh" not in shown.stderr and "install.ps1" not in shown.stderr
+
+
+def test_just_from_another_folder_runs_the_scripts_at_the_root(tmp_path):
+    """The recipes call ./install.sh and install.ps1: just runs them in the justfile's folder,
+    wherever it is called from. Run for real, on a copy beside an installer that only writes
+    down that it ran."""
+    if shutil.which("just") is None:
+        pytest.skip("just isn't installed")
+    repo, elsewhere = tmp_path / "repo", tmp_path / "elsewhere"
+    repo.mkdir()
+    elsewhere.mkdir()
+    shutil.copy(ROOT / "justfile", repo)
+    ran = tmp_path / "ran"
+    if WINDOWS_HOST:
+        (repo / "install.ps1").write_text(f"Set-Content -LiteralPath '{ran}' -Value ran\n")
+    else:
+        (repo / "install.sh").write_text(f"#!/bin/sh\ntouch '{ran}'\n")
+        (repo / "install.sh").chmod(0o755)
+    done = subprocess.run(  # noqa: S603
+        ["just", "--justfile", str(repo / "justfile"), "install"],  # noqa: S607
+        capture_output=True, text=True, timeout=60, cwd=elsewhere,
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr
+    assert ran.exists()
+
+
+def test_just_passes_a_failed_script_on():
+    """An installer that fails must fail the recipe, not end in a success."""
+    if shutil.which("just") is None:
+        pytest.skip("just isn't installed")
+    if not WINDOWS_HOST:
+        pytest.skip("the PowerShell recipes run on Windows only")
+    done = subprocess.run(  # noqa: S603
+        ["just", "--justfile", str(ROOT / "justfile"), "uninstall"],  # noqa: S607
+        capture_output=True, text=True, timeout=60,
+        env={**os.environ, "LECTERN_DIR": str(ROOT / "no-such-install")},
+    )  # fmt: skip
+    assert done.returncode != 0
+    assert "nothing was removed" in done.stderr
+
+
+@pytest.mark.parametrize(
+    ("answer", "runs"),
+    [
+        ("y\n", "--purge"),
+        ("yes\n", "--purge"),
+        ("n\n", None),
+        ("\n", None),  # Enter alone keeps everything
+        ("", None),  # nobody at the keyboard: no answer, no wipe
+    ],
+)
+def test_just_asks_before_a_full_wipe(tmp_path, answer, runs):
+    """As make purge: run for real, on a copy of the justfile beside an uninstall.sh that only
+    writes down what it was given. (On Windows uninstall.ps1 -Purge asks for itself.)"""
+    if shutil.which("just") is None:
+        pytest.skip("just isn't installed")
+    if WINDOWS_HOST:
+        pytest.skip("the question is the Unix recipe's; on Windows uninstall.ps1 asks")
+    shutil.copy(ROOT / "justfile", tmp_path)
+    ran = tmp_path / "ran"
+    (tmp_path / "uninstall.sh").write_text(f"#!/bin/sh\nprintf %s \"$*\" > '{ran}'\n")
+    (tmp_path / "uninstall.sh").chmod(0o755)
+    home = tmp_path / "Lectern's home"  # a quote and a space mustn't break the question
+    done = subprocess.run(  # noqa: S603
+        ["just", "purge"],  # noqa: S607
+        capture_output=True, text=True, timeout=30, cwd=tmp_path, input=answer,
+        env={**os.environ, "LECTERN_DIR": str(home)},
+    )  # fmt: skip
+    if runs is None:
+        assert done.returncode != 0
+        assert not ran.exists()
+        assert "Nothing removed" in done.stdout + done.stderr
+    else:
+        assert done.returncode == 0, done.stderr
+        assert ran.read_text() == runs
+    assert str(home) in done.stdout  # it says which folder goes
+
+
 # --- Windows, checked from here: compiled and linted in containers ---------------------------
 
 WINDOWS = ROOT / "packaging/windows"
