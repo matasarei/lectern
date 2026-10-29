@@ -5,8 +5,10 @@
 // One file, WinForms only, compiled at install time by the csc.exe that ships with Windows
 // (.NET Framework 4: C# 5, so no $"" strings and no ?.): packaging\windows\build_tray.ps1.
 //
-// Stopping is closing Lectern's standard input (serve --stop-on-stdin-close): Windows has no
-// Ctrl+C to send a process with no console. Lectern then stops its model runners itself.
+// Stopping is setting a named event, "-stop" (serve --stop-event): Windows has no Ctrl+C to
+// send a process with no console. Lectern then stops its model runners itself. (Not closing its
+// standard input, as before: a thread of Lectern's waiting to read it made the first model load
+// wait for good, src/lectern/core/winevent.py. Its standard input is left unset.)
 // Every process Lectern starts is in a job object that ends with the app, so neither a
 // Lectern that won't stop nor the app being killed leaves a model in memory.
 using System;
@@ -41,6 +43,7 @@ internal static class Program
         using (var one = new Mutex(true, "Local\\" + name, out first))
         using (var reopen = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\" + name + "-open"))
         using (var quit = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\" + name + "-quit"))
+        using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\" + name + "-stop"))
         {
             if (!first)
             {
@@ -49,7 +52,7 @@ internal static class Program
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            using (var app = new TrayApp(dir, !background, reopen, quit))
+            using (var app = new TrayApp(dir, !background, reopen, quit, stop, "Local\\" + name + "-stop"))
             {
                 Application.Run();
             }
@@ -90,6 +93,8 @@ internal sealed class TrayApp : IDisposable
     private readonly UserPreferenceChangedEventHandler themeChanged;
     private readonly System.Windows.Forms.Timer healthTimer = new System.Windows.Forms.Timer();
     private readonly System.Windows.Forms.Timer stopTimer = new System.Windows.Forms.Timer();
+    private readonly EventWaitHandle stopEvent;  // set: Lectern stops (serve --stop-event)
+    private readonly string stopEventName;
     private readonly SynchronizationContext ui;
     private readonly JobObject job = new JobObject();
     private readonly object logLock = new object();
@@ -111,10 +116,13 @@ internal sealed class TrayApp : IDisposable
     private static readonly MethodInfo ShowContextMenu = typeof(NotifyIcon).GetMethod(
         "ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic);
 
-    public TrayApp(string dir, bool openWhenReady, EventWaitHandle reopen, EventWaitHandle quit)
+    public TrayApp(string dir, bool openWhenReady, EventWaitHandle reopen, EventWaitHandle quit,
+        EventWaitHandle stopEvent, string stopEventName)
     {
         this.dir = dir;
         this.openWhenReady = openWhenReady;
+        this.stopEvent = stopEvent;
+        this.stopEventName = stopEventName;
         ui = new WindowsFormsSynchronizationContext();
         SynchronizationContext.SetSynchronizationContext(ui);
         string here = Path.GetDirectoryName(Application.ExecutablePath);
@@ -154,7 +162,7 @@ internal sealed class TrayApp : IDisposable
 
         // Signing out, or Windows shutting down: Lectern is stopped first (the job object
         // would end it anyway; this lets it stop its models itself).
-        SystemEvents.SessionEnding += delegate { CloseInput(); };
+        SystemEvents.SessionEnding += delegate { AskToStop(); };
         // Opened again: Lectern in the browser, now or once it answers.
         ThreadPool.RegisterWaitForSingleObject(reopen, delegate
         {
@@ -178,10 +186,9 @@ internal sealed class TrayApp : IDisposable
         OpenLog();
         string lectern = Path.Combine(dir, "app", "venv", "Scripts", "lectern.exe");
         var info = new ProcessStartInfo(lectern,
-            "serve --no-browser --port " + Port().ToString() + " --stop-on-stdin-close");
+            "serve --no-browser --port " + Port().ToString() + " --stop-event \"" + stopEventName + "\"");
         info.UseShellExecute = false;
         info.CreateNoWindow = true;
-        info.RedirectStandardInput = true;
         info.RedirectStandardOutput = true;
         info.RedirectStandardError = true;
         info.StandardOutputEncoding = Encoding.UTF8;
@@ -198,6 +205,7 @@ internal sealed class TrayApp : IDisposable
         process.OutputDataReceived += (sender, e) => WriteLog(e.Data);
         process.ErrorDataReceived += (sender, e) => WriteLog(e.Data);
         process.Exited += delegate { ui.Post(delegate { ChildEnded(process); }, null); };
+        stopEvent.Reset();  // set by the last stop; this Lectern waits for the next
         try
         {
             process.Start();
@@ -240,19 +248,14 @@ internal sealed class TrayApp : IDisposable
         detail = "";
         state = State.Stopping;
         Refresh();
-        CloseInput();
+        AskToStop();
         stopTimer.Interval = InterruptPatienceMs;
         stopTimer.Start();
     }
 
-    private void CloseInput()
+    private void AskToStop()
     {
-        try
-        {
-            if (child != null && !child.HasExited) child.StandardInput.Close();
-        }
-        catch (InvalidOperationException) { }
-        catch (IOException) { }
+        if (child != null) stopEvent.Set();
     }
 
     // It didn't stop by itself: it, and everything it started, is ended now.

@@ -140,7 +140,10 @@ version in a folder of its own so a failed install leaves the running one alone:
 - **macOS:** Lectern.app in `~/Applications`, a menu-bar app built with `swiftc`, with the
   MLX extra (`packaging/macos/`).
 - **Windows:** a tray app built with the `csc.exe` that ships with Windows
-  (`packaging/windows/`).
+  (`packaging/windows/`). It stops Lectern by setting a named event (`serve --stop-event`,
+  `core/winevent.py`): Windows has no Ctrl+C for a process with no console, and Lectern's
+  standard input is left alone, since a thread waiting to read it made a DLL loading later
+  wait with it.
 
 The llama.cpp build for the machine is downloaded at first run. How to install and update:
 the [README](../README.md).
