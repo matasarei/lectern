@@ -14,6 +14,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -27,6 +29,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        Look.BeDpiAware();
         string dir = InstallFolder();
         bool background = Array.IndexOf(args, "--background") >= 0;
         // One app per install folder. Opened again (Start menu, a second click), it asks the one
@@ -81,6 +84,9 @@ internal sealed class TrayApp : IDisposable
     private readonly ToolStripMenuItem startStopItem = new ToolStripMenuItem();
     private readonly ToolStripMenuItem restartItem = new ToolStripMenuItem("Restart");
     private readonly ToolStripMenuItem quitItem = new ToolStripMenuItem("Quit Lectern");
+    private readonly MenuLook look;
+    private readonly TrayGlyph glyph = new TrayGlyph();
+    private readonly UserPreferenceChangedEventHandler themeChanged;
     private readonly System.Windows.Forms.Timer healthTimer = new System.Windows.Forms.Timer();
     private readonly System.Windows.Forms.Timer stopTimer = new System.Windows.Forms.Timer();
     private readonly SynchronizationContext ui;
@@ -119,9 +125,13 @@ internal sealed class TrayApp : IDisposable
             startStopItem, restartItem, new ToolStripSeparator(), quitItem,
         });
         menu.Opening += delegate { Refresh(); };
+        look = MenuLook.Apply(menu);
         icon.ContextMenuStrip = menu;
-        icon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        ShowLook();
         icon.DoubleClick += delegate { OpenLectern(); };
+        // The taskbar switched between light and dark: the icon and the menu follow at once.
+        themeChanged = delegate { ui.Post(delegate { ShowLook(); }, null); };
+        SystemEvents.UserPreferenceChanged += themeChanged;
         icon.Visible = true;
 
         healthTimer.Interval = 1000;
@@ -382,6 +392,15 @@ internal sealed class TrayApp : IDisposable
         restartItem.Enabled = (state == State.Starting || state == State.Running) && !quitting;
         string tip = "Lectern: " + title;
         icon.Text = tip.Length > 63 ? tip.Substring(0, 62) + "…" : tip;  // its limit
+        ShowLook();
+    }
+
+    // The book open while Lectern runs, closed otherwise; both in the taskbar's light or dark.
+    private void ShowLook()
+    {
+        bool light = Look.LightTaskbar();
+        look.Follow(menu, light);
+        glyph.Show(icon, state == State.Running, light);
     }
 
     // --- the settings ----------------------------------------------------------------------
@@ -452,7 +471,9 @@ internal sealed class TrayApp : IDisposable
 
     public void Dispose()
     {
+        SystemEvents.UserPreferenceChanged -= themeChanged;  // a static event: it would keep us
         icon.Dispose();
+        glyph.Dispose();
         menu.Dispose();
         healthTimer.Dispose();
         stopTimer.Dispose();
@@ -462,6 +483,263 @@ internal sealed class TrayApp : IDisposable
             if (log != null) log.Dispose();
         }
     }
+}
+
+// --- how it looks ------------------------------------------------------------------------
+
+// The tray icon and its menu follow the taskbar's mode (Settings > Personalization > Colors,
+// "Choose your Windows mode"), as Windows' own tray menus do, not the apps' mode. Windows 10
+// before 1903 doesn't set it: its taskbar was always dark.
+internal static class Look
+{
+    private const string Personalize = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+
+    // Before the first window. Otherwise Windows draws the app at 96 dpi and stretches it, which
+    // blurs the menu and the tray icon on any scale above 100%. System-aware, which WinForms on
+    // .NET Framework handles: on a second screen with another scale it's stretched there only.
+    public static void BeDpiAware()
+    {
+        SetProcessDPIAware();
+    }
+
+    public static bool LightTaskbar()
+    {
+        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(Personalize))
+        {
+            object value = key == null ? null : key.GetValue("SystemUsesLightTheme");
+            return value is int && (int)value != 0;
+        }
+    }
+
+    // How much larger than at 96 dpi: 1 at 100%, 1.5 at 150%.
+    public static float Scale()
+    {
+        using (Graphics screen = Graphics.FromHwnd(IntPtr.Zero))
+        {
+            return screen.DpiX / 96f;
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetProcessDPIAware();
+}
+
+// The tray's book, as the Mac's menu bar has it: open while Lectern runs, closed while it
+// doesn't. A glyph of Windows' own icon font (Segoe Fluent Icons on 11, Segoe MDL2 Assets on
+// 10), as Windows' own tray icons are, drawn at the size the tray shows it so it stays sharp.
+internal sealed class TrayGlyph : IDisposable
+{
+    private const string OpenBook = "";  // ReadingMode
+    private const string ClosedBook = "";  // Dictionary
+    private static string fontName;
+    private Icon shown;
+    private IntPtr handle = IntPtr.Zero;
+    private string drawn = "";
+
+    public void Show(NotifyIcon tray, bool open, bool light)
+    {
+        int size = SystemInformation.SmallIconSize.Width;
+        string wanted = (open ? "open " : "closed ") + (light ? "light " : "dark ") + size.ToString();
+        if (wanted == drawn) return;
+        Icon before = shown;
+        IntPtr beforeHandle = handle;
+        using (Bitmap bitmap = Draw(open, light, size))
+        {
+            handle = bitmap.GetHicon();
+        }
+        shown = Icon.FromHandle(handle);
+        tray.Icon = shown;
+        drawn = wanted;
+        Release(before, beforeHandle);  // only once the tray has the new one
+    }
+
+    public static Bitmap Draw(bool open, bool light, int size)
+    {
+        var bitmap = new Bitmap(size, size);
+        using (Graphics g = Graphics.FromImage(bitmap))
+        using (var font = new Font(FontName(), size, GraphicsUnit.Pixel))
+        using (var ink = new SolidBrush(light ? Color.Black : Color.White))
+        using (var format = new StringFormat(StringFormat.GenericTypographic))
+        {
+            format.Alignment = StringAlignment.Center;
+            format.LineAlignment = StringAlignment.Center;
+            // Greyscale: ClearType's coloured edges need an opaque background to land on.
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            g.DrawString(open ? OpenBook : ClosedBook, font, ink, new RectangleF(0, 0, size, size), format);
+        }
+        return bitmap;
+    }
+
+    private static string FontName()
+    {
+        if (fontName != null) return fontName;
+        fontName = "Segoe MDL2 Assets";
+        using (var installed = new InstalledFontCollection())
+        {
+            foreach (FontFamily family in installed.Families)
+            {
+                if (family.Name == "Segoe Fluent Icons") fontName = family.Name;
+            }
+        }
+        return fontName;
+    }
+
+    // Icon.FromHandle doesn't own the handle GetHicon made: it's given back here.
+    private static void Release(Icon icon, IntPtr iconHandle)
+    {
+        if (icon != null) icon.Dispose();
+        if (iconHandle != IntPtr.Zero) DestroyIcon(iconHandle);
+    }
+
+    public void Dispose()
+    {
+        Release(shown, handle);
+        shown = null;
+        handle = IntPtr.Zero;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr icon);
+}
+
+// The tray's menu, drawn as Windows 11 draws its own: Segoe UI in roomy rows, a rounded
+// highlight, no icon column, in the taskbar's light or dark. Windows 11 rounds the menu's
+// corners and draws its edge itself; Windows 10 keeps them square, and the edge is drawn here.
+internal sealed class MenuLook : ToolStripRenderer
+{
+    private const int CornerPreference = 33;  // DWMWA_WINDOW_CORNER_PREFERENCE, Windows 11
+    private const int BorderColor = 34;  // DWMWA_BORDER_COLOR, Windows 11
+    private const int Round = 2;  // DWMWCP_ROUND, what Windows 11 gives its own menus
+
+    private static readonly Palette LightPalette = new Palette(
+        Color.FromArgb(249, 249, 249), Color.FromArgb(26, 26, 26), Color.FromArgb(145, 145, 145),
+        Color.FromArgb(236, 236, 236), Color.FromArgb(224, 224, 224), Color.FromArgb(214, 214, 214));
+    private static readonly Palette DarkPalette = new Palette(
+        Color.FromArgb(44, 44, 44), Color.FromArgb(255, 255, 255), Color.FromArgb(130, 130, 130),
+        Color.FromArgb(61, 61, 61), Color.FromArgb(64, 64, 64), Color.FromArgb(70, 70, 70));
+
+    private readonly float scale = Look.Scale();
+    private Palette colors = LightPalette;
+    private bool light = true;
+    private bool rounded;
+
+    public static MenuLook Apply(ContextMenuStrip menu)
+    {
+        var look = new MenuLook();
+        menu.Renderer = look;
+        menu.ShowImageMargin = false;
+        menu.ShowCheckMargin = false;
+        menu.Font = SystemFonts.MenuFont;
+        menu.Padding = new Padding(0, look.Px(4), 0, look.Px(4));
+        menu.MinimumSize = new Size(look.Px(200), 0);
+        foreach (ToolStripItem item in menu.Items)
+        {
+            if (item is ToolStripSeparator)
+            {
+                item.AutoSize = false;
+                item.Height = look.Px(9);
+            }
+            else
+            {
+                item.Padding = new Padding(look.Px(8), look.Px(6), look.Px(24), look.Px(6));
+            }
+        }
+        menu.HandleCreated += delegate { look.Frame(menu); };
+        return look;
+    }
+
+    public void Follow(ContextMenuStrip menu, bool lightNow)
+    {
+        if (lightNow == light) return;
+        light = lightNow;
+        colors = light ? LightPalette : DarkPalette;
+        if (menu.IsHandleCreated) Frame(menu);
+        menu.Invalidate();
+    }
+
+    // Windows 11's rounded corners and the edge's colour; Windows 10 answers no to both.
+    private void Frame(ContextMenuStrip menu)
+    {
+        int round = Round;
+        rounded = DwmSetWindowAttribute(menu.Handle, CornerPreference, ref round, sizeof(int)) == 0;
+        int edge = ColorTranslator.ToWin32(colors.Edge);
+        DwmSetWindowAttribute(menu.Handle, BorderColor, ref edge, sizeof(int));
+    }
+
+    private int Px(int at96)
+    {
+        return (int)Math.Round(at96 * scale);
+    }
+
+    protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+    {
+        e.Graphics.Clear(colors.Back);
+    }
+
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+    {
+        if (rounded) return;
+        using (var pen = new Pen(colors.Edge))
+        {
+            e.Graphics.DrawRectangle(pen, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
+        }
+    }
+
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        if (!e.Item.Selected || !e.Item.Enabled) return;
+        var area = new Rectangle(Px(4), Px(1), e.Item.Width - Px(8), e.Item.Height - Px(2));
+        int corner = Px(4) * 2;
+        using (var shape = new GraphicsPath())
+        using (var fill = new SolidBrush(colors.Hover))
+        {
+            shape.AddArc(area.Left, area.Top, corner, corner, 180, 90);
+            shape.AddArc(area.Right - corner, area.Top, corner, corner, 270, 90);
+            shape.AddArc(area.Right - corner, area.Bottom - corner, corner, corner, 0, 90);
+            shape.AddArc(area.Left, area.Bottom - corner, corner, corner, 90, 90);
+            shape.CloseFigure();
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.FillPath(fill, shape);
+            e.Graphics.SmoothingMode = SmoothingMode.Default;
+        }
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        var area = new Rectangle(Px(16), 0, e.Item.Width - Px(24), e.Item.Height);
+        // No background colour: it would be a box over the highlight.
+        TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, area,
+            e.Item.Enabled ? colors.Text : colors.Dimmed,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+            TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        int y = e.Item.Height / 2;
+        using (var pen = new Pen(colors.Line))
+        {
+            e.Graphics.DrawLine(pen, 0, y, e.Item.Width, y);
+        }
+    }
+
+    private sealed class Palette
+    {
+        public readonly Color Back, Text, Dimmed, Hover, Line, Edge;
+
+        public Palette(Color back, Color text, Color dimmed, Color hover, Color line, Color edge)
+        {
+            Back = back;
+            Text = text;
+            Dimmed = dimmed;
+            Hover = hover;
+            Line = line;
+            Edge = edge;
+        }
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 }
 
 // A job object that ends every process in it when it's closed: when the app ends, however it

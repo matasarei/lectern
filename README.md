@@ -406,7 +406,9 @@ your PC by the C# compiler that comes with Windows (.NET Framework 4). Optional:
    [on Linux](#install-on-a-linux-server) (`src`, `app`, `data`, `lectern.env`,
    `bin\lectern-url.cmd`, `bin\lectern.cmd`). The installer adds Lectern to the Start menu and
    to the Startup folder, and starts it.
-2. **Use the tray icon's menu** (right-click it; double-click opens Lectern):
+2. **Use the tray icon's menu** (right-click it; double-click opens Lectern). The icon is a book,
+   open while Lectern runs and closed while it's stopped; it and the menu follow the taskbar's
+   light or dark mode:
 
    | | |
    |---|---|
