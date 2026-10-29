@@ -71,19 +71,7 @@ def draw(size: int) -> Image.Image:
     layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     fold(layer, at)
     paint = ImageDraw.Draw(layer)
-    rows = 6 if size >= 32 else 3
-    width = (11 if rows == 6 else 26) * SCALE * canvas / 1024
-    gap = 48 if rows == 6 else 96
-    for row in range(rows):
-        y = 630 - row * gap
-        start = (610 if row == 0 else 566, y - 4)
-        end = (700 if row == rows - 1 else 772, y)
-        line = points(cubic(start, (640, y + 8), (720, y + 6), end))
-        paint.line(line, fill=(*WRITING, 220), width=round(width), joint="curve")
-        for x, y in (line[0], line[-1]):  # round ends
-            paint.ellipse(
-                (x - width / 2, y - width / 2, x + width / 2, y + width / 2), fill=(*WRITING, 220)
-            )
+    writing(paint, size, at)
     image.alpha_composite(layer)
 
     paint = ImageDraw.Draw(image)
@@ -154,14 +142,39 @@ def fold(image: Image.Image, at: Callable[[float, float], tuple[float, float]]) 
         paint.line([(column, top), (column, bottom)], fill=(*COVER, max(alpha, 0)))
 
 
+def writing(
+    paint: ImageDraw.ImageDraw, size: int, at: Callable[[float, float], tuple[float, float]]
+) -> None:
+    """Lines of writing on the second page, the first indented, the last short: fewer as the icon
+    gets smaller, never thinner than a pixel and a half, each on a whole pixel so it's sharp."""
+    rows = 6 if size >= 128 else 5 if size >= 48 else 4 if size >= 32 else 3
+    thickness = max(14 * SCALE * size / 1024, 1.6)  # in the icon's own pixels
+    for row in range(rows):
+        y = 630 - row * 230 / (rows - 1)
+        left_x, middle = at(610 if row == 0 else 566, y)
+        right_x, _ = at(700 if row == rows - 1 else 772, y)
+        pixel_y = round(middle / SUPERSAMPLE - thickness / 2) + thickness / 2
+        top = (pixel_y - thickness / 2) * SUPERSAMPLE
+        bottom = (pixel_y + thickness / 2) * SUPERSAMPLE
+        paint.rounded_rectangle(
+            (left_x, top, right_x, bottom), radius=(bottom - top) / 2, fill=(*WRITING, 255)
+        )
+
+
 def initial() -> list[tuple[float, float]]:
-    """A serif capital L on the first page, where Icon.swift sets its initial: a stem with a
-    bracketed head serif, and a foot whose end turns up."""
-    return [
-        (300, 652), (404, 652), (404, 640), (378, 632), (378, 418),  # the head serif, the stem
-        (430, 418), (452, 470), (466, 470), (458, 392),  # the foot, its end turned up
-        (300, 392), (300, 404), (326, 412), (326, 632), (300, 640),
-    ]  # fmt: skip
+    """A serif capital L on the first page, where Icon.swift sets its initial, as a book face
+    cuts one: a heavy stem, thin serifs that curve into it, and a foot whose end rises."""
+    path: list[tuple[float, float]] = [(292, 652), (404, 652)]
+    path += cubic((404, 652), (404, 644), (386, 640), (378, 628))  # head serif into the stem
+    path += [(378, 446)]
+    path += cubic((378, 446), (378, 426), (390, 420), (412, 420))  # stem into the foot
+    path += [(428, 420)]
+    path += cubic((428, 420), (446, 424), (458, 444), (464, 474))  # the foot's end rising
+    path += [(472, 474), (468, 392), (292, 392), (292, 400)]
+    path += cubic((292, 400), (306, 402), (318, 408), (322, 420))  # foot serif into the stem
+    path += [(322, 628)]
+    path += cubic((322, 628), (318, 640), (304, 644), (292, 646))  # stem into the head serif
+    return path
 
 
 def cubic(
