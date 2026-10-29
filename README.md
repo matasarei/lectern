@@ -408,7 +408,9 @@ your PC by the C# compiler that comes with Windows (.NET Framework 4). Optional:
    to the Startup folder, and starts it.
 2. **Use the tray icon's menu** (click it, left or right). The icon is a book,
    open while Lectern runs and closed while it's stopped; it and the menu follow the taskbar's
-   light or dark mode:
+   light or dark mode. If Lectern stops answering though it's still running (for 90 seconds),
+   the menu's first line says "Lectern isn't answering · Restart it" and the book closes; it
+   isn't restarted for you, so nothing it's doing is cut short:
 
    | | |
    |---|---|

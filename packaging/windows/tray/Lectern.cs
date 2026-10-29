@@ -74,6 +74,12 @@ internal enum State { Stopped, Starting, Running, Stopping, Failed }
 internal sealed class TrayApp : IDisposable
 {
     private const int InterruptPatienceMs = 30000;  // as the Mac app and the Linux unit give it
+    // While it runs, /health is asked every so often: a Lectern that stops answering though its
+    // process runs (Windows' event loop could stop accepting: src/lectern/core/winloop.py) is
+    // said so in the menu, not restarted: a busy one would lose what it was doing.
+    private const int WatchIntervalMs = 30000;
+    private const int WatchTimeoutMs = 5000;
+    private const int WatchMisses = 3;
     private const long LogLimit = 5000000;  // bytes; past it the file becomes lectern.log.1
     private const string TokenMark = "#token=";
 
@@ -93,6 +99,7 @@ internal sealed class TrayApp : IDisposable
     private readonly UserPreferenceChangedEventHandler themeChanged;
     private readonly System.Windows.Forms.Timer healthTimer = new System.Windows.Forms.Timer();
     private readonly System.Windows.Forms.Timer stopTimer = new System.Windows.Forms.Timer();
+    private readonly System.Windows.Forms.Timer watchTimer = new System.Windows.Forms.Timer();
     private readonly EventWaitHandle stopEvent;  // set: Lectern stops (serve --stop-event)
     private readonly string stopEventName;
     private readonly SynchronizationContext ui;
@@ -108,6 +115,8 @@ internal sealed class TrayApp : IDisposable
     private bool quitting;
     private string link;  // the access link, asked for once each time Lectern starts
     private int runs;  // which start a link that comes back belongs to
+    private int misses;  // /health asks in a row that got no answer, while running
+    private bool answering = true;
     private bool asking;
     private bool openWhenAnswered;
 
@@ -159,6 +168,8 @@ internal sealed class TrayApp : IDisposable
         healthTimer.Interval = 1000;
         healthTimer.Tick += delegate { AskHealth(); };
         stopTimer.Tick += delegate { StopTookTooLong(); };
+        watchTimer.Interval = WatchIntervalMs;
+        watchTimer.Tick += delegate { Watch(); };
 
         // Signing out, or Windows shutting down: Lectern is stopped first (the job object
         // would end it anyway; this lets it stop its models itself).
@@ -245,6 +256,7 @@ internal sealed class TrayApp : IDisposable
         }
         afterStop = then;
         healthTimer.Stop();
+        watchTimer.Stop();
         detail = "";
         state = State.Stopping;
         Refresh();
@@ -273,6 +285,7 @@ internal sealed class TrayApp : IDisposable
         child = null;
         stopTimer.Stop();
         healthTimer.Stop();
+        watchTimer.Stop();
         // What a Lectern cut short left behind (a model runner) goes with it.
         job.EndAll();
         int status = ended.ExitCode;
@@ -315,24 +328,15 @@ internal sealed class TrayApp : IDisposable
         int port = Port();
         ThreadPool.QueueUserWorkItem(delegate
         {
-            bool up = false;
-            try
-            {
-                var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port.ToString() + "/health");
-                request.Proxy = null;  // 127.0.0.1 is never asked through a proxy
-                request.Timeout = 2000;
-                using (var response = (HttpWebResponse)request.GetResponse())
-                {
-                    up = response.StatusCode == HttpStatusCode.OK;
-                }
-            }
-            catch (WebException) { }
-            if (!up) return;
+            if (!Answers(port, 2000)) return;
             ui.Post(delegate
             {
                 if (state != State.Starting) return;
                 healthTimer.Stop();
                 state = State.Running;
+                misses = 0;
+                answering = true;
+                watchTimer.Start();
                 Refresh();
                 AskLink();  // now, so Open Lectern needn't wait for it
                 if (openWhenReady)
@@ -342,6 +346,56 @@ internal sealed class TrayApp : IDisposable
                 }
             }, null);
         });
+    }
+
+    // Running: still answering? Said in the menu and the log when it stops, and when it's back.
+    private void Watch()
+    {
+        if (state != State.Running) return;
+        int port = Port();
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            bool up = Answers(port, WatchTimeoutMs);
+            ui.Post(delegate
+            {
+                if (state != State.Running) return;
+                if (up)
+                {
+                    misses = 0;
+                    if (answering) return;
+                    answering = true;
+                    WriteLog("---- Lectern answers again ----");
+                }
+                else
+                {
+                    misses++;
+                    if (misses != WatchMisses || !answering) return;
+                    answering = false;
+                    WriteLog("---- Lectern hasn't answered on port " + port.ToString() + " for "
+                        + (WatchMisses * WatchIntervalMs / 1000).ToString()
+                        + " s, though it's still running: Restart, in this menu ----");
+                }
+                Refresh();
+            }, null);
+        });
+    }
+
+    private static bool Answers(int port, int timeoutMs)
+    {
+        try
+        {
+            var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port.ToString() + "/health");
+            request.Proxy = null;  // 127.0.0.1 is never asked through a proxy
+            request.Timeout = timeoutMs;
+            using (var response = (HttpWebResponse)request.GetResponse())
+            {
+                return response.StatusCode == HttpStatusCode.OK;
+            }
+        }
+        catch (WebException)
+        {
+            return false;
+        }
     }
 
     private void Reopened()
@@ -446,7 +500,10 @@ internal sealed class TrayApp : IDisposable
         switch (state)
         {
             case State.Starting: title = "Starting…"; break;
-            case State.Running: title = version.Length == 0 ? "Lectern is running" : "Lectern is running · " + version; break;
+            case State.Running:
+                if (!answering) title = "Lectern isn't answering · Restart it";
+                else title = version.Length == 0 ? "Lectern is running" : "Lectern is running · " + version;
+                break;
             case State.Stopping: title = "Stopping…"; break;
             case State.Failed: title = "Stopped unexpectedly"; break;
             default: title = "Stopped"; break;
@@ -468,7 +525,7 @@ internal sealed class TrayApp : IDisposable
     {
         bool light = Look.LightTaskbar();
         look.Follow(menu, light);
-        glyph.Show(icon, state == State.Running, light);
+        glyph.Show(icon, state == State.Running && answering, light);
     }
 
     // --- the settings ----------------------------------------------------------------------
@@ -545,6 +602,7 @@ internal sealed class TrayApp : IDisposable
         menu.Dispose();
         healthTimer.Dispose();
         stopTimer.Dispose();
+        watchTimer.Dispose();
         job.Dispose();
         lock (logLock)
         {

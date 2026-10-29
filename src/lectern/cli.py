@@ -405,6 +405,9 @@ def server_config(lectern_app, port: int, host: str = LOCAL_HOST) -> uvicorn.Con
         port=port,
         timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
         log_config=_log_config(),
+        # On Windows, asyncio's loop stops accepting after one client gone before its accept:
+        # this one doesn't (core/winloop.py). Elsewhere, uvicorn's choice.
+        loop="lectern.core.winloop:new_loop" if sys.platform == "win32" else "auto",
     )
 
 
