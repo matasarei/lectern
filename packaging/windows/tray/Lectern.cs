@@ -18,6 +18,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.IO;
 using System.Net;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -100,6 +101,15 @@ internal sealed class TrayApp : IDisposable
     private bool openWhenReady;
     private Action afterStop;
     private bool quitting;
+    private string link;  // the access link, asked for once each time Lectern starts
+    private int runs;  // which start a link that comes back belongs to
+    private bool asking;
+    private bool openWhenAnswered;
+
+    // NotifyIcon's own way of showing its menu, which a right click uses: it brings the app
+    // forward first, so that a click anywhere else closes the menu. It isn't public.
+    private static readonly MethodInfo ShowContextMenu = typeof(NotifyIcon).GetMethod(
+        "ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic);
 
     public TrayApp(string dir, bool openWhenReady, EventWaitHandle reopen, EventWaitHandle quit)
     {
@@ -128,7 +138,11 @@ internal sealed class TrayApp : IDisposable
         look = MenuLook.Apply(menu);
         icon.ContextMenuStrip = menu;
         ShowLook();
-        icon.DoubleClick += delegate { OpenLectern(); };
+        // A left click shows the menu too, as Windows' own tray icons do.
+        icon.MouseClick += delegate(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left) ShowMenu();
+        };
         // The taskbar switched between light and dark: the icon and the menu follow at once.
         themeChanged = delegate { ui.Post(delegate { ShowLook(); }, null); };
         SystemEvents.UserPreferenceChanged += themeChanged;
@@ -207,6 +221,8 @@ internal sealed class TrayApp : IDisposable
         child = process;
         WriteLog("---- Lectern " + version + " started " + DateTime.UtcNow.ToString("s") + "Z ----");
         detail = "";
+        link = null;  // the settings may give this start another port
+        runs++;
         state = State.Starting;
         healthTimer.Start();
         Refresh();
@@ -315,6 +331,7 @@ internal sealed class TrayApp : IDisposable
                 healthTimer.Stop();
                 state = State.Running;
                 Refresh();
+                AskLink();  // now, so Open Lectern needn't wait for it
                 if (openWhenReady)
                 {
                     openWhenReady = false;
@@ -339,32 +356,80 @@ internal sealed class TrayApp : IDisposable
 
     // The link comes from bin\lectern-url.cmd (the settings loaded, the token from its file) and
     // goes to the browser and nowhere else.
+    private void ShowMenu()
+    {
+        if (ShowContextMenu != null) ShowContextMenu.Invoke(icon, null);
+        else menu.Show(Cursor.Position);  // not .NET Framework's NotifyIcon
+    }
+
     private void OpenLectern()
     {
         if (state != State.Running) return;
-        string link = "";
+        if (link != null)
+        {
+            Process.Start(link);
+            return;
+        }
+        openWhenAnswered = true;
+        AskLink();
+    }
+
+    // lectern-url.cmd starts Python, which takes a second or more: it's asked off the menu's
+    // thread, so the tray doesn't freeze, and once each time Lectern starts.
+    private void AskLink()
+    {
+        if (asking) return;
+        asking = true;
+        int run = runs;
+        string script = Path.Combine(dir, "bin", "lectern-url.cmd");
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            string answer = ReadLink(script);
+            ui.Post(delegate { LinkAnswered(run, answer); }, null);
+        });
+    }
+
+    private static string ReadLink(string script)
+    {
         try
         {
-            var info = new ProcessStartInfo(Path.Combine(dir, "bin", "lectern-url.cmd"));
+            var info = new ProcessStartInfo(script);
             info.UseShellExecute = false;
             info.CreateNoWindow = true;
             info.RedirectStandardOutput = true;
             using (var ask = Process.Start(info))
             {
-                link = ask.StandardOutput.ReadToEnd().Trim();
+                string answer = ask.StandardOutput.ReadToEnd().Trim();
                 ask.WaitForExit(10000);
+                return answer;
             }
         }
-        catch (Win32Exception) { }
-        if (link.StartsWith("http://") || link.StartsWith("https://"))
+        catch (Win32Exception)
         {
-            Process.Start(link);
+            return "";
         }
-        else
+    }
+
+    private void LinkAnswered(int run, string answer)
+    {
+        asking = false;
+        if (run != runs)
+        {
+            // Lectern restarted meanwhile, perhaps on another port: ask again for this start.
+            if (state == State.Running) AskLink();
+            return;
+        }
+        bool open = openWhenAnswered;
+        openWhenAnswered = false;
+        if (state != State.Running) return;  // stopped meanwhile
+        if (!answer.StartsWith("http://") && !answer.StartsWith("https://"))
         {
             detail = "couldn't get the link (bin\\lectern-url.cmd)";
             Refresh();
+            return;
         }
+        link = answer;
+        if (open) Process.Start(link);
     }
 
     private void ShowLog()
