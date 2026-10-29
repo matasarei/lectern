@@ -115,13 +115,14 @@ class LlamaCppHandle:
 
     def log_tail(self, lines: int = 20) -> str:
         try:
-            return "\n".join(self.log_file.read_text(errors="replace").splitlines()[-lines:])
+            log = self.log_file.read_text(encoding="utf-8", errors="replace")
+            return "\n".join(log.splitlines()[-lines:])
         except OSError:
             return ""
 
     def measured_memory(self) -> MeasuredMemory:
         try:
-            return parse_memory(self.log_file.read_text(errors="replace"))
+            return parse_memory(self.log_file.read_text(encoding="utf-8", errors="replace"))
         except OSError:
             return MeasuredMemory(device_bytes=None)
 

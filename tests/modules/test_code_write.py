@@ -82,6 +82,21 @@ def test_writes_tests_and_saves_the_script_with_its_manifest(make_ctx):
     assert [r.test_run for r in runs] == [True]
 
 
+def test_a_script_that_prints_ukrainian_reaches_the_sandbox_as_utf8(make_ctx):
+    """Written in a Windows code page (cp1251): Cyrillic was a SyntaxError in the sandbox, and
+    "₴", which cp1251 hasn't got, couldn't be written at all (docs/acceptance/m4.md)."""
+    code = 'print("Сума:", round(6125.80 * 0.14, 2), "₴")'
+    box = FakeSandbox(behave=lambda c, i, o: RunResult(0, "Сума: 857.61 ₴\n", "", 0.2))
+    ctx, _ = ctx_for(make_ctx, [f"```python\n{code}\n```"], sandbox=box)
+
+    result = write(ctx)
+
+    assert result.text.startswith("Wrote scripts/penalty.py")
+    assert box.runs[0]["code"].strip() == code  # the test run's main.py, read as UTF-8
+    saved = (ctx.project.root / "scripts" / "penalty.py").read_bytes().decode("utf-8")
+    assert saved.strip() == code
+
+
 def _said(ctx, *messages: tuple[str, str]) -> None:  # noqa: ANN001
     with ctx.sessions.begin() as session:
         for role, content in messages:

@@ -57,8 +57,10 @@ class FakeSandbox:
         await asyncio.sleep(0)
         out = job_dir / "out"
         out.mkdir(parents=True, exist_ok=True)
-        code = script.read_text()
-        self.runs.append({"code": code, "inputs": {k: v.read_text() for k, v in inputs.items()}})
+        # As the sandbox's Python reads them: UTF-8, whatever this machine's code page.
+        code = script.read_text(encoding="utf-8")
+        given = {k: v.read_text(encoding="utf-8") for k, v in inputs.items()}
+        self.runs.append({"code": code, "inputs": given})
         result = self.behave(code, inputs, out)
         result.outputs = sorted(p for p in out.iterdir() if p.is_file())
         return result

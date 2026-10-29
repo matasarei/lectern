@@ -75,7 +75,7 @@ def build_env(key: str, *, vision: bool) -> dict[str, str]:
 
 def read_shape(model_dir: Path) -> ModelShape:
     """Layer and attention sizes from an MLX model's config.json."""
-    config = json.loads((model_dir / "config.json").read_text())
+    config = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
     config = config.get("text_config", config)
     layers = int(config["num_hidden_layers"])
     heads = int(config["num_attention_heads"])

@@ -230,12 +230,15 @@ try {
     Rename-Item -LiteralPath $trayNew -NewName 'tray'
     Invoke-Rmdir $trayOld
 
-    # The way to the access link, and Lectern's own command, each with the settings loaded.
+    # The way to the access link, and Lectern's own command, each with the settings loaded,
+    # and in Python's UTF-8 mode as the tray app runs it: else this PC's code page is the
+    # default for text files (cp1251 on a Ukrainian or Russian Windows).
     $load = @(
         '@echo off',
         'setlocal',
         "for /f `"usebackq eol=# tokens=1,* delims==`" %%a in (`"$settings`") do set `"%%a=%%b`"",
-        'if not defined LECTERN_PORT set LECTERN_PORT=8765'
+        'if not defined LECTERN_PORT set LECTERN_PORT=8765',
+        'set PYTHONUTF8=1'
     )
     $lectern = Join-Path $venv 'Scripts\lectern.exe'
     Set-Content -LiteralPath (Join-Path $bin 'lectern-url.cmd') -Encoding ASCII -Value (

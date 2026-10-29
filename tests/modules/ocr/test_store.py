@@ -95,7 +95,9 @@ def test_pages_are_recorded_and_each_models_reading_is_kept(store, tmp_path):
     folder = project.root / "invoice" / "pages"
     assert ocr_store.page_text(project.root, ocr, page) == "Рахунок № 1"  # the latest reading
     assert (folder / "p001.paddleocr-vl-1.6.ocr.md").read_text(encoding="utf-8") == "Рахунок\n"
-    assert json.loads((folder / "p001.qwen3-vl-8b.json").read_text())["tokens"] == [["О", -0.1]]
+    assert json.loads((folder / "p001.qwen3-vl-8b.json").read_text(encoding="utf-8"))["tokens"] == [
+        ["О", -0.1]
+    ]
     assert (page.status, page.model_id, page.seconds, page.looped) == (
         "done",
         "qwen3-vl-8b",

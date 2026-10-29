@@ -207,7 +207,8 @@ class LlamaCppInstaller:
         marker = self.install_dir(variant) / self.MARKER
         if not marker.is_file():
             return None
-        server = self.install_dir(variant) / json.loads(marker.read_text())["server"]
+        installed = json.loads(marker.read_text(encoding="utf-8"))
+        server = self.install_dir(variant) / installed["server"]
         return server if server.is_file() else None
 
     def size(self, variant: str) -> int:
@@ -260,7 +261,8 @@ class LlamaCppInstaller:
                     "server": str(server.relative_to(root)),
                     "assets": [a.sha256 for a in assets],
                 }
-            )
+            ),
+            encoding="utf-8",
         )
         shutil.rmtree(downloads)  # the unpacked build is what we keep
         return server
