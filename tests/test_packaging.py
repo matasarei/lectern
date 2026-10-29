@@ -397,6 +397,16 @@ def test_windows_uses_the_same_uv_as_linux_and_the_mac():
     assert re.fullmatch(r"[0-9a-f]{64}", _windows_pin("UvWindowsX64Sha256"))
 
 
+def test_on_windows_lectern_runs_in_utf8_mode_however_it_is_started():
+    """The tray app and bin\\lectern.cmd both: in a Windows code page (cp1251) a script with
+    "₴" couldn't be written (docs/acceptance/m4.md, Windows results)."""
+    tray = (ROOT / "packaging/windows/tray/Lectern.cs").read_text(encoding="utf-8")
+    assert 'info.EnvironmentVariables["PYTHONUTF8"] = "1";' in tray
+    install = (ROOT / "packaging/windows/install.ps1").read_text(encoding="utf-8")
+    load = re.search(r"\$load = @\((.*?)\n    \)", install, re.S)
+    assert load and "'set PYTHONUTF8=1'" in load.group(1)  # the lines both .cmd files start with
+
+
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck isn't installed")
 def test_the_scripts_pass_shellcheck():
     scripts = [

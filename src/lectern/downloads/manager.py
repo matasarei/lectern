@@ -422,7 +422,7 @@ class DownloadManager:
 
     def _staged_for(self, entry: CatalogEntry) -> bool:
         marker = self._staging(entry) / UPDATE_MARKER
-        return marker.is_file() and marker.read_text().strip() == entry.revision
+        return marker.is_file() and marker.read_text(encoding="utf-8").strip() == entry.revision
 
     def _claim_staging(self, entry: CatalogEntry) -> None:
         """The update's folder, noted as being built for this revision. One begun for
@@ -432,7 +432,7 @@ class DownloadManager:
         if staging.is_dir() and not self._staged_for(entry):
             shutil.rmtree(staging)
         staging.mkdir(parents=True, exist_ok=True)
-        (staging / UPDATE_MARKER).write_text(entry.revision)
+        (staging / UPDATE_MARKER).write_text(entry.revision, encoding="utf-8")
 
     async def _carry_over(self, entry: CatalogEntry, file: ModelFile, progress: _Progress) -> bool:
         """True when the file is in the update's folder without fetching it: it's there from
@@ -547,7 +547,7 @@ class DownloadManager:
                 if current.exists():
                     marker = current / UPDATE_MARKER
                     if marker.is_file():
-                        self._record_swapped(entry, marker.read_text().strip())
+                        self._record_swapped(entry, marker.read_text(encoding="utf-8").strip())
                     _discard(old)
                 else:
                     old.rename(current)

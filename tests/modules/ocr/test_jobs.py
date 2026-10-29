@@ -672,11 +672,11 @@ def test_after_reading_the_pages_are_cleaned_and_a_document_published(store, tmp
     project, sid, runtime, _, jobs = _run_job(store, tmp_path, FakeServer(clean=clean))
 
     folder = project.root / "lease-scan"
-    doc = json.loads((folder / "document.json").read_text())
+    doc = json.loads((folder / "document.json").read_text(encoding="utf-8"))
     assert doc["schema"] == "lectern.document/1" and doc["version"] == 1
     assert [b["id"] for b in doc["blocks"]] == ["b1.1", "b1.2", "b2.1", "b2.2"]
     assert doc["blocks"][1]["doubts"][0]["id"] == "d1.1"
-    md = (folder / "document.md").read_text()
+    md = (folder / "document.md").read_text(encoding="utf-8")
     assert "{#b1.2 p=1} page 1 read by ocr-model до ⟦1? | open | 10 · 15⟧ числа" in md
     ocr = _status(store, project, sid)
     assert (ocr.status, ocr.document_version) == ("done", 1)
@@ -725,7 +725,7 @@ def test_unsure_ocr_words_are_marked_for_cleanup_and_become_doubts_if_kept(store
     asyncio.run(go())
 
     assert server.cleanups == ["Сума ⟨250,00?⟩ грн"]  # marked for cleanup to weigh
-    doc = json.loads((folder.parent / "document.json").read_text())
+    doc = json.loads((folder.parent / "document.json").read_text(encoding="utf-8"))
     (block,) = doc["blocks"]
     # The fake cleanup kept the mark, as a careless model might: assembly removes it, and the
     # word, still as the OCR model read it, becomes a doubt.

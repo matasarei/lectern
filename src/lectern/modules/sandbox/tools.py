@@ -283,7 +283,7 @@ def _manifest_inputs(ctx: ToolContext, script: ArtifactRow) -> list[str]:
     """The inputs recorded in scripts/<name>.json, if it's there."""
     manifest = files.inside(ctx.project.root, script.path).with_suffix(".json")
     try:
-        return [i["path"] for i in json.loads(manifest.read_text())["inputs"]]
+        return [i["path"] for i in json.loads(manifest.read_text(encoding="utf-8"))["inputs"]]
     except (OSError, ValueError, KeyError, TypeError):
         return []
 
@@ -428,7 +428,7 @@ async def _write_and_test(
             attempt_dir = job_dir / f"try-{attempt}"
             attempt_dir.mkdir(parents=True)
             candidate = attempt_dir / "main.py"
-            candidate.write_text(code)
+            candidate.write_text(code, encoding="utf-8")
             ctx.emit({"type": "progress", "label": "Test run in the sandbox"})
             try:
                 result = await box.run(candidate, {i.name: i.path for i in inputs}, attempt_dir)
@@ -492,7 +492,7 @@ async def _sheet_previews(
     folder = job_dir / "sheets"
     folder.mkdir(parents=True)
     script = folder / "main.py"
-    script.write_text(SHEET_PREVIEW)
+    script.write_text(SHEET_PREVIEW, encoding="utf-8")
     try:
         result = await box.run(script, sheets, folder)
     except SandboxError:

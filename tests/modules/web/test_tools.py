@@ -274,7 +274,7 @@ def test_a_fetched_page_is_saved_as_markdown_with_its_url_kept(ctx, web):
         "import", "https://www.python-httpx.org/advanced/streaming/",
     )  # fmt: skip
     assert (row.kind, row.text_status) == ("imported", "indexed")
-    content = (ctx.project.root / row.path).read_text()
+    content = (ctx.project.root / row.path).read_text(encoding="utf-8")
     assert content.startswith(
         "# Streaming — HTTPX\n\nSource: https://www.python-httpx.org/advanced/streaming/\n\n"
         "# Streaming\n\nUse `client.stream()` for large bodies."

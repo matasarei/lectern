@@ -112,6 +112,21 @@ def test_the_manifest_gives_the_default_inputs(make_ctx):
     assert box.runs[0]["inputs"] == {"rent.csv": "a\n1\n"}
 
 
+def test_the_manifest_gives_an_input_named_in_cyrillic(make_ctx):
+    """The manifest is UTF-8 (ensure_ascii=False); read in a Windows code page, the name came
+    back garbled and the script silently got no inputs."""
+    box = FakeSandbox()
+    ctx = make_ctx(box)
+    add(ctx, "Звіт.csv", "a\n1\n")
+    add(ctx, "sum.py", "...", folder="scripts")
+    manifest = json.dumps({"inputs": [{"path": "Звіт.csv"}]}, ensure_ascii=False)
+    add(ctx, "sum.json", manifest, folder="scripts")
+
+    run(ctx, name="sum")
+
+    assert box.runs[0]["inputs"] == {"Звіт.csv": "a\n1\n"}
+
+
 def test_the_image_is_built_after_a_card(make_ctx):
     box = FakeSandbox(image=False)
     ctx = make_ctx(box, answers=[True])
