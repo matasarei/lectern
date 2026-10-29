@@ -24,10 +24,9 @@ WRITING = (0x8C, 0x7B, 0x5C)
 INITIAL = (0x8A, 0x1C, 0x1C)
 
 # Icon.swift draws on a 1024-point canvas, y upwards, the spine at x = 512, the book between
-# x 186 and 838. Here it's scaled up to fill the square, the pages taller than the Mac's so the
-# book still reads at 16 pixels, and y runs down.
-SCALE = 1.4
-TALLER = 1.3
+# x 186 and 838. Here it's scaled up, in the Mac's proportions, to fill the square's width;
+# y runs down.
+SCALE = 1.45
 MIDDLE_Y = 500
 
 
@@ -48,7 +47,7 @@ def draw(size: int) -> Image.Image:
     def at(x: float, y: float) -> tuple[float, float]:
         return (
             (512 + (x - 512) * SCALE) * canvas / 1024,
-            (512 - (y - MIDDLE_Y) * SCALE * TALLER) * canvas / 1024,
+            (512 - (y - MIDDLE_Y) * SCALE) * canvas / 1024,
         )
 
     def points(path: list[tuple[float, float]]) -> list[tuple[float, float]]:
