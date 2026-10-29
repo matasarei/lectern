@@ -60,7 +60,8 @@ cd ~/.lectern/src && make install      # or ./install.sh
 The first run checks the hardware, recommends a chat model and downloads it. Everything lives
 in `~/.lectern`. Update with `cd ~/.lectern/src && git pull && make install`; remove it with
 `make uninstall` (keeps your models, projects and settings) or `make purge` (asks, then
-removes those too), in the same folder.
+removes those too), in the same folder. With [just](https://just.systems) installed,
+`just install`, `just uninstall` and `just purge` do the same, on Windows too.
 The details for each system are below: [Linux](#install-on-a-linux-server),
 [Mac](#install-on-a-mac), [Windows](#install-on-windows).
 
@@ -392,13 +393,15 @@ and stops it. Lectern runs for as long as the tray app does.
 **Needs:** a 64-bit PC with Windows 10 or 11, Git and Node.js
 (`winget install Git.Git OpenJS.NodeJS.LTS`, then open a new window), and internet for the
 first run. Python isn't needed: the installer brings its own. The tray app is compiled on
-your PC by the C# compiler that comes with Windows (.NET Framework 4).
+your PC by the C# compiler that comes with Windows (.NET Framework 4). Optional:
+[just](https://just.systems) (`winget install Casey.Just`), for the shorter commands below.
 
 1. **Clone Lectern and run one script, as yourself** (not as administrator), in PowerShell:
    ```powershell
    git clone https://github.com/matasarei/lectern.git $HOME\.lectern\src
    cd $HOME\.lectern\src; powershell -ExecutionPolicy Bypass -File install.ps1
    ```
+   With just, the second line is `cd $HOME\.lectern\src; just install`.
    Everything goes in `%USERPROFILE%\.lectern`, laid out as
    [on Linux](#install-on-a-linux-server) (`src`, `app`, `data`, `lectern.env`,
    `bin\lectern-url.cmd`, `bin\lectern.cmd`). The installer adds Lectern to the Start menu and
@@ -416,7 +419,8 @@ your PC by the C# compiler that comes with Windows (.NET Framework 4).
    the hardware, lets you pick the chat model, and downloads it with the llama.cpp build for
    your GPU (CUDA, Vulkan or the CPU).
 
-**Update:** `cd $HOME\.lectern\src; git pull; powershell -ExecutionPolicy Bypass -File install.ps1`.
+**Update:** `cd $HOME\.lectern\src; git pull; powershell -ExecutionPolicy Bypass -File install.ps1`
+(or `just install` after the pull).
 A running Lectern is quit, replaced and started again; one that wasn't running is replaced and
 left stopped. Your data and settings are kept, and if anything fails to build, the running
 Lectern and its version stay as they were.
@@ -425,7 +429,10 @@ Lectern and its version stay as they were.
 **Settings:** `%USERPROFILE%\.lectern\lectern.env`, then Restart in the menu.
 **Uninstall:** `powershell -ExecutionPolicy Bypass -File uninstall.ps1` removes the tray app,
 its shortcuts, its log and `.lectern\app`; it keeps `.lectern\data` and `.lectern\lectern.env`
-unless you add `-Purge`, which asks first. `.lectern\src` always stays.
+unless you add `-Purge`, which asks first. `.lectern\src` always stays. With just:
+`just uninstall`, or `just purge` for `-Purge`.
+**Build for development** (in your copy of the repository): `just` runs `npm ci` when the lock
+file has changed, then `uv sync` and the web build, as `make` does on Linux and the Mac.
 **The script sandbox** needs Docker Desktop or Podman Desktop (both on WSL 2): see
 [The script sandbox](#the-script-sandbox-podman-or-docker).
 **Even if the tray app is ended** (Task Manager), nothing is left behind: Lectern and every
