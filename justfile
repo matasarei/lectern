@@ -19,11 +19,13 @@ build: web-deps
     npm --prefix web run build
 
 # npm ci only when the lock file has changed since the last one: it starts from nothing.
+[private]
 [unix]
 web-deps:
     [ web/node_modules/.package-lock.json -nt web/package-lock.json ] || npm --prefix web ci
 
 # npm ci only when the lock file has changed since the last one: it starts from nothing.
+[private]
 [windows]
 web-deps:
     if (-not (Test-Path web/node_modules/.package-lock.json) -or (Get-Item web/node_modules/.package-lock.json).LastWriteTime -lt (Get-Item web/package-lock.json).LastWriteTime) { npm --prefix web ci; if (-not $? -or $LASTEXITCODE) { exit 1 } }
