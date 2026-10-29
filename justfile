@@ -27,3 +27,41 @@ web-deps:
 [windows]
 web-deps:
     if (-not (Test-Path web/node_modules/.package-lock.json) -or (Get-Item web/node_modules/.package-lock.json).LastWriteTime -lt (Get-Item web/package-lock.json).LastWriteTime) { npm --prefix web ci; if (-not $? -or $LASTEXITCODE) { exit 1 } }
+
+# Install or update Lectern for you (README "Quick start").
+[unix]
+install:
+    ./install.sh
+
+# Install or update Lectern for you (README "Install on Windows").
+[windows]
+install:
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File install.ps1
+
+# Remove Lectern, keeping its models, projects and settings.
+[unix]
+uninstall:
+    ./uninstall.sh
+
+# Remove Lectern, keeping its models, projects and settings.
+[windows]
+uninstall:
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1
+
+# A wipe deletes every model and project, and nothing brings them back: only y or yes goes on.
+# No answer (nobody at the keyboard) keeps everything; `yes | just purge` for a scripted test.
+# The question and the wipe are one script, so a No can't be followed by the wipe.
+# Remove Lectern with its models, projects and settings: asks first.
+[unix]
+purge:
+    #!/usr/bin/env sh
+    printf 'This deletes the models, projects and settings in %s.\nGo on? [y/N] ' \
+        "${LECTERN_DIR:-$HOME/.lectern}"
+    read -r answer
+    case "$answer" in y|Y|yes|YES) ;; *) echo 'Nothing removed.'; exit 1 ;; esac
+    exec ./uninstall.sh --purge
+
+# Remove Lectern with its models, projects and settings: uninstall.ps1 -Purge asks first.
+[windows]
+purge:
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1 -Purge
