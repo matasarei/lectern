@@ -143,7 +143,10 @@ version in a folder of its own so a failed install leaves the running one alone:
   (`packaging/windows/`). It stops Lectern by setting a named event (`serve --stop-event`,
   `core/winevent.py`): Windows has no Ctrl+C for a process with no console, and Lectern's
   standard input is left alone, since a thread waiting to read it made a DLL loading later
-  wait with it.
+  wait with it. `serve` runs on an event loop of its own there (`core/winloop.py`): asyncio's
+  stops accepting for good after one client is gone before its accept
+  ([python/cpython#93821](https://github.com/python/cpython/issues/93821)). While Lectern
+  runs, the tray app asks `/health` every 30 s and says in its menu when it stops answering.
 
 The llama.cpp build for the machine is downloaded at first run. How to install and update:
 the [README](../README.md).
