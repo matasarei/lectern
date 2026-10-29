@@ -99,7 +99,8 @@ to 36 GB, ¾ above, or `iogpu.wired_limit_mb` when it's set). With no GPU it is 
 4 GiB.
 
 A model's need is estimated as its file sizes, plus the KV cache for the context (from the
-model's header), plus 300 MiB (`runtime/planner.py`). The planner tries, in order:
+model's header, read by `runtime/gguf_header.py`, which skips the tokenizer's arrays: gguf's
+own reader took 9 s over them on a 248k-token vocabulary), plus 300 MiB (`runtime/planner.py`). The planner tries, in order:
 
 1. the tier's context with an f16 KV cache;
 2. the same context with a q8_0 KV cache;

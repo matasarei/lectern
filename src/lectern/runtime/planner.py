@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lectern.hardware.tiers import Tier
+from lectern.runtime.gguf_header import read_metadata
 
 MIB = 1024**2
 GIB = 1024**3
@@ -57,18 +58,13 @@ class DoesNotFit(Exception):
 
 def read_shape(gguf_file: Path) -> ModelShape:
     """Layer and attention sizes from the GGUF header."""
-    from gguf import GGUFReader
-
-    fields = GGUFReader(gguf_file).fields
+    values = read_metadata(gguf_file)
 
     def scalar(key: str) -> int | None:
-        field = fields.get(key)
-        if field is None or not field.data:
-            return None
-        return int(field.parts[field.data[0]][0])
+        value = values.get(key)
+        return int(value) if isinstance(value, int | float) else None
 
-    arch_field = fields["general.architecture"]
-    arch = bytes(arch_field.parts[arch_field.data[0]]).decode()
+    arch = str(values["general.architecture"])
     layers = scalar(f"{arch}.block_count") or 0
     heads = scalar(f"{arch}.attention.head_count") or 1
     kv_heads = scalar(f"{arch}.attention.head_count_kv") or heads

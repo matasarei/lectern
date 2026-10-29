@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 
 import pytest
 
@@ -164,6 +165,24 @@ def test_serve_refuses_a_malformed_public_url_before_starting(paths, monkeypatch
     result = _run("serve", "--no-browser", "--public-url", "lectern.lan")
     assert result.exit_code == 2 and "LECTERN_PUBLIC_URL must be like" in result.output
     assert started == []
+
+
+def test_serve_refuses_a_stop_event_off_windows(paths, monkeypatch):
+    started = []
+    monkeypatch.setattr(cli.LecternServer, "run", lambda self: started.append(True))
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+    result = _run("serve", "--no-browser", "--stop-event", r"Local\Lectern-x-stop")
+    assert result.exit_code == 2 and "--stop-event is for Windows" in result.output
+    assert started == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="--stop-event is Windows only")
+def test_serve_hands_the_stop_event_to_the_server(paths, monkeypatch):
+    # Not by faking sys.platform: the app it makes would take this machine for Windows too.
+    events: list[str | None] = []
+    monkeypatch.setattr(cli.LecternServer, "run", lambda self: events.append(self._stop_event))
+    assert _run("serve", "--no-browser", "--stop-event", r"Local\Lectern-x-stop").exit_code == 0
+    assert events == [r"Local\Lectern-x-stop"]
 
 
 def test_serve_prints_the_public_link_too(paths, monkeypatch):

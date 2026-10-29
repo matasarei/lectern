@@ -228,6 +228,65 @@ def test_standard_input_is_left_alone_unless_asked(paths):
     assert not thread.is_alive()
 
 
+def test_the_stop_event_being_set_stops_the_server_as_ctrl_c_does(paths):
+    from lectern.app import create_app
+    from lectern.cli import LecternServer
+
+    app = create_app(paths)
+    stop = threading.Event()
+    waited_for: list[str] = []
+
+    def wait_for(name: str) -> None:
+        waited_for.append(name)
+        stop.wait()
+
+    server = LecternServer(
+        server_config(app, _free_port()),
+        stop_event=r"Local\Lectern-x-stop",
+        wait_for_event=wait_for,
+    )
+    thread = _serving(server)
+    # Standard input isn't read: a thread waiting on it is what froze Windows' model loads.
+    assert "stdin" not in {t.name for t in threading.enumerate()}
+    stop.set()
+    thread.join(timeout=SHUTDOWN_GRACE_SECONDS + 5)
+    assert not thread.is_alive()
+    assert waited_for == [r"Local\Lectern-x-stop"]
+    assert server.should_exit and app.state.shutting_down.is_set()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a named Windows event")
+def test_serve_stops_when_its_stop_event_is_set(tmp_path):
+    """The flag as the Windows tray app uses it: a real `lectern serve`, no standard input, its
+    named event set as the tray's Stop sets it."""
+    from lectern.core import winevent
+
+    port = _free_port()
+    name = f"Local\\Lectern-test-{port}-stop"
+    env = {**os.environ, "LECTERN_HOME": str(tmp_path / "home")}
+    log = tmp_path / "serve.log"
+    with log.open("wb") as out:
+        process = subprocess.Popen(  # noqa: S603 (fixed argv)
+            [sys.executable, "-c", "from lectern.cli import app; app()", "serve",
+             "--no-browser", "--port", str(port), "--stop-event", name],
+            stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
+        )  # fmt: skip
+    try:
+        for _ in range(100):
+            try:
+                if httpx2.get(f"http://127.0.0.1:{port}/health", timeout=1).status_code == 200:
+                    break
+            except httpx2.HTTPError:
+                time.sleep(0.1)
+        winevent.set_event(name)
+        assert process.wait(timeout=SHUTDOWN_GRACE_SECONDS + 10) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+    output = log.read_text(encoding="utf-8")
+    assert "Application shutdown complete" in output and "Traceback" not in output
+
+
 def test_serve_stops_when_its_standard_input_closes(tmp_path):
     """The flag as the Windows tray app uses it: a real `lectern serve`, its stdin a pipe."""
     port = _free_port()

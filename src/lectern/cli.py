@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, BinaryIO
 
@@ -47,7 +48,14 @@ def serve(
         False,
         "--stop-on-stdin-close",
         help="Stop, as on Ctrl+C, when standard input closes: how Lectern's Windows tray app "
-        "stops it (Windows has no Ctrl+C to send a process with no console).",
+        "stopped it before --stop-event (Windows has no Ctrl+C to send a process with no "
+        "console).",
+    ),
+    stop_event: str | None = typer.Option(
+        None,
+        "--stop-event",
+        help="Windows only: stop, as on Ctrl+C, when the named event is set (e.g. "
+        r"Local\Lectern-…-stop): how Lectern's Windows tray app stops it.",
     ),
     public_url: Annotated[
         list[str] | None,
@@ -62,6 +70,9 @@ def serve(
     """Start the Lectern server: on 127.0.0.1, unless LECTERN_HOST / --host says 0.0.0.0."""
     from lectern.app import create_app
 
+    if stop_event is not None and sys.platform != "win32":
+        typer.echo("--stop-event is for Windows; elsewhere Lectern stops on Ctrl+C.", err=True)
+        raise typer.Exit(2)
     if host not in (LOCAL_HOST, EVERY_ADDRESS):
         typer.echo(
             f"LECTERN_HOST must be {LOCAL_HOST} (this machine only) or {EVERY_ADDRESS} "
@@ -97,7 +108,9 @@ def serve(
     if browser:
         open_when_listening(url, port)
     LecternServer(
-        server_config(lectern_app, port, host), stop_on_stdin_close=stop_on_stdin_close
+        server_config(lectern_app, port, host),
+        stop_on_stdin_close=stop_on_stdin_close,
+        stop_event=stop_event,
     ).run()
 
 
@@ -315,7 +328,11 @@ class LecternServer(uvicorn.Server):
     waiting on connections, so the event streams can end by themselves.
 
     `stop_on_stdin_close`: standard input closing is a Ctrl+C too. What's written to it is
-    ignored."""
+    ignored. Not for Windows' tray app any more: on Windows a thread waiting to read stdin
+    makes a DLL that looks at the standard handles wait as it loads (core/winevent.py).
+
+    `stop_event`: the named Windows event being set is a Ctrl+C too. `wait_for_event` (tests)
+    stands in for waiting on it."""
 
     def __init__(
         self,
@@ -323,19 +340,38 @@ class LecternServer(uvicorn.Server):
         *,
         stop_on_stdin_close: bool = False,
         stdin: BinaryIO | None = None,
+        stop_event: str | None = None,
+        wait_for_event: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(config)
         self._stop_on_stdin_close = stop_on_stdin_close
         self._stdin = stdin
+        self._stop_event = stop_event
+        self._wait_for_event = wait_for_event
 
     async def serve(self, sockets: list[socket.socket] | None = None) -> None:
+        loop = asyncio.get_running_loop()
         if self._stop_on_stdin_close:
-            loop = asyncio.get_running_loop()
             stdin = self._stdin or sys.stdin.buffer
             threading.Thread(
                 target=self._stop_when_closed, args=(loop, stdin), name="stdin", daemon=True
             ).start()
+        if self._stop_event is not None:
+            threading.Thread(
+                target=self._stop_when_set, args=(loop, self._stop_event), name="stop-event",
+                daemon=True,
+            ).start()  # fmt: skip
         await super().serve(sockets)
+
+    def _stop_when_set(self, loop: asyncio.AbstractEventLoop, name: str) -> None:
+        if self._wait_for_event is not None:
+            self._wait_for_event(name)
+        else:
+            from lectern.core import winevent
+
+            winevent.wait_for(name)
+        with contextlib.suppress(RuntimeError):  # the loop has closed: it's stopping already
+            loop.call_soon_threadsafe(self._stop)
 
     def _stop_when_closed(self, loop: asyncio.AbstractEventLoop, stdin: BinaryIO) -> None:
         with contextlib.suppress(OSError, ValueError):
