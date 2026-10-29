@@ -555,19 +555,52 @@ internal sealed class TrayGlyph : IDisposable
 
     public static Bitmap Draw(bool open, bool light, int size)
     {
-        var bitmap = new Bitmap(size, size);
-        using (Graphics g = Graphics.FromImage(bitmap))
+        var glyph = new Bitmap(size, size);
+        using (Graphics g = Graphics.FromImage(glyph))
         using (var font = new Font(FontName(), size, GraphicsUnit.Pixel))
         using (var ink = new SolidBrush(light ? Color.Black : Color.White))
         using (var format = new StringFormat(StringFormat.GenericTypographic))
         {
+            // Not GenericTypographic's LineLimit: these fonts' lines are taller than the square,
+            // and a line that doesn't fit isn't drawn at all.
+            format.FormatFlags = StringFormatFlags.NoClip | StringFormatFlags.NoWrap;
             format.Alignment = StringAlignment.Center;
             format.LineAlignment = StringAlignment.Center;
             // Greyscale: ClearType's coloured edges need an opaque background to land on.
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             g.DrawString(open ? OpenBook : ClosedBook, font, ink, new RectangleF(0, 0, size, size), format);
         }
-        return bitmap;
+        return Centred(glyph);
+    }
+
+    // Moved, by whole pixels so it stays sharp, to the middle of the square by where its ink is:
+    // MDL2 Assets (Windows 10) sets the closed book up to a quarter of the square left of it.
+    private static Bitmap Centred(Bitmap glyph)
+    {
+        int size = glyph.Width;
+        int left = size, top = size, right = -1, bottom = -1;
+        for (int x = 0; x < size; x++)
+        {
+            for (int y = 0; y < size; y++)
+            {
+                if (glyph.GetPixel(x, y).A == 0) continue;
+                left = Math.Min(left, x);
+                right = Math.Max(right, x);
+                top = Math.Min(top, y);
+                bottom = Math.Max(bottom, y);
+            }
+        }
+        if (right < 0) return glyph;  // nothing drawn: nothing to move
+        int dx = (size - 1 - right - left) / 2;
+        int dy = (size - 1 - bottom - top) / 2;
+        if (dx == 0 && dy == 0) return glyph;
+        var centred = new Bitmap(size, size);
+        using (Graphics g = Graphics.FromImage(centred))
+        {
+            g.DrawImageUnscaled(glyph, dx, dy);
+        }
+        glyph.Dispose();
+        return centred;
     }
 
     private static string FontName()
