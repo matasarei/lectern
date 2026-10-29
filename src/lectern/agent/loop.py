@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import re
 import time
 from collections.abc import Callable
@@ -45,6 +46,9 @@ from lectern.runtime.supervisor import ModelRuntime, NotAvailable, Priority
 MAX_MODEL_CALLS = 8
 TEMPERATURE = 0.6
 RESULT_PREVIEW = 600  # characters of a tool result shown in the chat line
+ERROR_DETAIL = 200  # characters of an unexpected error said in the chat
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -516,27 +520,16 @@ async def run_turn(run: TurnRun) -> str:
                     run.emit({"type": "compaction_failed", "detail": "stopped"})
                 return "done"
             for call in reply.calls:
-                result = await run_tool(run, call, failures, failed)
-                await run_in_threadpool(
-                    lambda c=call, r=result: store_message(
-                        run,
-                        role="tool",
-                        content=r.text,
-                        tool_call_id=c["id"],
-                        tool_name=(run.registry.get(c["function"]["name"]) or _Unknown).name,
-                        refs=json.dumps(r.refs) if r.refs else None,
-                    )
-                )
-                run.emit(
-                    {
-                        "type": "tool_result",
-                        "call_id": call["id"],
-                        "text": result.text[:RESULT_PREVIEW],
-                        "error": result.text.startswith("Error:"),
-                        "refs": result.refs,
-                        "action": result.action,
-                    }
-                )
+                try:
+                    result = await run_tool(run, call, failures, failed)
+                except (TurnFailed, NotAvailable, RunnerError, DownloadError, httpx2.HTTPError):
+                    raise  # each ends the turn its own way, below
+                except Exception as exc:  # noqa: BLE001 — ends the turn below, said in the chat
+                    # The call gets its result all the same: without one, the next turn's model
+                    # saw a call that never ended, and said the script "wasn't run yet".
+                    await _record(run, call, ToolResult(f"Error: {_unexpected(exc)}"))
+                    raise
+                await _record(run, call, result)
         raise TurnFailed(
             f"Stopped after {MAX_MODEL_CALLS} model calls without an answer. Ask again, "
             "or split the request."
@@ -553,6 +546,14 @@ async def run_turn(run: TurnRun) -> str:
     except httpx2.HTTPError as exc:
         run.emit({"type": "error", "detail": f"Lost the model server: {exc}"})
         return "error"
+    except Exception as exc:  # noqa: BLE001 — anything else a tool or a step raised
+        # Uncaught, it ended the turn's task with nothing said: the chat showed "Working…" for
+        # good, and Stop and a reload couldn't end it (docs/acceptance/m4.md, Windows results).
+        log.exception("A chat turn failed unexpectedly (project %s, chat %s)",
+                      run.project.id, run.session_id)  # fmt: skip
+        detail = f"Something went wrong ({_unexpected(exc)}). It's in the log."
+        run.emit({"type": "error", "detail": detail})
+        return "error"
     except asyncio.CancelledError:
         partial = run.stats.get("partial", "")
         if partial:
@@ -561,6 +562,36 @@ async def run_turn(run: TurnRun) -> str:
             )
         run.emit({"type": "stopped"})
         return "stopped"
+
+
+async def _record(run: TurnRun, call: dict, result: ToolResult) -> None:
+    """A tool call's result: stored in the transcript, and shown on the call's line."""
+    await run_in_threadpool(
+        lambda: store_message(
+            run,
+            role="tool",
+            content=result.text,
+            tool_call_id=call["id"],
+            tool_name=(run.registry.get(call["function"]["name"]) or _Unknown).name,
+            refs=json.dumps(result.refs) if result.refs else None,
+        )
+    )
+    run.emit(
+        {
+            "type": "tool_result",
+            "call_id": call["id"],
+            "text": result.text[:RESULT_PREVIEW],
+            "error": result.text.startswith("Error:"),
+            "refs": result.refs,
+            "action": result.action,
+        }
+    )
+
+
+def _unexpected(exc: BaseException) -> str:
+    """An error nothing expected, in a line: its type and the first line of its message."""
+    reason = (str(exc).splitlines() or [""])[0][:ERROR_DETAIL]
+    return f"{type(exc).__name__}: {reason}" if reason else type(exc).__name__
 
 
 class _Unknown:
