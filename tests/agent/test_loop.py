@@ -469,6 +469,65 @@ def test_an_async_tool_can_report_progress_and_ask_mid_run(store, approve):
         assert result == "The person said no."
 
 
+class _NoParams(BaseModel):
+    pass
+
+
+async def _write_in_the_wrong_code_page(ctx, params):  # noqa: ANN001
+    # What code_write did on a cp1251 Windows with "₴" in the script (docs/acceptance/m4.md).
+    raise UnicodeEncodeError("charmap", "Сума: 409,62 ₴", 13, 14, "character maps to <undefined>")
+
+
+BROKEN_TOOL = AgentTool(
+    name="demo.broken", description="Fails as nothing expects.", params=_NoParams,
+    run=_write_in_the_wrong_code_page,
+)  # fmt: skip
+
+
+def test_a_tool_failing_as_nothing_expects_ends_the_turn_and_says_so(store, caplog):
+    """It ended the turn's task with nothing said: "Working…" for good, Stop and a reload
+    couldn't end it, and no message could be sent. And the call has its result, the error,
+    so the next turn's model knows it failed."""
+    handle = FakeHandle([tool_reply("demo_broken", {}), text_reply("Next one.")])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, BROKEN_TOOL]))
+    project = store.create(LOCAL_USER, "Broken")
+
+    status, seen = asyncio.run(recorded(manager, project, "Compute it"))
+
+    assert status == "error"
+    error = next(e for e in seen if e["type"] == "error")
+    assert error["detail"].startswith("Something went wrong (UnicodeEncodeError: 'charmap' codec")
+    assert error["detail"].endswith("It's in the log.")
+    assert seen[-1]["type"] == "turn" and seen[-1]["status"] == "error"  # the page hears it end
+    logged = [r for r in caplog.records if r.name == "lectern.agent.loop"]
+    assert (
+        logged and logged[0].exc_info[0] is UnicodeEncodeError
+    )  # the traceback, for whoever looks
+    result = next(e for e in seen if e["type"] == "tool_result")
+    assert result["error"] and result["text"].startswith("Error: UnicodeEncodeError: 'charmap'")
+    assert [(role, name) for role, _, name in transcript(store, project)] == [
+        ("user", None), ("assistant", None), ("tool", "demo.broken"),
+    ]  # fmt: skip
+    # The chat isn't stuck: the next message gets an answer, and its model sees the error.
+    assert asyncio.run(turn(manager, project, "Again")) == "done"
+    tool_messages = [m for m in handle.requests[-1]["messages"] if m["role"] == "tool"]
+    assert tool_messages[-1]["content"].startswith("Error: UnicodeEncodeError")
+
+
+def test_a_step_that_isnt_a_tool_failing_ends_the_turn_and_says_so(setup, monkeypatch):
+    """Any step of run_turn, which follow-ups run too: the same end, not a turn left running."""
+    manager, project, _, _ = setup([text_reply("ok")])
+
+    def lost(_run):  # noqa: ANN001, ANN202
+        raise KeyError("x")
+
+    monkeypatch.setattr(loop, "load_history", lost)
+    assert asyncio.run(turn(manager, project, "hi")) == "error"
+    error = next(e for e in events(manager, project) if e["type"] == "error")
+    assert error["detail"] == "Something went wrong (KeyError: 'x'). It's in the log."
+    assert events(manager, project)[-1]["type"] == "turn"
+
+
 def test_a_tool_outside_a_turn_is_never_approved(store):
     project = store.create(LOCAL_USER, "Direct")
     ctx = ToolContext(project=project, sessions=store.db(project), user=LOCAL_USER, session_id=1)

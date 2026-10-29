@@ -39,7 +39,10 @@ with a cursor.
 
 Arguments are checked against the same JSON schema the model is sent. A first invalid call
 gets the error back to fix; a second one to the same tool ends the turn. A call that already
-failed with the same arguments isn't run again.
+failed with the same arguments isn't run again. Anything a tool or a step of the turn raises
+that nothing expected ends the turn too, with "Something went wrong (…). It's in the log." in
+the chat and the traceback in the log (`agent/loop.py`, `run_turn`); the chat can be written
+to again at once.
 
 ## The system prompt
 
