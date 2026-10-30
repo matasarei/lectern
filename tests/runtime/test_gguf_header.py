@@ -73,6 +73,15 @@ def test_what_isnt_a_gguf_file_is_refused(tmp_path):
         read_metadata(old)
 
 
+@pytest.mark.parametrize("keep", [30, 200, 100_000])  # in a count, in a key, in the tokens
+def test_a_file_cut_short_is_refused_with_its_name(tmp_path, keep):
+    whole = _write_model(tmp_path / "whole.gguf").read_bytes()
+    cut = tmp_path / "qwen-part.gguf"
+    cut.write_bytes(whole[:keep])
+    with pytest.raises(ValueError, match=r"^qwen-part\.gguf: the header is cut short$"):
+        read_metadata(cut)
+
+
 def test_reading_the_shape_needs_neither_gguf_nor_numpy(tmp_path):
     """gguf's reader is what took 9 s on a 248k-token vocabulary; numpy's import, on the event
     loop, what froze a Windows tray-started Lectern. A fresh interpreter: in this one the tests

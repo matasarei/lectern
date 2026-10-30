@@ -38,18 +38,23 @@ def read_metadata(path: Path) -> dict[str, Value]:
             raise ValueError(f"{path.name}: GGUF version {version} isn't one Lectern reads")
         offset = 24
         values: dict[str, Value] = {}
-        for _ in range(kv_count):
-            key, offset = _string(data, offset)
-            (kind,) = struct.unpack_from("<I", data, offset)
-            value, offset = _value(data, offset + 4, kind)
-            if value is not None:
-                values[key] = value
+        try:
+            for _ in range(kv_count):
+                key, offset = _string(data, offset)
+                (kind,) = struct.unpack_from("<I", data, offset)
+                value, offset = _value(data, offset + 4, kind)
+                if value is not None:
+                    values[key] = value
+        except struct.error:  # a download stopped part way: say which file, not which bytes
+            raise ValueError(f"{path.name}: the header is cut short") from None
         return values
 
 
 def _string(data: mmap.mmap, offset: int) -> tuple[str, int]:
     (length,) = struct.unpack_from("<Q", data, offset)
     start = offset + 8
+    if start + length > len(data):  # a slice past the end would just come back shorter
+        raise struct.error("a string runs past the end of the file")
     return data[start : start + length].decode("utf-8", errors="replace"), start + length
 
 
