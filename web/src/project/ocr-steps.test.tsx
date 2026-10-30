@@ -1,6 +1,6 @@
 import "../i18n";
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import i18next from "i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -79,6 +79,19 @@ describe("ocrSteps", () => {
 
 describe("OcrSteps", () => {
   const spinner = () => screen.queryByTestId("ocr-working");
+
+  it("makes the open questions a link when it's given somewhere to go, and only then", () => {
+    const finished = { ...base, status: "done" as const, read: 3, cleaned: 3, openQuestions: 8, failedPages: [2] };
+    const went: number[] = [];
+    const { unmount } = render(<OcrSteps input={finished} runtime={undefined} onQuestions={() => went.push(1)} />);
+    fireEvent.click(screen.getByRole("button", { name: "8 open questions" }));
+    expect(went).toEqual([1]);
+    expect(screen.getByTestId("ocr-steps").textContent).toContain("· page 2 couldn't be cleaned"); // still said
+    unmount();
+    render(<OcrSteps input={finished} runtime={undefined} />);
+    expect(screen.queryByRole("button", { name: "8 open questions" })).toBeNull();
+    expect(screen.getByTestId("ocr-steps").textContent).toContain("8 open questions");
+  });
 
   it("spins on the current step while the job is at work, a model loading included", () => {
     const { unmount } = render(

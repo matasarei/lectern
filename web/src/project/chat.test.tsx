@@ -735,6 +735,15 @@ describe("The OCR line under ocr.start", () => {
     fireEvent.click(await screen.findByRole("button", { name: "OCR · scan.jpg" }));
     expect(opened).toEqual([{ kind: "session", id: 8 }]);
   });
+
+  it("opens the session's tab at its questions from \"N open questions\"", async () => {
+    started();
+    items = { ...items, sessions: [ocrSummary("done")] };
+    const opened: Tab[] = [];
+    renderChat((tab) => opened.push(tab));
+    fireEvent.click(await screen.findByRole("button", { name: "1 open question" }));
+    expect(opened).toEqual([{ kind: "session", id: 8, questions: true }]);
+  });
 });
 
 describe("The chat's message when an OCR session finishes", () => {

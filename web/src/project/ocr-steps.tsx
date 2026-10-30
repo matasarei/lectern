@@ -80,12 +80,16 @@ function phaseFromCounts(s: OcrStepsInput): OcrStepsInput["phase"] {
 }
 
 function questionsDetail(s: OcrStepsInput, t: TFunction): string {
-  const parts: string[] = [];
-  if (s.openQuestions > 0) parts.push(t("ocrSteps.open", { count: s.openQuestions }));
-  if (s.failedPages.length > 0) {
-    parts.push(t("ocrSteps.notCleaned", { count: s.failedPages.length, pages: s.failedPages.join(", ") }));
-  }
-  return parts.join(" · ");
+  return [openPart(s, t), failedPart(s, t)].filter(Boolean).join(" · ");
+}
+
+function openPart(s: OcrStepsInput, t: TFunction): string {
+  return s.openQuestions > 0 ? t("ocrSteps.open", { count: s.openQuestions }) : "";
+}
+
+function failedPart(s: OcrStepsInput, t: TFunction): string {
+  const count = s.failedPages.length;
+  return count > 0 ? t("ocrSteps.notCleaned", { count, pages: s.failedPages.join(", ") }) : "";
 }
 
 /** "export to DOCX" → "Export to DOCX", a step's name. */
@@ -98,13 +102,16 @@ export function OcrSteps({
   input,
   runtime,
   held = false,
+  onQuestions,
 }: {
   input: OcrStepsInput;
   runtime: RuntimeState | undefined;
   held?: boolean; // waiting for the chat, said elsewhere (the OCR tab's countdown), not in the text
+  onQuestions?: () => void; // "N open questions" then opens the review at the first of them
 }) {
   const { t } = useTranslation();
   const { steps, detail } = ocrSteps(input, runtime, t);
+  const linked = onQuestions !== undefined && input.status === "done" && input.openQuestions > 0;
   // At work: running, and not waiting for the chat's reply. A model loading counts, since
   // something is happening; queued, paused, done and failed don't.
   const working = input.status === "running" && !input.waitingForChat && !held;
@@ -124,7 +131,18 @@ export function OcrSteps({
           <span>
             {step.key === "export" ? capitalised(input.exports.join(", ")) : t(`ocrSteps.${step.key}`)}
           </span>
-          {step.state === "current" && detail && <span className="font-normal text-muted">· {detail}</span>}
+          {step.state === "current" && detail && !(linked && step.key === "questions") && (
+            <span className="font-normal text-muted">· {detail}</span>
+          )}
+          {step.state === "current" && linked && step.key === "questions" && (
+            <span className="font-normal text-muted">
+              ·{" "}
+              <button className="text-accent hover:underline" onClick={onQuestions}>
+                {openPart(input, t)}
+              </button>
+              {failedPart(input, t) && ` · ${failedPart(input, t)}`}
+            </span>
+          )}
           {step.state === "current" && elapsed !== null && (
             <span
               className="font-normal tabular-nums text-muted"

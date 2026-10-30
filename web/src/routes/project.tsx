@@ -202,6 +202,7 @@ export function ProjectPage() {
             sessionId={tabs.active.id}
             onOpen={open}
             initialPage={tabs.active.page}
+            toQuestions={tabs.active.questions}
           />
         )}
         {!loadingActive && tabs.active?.kind === "session" && activeSession?.kind !== "ocr" && (
