@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
@@ -153,16 +153,19 @@ def test_only_regular_files_within_the_caps_become_outputs(tmp_path, monkeypatch
     assert dropped == ["sub/c.csv"]
 
 
-def test_mount_values_quote_awkward_paths():
-    # The source as this OS writes a path (backslashes on Windows); the quoting is the same.
-    comma = str(Path("/p/a,b"))
-    assert _bind(Path("/p/a,b"), "/in/x", readonly=True) == (
-        f'type=bind,"source={comma}",target=/in/x,readonly'
-    )
-    quote = str(Path('/p/say "hi"')).replace('"', '""')
-    assert _bind(Path('/p/say "hi"'), "/out", readonly=False) == (
-        f'type=bind,"source={quote}",target=/out'
-    )
+@pytest.mark.parametrize(
+    ("source", "readonly", "value"),
+    [
+        (PurePosixPath("/p/a,b"), True, 'type=bind,"source=/p/a,b",target=/in,readonly'),
+        (PurePosixPath('/p/say "hi"'), False, 'type=bind,"source=/p/say ""hi""",target=/in'),
+        (PureWindowsPath("C:/p/a,b"), True, r'type=bind,"source=C:\p\a,b",target=/in,readonly'),
+        (PureWindowsPath('C:/p/say "hi"'), False, r'type=bind,"source=C:\p\say ""hi""",target=/in'),
+        (PurePosixPath("/p/plain"), False, "type=bind,source=/p/plain,target=/in"),  # as it is
+    ],
+)
+def test_mount_values_quote_awkward_paths(source, readonly, value):
+    # Both path shapes on every OS: the value is written out, not worked out as _bind does.
+    assert _bind(source, "/in", readonly=readonly) == value
 
 
 def test_no_engine_is_an_error_not_a_crash(tmp_path):

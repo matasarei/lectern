@@ -255,6 +255,27 @@ def test_the_stop_event_being_set_stops_the_server_as_ctrl_c_does(paths):
     assert server.should_exit and app.state.shutting_down.is_set()
 
 
+def test_a_stop_event_that_cant_be_waited_for_is_logged_and_serving_goes_on(paths, caplog):
+    from lectern.app import create_app
+    from lectern.cli import LecternServer
+
+    def broken(name: str) -> None:
+        raise OSError(6, f"couldn't wait for the event {name!r}")
+
+    class Loop:  # what the waiting thread is given: it would stop the server through this
+        calls: list = []
+
+        def call_soon_threadsafe(self, callback) -> None:  # noqa: ANN001
+            self.calls.append(callback)
+
+    server = LecternServer(server_config(create_app(paths), _free_port()), wait_for_event=broken)
+    server._stop_when_set(Loop(), r"Local\Lectern-x-stop")  # no exception out of the thread
+
+    assert Loop.calls == [] and not server.should_exit  # serving goes on
+    (record,) = [r for r in caplog.records if r.name == "lectern.cli"]
+    assert record.levelname == "ERROR" and "the tray can't stop Lectern cleanly" in record.message
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="a named Windows event")
 def test_serve_stops_when_its_stop_event_is_set(tmp_path):
     """The flag as the Windows tray app uses it: a real `lectern serve`, no standard input, its

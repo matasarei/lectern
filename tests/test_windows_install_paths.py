@@ -161,6 +161,27 @@ def test_the_log_of_another_install_is_in_its_own_folder(tmp_path):
     assert _ps(env, f"(Get-InstallLocation '{other}').Log") == str(logs / key / "lectern.log")
 
 
+@pytest.mark.parametrize(
+    ("script", "typo"),
+    [("uninstall.ps1", "-Purgee"), ("install.ps1", "-Wheell")],
+)
+def test_an_argument_the_script_doesnt_know_is_refused_before_it_does_anything(
+    tmp_path, script, typo
+):
+    """Through the root wrapper, as a person runs it. The profile and LECTERN_DIR are this
+    test's own, so a script that ignored the typo would act on nothing that matters."""
+    env, folder = _profile(tmp_path), tmp_path / "home/.lectern"
+    (folder / "app/versions").mkdir(parents=True)
+    done = subprocess.run(  # noqa: S603
+        ["powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",  # noqa: S607
+         str(ROOT / script), typo],
+        env={**env, "LECTERN_DIR": str(folder)}, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert done.returncode == 1, done.stdout
+    assert f"{script}: " in done.stderr and typo.lstrip("-") in done.stderr
+    assert (folder / "app/versions").is_dir()  # nothing installed over it or removed
+
+
 def test_the_tray_app_names_an_installs_log_folder_as_the_scripts_do():
     tray = (ROOT / "packaging/windows/tray/Lectern.cs").read_text(encoding="utf-8")
     scripts = (WINDOWS / "install_paths.ps1").read_text(encoding="utf-8")

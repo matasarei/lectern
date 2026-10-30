@@ -26,6 +26,8 @@
 # fetching one; LECTERN_HEALTH_WAIT and LECTERN_QUIT_WAIT are seconds (60 each).
 # (This file is ASCII: Windows PowerShell 5.1 reads a script without a byte-order mark as the
 # system's code page.)
+# CmdletBinding: an argument it doesn't know (-Wheell) is refused, not silently ignored.
+[CmdletBinding()]
 param(
     [string] $Wheel = ''
 )

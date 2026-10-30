@@ -20,6 +20,7 @@ from __future__ import annotations
 import hmac
 import os
 import sys
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 
@@ -28,6 +29,22 @@ KEY_ENV = "LECTERN_MLX_KEY"  # noqa: S105 (the variable's name, not a secret)
 # closing a socket with its data unread resets the connection on some systems (Windows), and
 # the client sees an error instead. A bigger body isn't read; that one may see the reset.
 REFUSED_BODY_LIMIT = 64 * 1024
+REFUSED_READ_SECONDS = 5.0  # for that body; a client on this computer sends 64 KiB in far less
+
+
+def _read_within(request: BaseHTTPRequestHandler, length: int, seconds: float) -> None:
+    """Read and drop `length` bytes of the request's body, or raise TimeoutError once
+    `seconds` have gone by: each wait is given only what's left of them."""
+    deadline = time.monotonic() + seconds
+    while length > 0:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError
+        request.connection.settimeout(left)
+        chunk = request.rfile.read1(length)
+        if not chunk:  # the client closed it
+            return
+        length -= len(chunk)
 
 
 def guard(handler: type[BaseHTTPRequestHandler], key: str) -> None:
@@ -44,7 +61,14 @@ def guard(handler: type[BaseHTTPRequestHandler], key: str) -> None:
             if not hmac.compare_digest(given, expected):
                 length = self.headers.get("Content-Length") or ""
                 if length.isdigit() and int(length) <= REFUSED_BODY_LIMIT:
-                    self.rfile.read(int(length))
+                    # Read with a deadline for the whole body, not each wait: a body sent a byte
+                    # at a time would hold this thread for as long as its sender liked. One
+                    # that misses it is closed unanswered.
+                    try:
+                        _read_within(self, int(length), REFUSED_READ_SECONDS)
+                    except TimeoutError:
+                        self.close_connection = True
+                        return
                 self.send_error(401)
                 return
             answer(self)

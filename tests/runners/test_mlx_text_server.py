@@ -101,6 +101,47 @@ def test_a_wrong_key_is_refused(port, authorization):
     assert status == 401 and ANSWER not in body
 
 
+def test_a_refused_body_sent_too_slowly_is_closed_unanswered(monkeypatch):
+    import socket
+
+    monkeypatch.setattr(mlx_text_server, "REFUSED_READ_SECONDS", 0.2)
+    handler = _handler()
+    mlx_text_server.guard(handler, KEY)
+    with _serving(handler) as port, socket.create_connection(("127.0.0.1", port)) as client:
+        client.settimeout(10)  # the test's own bound: the server should close long before
+        client.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\n"
+                       b"Content-Length: 1000\r\n\r\n{")  # fmt: skip
+        assert client.recv(1024) == b""  # closed, and told nothing
+
+
+def test_a_refused_body_trickled_in_is_closed_once_the_whole_read_is_too_long(monkeypatch):
+    """A byte every 50 ms never lets one wait run out; 1000 of them would take 50 s. The
+    deadline is for the whole body, so the server closes it after 0.3 s."""
+    import socket
+
+    monkeypatch.setattr(mlx_text_server, "REFUSED_READ_SECONDS", 0.3)
+    handler = _handler()
+    mlx_text_server.guard(handler, KEY)
+    done = threading.Event()
+    with _serving(handler) as port, socket.create_connection(("127.0.0.1", port)) as client:
+        client.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\n"
+                       b"Content-Length: 1000\r\n\r\n")  # fmt: skip
+
+        def trickle() -> None:
+            with contextlib.suppress(OSError):  # the server closed it
+                while not done.wait(0.05):  # the pace a slow sender keeps: time is the point
+                    client.sendall(b"x")
+
+        sender = threading.Thread(target=trickle, daemon=True)
+        sender.start()
+        client.settimeout(10)  # the test's own bound: the server should close long before
+        try:
+            assert client.recv(1024) == b""  # closed, and told nothing
+        finally:
+            done.set()
+            sender.join(timeout=5)
+
+
 def test_the_key_in_the_address_is_not_a_key(port):
     status, _, _ = _ask(port, "GET", f"/v1/models?key={KEY}&api_key={KEY}")
     assert status == 401
