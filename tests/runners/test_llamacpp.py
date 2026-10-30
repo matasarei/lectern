@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import stat
 import sys
 from pathlib import Path
 
 import httpx2
+import psutil
 import pytest
 
 from lectern.runners.base import RunnerError, RunnerSpec, run_dir_name
@@ -22,13 +24,34 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 MIB = 1024**2
 
 
+@pytest.fixture(autouse=True)
+def _end_the_fakes(tmp_path):
+    """On Windows stopping a fake ends only the .cmd that started it; the Python under it
+    would run on until its own minute is up. Ended here, after each test: only a process that
+    is still the fake, since Windows soon gives an ended one's id to something else."""
+    yield
+    for pids in tmp_path.rglob("pids"):
+        scripts = [str(s) for s in pids.parent.glob("*.py")]
+        for pid in pids.read_text(encoding="utf-8").split():
+            with contextlib.suppress(psutil.Error):  # gone already, or not ours to look at
+                process = psutil.Process(int(pid))
+                if any(s in " ".join(process.cmdline()) for s in scripts):
+                    process.kill()
+
+
 def _executable(path: Path, python: str) -> Path:
     """A fake llama-server: this Python running `python`. A script with a #! line where that
     runs; on Windows, which runs no #! script, the script beside a .cmd that starts it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if sys.platform == "win32":
         script = path.with_suffix(".py")
-        script.write_text(python, encoding="utf-8")
+        # Its process id written down, so the test can end it (`_end_the_fakes`).
+        noted = (
+            "import os as _o, pathlib as _p\n"
+            'with _p.Path(__file__).with_name("pids").open("a") as _f:\n'
+            '    _f.write(f"{_o.getpid()}\\n")\n'
+        )
+        script.write_text(noted + python, encoding="utf-8")
         launcher = path.with_suffix(".cmd")
         # The interpreter itself, not the venv's python.exe, which starts it as a child: one
         # process under the .cmd, not two. Stopping the fake still ends only the .cmd.
