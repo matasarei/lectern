@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import copy
 import json
+import logging
 import os
 import socket
 import sys
@@ -23,6 +24,7 @@ from uvicorn.config import LOGGING_CONFIG
 from lectern.config import DEFAULT_PORT
 
 app = typer.Typer(help="Lectern: a local, modular AI workbench.", no_args_is_help=True)
+log = logging.getLogger(__name__)
 
 
 # Where `serve` may listen. 0.0.0.0 still answers on 127.0.0.1, which the installer's health
@@ -364,12 +366,19 @@ class LecternServer(uvicorn.Server):
         await super().serve(sockets)
 
     def _stop_when_set(self, loop: asyncio.AbstractEventLoop, name: str) -> None:
-        if self._wait_for_event is not None:
-            self._wait_for_event(name)
-        else:
-            from lectern.core import winevent
+        try:
+            if self._wait_for_event is not None:
+                self._wait_for_event(name)
+            else:
+                from lectern.core import winevent
 
-            winevent.wait_for(name)
+                winevent.wait_for(name)
+        except OSError as exc:
+            # Serving goes on; it's the tray's Stop that can't reach it. Said in one line, so
+            # the force the tray then uses after 30 s isn't a mystery in the log.
+            log.error("Can't wait for the tray's stop signal (%s): the tray can't stop "
+                      "Lectern cleanly, and will end it after 30 seconds.", exc)  # fmt: skip
+            return
         with contextlib.suppress(RuntimeError):  # the loop has closed: it's stopping already
             loop.call_soon_threadsafe(self._stop)
 
