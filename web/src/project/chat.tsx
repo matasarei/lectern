@@ -421,6 +421,21 @@ function Transcript({
                         </Fragment>
                       ))}
                       {message.content && <Markdown text={message.content} />}
+                      {/* The notice says where the session stood when it was written; the
+                          line under it says where it stands now. */}
+                      {message.refs
+                        .filter((r) => r.kind === "session")
+                        .map((r) => (
+                          <OcrLine
+                            key={r.id}
+                            projectId={projectId}
+                            sessionId={r.id}
+                            then={followups
+                              .filter((f) => f.ocr_session_id === r.id && f.tool !== "")
+                              .map((f) => f.what || f.label)}
+                            onOpen={onOpen}
+                          />
+                        ))}
                       {message.refs.length > 0 && (
                         <FinishedActions
                           projectId={projectId}

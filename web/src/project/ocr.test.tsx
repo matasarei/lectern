@@ -238,6 +238,22 @@ describe("OCR tab", () => {
     expect(shown(2)).toBe("true");
   });
 
+  it("goes back to the chat that started it once every question is answered", async () => {
+    current = session({
+      status: "done",
+      chat_id: 7,
+      document: { version: 3, artifact_id: 40, open_doubts: 0 },
+      pages: [page(1, { status: "done", clean_status: "done" })],
+    });
+    currentDoc = documentOf([
+      block("b1.1", "Рахунок № {d1.1}", { doubts: [doubt("d1.1", "1?", { status: "resolved", value: "7" })] }),
+    ]);
+    const opened: Tab[] = [];
+    renderTab((tab) => opened.push(tab));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to the chat ›" }));
+    expect(opened).toEqual([{ kind: "session", id: 7 }]);
+  });
+
   it("goes to the first open question from its own steps bar", async () => {
     current = session({
       status: "done",

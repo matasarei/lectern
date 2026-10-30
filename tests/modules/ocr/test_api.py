@@ -64,6 +64,7 @@ def test_a_pdf_becomes_an_ocr_session_whose_pages_are_read(api):
     assert (session["kind"], session["title"], session["folder"]) == (
         "ocr", "lease-scan.pdf", "lease-scan"
     )  # fmt: skip
+    assert session["chat_id"] is None  # started from the Files tab: no chat to go back to
     url = f"/api/projects/{project.id}/ocr/{session['id']}"
     done = _until_done(client, headers, url)
     assert done["status"] == "done" and done["pages_total"] == 3

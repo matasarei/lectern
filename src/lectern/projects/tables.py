@@ -199,6 +199,9 @@ class OcrSessionRow(ProjectBase):
     document_artifact_id: Mapped[int | None] = mapped_column(
         ForeignKey("artifacts.id"), nullable=True
     )  # its document.md
+    # The chat that started it (ocr.start), for the way back once its questions are answered;
+    # none when it was started from the Files tab, or before this was kept.
+    chat_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

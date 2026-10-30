@@ -295,6 +295,33 @@ def test_a_project_at_p0009_takes_kept_and_removed_answers(store, paths):
     fresh.dispose()
 
 
+def test_a_project_at_p0010_keeps_its_ocr_sessions_and_they_take_a_chat(store, paths):
+    from lectern.modules.ocr import store as ocr_store
+    from lectern.projects import files
+    from lectern.projects.tables import OcrSessionRow
+
+    project = store.create(LOCAL_USER, "Before the way back")
+    with store.db(project).begin() as session:
+        chat = session.scalars(select(SessionRow)).first().id
+        scan = files.write_bytes(project.root, session, owner_id=LOCAL_USER.id, name="a.png",
+                                 data=b"PNG", origin=files.Origin("import")).id  # fmt: skip
+    _, before = ocr_store.create_session(project.root, store.db(project), owner_id=LOCAL_USER.id,
+                                         artifact_id=scan)  # fmt: skip
+    store.dispose()
+    _migrate_to(project, "p0010")  # as a project made before the chat was kept
+    _migrate_to(project, "head")
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    db = fresh.db(project)
+    with db() as session:
+        assert session.get(OcrSessionRow, before.session_id).chat_id is None  # kept, no chat
+    _, after = ocr_store.create_session(project.root, db, owner_id=LOCAL_USER.id,
+                                        artifact_id=scan, chat_id=chat)  # fmt: skip
+    with db() as session:
+        assert session.get(OcrSessionRow, after.session_id).chat_id == chat
+    fresh.dispose()
+
+
 def test_a_project_at_p0006_gets_follow_ups_in_its_chats_state(store, paths):
     from lectern.agent import followups
 

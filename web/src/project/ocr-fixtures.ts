@@ -12,7 +12,7 @@ export const page = (number: number, over: Partial<OcrPage> = {}): OcrPage => ({
 
 export const session = (over: Partial<OcrSession> = {}): OcrSession => ({
   id: 2, kind: "ocr", title: "lease-scan.pdf", folder: "lease-scan", status: "running",
-  paused_reason: null, error: null, pages_total: 2, source_artifact_id: 5, document: null,
+  paused_reason: null, error: null, pages_total: 2, source_artifact_id: 5, chat_id: null, document: null,
   updated_at: "",
   pages: [page(1), page(2)], ...over,
 });

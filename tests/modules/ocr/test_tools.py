@@ -191,6 +191,12 @@ def test_starting_opens_the_session_and_queues_the_export(ctx):
     )
 
 
+def test_a_session_started_from_a_chat_remembers_that_chat(ctx):
+    _call(START, ctx, name="lease-scan.pdf")
+    (sid,) = ctx.ocr_jobs.started
+    assert ocr_store._ocr(ctx.sessions, sid).chat_id == ctx.session_id  # the way back to it
+
+
 def test_a_note_reaches_the_page_and_the_tab(ctx):
     _call(START, ctx, name="lease-scan.pdf")
     (sid,) = ctx.ocr_jobs.started

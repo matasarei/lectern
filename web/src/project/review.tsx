@@ -31,17 +31,22 @@ export function ReviewPage({
   doc,
   page,
   onSelectPage,
+  onBack,
 }: {
   projectId: number;
   sessionId: number;
   doc: OcrDocument;
   page: number;
   onSelectPage: (page: number) => void;
+  onBack?: () => void; // to the chat that started the session, once every question is answered
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const questions = pageQuestions(doc, page);
   const open = questions.filter((q) => q.status === "open");
+  // Every question the Document had is answered (one with none never had any to answer).
+  const answeredAll = openQuestions(doc).length === 0 && doc.blocks.some((b) => b.doubts.length > 0);
+  const notCleaned = doc.pages.filter((p) => p.failed).map((p) => p.n);
   const [currentId, setCurrentId] = useState<string | null>(open[0]?.id ?? null);
   const [editing, setEditing] = useState(false);
   const [alone, setAlone] = useState<string | null>(null); // Later on the document's only question
@@ -184,9 +189,29 @@ export function ReviewPage({
         className="sticky bottom-0 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm"
         data-testid="question-bar"
       >
-        <span className="font-medium">
-          {t("review.bar", { page, count: open.length, total: openQuestions(doc).length })}
-        </span>
+        {/* The last one answered: say so, and the way back to the chat that started it,
+            where whatever it queued (an export) goes on. */}
+        {answeredAll ? (
+          <>
+            <span className="font-medium" data-testid="all-answered">
+              {/* Not final yet while a page isn't cleaned: said here too, not only above. */}
+              {notCleaned.length > 0
+                ? t("review.allAnsweredBut", {
+                    what: t("ocrSteps.notCleaned", { count: notCleaned.length, pages: notCleaned.join(", ") }),
+                  })
+                : t("review.allAnswered")}
+            </span>
+            {onBack && (
+              <button className="text-accent hover:underline" onClick={onBack}>
+                {t("review.backToChat")}
+              </button>
+            )}
+          </>
+        ) : (
+          <span className="font-medium">
+            {t("review.bar", { page, count: open.length, total: openQuestions(doc).length })}
+          </span>
+        )}
         {current && (
           <span className="text-muted">
             {suggests(current) && (

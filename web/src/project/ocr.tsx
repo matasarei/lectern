@@ -67,6 +67,7 @@ export function OcrTab({
     );
   }
   if (!session.data) return <p className="p-4 text-muted">{t("common.loading")}</p>;
+  const chatId = session.data.chat_id;
   const page = session.data.pages.find((p) => p.number === selected) ?? session.data.pages[0];
 
   return (
@@ -93,6 +94,7 @@ export function OcrTab({
               page={page}
               doc={doc.data}
               onSelectPage={setSelected}
+              onBack={chatId !== null ? () => onOpen({ kind: "session", id: chatId }) : undefined}
               jobRunning={session.data.status === "running" || session.data.status === "queued"}
             />
           )}
@@ -261,6 +263,7 @@ function PageView({
   page,
   doc,
   onSelectPage,
+  onBack,
   jobRunning,
 }: {
   projectId: number;
@@ -269,6 +272,7 @@ function PageView({
   page: OcrPage;
   doc: OcrDocument | undefined;
   onSelectPage: (page: number) => void;
+  onBack?: () => void; // to the chat that started it
   jobRunning: boolean;
 }) {
   const { t } = useTranslation();
@@ -304,7 +308,14 @@ function PageView({
         )}
         {view !== "scan" &&
           (view !== "raw" && page.clean_status === "done" && doc && doc.pages.some((p) => p.n === page.number && !p.failed) ? (
-            <ReviewPage projectId={projectId} sessionId={sessionId} doc={doc} page={page.number} onSelectPage={onSelectPage} />
+            <ReviewPage
+              projectId={projectId}
+              sessionId={sessionId}
+              doc={doc}
+              page={page.number}
+              onSelectPage={onSelectPage}
+              onBack={onBack}
+            />
           ) : (
             <PageText base={base} page={page} raw={view === "raw"} />
           ))}

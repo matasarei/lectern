@@ -68,10 +68,15 @@ def _page_source(source: ArtifactRow | None, owner_id: int) -> str:
 
 
 def create_session(
-    root: Path, db: sessionmaker[Session], *, owner_id: int, artifact_id: int
+    root: Path,
+    db: sessionmaker[Session],
+    *,
+    owner_id: int,
+    artifact_id: int,
+    chat_id: int | None = None,
 ) -> tuple[SessionRow, OcrSessionRow]:
     """A new OCR session for a PDF or image in the project, with its output folder reserved.
-    The job fills it."""
+    The job fills it. `chat_id`: the chat that started it, if one did (ocr.start)."""
     with db.begin() as session:
         source = session.get(ArtifactRow, artifact_id)
         name = _page_source(source, owner_id)
@@ -80,7 +85,9 @@ def create_session(
         row = SessionRow(owner_id=owner_id, kind="ocr", title=name, titled=True)
         session.add(row)
         session.flush()
-        ocr = OcrSessionRow(session_id=row.id, source_artifact_id=source.id, folder=folder)
+        ocr = OcrSessionRow(
+            session_id=row.id, source_artifact_id=source.id, folder=folder, chat_id=chat_id
+        )
         session.add(ocr)
     return row, ocr
 

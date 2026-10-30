@@ -153,7 +153,11 @@ async def _start(ctx: ToolContext, params: StartParams) -> ToolResult:
     try:
         chat, ocr = await run_in_threadpool(
             lambda: ocr_store.create_session(
-                ctx.project.root, ctx.sessions, owner_id=ctx.user.id, artifact_id=row.id
+                ctx.project.root,
+                ctx.sessions,
+                owner_id=ctx.user.id,
+                artifact_id=row.id,
+                chat_id=ctx.session_id,
             )
         )
     except ocr_store.CannotOpen as exc:

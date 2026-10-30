@@ -75,7 +75,11 @@ What cleanup and OCR weren't sure of becomes a question. Where a finished sessio
 say "N open questions", in the chat that started it and at the top of its OCR tab, the count
 is a link to the first of them (the lowest page, then top to bottom), its card open. The
 question bar shows how many are open on the page and in the document, and moves to the next
-page with questions. Each
+page with questions; once every question is answered it says so, with *Back to the chat* to
+the chat that started the session (`ocr.start` records it; a session started from the Files
+tab has none), where what that chat queued, an export, goes on. In that chat, the message
+that said where the session stood is kept as written, and the session's steps line under it
+says where it stands now. Each
 question card shows the reading, the suggestion (the first candidate that differs from the
 raw text), the reason, and whether it came from cleanup or OCR. Its answers:
 
