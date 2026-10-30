@@ -143,6 +143,8 @@ export interface EngineState {
   status: "none" | "downloading" | "done" | "failed";
   bytes_done: number;
   bytes_total: number;
+  rate: number; // bytes per second, 0 when unknown
+  stalled: boolean; // no bytes for 30 s
   error: string | null;
 }
 

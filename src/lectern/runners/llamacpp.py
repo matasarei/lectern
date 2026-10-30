@@ -18,6 +18,7 @@ import re
 import secrets
 import socket
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -210,9 +211,12 @@ class LlamaCppRunner:
 
 class InstallingLlamaCppRunner:
     """A LlamaCppRunner that installs its llama.cpp build on first use, reporting the
-    download's progress (cumulative bytes) to `on_progress`, a few dozen times at most."""
+    download's progress (cumulative bytes) to `on_progress`, every 2 % of it or every second."""
 
     STEP = 0.02  # report every 2 % of the download, and at its end
+    # ...and at least this often while bytes arrive: 2 % of 577 MB at 0.5 MB/s is 23 s, and
+    # the first-run page looked stuck between two of them (docs/acceptance/m4.md).
+    EVERY = 1.0
 
     def __init__(
         self,
@@ -236,17 +240,25 @@ async def install_reporting(
     variant: str,
     on_progress: Callable[[str, int, int], None],
     step: float = InstallingLlamaCppRunner.STEP,
+    every: float = InstallingLlamaCppRunner.EVERY,
+    clock: Callable[[], float] = time.monotonic,
 ) -> Path:
     """Install the variant (or find it installed), reporting cumulative bytes every `step`
-    of the download and at its end: the first chat's load and first-run both use it."""
+    of the download, every `every` seconds while bytes arrive, and at its end: the first
+    chat's load and first-run both use it."""
     total = installer.size(variant)
     done = reported = 0
+    reported_at = clock()
+    if total > 0:  # a download begins (0: installed already): its start is the first report,
+        on_progress(variant, 0, total)  # so a retry or a first byte that never comes is timed
 
     def on_bytes(n: int) -> None:
-        nonlocal done, reported
+        nonlocal done, reported, reported_at
         done = max(0, done + n)  # negative: a resumed file was restarted
-        if done >= total or done - reported >= total * step:
-            reported = done
+        now = clock()
+        moved = done != reported and now - reported_at >= every
+        if done >= total or done - reported >= total * step or moved:
+            reported, reported_at = done, now
             on_progress(variant, min(done, total), total)
 
     return await installer.install(variant, on_bytes=on_bytes)

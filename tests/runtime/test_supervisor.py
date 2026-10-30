@@ -776,7 +776,7 @@ def test_the_engine_download_shows_as_activity_until_it_is_done():
             return during, runtime.state()["activity"], events
 
     during, after, events = asyncio.run(go())
-    assert during == {"kind": "engine", "variant": "cuda-12", "done": 40, "total": 400}
+    assert during == {"kind": "engine", "variant": "cuda-12", "done": 40, "total": 400, "rate": 0}
     assert after is None
     assert [(e["event"], e.get("done")) for e in events] == [("engine", 40), ("engine", 400)]
 
@@ -1132,3 +1132,32 @@ def test_short_of_commit_with_everything_in_use_no_room_is_needed():
             return runtime.needs_room("main")
 
     assert asyncio.run(go()) is False
+
+
+def test_the_engine_download_reports_its_rate_and_how_long_since_bytes_came():
+    runtime, _ = _runtime(8, {"main": 5})
+    now = {"t": 100.0}
+    runtime.clock = lambda: now["t"]
+
+    runtime.engine_progress("cuda-12", 0, 1000)
+    assert runtime.state()["activity"]["rate"] == 0  # nothing to measure yet
+    now["t"] = 102.0
+    runtime.engine_progress("cuda-12", 200, 1000)
+    assert runtime.state()["activity"]["rate"] == 100  # 200 bytes in 2 s
+    now["t"] = 103.0
+    runtime.engine_progress("cuda-12", 400, 1000)
+    assert runtime.state()["activity"]["rate"] == 130  # smoothed: 0.7 * 100 + 0.3 * 200
+    now["t"] = 140.0
+    assert runtime.engine_idle_seconds() == 37.0
+    runtime.engine_progress("cuda-12", 1000, 1000)
+    assert runtime.engine_idle_seconds() is None  # done
+
+
+def test_a_restarted_engine_file_starts_its_rate_again():
+    runtime, _ = _runtime(8, {"main": 5})
+    now = {"t": 100.0}
+    runtime.clock = lambda: now["t"]
+    runtime.engine_progress("cuda-12", 500, 1000)
+    now["t"] = 101.0
+    runtime.engine_progress("cuda-12", 100, 1000)  # fewer bytes: the file began again
+    assert runtime.state()["activity"]["rate"] == 0
