@@ -67,7 +67,13 @@ class FakeRunner:
         return handle
 
 
-def _runtime(budget_gib: float, sizes_gib: dict[str, float], runner: FakeRunner | None = None):
+def _runtime(
+    budget_gib: float,
+    sizes_gib: dict[str, float],
+    runner: FakeRunner | None = None,
+    *,
+    commit_available=lambda: None,  # noqa: ANN001
+):
     runner = runner or FakeRunner()
 
     def resolve(role: str) -> ModelChoice:
@@ -86,6 +92,7 @@ def _runtime(budget_gib: float, sizes_gib: dict[str, float], runner: FakeRunner 
         tier=Tier.RECOMMENDED,
         resolve=resolve,
         runner_for=lambda choice: runner,
+        commit_available=commit_available,
     )
     return runtime, runner
 
@@ -1004,3 +1011,124 @@ def test_waiting_for_a_person_is_reported_and_undone_on_error():
     active, statuses = asyncio.run(go())
     assert active
     assert statuses == ["started", "waiting", "resumed"]
+
+
+class FakeCommit:
+    """Windows' commit as the runtime reads it: what's left after the models loaded so far,
+    each taking 1.5 times its weights (the fakes' plans are their weights and a little)."""
+
+    def __init__(self, free_gib: float, runner: FakeRunner, sizes_gib: dict[str, float]):
+        self.free = free_gib * GIB
+        self.runner = runner
+        self.sizes = sizes_gib
+
+    def __call__(self) -> int:
+        loaded = [h for h in self.runner.handles if h.alive]
+        taken = sum(1.5 * self.sizes[h.model_id.removesuffix("-model")] * GIB for h in loaded)
+        return int(self.free - taken)
+
+
+def _commit_runtime(free_gib: float, sizes: dict[str, float]):
+    runner = FakeRunner()
+    commit = FakeCommit(free_gib, runner, sizes)
+    return _runtime(8, sizes, runner, commit_available=commit)
+
+
+def test_short_of_commit_the_idle_reader_is_unloaded_before_cleanup_loads(caplog):
+    """The M4 laptop: the reader and the 9B fit the card together, but not Windows' commit."""
+    sizes = {"ocr": 1, "main": 5}
+    runtime, runner = _commit_runtime(10, sizes)
+    events: list[dict] = []
+    runtime.events.publish = events.append
+
+    async def go():
+        async with runtime.lease("ocr", Priority.JOB):
+            pass
+        with caplog.at_level("WARNING", logger="lectern.runtime.supervisor"):
+            async with runtime.lease("main", Priority.JOB):
+                pass
+
+    asyncio.run(go())
+    assert runner.started == ["ocr-model", "main-model"]
+    assert [r["role"] for r in runtime.state()["residents"]] == ["main"]
+    assert runtime.swaps == 1
+    unloaded = [e for e in events if e["event"] == "unloaded"]
+    assert [(e["role"], e["reason"]) for e in unloaded] == [("ocr", "commit")]
+    assert "Unloading ocr before loading main: 8.5 GB of commit left" in caplog.text
+    assert "2 GB is kept free" in caplog.text
+
+
+def test_with_commit_to_spare_both_stay_loaded():
+    runtime, runner = _commit_runtime(20, {"ocr": 1, "main": 5})
+
+    async def go():
+        async with runtime.lease("ocr"):
+            pass
+        async with runtime.lease("main"):
+            pass
+
+    asyncio.run(go())
+    assert {r["role"] for r in runtime.state()["residents"]} == {"ocr", "main"}
+    assert runtime.swaps == 0
+
+
+def test_short_of_commit_with_everything_in_use_it_loads_as_before():
+    runtime, runner = _commit_runtime(10, {"ocr": 1, "main": 5})
+
+    async def go():
+        async with runtime.lease("ocr"), runtime.lease("main"):
+            pass
+
+    asyncio.run(go())
+    assert runner.started == ["ocr-model", "main-model"]
+    assert runtime.swaps == 0
+
+
+def test_short_of_commit_the_first_model_still_loads():
+    runtime, runner = _commit_runtime(1, {"main": 5})
+
+    async def go():
+        async with runtime.lease("main"):
+            pass
+
+    asyncio.run(go())
+    assert runner.started == ["main-model"]
+
+
+@pytest.mark.parametrize(("free_gib", "needs_room"), [(10, True), (20, False)])
+def test_a_job_that_would_unload_for_commit_needs_room(free_gib, needs_room):
+    """So a job waits out the chat's idle window before taking its model's place."""
+    runtime, _ = _commit_runtime(free_gib, {"ocr": 1, "main": 5})
+
+    async def go():
+        async with runtime.lease("ocr"):
+            pass
+
+    asyncio.run(go())
+    assert runtime.needs_room("main") is needs_room
+
+
+def test_short_of_commit_every_idle_model_goes_if_one_isnt_enough_then_it_loads():
+    sizes = {"ocr": 1, "code": 1, "main": 5}
+    runtime, runner = _commit_runtime(9, sizes)
+
+    async def go():
+        for role in ("ocr", "code", "main"):
+            async with runtime.lease(role, Priority.JOB):
+                pass
+
+    asyncio.run(go())
+    assert runner.started == ["ocr-model", "code-model", "main-model"]
+    assert [r["role"] for r in runtime.state()["residents"]] == ["main"]
+    assert runtime.swaps == 2
+
+
+def test_short_of_commit_with_everything_in_use_no_room_is_needed():
+    """Then it loads beside them (above), and the OCR card mustn't say the chat model goes."""
+    runtime, _ = _commit_runtime(10, {"ocr": 1, "main": 5})
+
+    async def go():
+        async with runtime.lease("ocr"):
+            return runtime.needs_room("main")
+
+    assert asyncio.run(go()) is False

@@ -14,6 +14,8 @@ for the role's model, loading it first if needed. Rules:
   reply is several model calls; without this, a waiting job takes the GPU between two of
   them and every message costs two swaps.
 - A runner that died is noticed on the next lease and started again.
+- On Windows, which backs GPU memory with commit (RAM plus page file), a model that fits beside
+  the loaded ones but would leave less than COMMIT_MARGIN of commit unloads an idle one first.
 
 One asyncio.Condition guards all of it. Loading happens with the lock held: there is one GPU,
 so loads are serial anyway.
@@ -24,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -38,7 +41,15 @@ from lectern.hardware.tiers import Tier
 from lectern.runners.base import Runner, RunnerHandle, RunnerSpec
 from lectern.runtime import planner
 
+log = logging.getLogger(__name__)
+
 CHAT_IDLE_RESUME = 120.0  # seconds the chat is idle before a job may unload it (docs/models.md)
+GIB = 1024**3
+COMMIT_MARGIN = 2 * GIB  # of commit kept free on Windows after a model loads
+# What a llama-server commits on Windows, against the plan's estimate: measured on the M4
+# laptop (CUDA, docs/acceptance/m4.md) at 1.58x for PaddleOCR-VL (3.25 of 2.06 GB) and 1.36x
+# for Qwen3.5 9B (8.28 of 6.08 GB).
+COMMIT_PER_ESTIMATED = 1.5
 
 
 class Priority(IntEnum):
@@ -97,6 +108,7 @@ class ModelRuntime:
         runner_for: Callable[[ModelChoice], Runner],
         chat_idle_resume: float = 0.0,
         clock: Callable[[], float] = time.monotonic,
+        commit_available: Callable[[], int | None] = lambda: None,
     ) -> None:
         self.budget = budget
         self.unified = unified
@@ -107,6 +119,9 @@ class ModelRuntime:
         # What every "when" here is read from. A test hands in its own: on Windows the real one
         # moves in 15 ms steps, and two readings a moment apart are often the same.
         self.clock = clock
+        # Bytes the OS can still commit, where that's what runs out first (Windows); None
+        # elsewhere, and then only the GPU budget counts.
+        self.commit_available = commit_available
         self.events = EventHub()
         self.swaps = 0
         self._residents: dict[str, Resident] = {}  # by role
@@ -200,7 +215,11 @@ class ModelRuntime:
             )
         except planner.DoesNotFit:
             return True
-        return not plan.coresident
+        if not plan.coresident:
+            return True
+        # Short of commit, an idle model goes; with every model in use it loads beside them.
+        short = self._commit_short(plan) is not None
+        return short and self._least_recently_used_idle() is not None
 
     def chat_idle_seconds(self) -> float:
         """How long since the chat last used a model: 0 while it is or is waiting for one,
@@ -405,12 +424,19 @@ class ModelRuntime:
                 )
             except planner.DoesNotFit as exc:
                 raise NotAvailable(str(exc)) from exc
-            if plan.coresident or not self._residents:
+            short = self._commit_short(plan) if plan.coresident else None
+            if (plan.coresident and short is None) or not self._residents:
                 return await self._load(role, choice, plan)
             victim = self._least_recently_used_idle()
+            if victim is None and short is not None:
+                # Short of commit with everything in use: loaded as before rather than kept
+                # waiting; Windows may still grow its page file.
+                return await self._load(role, choice, plan)
             if victim is None:
                 return None  # everything loaded is in use: wait for a release
-            await self._unload(victim, reason="make room")
+            if short is not None:
+                log.warning("Unloading %s before loading %s: %s", victim, role, short)
+            await self._unload(victim, reason="commit" if short is not None else "make room")
             self.swaps += 1
 
     def _changed_choice(self, role: str, current: Resident) -> ModelChoice | None:
@@ -425,6 +451,20 @@ class ModelRuntime:
         except NotAvailable:
             return None
         return None if choice.model_id == current.choice.model_id else choice
+
+    def _commit_short(self, plan: planner.FitPlan) -> str | None:
+        """Why loading this plan would leave too little commit, or None when it wouldn't (or
+        the OS doesn't count commit)."""
+        available = self.commit_available()
+        if available is None:
+            return None
+        cost = int(plan.est_bytes * COMMIT_PER_ESTIMATED)
+        if available - cost >= COMMIT_MARGIN:
+            return None
+        return (
+            f"{available / GIB:.1f} GB of commit left, and the model takes about "
+            f"{cost / GIB:.1f} GB of it; {COMMIT_MARGIN / GIB:.0f} GB is kept free"
+        )
 
     def _least_recently_used_idle(self) -> str | None:
         idle = [(r.last_used, role) for role, r in self._residents.items() if r.leases == 0]

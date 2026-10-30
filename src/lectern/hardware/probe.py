@@ -67,6 +67,34 @@ def gpu_budget(gpus: list[Gpu], *, apple_budget: int | None = None) -> int:
     return max(best.memory_total - DISPLAY_MARGIN_BYTES, 0)
 
 
+def commit_available() -> int | None:
+    """Bytes Windows can still commit: RAM and page file together, less what's committed
+    already. None on another OS, or when Windows doesn't say. Windows backs GPU memory with
+    commit too, so two models that fit the card can still run it out (docs/models.md)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class MemoryStatusEx(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", wintypes.DWORD),
+            ("dwMemoryLoad", wintypes.DWORD),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),  # the commit limit
+            ("ullAvailPageFile", ctypes.c_ulonglong),  # what's left of it
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = MemoryStatusEx(dwLength=ctypes.sizeof(MemoryStatusEx))
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return None
+    return int(status.ullAvailPageFile)
+
+
 def _installed_vulkan_gpus() -> list[Gpu]:
     """GPUs the llama.cpp Vulkan build can use, if that build is installed."""
     from lectern.config import get_paths

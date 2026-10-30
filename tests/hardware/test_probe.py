@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
+import psutil
 import pytest
 
 from lectern.hardware import apple, nvidia, sandbox
-from lectern.hardware.probe import DISPLAY_MARGIN_BYTES, GIB, Gpu, probe
+from lectern.hardware.probe import DISPLAY_MARGIN_BYTES, GIB, Gpu, commit_available, probe
 
 MIB = 1024**2
 
@@ -194,3 +196,17 @@ def test_a_failed_capability_lookup_keeps_the_card():
 
     assert gpu.name == "NVIDIA GeForce GTX 1070"
     assert gpu.compute_capability is None
+
+
+def test_commit_is_only_counted_on_windows(monkeypatch):
+    monkeypatch.setattr("lectern.hardware.probe.sys.platform", "linux")
+    assert commit_available() is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="reads Windows' own commit")
+def test_windows_reports_the_commit_left():
+    free = commit_available()
+    assert (
+        free is not None
+        and 0 < free <= psutil.virtual_memory().total + psutil.swap_memory().total + 64 * GIB
+    )
