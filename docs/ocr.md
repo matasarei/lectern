@@ -37,8 +37,11 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    fixes it made with the reason for each, and doubts with candidate readings and a reason.
    An unsure OCR word that cleanup left unchanged becomes a doubt of its own. An invalid
    reply is retried once. Code then checks the reply: blocks copied from a neighbouring page
-   are dropped, lines left out are put back, Latin and Cyrillic look-alike letters are
-   restored, and a doubt in the wrong block is moved. When a cut-off reading ends in a loop,
+   are dropped, and so is a one-word block that only repeats the end of the word before it
+   ("луги." after "послуги.") and isn't a word of the page; lines left out are put back,
+   Latin and Cyrillic look-alike letters are restored, a doubt in the wrong block is moved,
+   and a doubt whose only candidate is its own text (nothing to decide) is dropped. Each
+   drop is listed as a fix. When a cut-off reading ends in a loop,
    the loop is cut before cleanup and listed as a fix that suggests re-running the page.
 4. **Assemble.** Code only, no model (`assemble.py`). A short line (under 100 characters) at
    the top or bottom of three pages or more is a running header or footer and is dropped,
