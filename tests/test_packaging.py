@@ -834,3 +834,44 @@ def test_the_windows_scripts_pass_psscriptanalyzer():
         capture_output=True, text=True, timeout=600,
     )  # fmt: skip
     assert found.returncode == 0, found.stdout + found.stderr
+
+
+# --- the root install.ps1 and uninstall.ps1: only hand over --------------------------------
+
+# Each one's inner script, as far as the wrapper sees it: its parameters, then an exit code.
+WRAPPED = {"install.ps1": "[string] $Wheel = ''", "uninstall.ps1": "[switch] $Purge"}
+
+
+def _wrapper(tmp_path: Path, name: str, inner_exit: int) -> Path:
+    """A copy of the root script beside a stand-in for packaging/windows/<name>, which only
+    exits: the real one would install or uninstall this PC's Lectern."""
+    inner = tmp_path / "packaging/windows" / name
+    inner.parent.mkdir(parents=True)
+    inner.write_text(f"param(\n    {WRAPPED[name]}\n)\nexit {inner_exit}\n", encoding="ascii")
+    shutil.copy(ROOT / name, tmp_path / name)
+    return tmp_path / name
+
+
+def _run_wrapper(script: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(  # noqa: S603
+        [*POWERSHELL_FILE.split(), str(script), *args],
+        capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+
+
+@pytest.mark.skipif(not WINDOWS_HOST, reason="runs Windows PowerShell")
+@pytest.mark.parametrize(
+    ("name", "args"), [("install.ps1", ["-Wheel"]), ("uninstall.ps1", ["-Purge", "-Purge"])]
+)
+def test_the_root_script_fails_when_the_inner_one_refuses_its_arguments(tmp_path, name, args):
+    """Seen on the M4 laptop: install.ps1 -Wheel with no value printed the error and exited 0."""
+    done = _run_wrapper(_wrapper(tmp_path, name, 0), *args)
+    assert done.returncode == 1
+    assert done.stderr.startswith(f"{name}: ")
+
+
+@pytest.mark.skipif(not WINDOWS_HOST, reason="runs Windows PowerShell")
+@pytest.mark.parametrize("name", WRAPPED)
+@pytest.mark.parametrize("code", [0, 3])
+def test_the_root_script_exits_as_the_inner_one_did(tmp_path, name, code):
+    assert _run_wrapper(_wrapper(tmp_path, name, code)).returncode == code
