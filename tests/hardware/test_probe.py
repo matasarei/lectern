@@ -7,7 +7,14 @@ import psutil
 import pytest
 
 from lectern.hardware import apple, nvidia, sandbox
-from lectern.hardware.probe import DISPLAY_MARGIN_BYTES, GIB, Gpu, commit_available, probe
+from lectern.hardware.probe import (
+    DISPLAY_MARGIN_BYTES,
+    GIB,
+    Gpu,
+    commit_available,
+    probe,
+    windows_cpu_name,
+)
 
 MIB = 1024**2
 
@@ -210,3 +217,32 @@ def test_windows_reports_the_commit_left():
         free is not None
         and 0 < free <= psutil.virtual_memory().total + psutil.swap_memory().total + 64 * GIB
     )
+
+
+def test_on_windows_the_processor_is_named_as_windows_names_it():
+    """platform.processor() there is "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel"."""
+    hw = probe(
+        os_name="windows",
+        nvidia_probe=lambda: [],
+        windows_cpu=lambda: "Intel(R) Core(TM) Ultra 7 155H",
+    )
+    assert hw.cpu == "Intel(R) Core(TM) Ultra 7 155H"
+
+
+def test_without_the_registry_name_windows_falls_back_to_platform(monkeypatch):
+    monkeypatch.setattr("lectern.hardware.probe.platform.processor", lambda: "Intel64 Family 6")
+    hw = probe(os_name="windows", nvidia_probe=lambda: [], windows_cpu=lambda: None)
+    assert hw.cpu == "Intel64 Family 6"
+
+
+def test_the_registry_is_only_asked_on_windows():
+    def asked():
+        raise AssertionError("asked off Windows")
+
+    probe(os_name="linux", nvidia_probe=lambda: [], windows_cpu=asked)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="reads Windows' registry")
+def test_windows_has_a_processor_name():
+    name = windows_cpu_name()
+    assert name and "Family" not in name
