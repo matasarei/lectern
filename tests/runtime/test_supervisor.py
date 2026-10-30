@@ -930,15 +930,15 @@ def test_a_held_job_that_is_cancelled_leaves_no_hold_behind():
 def test_start_now_with_no_job_waiting_does_not_skip_a_later_hold():
     """A click that lands just as the page started mustn't let some later job, after a new
     message, skip its wait."""
-    import time
-
     runtime, _ = _runtime(6, {"main": 5, "ocr": 2})
     runtime.chat_idle_resume = 3600.0
+    # A second a reading, so the message is after the click: on Windows' real clock (15 ms
+    # steps) the two were sometimes the same reading, and the job wasn't held.
+    runtime.clock = itertools.count(1000.0).__next__
 
     async def go():  # noqa: ANN202
-        since = time.monotonic()
+        since = runtime.clock()
         await runtime.skip_hold()  # nothing is waiting
-        await asyncio.sleep(0.01)
         await runtime.turn_started(message=True)
         async with runtime.lease("main", Priority.CHAT):
             pass
