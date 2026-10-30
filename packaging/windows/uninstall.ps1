@@ -6,6 +6,8 @@
 #   powershell -ExecutionPolicy Bypass -File uninstall.ps1 [-Purge]
 #
 # LECTERN_DIR as for install.ps1; LECTERN_QUIT_WAIT is seconds (60). (ASCII: see install.ps1.)
+# CmdletBinding: an argument it doesn't know (-Purgee) is refused, not run as a plain uninstall.
+[CmdletBinding()]
 param(
     [switch] $Purge
 )
