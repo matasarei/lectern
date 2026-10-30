@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from types import SimpleNamespace
 
-import psutil
 import pytest
 
 from lectern.hardware import apple, nvidia, sandbox
@@ -212,11 +212,22 @@ def test_commit_is_only_counted_on_windows(monkeypatch):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="reads Windows' own commit")
 def test_windows_reports_the_commit_left():
+    """As WMI counts it (FreeVirtualMemory, in KiB: the commit limit less what's committed),
+    read before and after: other programs move it meanwhile, so within 1 GiB."""
+
+    def wmi() -> int:
+        done = subprocess.run(  # noqa: S603
+            ["powershell.exe", "-NoLogo", "-NoProfile", "-Command",  # noqa: S607
+             "(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory"],
+            capture_output=True, text=True, timeout=60, check=True,
+        )  # fmt: skip
+        return int(done.stdout) * 1024
+
+    before = wmi()
     free = commit_available()
-    assert (
-        free is not None
-        and 0 < free <= psutil.virtual_memory().total + psutil.swap_memory().total + 64 * GIB
-    )
+    after = wmi()
+    assert free is not None
+    assert min(before, after) - GIB <= free <= max(before, after) + GIB
 
 
 def test_on_windows_the_processor_is_named_as_windows_names_it():
