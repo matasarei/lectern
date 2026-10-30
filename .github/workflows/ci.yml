@@ -1,7 +1,8 @@
 # Lint, build and test on every pull request and every push to main. On Linux, no GPU and
 # no container engine: the tests marked `gpu` and `sandbox` skip here, as they do on any
-# machine without LECTERN_TEST_* set (pyproject.toml). On Windows, only the tray app and the
-# install scripts.
+# machine without LECTERN_TEST_* set (pyproject.toml). On Windows, the tray app and the
+# install scripts, and both test suites again: what broke there (a tray-started Lectern
+# freezing, the listener closing, text in the code page) didn't show on Linux.
 name: CI
 
 on:
@@ -82,3 +83,45 @@ jobs:
       - name: PSScriptAnalyzer
         shell: pwsh
         run: ./tests/fixtures/analyze_windows.ps1 -Root $PWD
+
+  # Both suites on Windows, in its own code page (no PYTHONUTF8): the tests of the tray's stop
+  # event, the event loop that keeps accepting, and text read and written as UTF-8 run only
+  # here. The Linux and Mac installer tests skip, as do symlink tests where links can't be made.
+  # Lint is the Linux job's; it doesn't depend on the platform. The web UI is built here too:
+  # tests ask the app for its page, which without it answers that the UI isn't built.
+  windows-tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # bash (-eo pipefail), not the runner's PowerShell, which reports only a step's last
+    # command: a failed pytest followed by a passing npm test would read as passed.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
+        with:
+          version: "0.12.23"  # UV_VERSION in packaging/pins.sh
+          enable-cache: true
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: |
+          uv sync --frozen
+          npm --prefix web ci
+
+      - name: Build the web UI
+        run: npm --prefix web run build
+
+      - name: Test
+        run: |
+          uv run pytest
+          npm --prefix web test

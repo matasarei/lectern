@@ -67,6 +67,17 @@ def paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Paths:
     return Paths(home=home)
 
 
+@pytest.fixture(scope="session")
+def symlinks(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """For a test that makes a symlink: skipped where this machine can't make one (Windows,
+    without Developer Mode or admin rights; GitHub's Windows runners can)."""
+    probe = tmp_path_factory.mktemp("symlinks")
+    try:
+        (probe / "link").symlink_to(probe / "target", target_is_directory=True)
+    except OSError:
+        pytest.skip("this machine can't make symlinks (Windows: Developer Mode or admin rights)")
+
+
 @pytest.fixture
 def free_port() -> int:
     """A port nothing is listening on right now."""

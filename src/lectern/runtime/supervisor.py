@@ -96,6 +96,7 @@ class ModelRuntime:
         resolve: Callable[[str], ModelChoice],
         runner_for: Callable[[ModelChoice], Runner],
         chat_idle_resume: float = 0.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.budget = budget
         self.unified = unified
@@ -103,6 +104,9 @@ class ModelRuntime:
         self.resolve = resolve
         self.runner_for = runner_for
         self.chat_idle_resume = chat_idle_resume
+        # What every "when" here is read from. A test hands in its own: on Windows the real one
+        # moves in 15 ms steps, and two readings a moment apart are often the same.
+        self.clock = clock
         self.events = EventHub()
         self.swaps = 0
         self._residents: dict[str, Resident] = {}  # by role
@@ -205,7 +209,7 @@ class ModelRuntime:
             return 0.0
         if self._chat_ended is None:
             return float("inf")
-        return time.monotonic() - self._chat_ended
+        return self.clock() - self._chat_ended
 
     def _chat_active(self) -> bool:
         """A reply is being written: a chat lease, a chat waiting for one, or a turn running
@@ -225,7 +229,7 @@ class ModelRuntime:
         async with self._cond:
             self._turns += 1
             if message:
-                self._last_message_at = time.monotonic()
+                self._last_message_at = self.clock()
             self._emit("turn", status="started")  # pages show the hold change at once
             self._cond.notify_all()
 
@@ -234,7 +238,7 @@ class ModelRuntime:
             self._turns = max(0, self._turns - 1)
             if not self._turns:
                 self._turn_models.clear()
-            self._chat_ended = time.monotonic()
+            self._chat_ended = self.clock()
             self._emit("turn", status="ended")
             self._cond.notify_all()
 
@@ -281,7 +285,7 @@ class ModelRuntime:
     async def lease(
         self, role: str, priority: Priority = Priority.JOB, *, since: float | None = None
     ) -> AsyncIterator[Lease]:
-        """`since`: when the job asking started (time.monotonic()), so a page of a job that
+        """`since`: when the job asking started (by `clock`), so a page of a job that
         began before the person's last message waits for the chat, and one the chat itself
         started doesn't. Defaults to now."""
         resident = await self._acquire(role, priority, since)
@@ -294,7 +298,7 @@ class ModelRuntime:
             await client.aclose()
             async with self._cond:
                 resident.leases -= 1
-                resident.last_used = time.monotonic()
+                resident.last_used = self.clock()
                 if chat:
                     self._chat_leases -= 1
                     self._chat_ended = resident.last_used
@@ -309,7 +313,7 @@ class ModelRuntime:
 
     async def _acquire(self, role: str, priority: Priority, since: float | None) -> Resident:
         ticket = (int(priority), next(self._tickets))
-        since = time.monotonic() if since is None else since
+        since = self.clock() if since is None else since
         async with self._cond:
             self._queue.append(ticket)
             self._queue.sort()
@@ -354,7 +358,7 @@ class ModelRuntime:
     def job_hold(self, role: str, since: float | None = None) -> float:
         """How long a job lease on `role` would wait for the chat now: 0, inf (until the reply
         being written ends), or seconds of the idle window. For the OCR tab's status."""
-        return self._job_hold(role, time.monotonic() if since is None else since)
+        return self._job_hold(role, self.clock() if since is None else since)
 
     def _job_hold(self, role: str, since: float) -> float:
         """With the lock held. How long a job's lease on `role` must still wait for the chat,
@@ -447,7 +451,9 @@ class ModelRuntime:
         handle = await self.runner_for(choice).start(spec)
         measured = handle.measured_memory()
         used = measured.device_bytes or measured.projected_bytes or plan.est_bytes
-        resident = Resident(choice=choice, plan=plan, handle=handle, bytes=used)
+        resident = Resident(
+            choice=choice, plan=plan, handle=handle, bytes=used, last_used=self.clock()
+        )
         self._residents[role] = resident
         self._emit("loaded", role=role, model_id=choice.model_id, bytes=used, ctx=plan.ctx)
         return resident

@@ -363,6 +363,7 @@ def test_a_download_that_stopped_halfway_is_on_disk_without_a_version(paths, ses
     assert (installed.revision, installed.at, installed.bytes) == (None, None, 20_000)
 
 
+@pytest.mark.usefixtures("symlinks")
 def test_folders_no_catalog_model_owns_are_listed_apart(paths, sessions):
     manager, _ = _installed_tiny(paths, sessions)
     left = paths.models / "model-of-an-older-lectern"
@@ -433,6 +434,7 @@ def test_remove_takes_only_the_name_of_a_folder_in_the_models_directory(paths, s
     assert _row(sessions, "tiny") is not None
 
 
+@pytest.mark.usefixtures("symlinks")
 def test_remove_never_deletes_through_a_link_or_takes_a_file_for_a_model(paths, sessions):
     manager, _ = _installed_tiny(paths, sessions)
     elsewhere = paths.models.parent / "elsewhere"
@@ -493,6 +495,7 @@ def test_an_update_is_there_when_the_catalog_pins_another_revision_than_the_one_
     assert manager.update_available(never_installed) is False
 
 
+@pytest.mark.usefixtures("symlinks")
 def test_no_update_is_offered_for_a_model_folder_that_is_a_link(paths, sessions):
     manager, _ = _installed_tiny(paths, sessions)
     elsewhere = paths.models.parent / "elsewhere"

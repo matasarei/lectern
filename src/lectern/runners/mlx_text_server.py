@@ -24,6 +24,10 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 
 KEY_ENV = "LECTERN_MLX_KEY"  # noqa: S105 (the variable's name, not a secret)
+# A refused request's body is read before the 401, up to this, so the client gets the answer:
+# closing a socket with its data unread resets the connection on some systems (Windows), and
+# the client sees an error instead. A bigger body isn't read; that one may see the reset.
+REFUSED_BODY_LIMIT = 64 * 1024
 
 
 def guard(handler: type[BaseHTTPRequestHandler], key: str) -> None:
@@ -38,6 +42,9 @@ def guard(handler: type[BaseHTTPRequestHandler], key: str) -> None:
         def checked(self: BaseHTTPRequestHandler) -> None:
             given = (self.headers.get("Authorization") or "").encode()
             if not hmac.compare_digest(given, expected):
+                length = self.headers.get("Content-Length") or ""
+                if length.isdigit() and int(length) <= REFUSED_BODY_LIMIT:
+                    self.rfile.read(int(length))
                 self.send_error(401)
                 return
             answer(self)

@@ -23,7 +23,6 @@ import collections
 import contextlib
 import functools
 import logging
-import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TypeVar
@@ -102,7 +101,7 @@ class OcrJobs:
         # A paused session asked to read some pages again reads only those, then is paused
         # again with its reason: re-reading one page mustn't restart the whole batch.
         self._only: dict[Key, tuple[set[int], str | None]] = {}
-        # When each session's job was asked to start (time.monotonic()): its pages wait out
+        # When each session's job was asked to start (by the runtime's clock): its pages wait out
         # the chat's idle window only for a message sent after that, so a job the chat
         # started doesn't wait for its own chat to go quiet.
         self._since: dict[Key, float] = {}
@@ -163,7 +162,7 @@ class OcrJobs:
     async def start(self, project: Project, session_id: int) -> None:
         """Queue a session's job (a new session, a Resume, or a page to read again)."""
         key = (project.id, session_id)
-        self._since[key] = time.monotonic()
+        self._since[key] = self.runtime.clock()
         self._pausing.discard(key)
         self._pause_signal(key).clear()
         if not self.active(key):

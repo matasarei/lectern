@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -27,13 +28,23 @@ def make_engine(db_file: Path) -> Engine:
     return engine
 
 
+# Alembic's `op` and `context` are the process's own, set up and taken away by each run: two
+# migrations at once in one process take each other's away ("'NoneType' object has no
+# attribute 'create_table'"), whatever databases they're for. So one at a time.
+_MIGRATING = threading.Lock()
+
+
 def migrate(engine: Engine, script_location: str = "lectern:migrations") -> None:
     """Bring a database to the latest schema. Migrations ship inside the package: the app
     database's in `lectern:migrations`, each project database's in
     `lectern:project_migrations`."""
     config = Config()
     config.set_main_option("script_location", script_location)
-    with engine.connect() as connection, foreign_keys_checked_at_end(connection):
+    with (
+        _MIGRATING,
+        engine.connect() as connection,
+        foreign_keys_checked_at_end(connection),
+    ):
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
 

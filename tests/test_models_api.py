@@ -350,7 +350,9 @@ def test_the_files_go_only_while_the_runtime_holds_the_model_unloaded(api):
         ("file", "a-file.txt", 409, "isn't a folder"),
     ],
 )
-def test_what_is_not_a_model_folder_is_not_removed(api, tmp_path, make, name, status, says):
+def test_what_is_not_a_model_folder_is_not_removed(
+    api, tmp_path, request, make, name, status, says
+):
     client, headers, app = api
     models_dir = app.state.downloads.models_dir
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -358,6 +360,7 @@ def test_what_is_not_a_model_folder_is_not_removed(api, tmp_path, make, name, st
     elsewhere.mkdir()
     (elsewhere / "keep.gguf").write_bytes(b"someone else's")
     if make == "link":
+        request.getfixturevalue("symlinks")  # skipped where none can be made
         (models_dir / name).symlink_to(elsewhere, target_is_directory=True)
     if make == "file":
         (models_dir / name).write_bytes(b"x")

@@ -44,7 +44,9 @@ flowchart TB
   with remark-gfm (no raw HTML). Every string goes through i18next; English is the one
   language so far.
 - **Tooling:** uv, ruff and pytest; npm, ESLint and Vitest. CI runs the lints, the web build
-  and both test suites on Linux (`.github/workflows/ci.yml`).
+  and both test suites on Linux, and both test suites again on Windows, where the Linux and
+  Mac installer tests skip; plus the tray app's compile and the PowerShell scripts' lint
+  (`.github/workflows/ci.yml`).
 - **Licence:** Apache-2.0.
 
 ## Databases
