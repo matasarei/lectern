@@ -30,4 +30,11 @@ describe("openTab", () => {
 
     expect(addTab({ open: [chat], active: chat }, atPage).open).toEqual([chat, ocr]);
   });
+
+  it("opens an OCR tab at its questions once, and keeps it without that", () => {
+    const atQuestions = { ...ocr, questions: true };
+    const opened = openTab({ open: [chat], active: chat }, atQuestions);
+    expect(opened.active).toEqual(atQuestions);
+    expect(opened.open).toEqual([chat, ocr]);
+  });
 });

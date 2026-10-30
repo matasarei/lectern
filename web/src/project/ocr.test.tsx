@@ -10,9 +10,11 @@ import { OcrTab } from "./ocr";
 import { block, doubt, documentOf, page, session } from "./ocr-fixtures";
 
 let current: OcrSession;
-const currentDoc: OcrDocument = documentOf([
-  block("b1.1", "Рахунок № {d1.1} від 1998 р.", { doubts: [doubt("d1.1", "1?", { candidates: ["1", "7"] })] }),
-]);
+const firstDoc = (): OcrDocument =>
+  documentOf([
+    block("b1.1", "Рахунок № {d1.1} від 1998 р.", { doubts: [doubt("d1.1", "1?", { candidates: ["1", "7"] })] }),
+  ]);
+let currentDoc: OcrDocument;
 let posts: { url: string; body: unknown }[] = [];
 let push: (event: object) => void = () => {};
 
@@ -20,6 +22,7 @@ let push: (event: object) => void = () => {};
 let runtimeState: Record<string, unknown> = {};
 
 beforeEach(() => {
+  currentDoc = firstDoc();
   runtimeState = { residents: [], activity: null, hold: null };
   posts = [];
   current = session({
@@ -76,11 +79,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderTab(onOpen: (tab: Tab) => void = () => {}, initialPage?: number) {
+function renderTab(onOpen: (tab: Tab) => void = () => {}, initialPage?: number, toQuestions = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <OcrTab projectId={1} sessionId={2} onOpen={onOpen} initialPage={initialPage} />
+      <OcrTab projectId={1} sessionId={2} onOpen={onOpen} initialPage={initialPage} toQuestions={toQuestions} />
     </QueryClientProvider>,
   );
 }
@@ -204,6 +207,52 @@ describe("OCR tab", () => {
   it("opens at the page it's given (from a question in the Document tab)", async () => {
     renderTab(() => {}, 2);
     const list = await screen.findByRole("list", { name: "Pages" });
+    expect(within(list).getByText("Page 2").closest("button")?.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("opens at the first open question when asked to (the chat's \"N open questions\")", async () => {
+    current = session({
+      status: "done",
+      document: { version: 2, artifact_id: 40, open_doubts: 1 },
+      pages: [page(1, { status: "done", clean_status: "done" }), page(2, { status: "done", clean_status: "done" })],
+    });
+    currentDoc = documentOf([
+      block("b1.1", "Рахунок № {d1.1}", { doubts: [doubt("d1.1", "1?", { status: "resolved", value: "7" })] }),
+      block("b2.1", "Сума {d2.1} грн", { doubts: [doubt("d2.1", "2?0", { candidates: ["250"] })] }),
+    ]);
+    renderTab(() => {}, undefined, true);
+
+    const card = await screen.findByTestId("question-card"); // page 2's, selected
+    expect(within(card).getByText("2?0 → 250")).toBeTruthy();
+    const list = screen.getByRole("list", { name: "Pages" });
+    const shown = (n: number) => within(list).getByText(`Page ${n}`).closest("button")?.getAttribute("aria-current");
+    expect(shown(2)).toBe("true");
+
+    // The last answer: the Document comes back with nothing open, and the page stays put.
+    currentDoc = documentOf([
+      block("b1.1", "Рахунок № {d1.1}", { doubts: [doubt("d1.1", "1?", { status: "resolved", value: "7" })] }),
+      block("b2.1", "Сума {d2.1} грн", { doubts: [doubt("d2.1", "2?0", { status: "resolved", value: "250" })] }),
+    ]);
+    fireEvent.click(within(card).getByRole("button", { name: "Accept 250" }));
+    await waitFor(() => expect(screen.queryByTestId("question-card")).toBeNull());
+    expect(shown(2)).toBe("true");
+  });
+
+  it("goes to the first open question from its own steps bar", async () => {
+    current = session({
+      status: "done",
+      document: { version: 2, artifact_id: 40, open_doubts: 1 },
+      pages: [page(1, { status: "done", clean_status: "done" }), page(2, { status: "done", clean_status: "done" })],
+    });
+    currentDoc = documentOf([
+      block("b1.1", "Рахунок № 7", {}),
+      block("b2.1", "Сума {d2.1} грн", { doubts: [doubt("d2.1", "2?0", { candidates: ["250"] })] }),
+    ]);
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "1 open question" }));
+
+    expect(await screen.findByTestId("question-card")).toBeTruthy();
+    const list = screen.getByRole("list", { name: "Pages" });
     expect(within(list).getByText("Page 2").closest("button")?.getAttribute("aria-current")).toBe("true");
   });
 

@@ -111,7 +111,11 @@ function Line({
       >
         {t("chat.ocrLine", { title: summary.title })}
       </button>
-      <OcrSteps input={input} runtime={runtime.data} />
+      <OcrSteps
+        input={input}
+        runtime={runtime.data}
+        onQuestions={() => onOpen({ kind: "session", id: summary.id, questions: true })}
+      />
     </div>
   );
 }

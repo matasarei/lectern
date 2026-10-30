@@ -237,6 +237,13 @@ export function openQuestions(doc: OcrDocument): DocDoubt[] {
   return doc.blocks.flatMap((b) => b.doubts.filter((d) => d.status === "open"));
 }
 
+/** The page of the Document's first open question, in the order the review walks them
+ * (page by page, top to bottom); null when none is open. */
+export function firstQuestionPage(doc: OcrDocument): number | null {
+  const pages = openQuestions(doc).map(doubtPage);
+  return pages.length > 0 ? Math.min(...pages) : null;
+}
+
 /** The next page after `page` with an open question, wrapping round; null when none has. */
 export function nextPageWithQuestions(doc: OcrDocument, page: number): number | null {
   const pages = [...new Set(openQuestions(doc).map(doubtPage))].sort((a, b) => a - b);

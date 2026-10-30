@@ -71,8 +71,11 @@ off, handwritten, has a note.
 
 ## Review
 
-What cleanup and OCR weren't sure of becomes a question. The question bar shows how many are
-open on the page and in the document, and moves to the next page with questions. Each
+What cleanup and OCR weren't sure of becomes a question. Where a finished session's steps
+say "N open questions", in the chat that started it and at the top of its OCR tab, the count
+is a link to the first of them (the lowest page, then top to bottom), its card open. The
+question bar shows how many are open on the page and in the document, and moves to the next
+page with questions. Each
 question card shows the reading, the suggestion (the first candidate that differs from the
 raw text), the reason, and whether it came from cleanup or OCR. Its answers:
 

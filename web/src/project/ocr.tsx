@@ -10,7 +10,15 @@ import { HoldNote } from "../status";
 import { ExportButtons } from "./export-buttons";
 import { OcrSteps, type OcrStepsInput, stepStartedAt } from "./ocr-steps";
 import { ImagePreview } from "./file";
-import { cleanPageAgain, ocrPath, ocrProgress, useOcrDocument, useOcrEvents, type OcrLive } from "./ocr-api";
+import {
+  cleanPageAgain,
+  firstQuestionPage,
+  ocrPath,
+  ocrProgress,
+  useOcrDocument,
+  useOcrEvents,
+  type OcrLive,
+} from "./ocr-api";
 import { ReviewPage } from "./review";
 
 type View = "split" | "scan" | "text" | "raw";
@@ -23,11 +31,13 @@ export function OcrTab({
   sessionId,
   onOpen,
   initialPage = 1,
+  toQuestions = false,
 }: {
   projectId: number;
   sessionId: number;
   onOpen: (tab: Tab) => void;
   initialPage?: number;
+  toQuestions?: boolean; // open at the first open question, once the Document is here
 }) {
   const { t } = useTranslation();
   const base = ocrPath(projectId, sessionId);
@@ -37,7 +47,17 @@ export function OcrTab({
   });
   const live = useOcrEvents(projectId, sessionId);
   const doc = useOcrDocument(projectId, sessionId, session.data?.document?.version ?? null);
-  const [selected, setSelected] = useState(initialPage);
+  // Null until a page is picked. Asked to open at the questions (the chat's "N open
+  // questions"), the page shown is the first open question's, once the Document is here.
+  const [picked, setSelected] = useState<number | null>(toQuestions ? null : initialPage);
+  const firstQuestion = doc.data ? firstQuestionPage(doc.data) : null;
+  // Landed once, then it stays put: answering a question shouldn't move the page under the
+  // person, nor the last answer send it back to the first page.
+  if (picked === null && doc.data) setSelected(firstQuestion ?? initialPage);
+  const selected = picked ?? initialPage;
+  // Its page opens on its first open question. Offered once the Document says where that is:
+  // before, a click would do nothing.
+  const toFirstQuestion = firstQuestion !== null ? () => setSelected(firstQuestion) : undefined;
 
   if (session.isError) {
     return (
@@ -51,7 +71,14 @@ export function OcrTab({
 
   return (
     <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
-      <StatusStrip projectId={projectId} base={base} session={session.data} live={live} onOpen={onOpen} />
+      <StatusStrip
+        projectId={projectId}
+        base={base}
+        session={session.data}
+        live={live}
+        onOpen={onOpen}
+        onQuestions={toFirstQuestion}
+      />
       {session.data.pages.length === 0 ? (
         <p className="p-4 text-muted">{t("ocr.noPagesYet")}</p>
       ) : (
@@ -81,12 +108,14 @@ function StatusStrip({
   session,
   live,
   onOpen,
+  onQuestions,
 }: {
   projectId: number;
   base: string;
   session: OcrSession;
   live: OcrLive;
   onOpen: (tab: Tab) => void;
+  onQuestions?: () => void;
 }) {
   const { t } = useTranslation();
   const pause = useMutation({ mutationFn: () => apiPost(`${base}/pause`) });
@@ -120,7 +149,7 @@ function StatusStrip({
   return (
     <div className="grid gap-1 border-b border-line bg-surface px-4 py-2">
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <OcrSteps input={steps} runtime={runtime.data} held={live.waitingForChat} />
+        <OcrSteps input={steps} runtime={runtime.data} held={live.waitingForChat} onQuestions={onQuestions} />
         <span className="text-xs text-muted">{t("ocr.phase.recognise", { done: read, total: session.pages_total })}</span>
         <span className="text-xs text-muted">{t("ocr.phase.clean", { done: cleaned, total: session.pages_total })}</span>
         {document && (
