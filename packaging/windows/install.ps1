@@ -1,5 +1,6 @@
 # Install or update Lectern for you on this Windows PC (x64): Lectern in %USERPROFILE%\.lectern,
-# and its tray app, which starts and stops it, in the Start menu and the Startup folder. No
+# and its tray app, which starts and stops it, in the Start menu and the Startup folder (another
+# LECTERN_DIR: the Start menu only, under its folder's name, install_paths.ps1). No
 # administrator rights:
 #
 #   powershell -ExecutionPolicy Bypass -File install.ps1        (from a copy of the repository)
@@ -32,6 +33,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 
 . (Join-Path $PSScriptRoot 'pins.ps1')
+. (Join-Path $PSScriptRoot 'install_paths.ps1')
 
 function Exit-Install([string] $Message) {
     [Console]::Error.WriteLine("install.ps1: $Message")
@@ -68,10 +70,9 @@ $bin = Join-Path $dir 'bin'
 $settings = Join-Path $dir 'lectern.env'
 $tray = Join-Path $app 'tray'
 $trayExe = Join-Path $tray 'Lectern.exe'
-$startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Lectern.lnk'
-$startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\Lectern.lnk'
+$paths = Get-InstallLocation $dir
 # The tray app's events, named as it names them (packaging\windows\tray\Lectern.cs).
-$events = 'Local\Lectern-' + $dir.ToLowerInvariant().Replace('\', '_').Replace(':', '_')
+$events = 'Local\Lectern-' + (Get-InstallKey $dir)
 
 foreach ($folder in @($app, (Join-Path $app 'versions'), (Join-Path $app 'bin'), $data, $bin)) {
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
@@ -260,15 +261,7 @@ try {
     }
 
     # The Start menu, and the Startup folder: Lectern runs while its tray app does.
-    $shell = New-Object -ComObject WScript.Shell
-    foreach ($link in @(@($startMenu, ''), @($startup, '--background'))) {
-        $shortcut = $shell.CreateShortcut($link[0])
-        $shortcut.TargetPath = $trayExe
-        $shortcut.Arguments = $link[1]
-        $shortcut.WorkingDirectory = $dir
-        $shortcut.Description = 'Lectern: a local AI workbench'
-        $shortcut.Save()
-    }
+    $shortcuts = Add-InstallShortcut $paths $trayExe $dir
 } catch {
     # The tray app was quit for the switch: it's started again as it is now (the new one, or
     # the old one put back), on whichever version app\venv points at.
@@ -314,7 +307,7 @@ for ($i = 0; $i -lt $wait -and -not $answered; $i++) {
         Start-Sleep -Seconds 1
     }
 }
-$logPath = Join-Path $env:LOCALAPPDATA 'Lectern\Logs\lectern.log'
+$logPath = $paths.Log
 if (-not $answered) {
     [Console]::Error.WriteLine("install.ps1: Lectern $version didn't start; see: $logPath")
     if ($previous -and (Test-Path -LiteralPath $previous)) {
@@ -335,14 +328,23 @@ Get-ChildItem -LiteralPath (Join-Path $app 'versions') -Directory |
     Where-Object { $_.FullName -ne $target -and $_.FullName -ne $previous } |
     ForEach-Object { Invoke-Rmdir $_.FullName }
 
+$where = 'by the clock (its tray icon)'
+if ($shortcuts -contains $paths.StartMenu) {
+    $where = "in the Start menu ($([IO.Path]::GetFileNameWithoutExtension($paths.StartMenu))) and $where"
+}
+if ($paths.Startup) {
+    $signIn = 'Lectern starts when you sign in (the Startup folder); remove its shortcut there to stop that.'
+} else {
+    $signIn = "This Lectern, in $dir, doesn't start when you sign in: only the one in %USERPROFILE%\.lectern does."
+}
 Write-Host @"
 
-Lectern is in the Start menu and by the clock (its tray icon): Open Lectern, in its menu.
+Lectern is $where`: Open Lectern, in its menu.
 It runs on this PC at http://127.0.0.1:$port (LECTERN_PORT in $settings).
 The link with its access token:  $bin\lectern-url.cmd
 If others will use it, turn accounts on (once):  $bin\lectern.cmd user init <name>
 Update: git pull, then install.ps1 again.   Log: $logPath
-Lectern starts when you sign in (the Startup folder); remove its shortcut there to stop that.
+$signIn
 "@
 
 # Done: the root install.ps1 exits with this script's status, not a native command's.

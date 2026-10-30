@@ -1,6 +1,7 @@
 // Lectern's tray app for Windows. It runs Lectern as its child process
 // (<install folder>\app\venv\Scripts\lectern.exe serve), shows whether it's up, opens it in the
-// browser, keeps its output in %LOCALAPPDATA%\Lectern\Logs\lectern.log, and on Quit stops it,
+// browser, keeps its output in %LOCALAPPDATA%\Lectern\Logs\lectern.log (another install than
+// %USERPROFILE%\.lectern: Logs\<its key>\lectern.log, Program.LogPath), and on Quit stops it,
 // its models with it, and leaves.
 // One file, WinForms only, compiled at install time by the csc.exe that ships with Windows
 // (.NET Framework 4: C# 5, so no $"" strings and no ?.): packaging\windows\build_tray.ps1.
@@ -38,7 +39,7 @@ internal static class Program
         // One app per install folder. Opened again (Start menu, a second click), it asks the one
         // already running to open Lectern in the browser, and leaves. The installer and the
         // uninstaller ask it to quit through "-quit" (install.ps1 names them the same way).
-        string name = "Lectern-" + dir.ToLowerInvariant().Replace('\\', '_').Replace(':', '_');
+        string name = "Lectern-" + Key(dir);
         bool first;
         using (var one = new Mutex(true, "Local\\" + name, out first))
         using (var reopen = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\" + name + "-open"))
@@ -66,6 +67,28 @@ internal static class Program
     {
         string here = Path.GetDirectoryName(Application.ExecutablePath);
         return Path.GetFullPath(Path.Combine(here, "..", ".."));
+    }
+
+    // The install folder as a name: its mutex and events, and the log folder of an install
+    // other than the default one (install_paths.ps1 names them the same way).
+    internal static string Key(string dir)
+    {
+        // Without a trailing \, as the scripts have it: a drive's root (D:\) has one here.
+        return dir.TrimEnd('\\').ToLowerInvariant().Replace('\\', '_').Replace(':', '_');
+    }
+
+    // The default install (%USERPROFILE%\.lectern) logs to Lectern\Logs\lectern.log, another
+    // one to Lectern\Logs\<key>\lectern.log: two running at once don't write one file.
+    internal static string LogPath(string dir)
+    {
+        string logs = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Lectern", "Logs");
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string standard = Path.GetFullPath(Path.Combine(home, ".lectern")).TrimEnd('\\');
+        if (string.Equals(dir.TrimEnd('\\'), standard, StringComparison.OrdinalIgnoreCase))
+            return Path.Combine(logs, "lectern.log");
+        return Path.Combine(logs, Key(dir), "lectern.log");
     }
 }
 
@@ -137,9 +160,7 @@ internal sealed class TrayApp : IDisposable
         string here = Path.GetDirectoryName(Application.ExecutablePath);
         string versionFile = Path.Combine(here, "Lectern.version");
         version = File.Exists(versionFile) ? File.ReadAllText(versionFile).Trim() : "";
-        logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Lectern", "Logs", "lectern.log");
+        logPath = Program.LogPath(dir);
 
         statusLine.Enabled = false;
         openItem.Click += delegate { OpenLectern(); };
