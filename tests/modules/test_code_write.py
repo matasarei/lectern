@@ -14,7 +14,7 @@ from lectern.catalog import catalog
 from lectern.core.auth import LOCAL_USER
 from lectern.hardware.tiers import Tier
 from lectern.modules.sandbox.container import IMAGE, RunResult, SandboxError
-from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code
+from lectern.modules.sandbox.tools import CODE_RUN, CODE_WRITE, extract_code, output_labels
 from lectern.projects import files
 from lectern.projects.tables import MessageRow, ScriptRunRow
 from lectern.runners.base import RunnerError
@@ -577,3 +577,103 @@ def test_the_preview_in_the_real_sandbox_names_sheets_only_when_there_are_severa
     one, two = (part for part in result.stdout.split(SHEET_MARK)[1:])
     assert one.startswith("one.xlsx\ncolumns: Day, Hours\n") and "Week 1" not in one
     assert "sheet 'Week 1': Day, Hours" in two and "sheet 'Week 2': Day, Hours" in two
+
+
+def test_a_script_that_prints_nothing_gets_a_fix_round(make_ctx):
+    """Seen on the M4 laptop: the coder's reply was two comments, the test run "passed", and
+    the chat gave the number itself after it."""
+    comments = "```python\n# -*- coding: utf-8 -*-\n# Сума: 855.232\n```"
+
+    def behave(code, inputs, out):  # noqa: ANN001
+        return RunResult(0, "penalty 62.5\n" if "print" in code else "", "", 0.1)
+
+    ctx, handle = ctx_for(make_ctx, [comments, GOOD], sandbox=FakeSandbox(behave=behave))
+
+    result = write(ctx)
+
+    assert result.text.startswith("Wrote scripts/penalty.py")
+    assert handle.requests[1]["messages"][-1]["content"].startswith(
+        "The test run printed nothing and wrote no file."
+    )
+    saved = (ctx.project.root / "scripts" / "penalty.py").read_text(encoding="utf-8")
+    assert "print" in saved
+
+
+def test_a_script_that_never_prints_is_not_saved(make_ctx):
+    box = FakeSandbox(behave=lambda c, i, o: RunResult(0, "", "", 0.1))
+    ctx, handle = ctx_for(make_ctx, ["```python\n# 855.232\n```"] * 4, sandbox=box)
+
+    with pytest.raises(ToolError, match="after 3 fixes.*printed nothing.*not computed"):
+        write(ctx)
+    assert len(handle.requests) == 4
+    assert not (ctx.project.root / "scripts").exists()
+
+
+def test_a_script_that_only_writes_a_file_passes(make_ctx):
+    def behave(code, inputs, out):  # noqa: ANN001
+        (out / "table.csv").write_text("day,penalty\n10,62.5\n", encoding="utf-8")
+        return RunResult(0, "", "", 0.1)
+
+    ctx, _ = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+
+    assert write(ctx).text.startswith("Wrote scripts/penalty.py")
+
+
+def test_output_without_the_label_the_expected_output_names_gets_a_fix_round(make_ctx):
+    def behave(code, inputs, out):  # noqa: ANN001
+        return RunResult(0, "Сума: 855.23\n" if "Сума" in code else "855.23\n", "", 0.1)
+
+    bare = "```python\nprint(round(3718.40 * 0.23, 2))\n```"
+    labelled = "```python\nprint('Сума:', round(3718.40 * 0.23, 2))\n```"
+    ctx, handle = ctx_for(make_ctx, [bare, labelled], sandbox=FakeSandbox(behave=behave))
+
+    result = write(ctx, expected_output="Сума: <amount> грн")
+
+    assert result.text.startswith("Wrote scripts/penalty.py")
+    problem = handle.requests[1]["messages"][-1]["content"]
+    assert problem == (
+        'The test run printed:\n855.23\n\nThe expected output names "Сума", which it doesn\'t '
+        "print. Print each result with its label."
+    )
+
+
+@pytest.mark.parametrize(
+    ("expected", "labels"),
+    [
+        ("Сума: 855.232", ["Сума"]),
+        ("Total: <hours>, VAT: {vat}", ["Total", "VAT"]),
+        ("Days late: 50\nPenalty: ...", ["Days late", "Penalty"]),
+        ("one line: penalty <amount>", []),  # a description, not a label
+        ("one line per due day", []),
+        ("Time 3:47", []),
+        ("see https://example.org: 1", []),
+        ("", []),
+    ],
+)
+def test_output_labels(expected, labels):
+    assert output_labels(expected) == labels
+
+
+def test_on_the_last_try_a_missing_label_doesnt_throw_a_result_away(make_ctx):
+    """The label check is a shape check: a script that printed its result under another label
+    is saved after the fixes, and no number reaches the chat through an error."""
+    box = FakeSandbox(behave=lambda c, i, o: RunResult(0, "Разом: 855.23\n", "", 0.1))
+    bare = "```python\nprint('Разом:', round(3718.40 * 0.23, 2))\n```"
+    ctx, handle = ctx_for(make_ctx, [bare] * 4, sandbox=box)
+
+    result = write(ctx, expected_output="Сума: <amount>")
+
+    assert result.text.startswith("Wrote scripts/penalty.py")
+    assert "855" not in result.text
+    assert len(handle.requests) == 4
+
+
+def test_a_script_that_only_writes_a_file_isnt_held_to_printed_labels(make_ctx):
+    def behave(code, inputs, out):  # noqa: ANN001
+        (out / "table.csv").write_text("day,penalty\n10,62.5\n", encoding="utf-8")
+        return RunResult(0, "", "", 0.1)
+
+    ctx, handle = ctx_for(make_ctx, [GOOD], sandbox=FakeSandbox(behave=behave))
+
+    assert write(ctx, expected_output="Penalty: <amount>").text.startswith("Wrote scripts/")
+    assert len(handle.requests) == 1

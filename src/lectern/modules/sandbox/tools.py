@@ -234,6 +234,10 @@ def describe_run(
     head = f"Ran {script.path} ({status}, {run.seconds:g} s)" + (
         " — the stored result of an identical earlier run." if cached else "."
     )
+    if not (run.stdout or "").strip() and not outputs:
+        # The first line is what the chat shows of the call, so it says so there too.
+        head = head.removesuffix(".") + ": it printed nothing, so nothing was computed."
+        head += "\nSay the result is not computed; don't give one of your own."
     body, next_cursor = page(run.stdout or "(no output)", cursor, max_tokens)
     text = f"{head}\nOutput:\n{body}"
     if outputs:
@@ -303,6 +307,10 @@ CODE_RUN = AgentTool(
 # --- code.write ------------------------------------------------------------------------------
 
 MAX_FIXES = 3
+PRINTED_NOTHING = (
+    "The test run printed nothing and wrote no file. Compute the result in the script and "
+    "print it, labelled."
+)
 CODER_MAX_TOKENS = 1500
 CODER_TEMPERATURE = 0.2
 PREVIEW_LINES = 5
@@ -435,9 +443,14 @@ async def _write_and_test(
             except SandboxError as exc:
                 raise ToolError(f"{exc} Say the result is not computed.") from None
             if result.ok:
-                return await run_in_threadpool(
-                    _save_script, ctx, params, inputs, code, result, lease.model_id
-                )
+                problem = output_problem(result, params.expected_output)
+                # A missing label is only a shape check: on the last try it doesn't outrank
+                # a script that printed its result.
+                if not problem or (attempt == MAX_FIXES and problem != PRINTED_NOTHING):
+                    return await run_in_threadpool(
+                        _save_script, ctx, params, inputs, code, result, lease.model_id
+                    )
+                continue
             problem = (
                 "The test run failed"
                 + (" (it took too long)" if result.timed_out else f" with exit {result.exit_code}")
@@ -447,6 +460,37 @@ async def _write_and_test(
         f"Couldn't write a working script after {MAX_FIXES} fixes. Last problem: {problem[:600]} "
         "Show the formula and say the result is not computed."
     )
+
+
+def output_problem(result: RunResult, expected_output: str) -> str:
+    """Why a test run that exited 0 still isn't a result; empty when it is one. On the M4
+    laptop a reply of two comments ("# Сума: 855.232") passed, printed nothing, and the chat
+    gave the number itself after it, where it read as computed."""
+    if not result.stdout.strip():
+        # A script whose result is the files it wrote has no printed labels to check.
+        return "" if result.outputs else PRINTED_NOTHING
+    printed = result.stdout.casefold()
+    missing = [label for label in output_labels(expected_output) if label.casefold() not in printed]
+    if missing:
+        names = ", ".join(f'"{label}"' for label in missing)
+        return (
+            f"The test run printed:\n{result.stdout[-ERROR_TAIL:]}\nThe expected output names "
+            f"{names}, which it doesn't print. Print each result with its label."
+        )
+    return ""
+
+
+def output_labels(expected_output: str) -> list[str]:
+    """The labels the expected output puts before a value ("Сума: <amount>", "VAT: 20.00"):
+    the words before a colon that a number or a placeholder follows. A description
+    ("one line: penalty <amount>") names none, and nothing is matched exactly: the coder
+    can't know the number."""
+    found = re.findall(
+        r"(?:^|[,;]\s*)\s*([^\W\d_](?:[^\W\d_]|[ '-])*?)\s*:\s*(?=<|\{|\[|[-+]?\d|\.\.\.|…)",
+        expected_output,
+        flags=re.MULTILINE,
+    )
+    return list(dict.fromkeys(found))
 
 
 async def _ask_coder(client, messages: list[dict]) -> str:  # noqa: ANN001
