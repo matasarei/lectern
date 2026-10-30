@@ -184,3 +184,47 @@ def test_a_script_edited_on_disk_runs_again_instead_of_returning_the_old_result(
     assert "stored result" not in again.text
     run(ctx, name="a", inputs=[])  # unchanged since: stored
     assert len(box.runs) == 2
+
+
+@pytest.mark.parametrize("stdout", ["", " \n"])
+def test_a_run_that_prints_nothing_says_nothing_was_computed(make_ctx, stdout):
+    """Its first line is what the chat shows of the call: the person sees it too."""
+    box = FakeSandbox(behave=lambda code, inputs, out: RunResult(0, stdout, "", 0.2))
+    ctx = make_ctx(box)
+    add(ctx, "sum.py", "# 3", folder="scripts")
+
+    result = run(ctx, name="sum", inputs=[])
+
+    assert result.text.startswith(
+        "Ran scripts/sum.py (exit 0, 0.2 s): it printed nothing, so nothing was computed.\n"
+        "Say the result is not computed; don't give one of your own.\nOutput:\n"
+    )
+
+
+def test_a_run_that_only_writes_files_is_a_result(make_ctx):
+    def behave(code, inputs, out):  # noqa: ANN001
+        (out / "table.csv").write_text("a\n1\n", encoding="utf-8")
+        return RunResult(0, "", "", 0.2)
+
+    ctx = make_ctx(FakeSandbox(behave=behave))
+    add(ctx, "table.py", "...", folder="scripts")
+
+    result = run(ctx, name="table", inputs=[])
+
+    assert "nothing was computed" not in result.text
+    assert "Files written: scripts/out/table.csv" in result.text
+
+
+def test_a_stored_run_that_printed_nothing_says_so_too(make_ctx):
+    box = FakeSandbox(behave=lambda code, inputs, out: RunResult(0, "", "", 0.2))
+    ctx = make_ctx(box)
+    add(ctx, "sum.py", "# 3", folder="scripts")
+    run(ctx, name="sum", inputs=[])
+
+    again = run(ctx, name="sum", inputs=[])
+
+    assert len(box.runs) == 1
+    assert again.text.startswith(
+        "Ran scripts/sum.py (exit 0, 0.2 s) — the stored result of an identical earlier run: "
+        "it printed nothing, so nothing was computed.\n"
+    )

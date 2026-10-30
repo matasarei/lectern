@@ -1,4 +1,4 @@
-# The 20 calculation prompts (M1, docs/acceptance/m1b.md), and two added since: every one must be answered
+# The 20 calculation prompts (M1, docs/acceptance/m1b.md), and three added since: every one must be answered
 # through code.run, and the answer must contain the expected numbers (or words). Expected
 # values were computed with Python when this file was written, not by hand; see the comment
 # on each.
@@ -87,3 +87,9 @@ prompts:
   - id: digit-count-words
     prompt: "You write down the numbers from one to two hundred. How many times do you write the digit one?"
     numbers: [140]                        # the same count
+  # Added 2026-10-30: on the M4 laptop the script for this was two comments, printed nothing
+  # and passed its test run; the chat then gave the number itself, where it read as computed
+  # (docs/acceptance/m4.md). The answer must come from the script's output.
+  - id: percent-uah
+    prompt: "Скільки становить 23% від 3 718,40 грн? Обчисли скриптом, який друкує результат українською з підписом «Сума:»."
+    numbers: [855.23]                     # Decimal("0.23") * Decimal("3718.40") = 855.232

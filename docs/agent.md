@@ -99,12 +99,16 @@ that lease unloads the chat model, and the next chat call loads it again. The co
 gets the brief, the person's latest message, and a preview of each input (its first lines, or
 a spreadsheet's sheets, columns and first rows), not the chat.
 
-The script must compile and pass a test run on the real inputs; it gets up to three fixes,
-each with the error, while the coding model is still loaded. It's saved as
-`scripts/<name>.py` with a manifest `scripts/<name>.json`: entry point, image, the inputs and
-their SHA-256, expected output, the brief, the model and the test run. `code.run` on the same
-script and inputs returns the stored result of the earlier successful run. The script and its
-progress show in the chat.
+The script must compile and pass a test run on the real inputs: exit 0 within the time limit,
+and print something or write a file to `/out`. Where the expected output puts a label before a
+value ("Сума: <amount>"), the output must have that label too; the value itself isn't checked,
+since the coder can't know it. It gets up to three fixes, each with the error or the output,
+while the coding model is still loaded. It's saved as `scripts/<name>.py` with a manifest
+`scripts/<name>.json`: entry point, image, the inputs and their SHA-256, expected output, the
+brief, the model and the test run. `code.run` on the same script and inputs returns the stored
+result of the earlier successful run. A run that printed nothing and wrote no file says so on
+its first line, the one the chat shows of the call: nothing was computed, and the model is to
+say so rather than give a result of its own. The script and its progress show in the chat.
 
 ## Context and compaction
 
