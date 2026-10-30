@@ -141,6 +141,17 @@ def test_a_doubt_no_block_holds_is_dropped_and_said_so():
     assert page.fixes[-1].why.startswith("Doubt dropped: '15' isn't in the page's text.")
 
 
+def test_a_doubt_whose_only_reading_is_its_own_text_is_dropped_and_said_so():
+    doubts = [
+        {"block": 1, "raw": "числа", "candidates": ["числа", "числа "], "reason": "fixed it"},
+        {"block": 1, "raw": "1?", "candidates": [], "reason": "smudged"},  # still a question
+    ]
+    page = _clean(_client(json.dumps({**GOOD, "doubts": doubts})))
+    assert [d.raw for d in page.doubts] == ["1?"]
+    assert page.fixes[-1].why.startswith("Doubt dropped: its only reading is 'числа' itself.")
+    assert page.fixes[-1].after == "числа"  # the text stays; only the question goes
+
+
 def test_a_doubt_may_sit_in_a_table_cell():
     reply = {**GOOD, "doubts": [{"block": 2, "raw": "250,00", "candidates": ["230,00"]}]}
     assert _clean(_client(json.dumps(reply))).doubts[0].block == 2
@@ -181,6 +192,44 @@ def test_a_block_copied_from_a_neighbouring_page_is_left_out_and_said_so():
     ]
     assert page.doubts[0].block == 1  # renumbered with the blocks
     assert "Left out: it's on a neighbouring page, not this one." in [f.why for f in page.fixes]
+
+
+def test_a_block_repeating_the_tail_of_the_word_before_it_is_left_out_and_said_so():
+    raw = "Договір\nОрендар сплачує комунальні послуги.\nПідписи сторін"
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "Договір"},
+            {"type": "paragraph", "text": "Орендар сплачує комунальні послуги."},
+            {"type": "paragraph", "text": "луги."},  # made up: the tail of "послуги"
+            {"type": "paragraph", "text": "Підписи сторін"},
+        ],
+        "doubts": [{"block": 2, "raw": "луги."}, {"block": 3, "raw": "сторін"}],
+        "fixes": [],
+    }
+    page = _clean(_client(json.dumps(reply)), raw=raw)
+
+    assert [b.text for b in page.blocks] == [
+        "Договір",
+        "Орендар сплачує комунальні послуги.",
+        "Підписи сторін",
+    ]
+    assert [(d.block, d.raw) for d in page.doubts] == [(2, "сторін")]  # its doubt went with it
+    assert page.fixes[-1].why.startswith("Left out: it repeats the end of the word before it")
+
+
+@pytest.mark.parametrize(
+    ("raw", "texts"),
+    [
+        ("Розділ 3\nДогавір", ["Розділ 3", "Договір"]),  # a word cleanup corrected: not a tail
+        ("Договір оренди\nренди", ["Договір оренди", "ренди"]),  # the page says it
+        ("Оренда\nОренда", ["Оренда", "Оренда"]),  # the whole word, not its tail
+    ],
+)
+def test_a_one_word_block_the_page_may_have_is_kept(raw, texts):
+    fixes = [{"before": "Догавір", "after": "Договір", "why": "a misread"}]  # as cleanup says
+    reply = {"blocks": [{"type": "paragraph", "text": t} for t in texts], "doubts": [],
+             "fixes": fixes}  # fmt: skip
+    assert [b.text for b in _clean(_client(json.dumps(reply)), raw=raw).blocks] == texts
 
 
 def test_a_cleaned_block_with_fixes_is_still_this_pages():

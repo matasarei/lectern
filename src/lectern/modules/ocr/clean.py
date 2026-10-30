@@ -275,27 +275,40 @@ def _block_words(block: CleanBlock) -> set[str]:
     return _words(f"{block.text} {cells} {block.label or ''}")
 
 
+def _a_words_tail(block: CleanBlock, previous: CleanBlock | None, raw: str) -> bool:
+    """A one-word block that repeats the end of the previous block's last word and isn't a
+    word of the page: "луги." after "…комунальні послуги." (docs/acceptance/m4.md). Only that
+    narrow: a block whose one word cleanup corrected ("Догавір") isn't on the page either."""
+    words = re.findall(r"\w+", block.text)
+    if block.rows or previous is None or len(words) != 1:
+        return False
+    word, before = words[0].casefold(), re.findall(r"\w+", previous.text)
+    last = before[-1].casefold() if before else ""
+    on_page = word in {w.casefold() for w in re.findall(r"\w+", raw)}
+    return not on_page and len(last) > len(word) and last.endswith(word)
+
+
 def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
     """Drop blocks copied from a neighbouring page: most of their words aren't in this page's
     own text but are in a neighbour's. A small model given the neighbours' edges for context
-    sometimes copies them, and a sentence twice in a contract is worse than a missing one.
-    Each block left out is listed as a fix, with the reason."""
+    sometimes copies them, and a sentence twice in a contract is worse than a missing one. A
+    block that only repeats the tail of the word before it goes too (`_a_words_tail`). Each
+    block left out is listed as a fix, with the reason."""
     here, there = _words(raw), _words(neighbours)
     kept: list[int] = []
     fixes = list(page.fixes)
     for i, block in enumerate(page.blocks):
         words = _block_words(block)
         on_page = len(words & here) / len(words) if words else 1.0
+        previous = page.blocks[i - 1] if i > 0 else None
         if on_page < ON_PAGE and len(words & there) > len(words & here):
-            fixes.append(
-                CleanFix(
-                    before=block.text[:120],
-                    after="",
-                    why="Left out: it's on a neighbouring page, not this one.",
-                )
-            )
+            why = "Left out: it's on a neighbouring page, not this one."
+        elif _a_words_tail(block, previous, raw):
+            why = "Left out: it repeats the end of the word before it, and isn't on the page."
         else:
             kept.append(i)
+            continue
+        fixes.append(CleanFix(before=block.text[:120], after="", why=why))
     if len(kept) == len(page.blocks):
         return page
     new_index = {old: new for new, old in enumerate(kept)}
@@ -322,8 +335,8 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
     """What a schema can't say: every doubt points at a block that holds its text. A small
     model often names the wrong block, or keeps the ⟨word?⟩ mark in the doubt; a page isn't
     failed for that. The doubt moves to the first block that holds its text; one no block
-    holds is dropped and listed as a fix, so it isn't lost silently. A reading given twice is
-    kept once."""
+    holds is dropped and listed as a fix, so it isn't lost silently, as is one whose only
+    candidate is its own text. A reading given twice is kept once."""
     # Where assembly can put a doubt's mark: in the block's text, or within one table cell.
     texts = [[b.text, *(c for r in b.rows or [] for c in r)] for b in page.blocks]
     doubts, fixes = [], list(page.fixes)
@@ -334,11 +347,17 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
             (i for i in named + list(range(len(texts))) if raw and any(raw in t for t in texts[i])),
             None,
         )
+        candidates = list(dict.fromkeys(c.strip() for c in doubt.candidates if c.strip()))
         if holder is None:
             why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
             fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))
+        elif candidates and all(c == raw for c in candidates):
+            # The model fixed the text and then doubted its own fix: the only reading it
+            # offers is the text itself, so there's nothing to decide (docs/acceptance/m4.md).
+            why = f"Doubt dropped: its only reading is {raw!r} itself. {doubt.reason}"
+            # after=raw: the text stays as it is; only the question goes
+            fixes.append(CleanFix(before=doubt.raw, after=raw, why=why[:WHY_CHARS]))
         else:
-            candidates = list(dict.fromkeys(c.strip() for c in doubt.candidates if c.strip()))
             doubts.append(
                 doubt.model_copy(update={"block": holder, "raw": raw, "candidates": candidates})
             )
