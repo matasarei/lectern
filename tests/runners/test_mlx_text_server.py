@@ -27,6 +27,7 @@ def _handler() -> type[BaseHTTPRequestHandler]:
 
     class Handler(BaseHTTPRequestHandler):
         def answer(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))  # as the real one does
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Content-Length", str(len(ANSWER)))
