@@ -383,6 +383,68 @@ def test_a_caption_kept_as_a_figure_label_isnt_put_back_as_text():
     assert [b.type for b in page.blocks] == ["figure", "paragraph"]
 
 
+BY_COLUMNS = [  # the lease's payment table as cleanup gave it (m4.md): each column a row
+    ["Місяць", "Січень", "Лютий", "Березень"],
+    ["Сума, грн", "18 500,00", "18 500,00", "19 200,00"],
+    ["Термін оплати", "05.01.2026", "05.02.2026", "05.03.2026"],
+]
+
+
+def test_a_table_read_column_by_column_is_turned_round_and_said_so():
+    # As PaddleOCR-VL gave it: a column to a run of lines, one word it wasn't sure of.
+    raw = "\n\n".join("\n".join(row) for row in BY_COLUMNS).replace("05.03.2026", "⟨05.03.2026?⟩")
+    rows = [[c.replace("05.03.2026", "⟨05.03.2026?⟩") for c in row] for row in BY_COLUMNS]
+    reply = {
+        "blocks": [{"type": "table", "rows": rows}],
+        "doubts": [{"block": 0, "raw": "19 200,00", "candidates": ["19 300,00"]}],
+        "fixes": [],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 3, raw))
+
+    assert page.blocks[0].rows == [
+        ["Місяць", "Сума, грн", "Термін оплати"],
+        ["Січень", "18 500,00", "05.01.2026"],
+        ["Лютий", "18 500,00", "05.02.2026"],
+        ["Березень", "19 200,00", "⟨05.03.2026?⟩"],  # still a date: assembly takes the mark off
+    ]
+    assert page.doubts[0].block == 0  # its cell's text is unchanged, so it's still found
+    (fix,) = page.fixes
+    assert fix.before.startswith("Місяць | Січень") and fix.after.startswith("Місяць | Сума")
+    assert fix.why.startswith("Turned round")
+
+
+ACROSS = [  # a schedule printed across the page: the shape of a table read by columns
+    ["Платіж", "Перший", "Другий"],
+    ["Дата", "05.01.2026", "05.02.2026"],
+    ["Сума", "18 500,00", "19 200,00"],
+]
+
+
+def _html(rows: list[list[str]]) -> str:
+    cells = ("".join(f"<td>{c}</td>" for c in row) for row in rows)
+    return "<table>" + "".join(f"<tr>{r}</tr>" for r in cells) + "</table>"
+
+
+@pytest.mark.parametrize(
+    ("rows", "raw"),
+    [
+        ([list(column) for column in zip(*BY_COLUMNS, strict=True)], None),  # the right way
+        ([["", "Січень", "Лютий"], ["Оренда", "100", "120"], ["Світло", "20", "25"]], None),
+        (BY_COLUMNS[:2], None),  # two rows: a header and one value per column
+        ([["Сторона", "Орендодавець"], ["Назва", "ТОВ «Альфа»"], ["Місто", "Київ"]], None),
+        ([["Місяць", "Січень", "Лютий"], ["Сума", "100"], ["Дата", "05.01.2026"]], None),
+        ([["Показник", "Значення"], ["Площа, кв. м", "48,6"], ["Дата", "05.01.2026"]], None),
+        (ACROSS, _html(ACROSS)),  # the OCR model read it as a table: its rows are the page's
+    ],
+    ids=["upright", "row-labels", "two-rows", "all-text", "ragged", "key-value", "across"],
+)
+def test_a_table_the_right_way_round_or_that_cant_be_told_is_left_alone(rows, raw):  # noqa: ANN001
+    raw = raw or "\n".join(cell for row in rows for cell in row)
+    reply = {"blocks": [{"type": "table", "rows": rows}], "doubts": [], "fixes": []}
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 3, raw))
+    assert page.blocks[0].rows == rows and page.fixes == []
+
+
 def test_a_fix_that_changed_nothing_is_dropped_and_a_long_reason_cut():
     raw = "Оплата до 10 числа."
     reply = {

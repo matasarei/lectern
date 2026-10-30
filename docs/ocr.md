@@ -41,8 +41,12 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    isn't taken for the next page's), and so is a one-word block that only repeats the end of the word before it
    ("луги." after "послуги.") and isn't a word of the page; lines left out are put back,
    Latin and Cyrillic look-alike letters are restored, a doubt in the wrong block is moved,
-   and a doubt whose only candidate is its own text (nothing to decide) is dropped. Each
-   drop is listed as a fix. When a cut-off reading ends in a loop,
+   and a doubt whose only candidate is its own text (nothing to decide) is dropped. A table
+   cleanup built from a reading that listed it column by column is turned round: one of
+   three rows and three columns or more, each row a run of the reading's lines, holding one
+   kind of value past its label (text, numbers, dates) while every column mixes them. A
+   table the OCR model read as a table keeps its rows, so a schedule printed across the
+   page stays across. Each drop and each table turned is listed as a fix. When a cut-off reading ends in a loop,
    the loop is cut before cleanup and listed as a fix that suggests re-running the page.
 4. **Assemble.** Code only, no model (`assemble.py`). A short line (under 100 characters) at
    the top or bottom of three pages or more is a running header or footer and is dropped,

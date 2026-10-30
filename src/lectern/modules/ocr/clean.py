@@ -214,7 +214,7 @@ async def clean_page(
             page = CleanedPage.model_validate_json(reply.text)
             page = keep_this_page(_place_doubts(_tidy_fixes(page)), raw, before + "\n" + after)
             page = restore_missing_lines(restore_lookalikes(page, raw), raw)
-            return _say_loop_left_out(page, repeated, more)
+            return _say_loop_left_out(upright_tables(page, raw), repeated, more)
         except (ValidationError, ValueError) as exc:
             if reply.cut_off:
                 # Asking again gives the same page the same room: it would fail the same way,
@@ -506,6 +506,82 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
     shift = _shift(page.blocks, blocks)
     doubts = [d.model_copy(update={"block": shift[d.block]}) for d in page.doubts]
     return CleanedPage(blocks=blocks, doubts=doubts, fixes=fixes)
+
+
+DATE = re.compile(r"\d{1,4}[./-]\d{1,2}[./-]\d{1,4}")
+NUMBER = re.compile(r"[-+−]?\d+(?:[.,]\d+)*%?")
+
+
+def _kind(cell: str) -> str:
+    """What a cell holds: a date, a number ("18 500,00", or "⟨18 500,00?⟩" when cleanup left
+    the OCR model's mark on it), text, or nothing."""
+    cell = "".join(_cell_text(cell).split())
+    if not cell:
+        return ""
+    if DATE.fullmatch(cell):
+        return "date"
+    return "number" if NUMBER.fullmatch(cell) else "text"
+
+
+def _kinds(cells: list[str]) -> set[str]:
+    return {k for k in map(_kind, cells) if k}
+
+
+def _cell_text(text: str) -> str:
+    return " ".join(UNSURE_MARK.sub(r"\1", text).split())
+
+
+def _rows_are_lines(rows: list[list[str]], raw: str) -> bool:
+    """Each row is a run of the reading's lines, a cell to a line: the OCR model gave no table,
+    and cleanup built one from runs of lines. A table the model read as a table (HTML, "|")
+    has its own rows, and they stay."""
+    lines = [line for line in map(_cell_text, raw.splitlines()) if line]
+    for row in rows:
+        cells = [c for c in map(_cell_text, row) if c]
+        if not any(lines[i : i + len(cells)] == cells for i in range(len(lines))):
+            return False
+    return True
+
+
+def _read_by_columns(rows: list[list[str]], raw: str) -> bool:
+    """A table whose rows each hold one kind of value past their label (months, then sums,
+    then dates) and whose columns each mix them: its columns were read as rows. PaddleOCR-VL
+    lists a table column by column, and cleanup made each column a row (m4.md, the lease's
+    payment table). A table the right way round has columns of one kind; one of rows labelled
+    on the left ("Витрати | 100 | 200") has too, so neither is turned. A schedule printed
+    across the page has the same shape as one read by columns: only a table built from runs of
+    the reading's lines (`_rows_are_lines`) is turned. Three rows and three columns at least:
+    with two rows a column is a header and one value, and with two columns a row is a label
+    and one value ("Площа | 48,6"), of one kind whatever the table."""
+    if len(rows) < 3 or len({len(r) for r in rows}) != 1 or len(rows[0]) < 3:
+        return False
+    row_kinds = [_kinds(r[1:]) for r in rows]
+    if any(len(k) != 1 for k in row_kinds) or len(set().union(*row_kinds)) < 2:
+        return False
+    if not all(len(_kinds([r[j] for r in rows[1:]])) > 1 for j in range(1, len(rows[0]))):
+        return False
+    return _rows_are_lines(rows, raw)
+
+
+def upright_tables(page: CleanedPage, raw: str) -> CleanedPage:
+    """Turn round a table whose columns were read as rows (`_read_by_columns`), and list it
+    as a fix. Its cells keep their text, so its doubts still find them."""
+    blocks, fixes = list(page.blocks), list(page.fixes)
+    for i, block in enumerate(blocks):
+        if block.type != "table" or not block.rows or not _read_by_columns(block.rows, raw):
+            continue
+        turned = [list(column) for column in zip(*block.rows, strict=True)]
+        blocks[i] = block.model_copy(update={"rows": turned})
+        fixes.append(
+            CleanFix(
+                before=" | ".join(block.rows[0])[:120],
+                after=" | ".join(turned[0])[:120],
+                why="Turned round: the table's columns had been read as its rows.",
+            )
+        )
+    if len(fixes) == len(page.fixes):
+        return page
+    return page.model_copy(update={"blocks": blocks, "fixes": fixes})
 
 
 def _shift(old: list[CleanBlock], new: list[CleanBlock]) -> dict[int, int]:
