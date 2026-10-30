@@ -102,6 +102,7 @@ def _session_dict(request: Request, project: Project, session_id: int) -> dict:
         "error": ocr.error,
         "pages_total": ocr.pages_total,
         "source_artifact_id": ocr.source_artifact_id,
+        "chat_id": ocr.chat_id,  # the chat that started it, the same owner's; or None
         "document": _document_summary(request, project, ocr),
         "updated_at": iso(ocr.updated_at),
         "pages": [page_dict(p) for p in ocr_store.pages(db, session_id)],

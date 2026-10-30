@@ -412,6 +412,7 @@ export interface OcrSession {
   error: string | null;
   pages_total: number;
   source_artifact_id: number;
+  chat_id: number | null; // the chat that started it (ocr.start); none from the Files tab
   // The Document the session published (document.md is the artifact), once assembled.
   document: { version: number; artifact_id: number; open_doubts: number } | null;
   updated_at: string;

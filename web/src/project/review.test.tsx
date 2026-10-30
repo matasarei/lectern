@@ -44,13 +44,13 @@ const lease = (): OcrDocument =>
     block("b3.1", "Підпис {d3.1}", { doubts: [doubt("d3.1", "<b>Ков</b>")] }),
   ]);
 
-function renderPage(doc: OcrDocument = lease(), page = 1) {
+function renderPage(doc: OcrDocument = lease(), page = 1, onBack?: () => void) {
   const selected: number[] = [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <button>outside</button>
-      <ReviewPage projectId={1} sessionId={2} doc={doc} page={page} onSelectPage={(n) => selected.push(n)} />
+      <ReviewPage projectId={1} sessionId={2} doc={doc} page={page} onSelectPage={(n) => selected.push(n)} onBack={onBack} />
     </QueryClientProvider>,
   );
   return selected;
@@ -188,6 +188,43 @@ describe("reviewing a page", () => {
     for (const chip of ["луги · removed", "1? · kept"]) {
       expect(within(screen.getByText(chip).closest("li")!).getByRole("button", { name: "Reopen" })).toBeTruthy();
     }
+  });
+
+  it("once every question is answered, says so and offers the way back to the chat", () => {
+    const answered = documentOf([
+      block("b1.1", "Оплата до {d1.1} числа", { doubts: [doubt("d1.1", "1?", { status: "resolved", value: "15" })] }),
+      block("b3.1", "Підпис {d3.1}", { doubts: [doubt("d3.1", "Ков", { status: "resolved", value: "Ков" })] }),
+    ]);
+    let back = 0;
+    renderPage(answered, 1, () => back++);
+    const bar = screen.getByTestId("question-bar");
+    expect(within(bar).getByText("Every question is answered.")).toBeTruthy();
+    fireEvent.click(within(bar).getByRole("button", { name: "Back to the chat ›" }));
+    expect(back).toBe(1);
+    expect(bar.textContent).not.toContain("Page 1: 0 questions");
+  });
+
+  it("says a page that couldn't be cleaned beside every question answered", () => {
+    const answered = documentOf([
+      block("b1.1", "Оплата до {d1.1} числа", { doubts: [doubt("d1.1", "1?", { status: "resolved", value: "15" })] }),
+    ]);
+    answered.pages[2].failed = "the reply wasn't valid"; // page 3
+    renderPage(answered, 1, () => {});
+    expect(screen.getByTestId("all-answered").textContent).toBe(
+      "Every question is answered, but page 3 couldn't be cleaned.",
+    );
+  });
+
+  it("offers no way back when no chat started it, and says nothing of questions there never were", () => {
+    const answered = documentOf([
+      block("b1.1", "Оплата до {d1.1} числа", { doubts: [doubt("d1.1", "1?", { status: "resolved", value: "15" })] }),
+    ]);
+    renderPage(answered); // started from the Files tab
+    expect(screen.getByText("Every question is answered.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Back to the chat ›" })).toBeNull();
+    cleanup();
+    renderPage(documentOf([block("b1.1", "Оплата до 15 числа")]), 1, () => {});
+    expect(screen.queryByTestId("all-answered")).toBeNull();
   });
 
   it("reopens an answered question", async () => {

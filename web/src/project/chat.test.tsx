@@ -747,6 +747,29 @@ describe("The OCR line under ocr.start", () => {
 });
 
 describe("The chat's message when an OCR session finishes", () => {
+  it("says under a notice written earlier where the session stands now", async () => {
+    chat.messages = [
+      message(2, {
+        role: "assistant",
+        content: "OCR · scan.jpg isn't finished yet: 2 pages read · 2 open questions.",
+        refs: [{ kind: "session", id: 8, name: "scan.jpg", ref: null }],
+      }),
+    ];
+    // Since then, every question was answered in the OCR tab.
+    items = {
+      ...items,
+      sessions: [{
+        id: 8, kind: "ocr", title: "scan.jpg", messages: 0, created_at: "", updated_at: "",
+        ocr: { pages: 2, status: "done", folder: "scan", document_version: 3, open_doubts: 0, figures: 0,
+               failed_pages: [], clear: true },
+      }],
+    };
+    renderChat();
+    const line = await screen.findByTestId("ocr-line");
+    await waitFor(() => expect(line.textContent).toContain("✓Done"));
+    expect(screen.getByText(/isn't finished yet/)).toBeTruthy(); // what was said then, as it was
+  });
+
   it("opens the document or exports it, without asking the model", async () => {
     chat.messages = [
       message(1, { content: "Read the scan" }),
