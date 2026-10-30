@@ -21,6 +21,16 @@ ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = ROOT / "packaging/windows"
 
 
+def _elevated() -> bool:
+    import ctypes
+
+    return sys.platform == "win32" and bool(ctypes.windll.shell32.IsUserAnAdmin())
+
+
+# uninstall.ps1 refuses an administrator by design, and GitHub's Windows runner is one.
+as_a_user = pytest.mark.skipif(_elevated(), reason="uninstall.ps1 refuses to run elevated")
+
+
 def _profile(tmp_path: Path) -> dict[str, str]:
     env = dict(os.environ)
     for name, folder in (
@@ -104,6 +114,7 @@ def test_a_second_install_leaves_a_shortcut_of_its_name_that_isnt_its_own(tmp_pa
     assert _links(env) == {"Lectern (lectern-m4).lnk": str(one / "app/tray/Lectern.exe")}
 
 
+@as_a_user
 def test_uninstalling_the_second_install_removes_only_its_own(tmp_path):
     env = _profile(tmp_path)
     default, other = tmp_path / "home/.lectern", tmp_path / "elsewhere/lectern-m4"
@@ -122,6 +133,7 @@ def test_uninstalling_the_second_install_removes_only_its_own(tmp_path):
     assert not (other / "app").exists()
 
 
+@as_a_user
 def test_uninstalling_the_default_keeps_the_other_installs_log(tmp_path):
     env = _profile(tmp_path)
     default, other = tmp_path / "home/.lectern", tmp_path / "elsewhere/lectern-m4"
