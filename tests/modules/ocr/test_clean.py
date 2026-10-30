@@ -232,6 +232,44 @@ def test_a_one_word_block_the_page_may_have_is_kept(raw, texts):
     assert [b.text for b in _clean(_client(json.dumps(reply)), raw=raw).blocks] == texts
 
 
+def test_a_heading_cleanup_corrected_isnt_taken_for_the_next_pages():
+    """Page 11 of the M4 scan: "Розділі" read, "Розділ" written; the next page starts with
+    "12. Розділ 12", so the corrected heading's one word was only on the neighbour."""
+    raw = "11. Розділі 11\nОрендна плата становить 18 500,00 грн на місяць."
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "11. Розділ 11"},
+            {"type": "paragraph", "text": "Орендна плата становить 18 500,00 грн на місяць."},
+        ],
+        "doubts": [],
+        "fixes": [{"before": "11. Розділі 11", "after": "11. Розділ 11", "why": "OCR error"}],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 11, raw, after="12. Розділ 12"))
+    assert [b.text for b in page.blocks][0] == "11. Розділ 11"
+    assert not any(f.why.startswith("Left out") for f in page.fixes)
+
+
+@pytest.mark.parametrize(
+    "fix",
+    [
+        {"before": "Права. Орендна плата", "after": "", "why": "x"},  # "Права" read, the rest not
+        {"before": "", "after": "", "why": "x"},  # nothing read at all
+    ],
+)
+def test_a_fix_vouches_for_a_neighbours_copy_only_if_its_words_were_read_here(fix):
+    previous = "3.2. Орендна плата становить 250,00 грн на місяць і сплачується до 10 числа."
+    raw = "ваності, включно з днем оплати.\n4. Права та обов'язки"
+    fix = {**fix, "after": previous}  # the copied sentence, passed off as a correction
+    reply = {
+        "blocks": [{"type": "paragraph", "text": previous},
+                   {"type": "paragraph", "text": "ваності, включно з днем оплати."},
+                   {"type": "heading", "level": 2, "text": "4. Права та обов'язки"}],
+        "doubts": [], "fixes": [fix],
+    }  # fmt: skip
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 3, raw, before=previous))
+    assert previous not in [b.text for b in page.blocks]
+
+
 def test_a_cleaned_block_with_fixes_is_still_this_pages():
     raw = "0плата не пізніше 10 числа поточного місяця."
     reply = {

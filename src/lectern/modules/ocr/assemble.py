@@ -176,7 +176,21 @@ def _running_candidate(block: Block) -> bool:
 
 
 def _key(block: Block) -> str:
-    return DIGITS.sub("#", " ".join(block.text.split())).casefold()
+    return _line_key(block.text)
+
+
+def _line_key(text: str) -> str:
+    return DIGITS.sub("#", " ".join(text.split())).casefold()
+
+
+def _strip_running_line(block: Block, edge: int, running: set[str]) -> None:
+    """Take a running header (edge 0) or footer (-1) off a block that cleanup merged it into
+    ("Договір оренди № 17/2026\\n4. Розділ 4", m4.md), keeping the rest. A line holding a
+    question ({d4.1}) never matches a header's words, so it stays."""
+    lines = block.text.split("\n")
+    if len(lines) < 2 or _line_key(lines[edge]) not in running:
+        return
+    block.text = "\n".join(lines[1:] if edge == 0 else lines[:-1])
 
 
 def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
@@ -201,6 +215,10 @@ def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
             )
             if numbered or repeated:
                 blocks.pop(edge)
+        running = {key for key, count in seen.items() if count >= REPEATS}
+        for blocks in per_page.values():
+            if blocks and blocks[edge].type in ("paragraph", "heading"):
+                _strip_running_line(blocks[edge], edge, running)
     for blocks in per_page.values():  # a number left at an edge after a header went
         for edge in (0, -1):
             if blocks and _page_number(blocks[edge]):
