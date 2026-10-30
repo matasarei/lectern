@@ -248,7 +248,7 @@ class ChunkLabelRow(ProjectBase):
     label: Mapped[str] = mapped_column(String(32))
 
 
-DECISION_ACTIONS = ("accept", "edit")
+DECISION_ACTIONS = ("accept", "edit", "keep", "remove")
 
 
 class OcrDecisionRow(ProjectBase):
@@ -267,7 +267,8 @@ class OcrDecisionRow(ProjectBase):
     page: Mapped[int] = mapped_column(Integer)
     doubt_id: Mapped[str] = mapped_column(String(32))  # "d3.1"
     raw: Mapped[str] = mapped_column(Text)  # what the page seemed to say
-    value: Mapped[str] = mapped_column(Text)  # the reading the person chose
-    action: Mapped[str] = mapped_column(String(16))  # accepted the suggestion, or typed it
+    value: Mapped[str] = mapped_column(Text)  # the reading the person chose ("" removes)
+    # accepted a suggestion, typed it, kept the reading as it was, or removed its block
+    action: Mapped[str] = mapped_column(String(16))
     decided_by: Mapped[int] = mapped_column(Integer)  # the user's id
     decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

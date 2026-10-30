@@ -165,17 +165,19 @@ export interface DocumentSummary {
   open_doubts: number;
 }
 
+/** Accept a candidate or Edit carry the reading; Keep takes the page's own, Remove nothing. */
+export type Answer = { action: "accept" | "edit"; value: string } | { action: "keep" | "remove" };
+
 export function answerDoubt(
   projectId: number,
   sessionId: number,
   doubtId: string,
-  value: string,
-  action: "accept" | "edit",
+  answer: Answer,
 ): Promise<DocumentSummary> {
   return apiFetch<DocumentSummary>(`${ocrPath(projectId, sessionId)}/doubts/${doubtId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ value, action }),
+    body: JSON.stringify(answer),
   });
 }
 
@@ -198,6 +200,25 @@ export function doubtPage(doubt: DocDoubt): number {
  * that ("it really says 2312/2019"). */
 export function suggestion(doubt: DocDoubt): string {
   return doubt.candidates.find((c) => c.trim() && c !== doubt.raw) ?? doubt.raw;
+}
+
+/** Whether there's a suggestion other than the reading: when not, Accept would change nothing. */
+export function suggests(doubt: DocDoubt): boolean {
+  return suggestion(doubt) !== doubt.raw;
+}
+
+/** The doubt is all the block says: its mark once and no other word, as the server decides
+ * (`covers_block`). Only such a question can be answered by removing its block. */
+export function coversBlock(block: DocBlock, doubtId: string): boolean {
+  const mark = `{${doubtId}}`;
+  if (block.type === "table" || block.type === "figure" || block.text.split(mark).length !== 2) return false;
+  return !/[\p{L}\p{N}_]/u.test(block.text.replace(mark, ""));
+}
+
+/** A block the person removed: its doubt answered with nothing. Kept in the Document so the
+ * answer can be taken back, left out of what is made from it. */
+export function isRemoved(block: DocBlock): boolean {
+  return block.doubts.some((d) => d.status === "resolved" && d.value === "" && coversBlock(block, d.id));
 }
 
 /** A page's blocks, in order, including one that starts on an earlier page and runs on. */

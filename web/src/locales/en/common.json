@@ -494,18 +494,24 @@
   },
   "review": {
     "unplaced": "Your answer “{{value}}” to “{{raw}}” is no longer in this page's text: the page was cleaned again. Check it in the text below.",
+    "unplacedRemoval": "You removed “{{raw}}”, but the page was cleaned again and it is part of a longer block now, so it wasn't removed. Check it in the text below.",
     "questions": "Questions on this page",
     "bar_one": "Page {{page}}: {{count}} question · document: {{total}}",
     "bar_other": "Page {{page}}: {{count}} questions · document: {{total}}",
     "accept": "Accept {{value}}",
+    "keep": "Keep “{{value}}”",
     "edit": "Edit",
-    "skip": "Skip",
+    "remove": "Remove",
+    "later": "Later",
+    "alone": "This is the document's only open question.",
+    "kept": "{{raw}} · kept",
+    "removed": "{{raw}} · removed",
     "save": "Save",
     "editLabel": "The reading",
     "reopen": "Reopen",
     "nextPage": "Next page with questions ›",
     "cardTitle": "Question {{index}} of {{total}}",
-    "candidates": "Could be: {{list}}",
+    "couldBe": "Could be:",
     "source": {
       "clean": "cleanup",
       "ocr": "OCR"
@@ -513,8 +519,9 @@
     "figure": "[Image: {{label}} · no cut-out yet]",
     "keys": {
       "accept": "Enter",
+      "keep": "K",
       "edit": "E",
-      "skip": "Tab"
+      "later": "Tab"
     }
   },
   "document": {

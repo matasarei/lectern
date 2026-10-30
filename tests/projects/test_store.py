@@ -274,6 +274,27 @@ def test_a_project_at_p0005_gets_the_table_of_decisions_on_doubts(store, paths):
     fresh.dispose()
 
 
+def test_a_project_at_p0009_takes_kept_and_removed_answers(store, paths):
+    from sqlalchemy.exc import IntegrityError
+
+    from lectern.projects.tables import OcrDecisionRow
+
+    project = store.create(LOCAL_USER, "Before keep")
+    store.dispose()
+    _migrate_to(project, "p0009")
+    _migrate_to(project, "head")
+
+    fresh = ProjectStore(paths, store.app_sessions)
+    with fresh.db(project).begin() as session:
+        chat = session.scalars(select(SessionRow)).first()
+        decision = dict(session_id=chat.id, page=7, raw="луги.", decided_by=LOCAL_USER.id)
+        session.add(OcrDecisionRow(**decision, doubt_id="d7.1", value="луги.", action="keep"))
+        session.add(OcrDecisionRow(**decision, doubt_id="d7.2", value="", action="remove"))
+    with pytest.raises(IntegrityError), fresh.db(project).begin() as session:
+        session.add(OcrDecisionRow(**decision, doubt_id="d7.3", value="x", action="skip"))
+    fresh.dispose()
+
+
 def test_a_project_at_p0006_gets_follow_ups_in_its_chats_state(store, paths):
     from lectern.agent import followups
 

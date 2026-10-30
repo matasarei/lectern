@@ -237,6 +237,75 @@ def test_answering_while_a_page_is_cleaned_again_keeps_that_page_in_the_document
     assert ocr_store.load_document(project.root, ocr).pages[0].failed is None
 
 
+def test_keeping_a_reading_resolves_it_as_it_was_read(store, tmp_path):
+    project, db, sid = _cleaned_session(store, tmp_path)
+    ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+
+    ocr, _ = ocr_store.decide(project.root, db, sid, "d1.1", value=None, action="keep",
+                              user_id=LOCAL_USER.id)  # fmt: skip
+    doc = ocr_store.load_document(project.root, ocr)
+    assert doc.blocks[0].doubts[0].value == "1?" and doc.open_doubts() == []
+    assert [(d.value, d.action) for d in ocr_store.decisions(db, sid)] == [("1?", "keep")]
+
+
+def _with_a_fragment(store, tmp_path: Path):  # noqa: ANN001, ANN202
+    """The session, cleaned again with an invented block after the paragraph: "луги.", all
+    of it a doubt (d1.2)."""
+    from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
+
+    project, db, sid = _cleaned_session(store, tmp_path)
+    (page,) = ocr_store.pages(db, sid)
+    cleaned = CleanedPage(
+        blocks=[CleanBlock(type="paragraph", text="Оплата до 1? числа."),
+                CleanBlock(type="paragraph", text="луги.")],
+        doubts=[CleanDoubt(block=0, raw="1?"), CleanDoubt(block=1, raw="луги.")],
+    )  # fmt: skip
+    ocr_store.save_cleanup(project.root, db, ocr_store._ocr(db, sid), page.id, cleaned)
+    ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+    return project, db, sid
+
+
+def test_removing_a_fragment_leaves_it_out_of_document_md_until_its_taken_back(store, tmp_path):
+    project, db, sid = _with_a_fragment(store, tmp_path)
+
+    ocr, _ = ocr_store.decide(project.root, db, sid, "d1.2", value=None, action="remove",
+                              user_id=LOCAL_USER.id)  # fmt: skip
+    md = (project.root / ocr.folder / ocr_store.DOCUMENT_MD).read_text(encoding="utf-8")
+    assert "луги" not in md and "Оплата до" in md and "open_questions: 1" in md
+    assert [(d.value, d.action) for d in ocr_store.decisions(db, sid)] == [("", "remove")]
+
+    ocr = ocr_store.reopen(project.root, db, sid, "d1.2")
+    md = (project.root / ocr.folder / ocr_store.DOCUMENT_MD).read_text(encoding="utf-8")
+    assert "⟦луги. | open⟧" in md
+
+
+def test_a_removal_cleaned_again_into_real_text_doesnt_delete_the_word(store, tmp_path):
+    from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
+
+    project, db, sid = _with_a_fragment(store, tmp_path)
+    ocr_store.decide(project.root, db, sid, "d1.2", value=None, action="remove",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    (page,) = ocr_store.pages(db, sid)
+    merged = CleanedPage(
+        blocks=[CleanBlock(type="paragraph", text="Оплата до 1? числа, комунальні пос луги.")],
+        doubts=[CleanDoubt(block=0, raw="1?"), CleanDoubt(block=0, raw="луги.")],
+    )
+    ocr_store.save_cleanup(project.root, db, ocr_store._ocr(db, sid), page.id, merged)
+    ocr, unplaced = ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+
+    md = (project.root / ocr.folder / ocr_store.DOCUMENT_MD).read_text(encoding="utf-8")
+    assert "⟦луги. | open⟧" in md  # still asked, never silently deleted
+    assert [(d.raw, d.action) for d in unplaced] == [("луги.", "remove")]
+
+
+def test_removing_a_doubt_with_words_around_it_is_refused(store, tmp_path):
+    project, db, sid = _with_a_fragment(store, tmp_path)
+    with pytest.raises(ocr_store.NotWholeBlock):
+        ocr_store.decide(project.root, db, sid, "d1.1", value=None, action="remove",
+                         user_id=LOCAL_USER.id)  # fmt: skip
+    assert ocr_store.decisions(db, sid) == []
+
+
 def test_a_sessions_document_lock_is_shared_while_held_and_not_kept_after(tmp_path):
     import gc
 

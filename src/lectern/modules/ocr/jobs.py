@@ -454,7 +454,8 @@ class OcrJobs:
                         note=page.note,
                         before=before,
                         after=after,
-                        confirmed=[(d.raw, d.value) for d in decided],
+                        # a removed block isn't a reading to repeat elsewhere
+                        confirmed=[(d.raw, d.value) for d in decided if d.action != "remove"],
                         reading_cut_off=page.cut_off,
                     ),
                     on_leased=cleaning,

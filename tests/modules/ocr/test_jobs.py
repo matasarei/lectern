@@ -817,6 +817,27 @@ def test_a_page_cleaned_again_keeps_its_decision_and_the_cleanup_is_told_of_it(s
     assert [(p.reading, p.clean_status) for p in pages] == [(1, "done"), (1, "done")]
 
 
+def _with_a_fragment(text: str) -> dict:
+    """An invented "луги." between two paragraphs (the last one runs on to the next page)."""
+    return {"blocks": [{"type": "paragraph", "text": f"{text} до 1? числа"},
+                       {"type": "paragraph", "text": "луги."},
+                       {"type": "paragraph", "text": "Кінець"}],
+            "doubts": [{"block": 1, "raw": "луги.", "candidates": []}], "fixes": []}  # fmt: skip
+
+
+def test_a_removed_block_isnt_told_to_the_cleanup_as_a_confirmed_reading(store, tmp_path):
+    async def remove_then_clean_again(jobs, project, sid):  # noqa: ANN001, ANN202
+        await asyncio.to_thread(ocr_store.decide, project.root, store.db(project), sid, "d1.1",
+                                value=None, action="remove", user_id=LOCAL_USER.id)  # fmt: skip
+        await jobs.reclean(project, sid, 1)
+
+    server = FakeServer(clean=_with_a_fragment)
+    _run_job(store, tmp_path, server, after=remove_then_clean_again)
+
+    assert len(server.cleanups) == 3  # both pages, then page 1 again
+    assert "Readings the person confirmed" not in server.clean_messages[-1]
+
+
 def test_a_decision_made_while_the_job_assembles_is_in_the_last_version(
     store, tmp_path, monkeypatch
 ):

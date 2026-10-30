@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from lectern.documents.document import Document, Doubt
+from lectern.documents.document import Document, Doubt, covers_block
 
 RESOLVED_BY = "person"
 DOUBT_PAGE = re.compile(r"^d(\d+)\.")
@@ -24,8 +24,8 @@ class Decision:
     page: int
     doubt_id: str  # "d3.1", as it was when decided
     raw: str  # the text the doubt was about
-    value: str  # the reading chosen
-    action: str  # "accept" | "edit"
+    value: str  # the reading chosen; "" when the block was removed
+    action: str  # "accept" | "edit" | "keep" | "remove"
     id: int | None = None  # its row in ocr_decisions
 
 
@@ -40,8 +40,14 @@ def match_decisions(
 ) -> tuple[dict[str, Decision], list[Decision]]:
     """Which decision each doubt takes (by doubt id), and the decisions that match none.
     First by page, id and text; what's left by page and text, taking the first doubt on that
-    text that no decision has taken yet."""
+    text that no decision has taken yet. A removal matches only a doubt that is still all of
+    its block: cleaned again into a longer one, its "" would delete a word from real text."""
+    covering = {d.id for b in document.blocks for d in b.doubts if covers_block(b, d.id)}
     doubts = [d for b in document.blocks for d in b.doubts]
+
+    def fits(decision: Decision, doubt: Doubt) -> bool:
+        return decision.action != "remove" or doubt.id in covering
+
     matched: dict[str, Decision] = {}
     left: list[Decision] = []
     for decision in decisions:
@@ -49,7 +55,10 @@ def match_decisions(
             (
                 d
                 for d in doubts
-                if d.id == decision.doubt_id and d.raw == decision.raw and d.id not in matched
+                if d.id == decision.doubt_id
+                and d.raw == decision.raw
+                and d.id not in matched
+                and fits(decision, d)
             ),
             None,
         )
@@ -63,7 +72,10 @@ def match_decisions(
             (
                 d
                 for d in doubts
-                if d.id not in matched and d.raw == decision.raw and doubt_page(d) == decision.page
+                if d.id not in matched
+                and d.raw == decision.raw
+                and doubt_page(d) == decision.page
+                and fits(decision, d)
             ),
             None,
         )

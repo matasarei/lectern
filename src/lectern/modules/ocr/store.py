@@ -20,7 +20,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from lectern.documents.document import Document, render_markdown
+from lectern.documents.document import Document, covers_block, render_markdown
 from lectern.modules.ocr.assemble import PageInput, assemble
 from lectern.modules.ocr.clean import CleanedPage
 from lectern.modules.ocr.doubts import unsure_words
@@ -315,6 +315,10 @@ class NoSuchDoubt(LookupError):
     """The Document has no such doubt (or, to reopen, none resolved by that id)."""
 
 
+class NotWholeBlock(ValueError):
+    """Removing was asked for a doubt that isn't all of its block: there'd be words left."""
+
+
 # Held weakly: a session's lock lives while someone holds it (two writers at once get the
 # same one), and goes with the last, rather than one per session for as long as the app runs.
 _locks: weakref.WeakValueDictionary[tuple[str, int], threading.RLock] = (
@@ -389,28 +393,35 @@ def decide(
     session_id: int,
     doubt_id: str,
     *,
-    value: str,
+    value: str | None,
     action: str,
     user_id: int,
 ) -> tuple[OcrSessionRow, list[Decision]]:
     """The person's reading for one of the current Document's doubts, replacing the decision
-    that resolves it now, if any; the Document is published again. A decision that only
-    shares its page and id (made before the page was cleaned again, now about another doubt)
-    is left alone."""
+    that resolves it now, if any; the Document is published again. "keep" takes the reading
+    as it is and "remove" takes nothing, which removes the block it is all of. A decision
+    that only shares its page and id (made before the page was cleaned again, now about
+    another doubt) is left alone."""
     with document_lock(root, session_id):
         ocr = _ocr(db, session_id)
         document = load_document(root, ocr)
-        doubt = next(
+        block, doubt = next(
             (
-                d
+                (b, d)
                 for b in (document.blocks if document else [])
                 for d in b.doubts
                 if d.id == doubt_id
             ),
-            None,
+            (None, None),
         )
         if doubt is None:
             raise NoSuchDoubt(doubt_id)
+        if action == "keep":
+            value = doubt.raw
+        elif action == "remove":
+            if not covers_block(block, doubt_id):
+                raise NotWholeBlock(doubt_id)
+            value = ""
         earlier, _ = match_decisions(document, decisions(db, session_id))
         page = doubt_page(doubt) or 0
         with db.begin() as session:

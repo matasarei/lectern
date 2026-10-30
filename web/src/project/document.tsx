@@ -6,7 +6,7 @@ import type { OcrSession, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { Download } from "./file";
 import { ExportButtons } from "./export-buttons";
-import { doubtPage, ocrPath, openQuestions, pageBlocks, useOcrDocument } from "./ocr-api";
+import { doubtPage, isRemoved, ocrPath, openQuestions, pageBlocks, useOcrDocument } from "./ocr-api";
 import { BlockView } from "./review";
 
 /** An OCR session's Document in its own tab: the whole text with its open questions marked,
@@ -54,7 +54,7 @@ export function DocumentTab({
             </p>
           ) : (
             pageBlocks(document, page.n)
-              .filter((b) => b.page === page.n) // a block running on is shown once, where it starts
+              .filter((b) => b.page === page.n && !isRemoved(b)) // a block running on is shown once, where it starts
               .map((block) => <BlockView key={block.id} block={block} onPick={toQuestion} />)
           ),
         )}

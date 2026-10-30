@@ -74,6 +74,15 @@ describe("Document tab", () => {
     expect(screen.getByText("250,00")).toBeTruthy();
   });
 
+  it("leaves out a block the person removed, as the exports do", async () => {
+    const fragment = doubt("d2.3", "луги", { status: "resolved", value: "" });
+    currentDoc.blocks.push(block("b2.2", "{d2.3}.", { doubts: [fragment] }));
+    currentDoc.pages[1].blocks.push("b2.2");
+    renderTab();
+    expect(await screen.findByText("3. Орендна плата")).toBeTruthy();
+    expect(screen.queryByText(/луги/)).toBeNull();
+  });
+
   it("says where it came from, and each link opens its tab", async () => {
     const opened = renderTab();
     await screen.findByText("3. Орендна плата");

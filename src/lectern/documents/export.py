@@ -21,7 +21,7 @@ from typing import Literal, Protocol, runtime_checkable
 from docx.opc.exceptions import OpcError
 from pydantic import BaseModel
 
-from lectern.documents.document import DOUBT_MARK, Block, Document, Doubt
+from lectern.documents.document import DOUBT_MARK, Block, Document, Doubt, removed
 from lectern.documents.from_text import parse_markdown, parse_pages, parse_text
 from lectern.projects import files
 from lectern.projects.text import PDF_PAGE_MIN_CHARS, docx_markdown, pdf_pages
@@ -142,12 +142,15 @@ def stray_block(block: Block) -> Block | None:
 def reading_order(doc: Document) -> list[tuple[Block, str | None, int]]:
     """Each block once, in order, with the note of the page it starts (when that page has
     one and this is its first block) and its figure number (0 for other blocks). A block
-    with open questions it doesn't print is followed by them (`stray_block`)."""
+    with open questions it doesn't print is followed by them (`stray_block`). A removed
+    block isn't one of them."""
     notes = {p.n: p.note for p in doc.pages if p.note.strip()}
     seen_pages: set[int] = set()
     figures = 0
     order = []
     for block in doc.blocks:
+        if removed(block):
+            continue
         note = None
         if block.page not in seen_pages:
             seen_pages.add(block.page)
