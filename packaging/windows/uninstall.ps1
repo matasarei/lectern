@@ -26,7 +26,9 @@ if ([string]::IsNullOrEmpty($given)) { $given = Join-Path $env:USERPROFILE '.lec
 $dir = [IO.Path]::GetFullPath($given).TrimEnd('\')
 $app = Join-Path $dir 'app'
 $trayExe = Join-Path $app 'tray\Lectern.exe'
-$events = 'Local\Lectern-' + $dir.ToLowerInvariant().Replace('\', '_').Replace(':', '_')
+. (Join-Path $PSScriptRoot 'install_paths.ps1')
+$paths = Get-InstallLocation $dir
+$events = 'Local\Lectern-' + (Get-InstallKey $dir)
 
 # Its folders are app, bin and data: under a LECTERN_DIR that isn't an install (C:\, say)
 # those names are someone else's. An install has its settings, or its versions folder.
@@ -65,15 +67,21 @@ if (Get-Tray) {
     }
 }
 
-foreach ($link in @(
-        (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Lectern.lnk'),
-        (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\Lectern.lnk'))) {
-    Remove-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
+Clear-InstallShortcut $paths $trayExe
+# Its log. The default install's folder also holds the other installs' logs: only its own
+# files go, and the folder once nothing else is in it.
+if ($paths.Default) {
+    foreach ($log in @($paths.Log, "$($paths.Log).1")) {
+        Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+    }
 }
 # Folders go with cmd's rmdir: it removes a junction or a link as itself, where Windows
 # PowerShell 5.1 would follow one and delete what it points at (a models folder linked in
 # from elsewhere, say).
-$folders = @((Join-Path $app 'venv'), $app, (Join-Path $dir 'bin'), (Join-Path $env:LOCALAPPDATA 'Lectern\Logs'))
+$folders = @((Join-Path $app 'venv'), $app, (Join-Path $dir 'bin'))
+$emptied = (Test-Path -LiteralPath $paths.LogFolder) -and
+    -not (Get-ChildItem -LiteralPath $paths.LogFolder -Force)
+if (-not $paths.Default -or $emptied) { $folders += $paths.LogFolder }
 if ($Purge) { $folders += Join-Path $dir 'data' }
 foreach ($folder in $folders) {  # app\venv first: a junction to the version in use
     if (Test-Path -LiteralPath $folder) { cmd /c rmdir /s /q "$folder" }
