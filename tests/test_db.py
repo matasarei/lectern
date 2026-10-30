@@ -1,8 +1,41 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 
-from lectern.core.db import foreign_keys_checked_at_end, make_engine
+from lectern.core.db import foreign_keys_checked_at_end, make_engine, migrate
+
+
+def test_migrations_at_once_in_one_process_each_finish(tmp_path):
+    """Alembic's `op` and `context` belong to the process: two migrations at once took each
+    other's away ("'NoneType' object has no attribute 'create_table'"), whatever databases they
+    were for, as when an earlier test's job was still opening a project. One at a time now."""
+    trees = ["lectern:migrations", "lectern:project_migrations"]
+    engines = [make_engine(tmp_path / f"{i}.sqlite") for i in range(8)]
+    start = threading.Barrier(len(engines))
+    failures: list[BaseException] = []
+
+    def migrating(i: int) -> None:
+        start.wait()
+        try:
+            migrate(engines[i], trees[i % 2])
+        except Exception as exc:  # noqa: BLE001 — every failure is what this test reports
+            failures.append(exc)
+
+    threads = [threading.Thread(target=migrating, args=(i,)) for i in range(len(engines))]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+        assert failures == []
+        for engine in engines:
+            with engine.connect() as c:
+                assert c.exec_driver_sql("SELECT version_num FROM alembic_version").scalar()
+    finally:
+        for engine in engines:
+            engine.dispose()  # else Windows keeps the files open past the test
 
 
 def test_a_migration_that_leaves_rows_pointing_at_nothing_is_rolled_back(tmp_path):
