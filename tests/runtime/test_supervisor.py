@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import itertools
 from pathlib import Path
 
 import httpx2
@@ -619,12 +620,10 @@ def test_events_describe_loads_swaps_and_unloads():
     assert events[-1] == ("unloaded", "main")
 
 
-def test_the_runtime_says_how_long_the_chat_has_been_idle(monkeypatch):
-    from lectern.runtime import supervisor
-
+def test_the_runtime_says_how_long_the_chat_has_been_idle():
     runtime, _ = _runtime(8, {"main": 5, "ocr": 2})
     clock = {"now": 100.0}
-    monkeypatch.setattr(supervisor.time, "monotonic", lambda: clock["now"])
+    runtime.clock = lambda: clock["now"]
 
     async def go():  # noqa: ANN202
         assert runtime.chat_idle_seconds() == float("inf")  # no chat yet
@@ -816,8 +815,9 @@ def test_a_message_after_the_job_started_holds_it_for_the_idle_window():
     runtime.chat_idle_resume = 0.3
 
     async def go():  # noqa: ANN202
-        since = time.monotonic()  # the job started
-        await asyncio.sleep(0.01)
+        # The job started a second before the message: a moment before isn't one on Windows,
+        # whose clock moves in 15 ms steps.
+        since = time.monotonic() - 1.0
         await runtime.turn_started(message=True)
         async with runtime.lease("main", Priority.CHAT):
             pass
@@ -830,13 +830,14 @@ def test_a_message_after_the_job_started_holds_it_for_the_idle_window():
 
 
 def test_start_now_lets_a_held_job_in():
-    import time
-
     runtime, runner = _runtime(6, {"main": 5, "ocr": 2})
     runtime.chat_idle_resume = 3600.0
+    # A second a reading, so the message is after the job's start: on Windows' real clock (15 ms
+    # steps) the two were the same moment, and the job wasn't held.
+    runtime.clock = itertools.count(1000.0).__next__
 
     async def go():  # noqa: ANN202
-        since = time.monotonic()
+        since = runtime.clock()
         await runtime.turn_started(message=True)
         async with runtime.lease("main", Priority.CHAT):
             pass

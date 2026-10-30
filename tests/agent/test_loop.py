@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 
 import pytest
@@ -156,6 +157,9 @@ def test_a_turn_waiting_for_a_card_doesnt_count_as_a_chat_writing(setup, store):
     )
     add_file(store, project, "old.md", "old")
     add_file(store, project, "older.md", "older")
+    # A second a reading: on Windows the real clock moves in 15 ms steps, and the idle time read
+    # just after the reply's model call ended was 0.0, which is what "writing" reads as.
+    runtime.clock = itertools.count(1000.0).__next__
 
     async def scenario():  # noqa: ANN202
         key = (project.id, 1)
