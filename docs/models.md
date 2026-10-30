@@ -121,6 +121,17 @@ lease would unload the chat model waits until the chat has been idle for two min
 **Start now** is pressed; an OCR job gives its lease back after every page, so a chat gets in
 between pages.
 
+On Windows a model that fits the GPU can still run out the commit (RAM and page file
+together): Windows backs GPU memory with it, and a llama-server commits about 1.5 times the
+planner's estimate (measured: PaddleOCR-VL 3.25 GB of an estimated 2.06, the 9B 8.28 of 6.08).
+So before a model loads beside others, the runtime reads the commit left
+(`GlobalMemoryStatusEx`); when the model would leave less than 2 GB, an idle model is unloaded
+first, least recently used first, counted as a swap, and the log says why. With everything
+loaded in use it loads anyway, as before. On an 8 GB card that is the OCR reader, unloaded
+when cleanup's model loads on a PC already short of commit. On such a PC a chat during the
+reading also swaps the reader and the chat model, which stay loaded side by side elsewhere; the
+two-minute wait above keeps that to a swap there and back per chat, not per message.
+
 The Models & memory page shows the budget, what's loaded, the number of swaps and what's
 waiting, and can unload everything. Runtime events stream to the UI over
 `/api/runtime/events`.

@@ -12,7 +12,7 @@ from lectern.catalog import catalog
 from lectern.config import Paths
 from lectern.core import settings
 from lectern.downloads.manager import DownloadManager
-from lectern.hardware.probe import HardwareInfo
+from lectern.hardware.probe import HardwareInfo, commit_available
 from lectern.hardware.tiers import Tier, effective_tier
 from lectern.runners import mlx
 from lectern.runners.base import Runner
@@ -279,6 +279,7 @@ def build_runtime(
         chat_idle_resume=CHAT_IDLE_RESUME
         if chat_during_job == "pause_job_after_current_item"
         else 0,
+        commit_available=commit_available,
     )
     runtime.cleanup_key = cleanup_key
     runtime.cleanup_default = cleanup_default
