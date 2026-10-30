@@ -408,7 +408,7 @@ function EngineRows({ engine, onRetry }: { engine: EngineState; onRetry: () => v
     status: engine.status === "downloading" ? "downloading" : "none",
     bytes_done: engine.bytes_done,
     bytes_total: engine.bytes_total,
-    rate: 0,
+    rate: engine.rate,
     error: null,
   };
   return (
@@ -423,6 +423,11 @@ function EngineRows({ engine, onRetry }: { engine: EngineState; onRetry: () => v
         }
       />
       {engine.status === "downloading" && <DownloadProgress state={progress} />}
+      {engine.status === "downloading" && engine.stalled && (
+        <p className="text-xs text-muted" data-testid="engine-stalled">
+          {t("firstRun.engineStalled")}
+        </p>
+      )}
       {engine.status === "failed" && (
         <>
           <ErrorNote message={engine.error ?? t("common.loadFailed")} />

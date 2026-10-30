@@ -186,8 +186,9 @@ describe("First run: the sandbox card", () => {
 });
 
 
-const engine = (status: string, done = 0, error: string | null = null) => ({
-  variant: "linux-cuda12", status, bytes_done: done, bytes_total: 400 * 10 ** 6, error,
+const engine = (status: string, done = 0, error: string | null = null, more: object = {}) => ({
+  variant: "linux-cuda12", status, bytes_done: done, bytes_total: 400 * 10 ** 6, rate: 0,
+  stalled: false, error, ...more,
 });
 
 function atDownload(engineState: unknown, chatStatus = "none"): Record<string, unknown> {
@@ -222,6 +223,21 @@ describe("First run: the engine", () => {
 
     expect(await screen.findByText(/100 MB of 400 MB/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Finish setup" })).toBeNull();
+  });
+
+  it("shows how fast the engine downloads", async () => {
+    firstRun = atDownload(engine("downloading", 100 * 10 ** 6, null, { rate: 500_000 }), "done");
+    renderPage();
+
+    expect(await screen.findByText(/100 MB of 400 MB \(25%\) · 500 kB\/s/)).toBeTruthy();
+    expect(screen.queryByTestId("engine-stalled")).toBeNull();
+  });
+
+  it("says when the engine's download seems stuck", async () => {
+    firstRun = atDownload(engine("downloading", 100 * 10 ** 6, null, { stalled: true }), "done");
+    renderPage();
+
+    expect((await screen.findByTestId("engine-stalled")).textContent).toMatch(/seems stuck/);
   });
 
   it("says why the engine stopped and tries again", async () => {

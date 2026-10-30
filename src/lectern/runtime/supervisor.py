@@ -146,6 +146,7 @@ class ModelRuntime:
         # it from the settings. Nothing chosen: every role gets the one recommended here.
         self.chosen_models: Callable[[], Mapping[str, str | None]] = dict
         self._loading: dict | None = None  # what activity goes back to after the engine
+        self._engine_mark: tuple[float, int] | None = None  # the engine's last report: when, bytes
         # The chat's turns, from the TurnManager: a job never takes the GPU mid-reply, and
         # waits out the idle window only for a message sent after the job started.
         self._turns = 0
@@ -289,11 +290,33 @@ class ModelRuntime:
     def engine_progress(self, variant: str, done: int, total: int) -> None:
         """The llama.cpp build downloading (the runner's installer reports it, throttled)."""
         finished = done >= total
+        now = self.clock()
+        rate = self._engine_rate(now, done)
+        self._engine_mark = None if finished else (now, done)
         # It downloads during a model's load (the first start), which the status goes back to.
         self.activity = self._loading if finished else {
-            "kind": "engine", "variant": variant, "done": done, "total": total
+            "kind": "engine", "variant": variant, "done": done, "total": total, "rate": rate
         }  # fmt: skip
-        self._emit("engine", variant=variant, done=done, total=total)
+        self._emit("engine", variant=variant, done=done, total=total, rate=rate)
+
+    def _engine_rate(self, now: float, done: int) -> int:
+        """Bytes a second since the last report, smoothed as a model download's is
+        (downloads/manager.py); 0 at the first report and after a restarted file."""
+        if self._engine_mark is None:
+            return 0
+        then, done_then = self._engine_mark
+        if now <= then or done < done_then:
+            return 0
+        instant = (done - done_then) / (now - then)
+        previous = (self.activity or {}).get("rate", 0)
+        return round(instant if not previous else 0.7 * previous + 0.3 * instant)
+
+    def engine_idle_seconds(self) -> float | None:
+        """Seconds since the engine's download last reported bytes; None when it isn't
+        downloading. It reports every second while bytes arrive."""
+        if self._engine_mark is None:
+            return None
+        return self.clock() - self._engine_mark[0]
 
     def _emit(self, event: str, **data: object) -> None:
         self.events.publish({"type": "runtime", "event": event, "swaps": self.swaps, **data})

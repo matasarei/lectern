@@ -10,7 +10,13 @@ import httpx2
 import pytest
 
 from lectern.runners.base import RunnerError, RunnerSpec, run_dir_name
-from lectern.runners.llamacpp import LlamaCppRunner, _write_key, build_args, parse_memory
+from lectern.runners.llamacpp import (
+    LlamaCppRunner,
+    _write_key,
+    build_args,
+    install_reporting,
+    parse_memory,
+)
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 MIB = 1024**2
@@ -281,3 +287,56 @@ def test_the_engine_download_reports_its_progress_a_few_times_not_per_chunk(tmp_
     assert seen[-1] == ("cuda-12", 1000, 1000)  # the end is always reported
     assert 2 <= len(seen) <= 101 and len(seen) < 100  # throttled, not one per chunk
     assert [d for _, d, _ in seen] == sorted(d for _, d, _ in seen)
+
+
+class SlowInstaller:
+    """Delivers `chunks` (bytes, seconds since the last) to the progress callback."""
+
+    def __init__(self, total: int, chunks: list[tuple[int, float]], clock: dict) -> None:
+        self.total, self.chunks, self.clock = total, chunks, clock
+
+    def size(self, variant: str) -> int:
+        return self.total
+
+    async def install(self, variant: str, *, on_bytes) -> Path:  # noqa: ANN001
+        for n, seconds in self.chunks:
+            self.clock["now"] += seconds
+            on_bytes(n)
+        return Path("llama-server")
+
+
+def test_a_slow_engine_download_reports_every_second_not_only_every_2_percent():
+    """At 0.5 MB/s, 2 % of 577 MB took 23 s, and the first-run page looked stuck."""
+    clock = {"now": 0.0}
+    chunks = [(1000, 0.4)] * 10  # 4 s, 10 000 of 1 000 000 bytes: 1 %, under the 2 % step
+    reports: list[tuple[int, float]] = []
+    installer = SlowInstaller(1_000_000, chunks, clock)
+
+    asyncio.run(install_reporting(
+        installer, "cuda", lambda v, done, total: reports.append((done, clock["now"])),
+        clock=lambda: clock["now"],
+    ))  # fmt: skip
+
+    assert [done for done, _ in reports] == [0, 3000, 6000, 9000]  # the start, 1.2, 2.4, 3.6 s
+
+
+def test_a_fast_engine_download_still_reports_every_2_percent():
+    clock = {"now": 0.0}
+    chunks = [(20_000, 0.01)] * 50  # 2 % a chunk, well under a second each
+    reports: list[int] = []
+    installer = SlowInstaller(1_000_000, chunks, clock)
+
+    asyncio.run(install_reporting(
+        installer, "cuda", lambda v, done, total: reports.append(done), clock=lambda: clock["now"]
+    ))  # fmt: skip
+
+    assert len(reports) == 51 and reports[0] == 0 and reports[-1] == 1_000_000  # the start too
+
+
+def test_an_engine_already_installed_reports_nothing():
+    """Its size is 0 then: a report would show a download that isn't happening."""
+    reports: list[int] = []
+    asyncio.run(install_reporting(
+        SlowInstaller(0, [], {"now": 0.0}), "cuda", lambda v, done, total: reports.append(done)
+    ))  # fmt: skip
+    assert reports == []

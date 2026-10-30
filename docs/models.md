@@ -71,6 +71,11 @@ new Lectern pins a newer revision, the installed model shows **Update**: the new
 download beside the old ones, which stay in use until the model is free. Models live in
 `<data>/models/`, a folder each.
 
+The first-run page shows each download's bytes and speed. The llama.cpp build's progress
+comes every 2 % of it or every second while bytes arrive (`runners/llamacpp.py`
+`install_reporting`); after 30 s with none, its row says the download seems stuck, and after
+120 s without any it fails (the read timeout) and can be tried again.
+
 ## Runners
 
 Each model runs in its own process on `127.0.0.1`, on a free port, with an API key in a file

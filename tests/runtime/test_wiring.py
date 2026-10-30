@@ -123,6 +123,7 @@ def test_the_engines_download_progress_reaches_the_runtime(paths, monkeypatch):
         "variant": runner.variant,
         "done": 5,
         "total": 50,
+        "rate": 0,
     }
 
 

@@ -95,6 +95,24 @@ def commit_available() -> int | None:
     return int(status.ullAvailPageFile)
 
 
+def windows_cpu_name() -> str | None:
+    """The processor's name as Windows shows it ("Intel(R) Core(TM) Ultra 7 155H"), from the
+    registry; None elsewhere or when it isn't there. platform.processor() gives only its
+    family and model numbers on Windows ("Intel64 Family 6 Model 170 Stepping 4, …")."""
+    if sys.platform != "win32":
+        return None
+    import winreg
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+        ) as key:
+            name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+    except OSError:
+        return None
+    return str(name).strip() or None
+
+
 def _installed_vulkan_gpus() -> list[Gpu]:
     """GPUs the llama.cpp Vulkan build can use, if that build is installed."""
     from lectern.config import get_paths
@@ -114,10 +132,12 @@ def probe(
     nvidia_probe=nvidia.probe,
     apple_probe=apple.probe,
     vulkan_probe=_installed_vulkan_gpus,
+    windows_cpu=windows_cpu_name,
 ) -> HardwareInfo:
     os_name = os_name or current_os()
     memory = psutil.virtual_memory()
-    cpu = platform.processor() or platform.machine()
+    cpu = (windows_cpu() if os_name == "windows" else None) or platform.processor()
+    cpu = cpu or platform.machine()
     gpus: list[Gpu] = []
     apple_budget: int | None = None
 

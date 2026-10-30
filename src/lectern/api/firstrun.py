@@ -31,6 +31,9 @@ from lectern.runtime.wiring import pick
 Step = Literal["hardware", "download", "done"]
 ORDER: tuple[Step, ...] = ("hardware", "download", "done")
 SETTING_KEY = "first_run"
+# Seconds without a byte after which the engine's download says it seems stuck: it reports
+# every second while bytes arrive.
+ENGINE_STALLED = 30.0
 
 router = APIRouter()
 
@@ -151,15 +154,21 @@ def _engine_report(request: Request) -> dict | None:
         return None
     task: asyncio.Task | None = getattr(request.app.state, "engine_task", None)
     report = {"variant": engine.variant, "status": "none", "bytes_done": 0,
-              "bytes_total": engine.size(), "error": None}  # fmt: skip
+              "bytes_total": engine.size(), "rate": 0, "stalled": False,
+              "error": None}  # fmt: skip
     if engine.installed():
         weighs = engine.variant_bytes()
         return {**report, "status": "done", "bytes_done": weighs, "bytes_total": weighs}
     if task is not None and not task.done():
-        activity = request.app.state.runtime.activity or {}
+        runtime = request.app.state.runtime
+        activity = runtime.activity or {}
         if activity.get("kind") == "engine":
-            report.update(bytes_done=activity["done"], bytes_total=activity["total"])
-        return {**report, "status": "downloading"}
+            report.update(bytes_done=activity["done"], bytes_total=activity["total"],
+                          rate=activity.get("rate", 0))  # fmt: skip
+        idle = runtime.engine_idle_seconds()
+        stalled = idle is not None and idle >= ENGINE_STALLED
+        return {**report, "status": "downloading", "stalled": stalled,
+                "rate": 0 if stalled else report["rate"]}  # fmt: skip
     if task is not None and task.exception() is not None:
         return {**report, "status": "failed", "error": str(task.exception())}
     return report

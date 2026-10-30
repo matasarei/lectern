@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
 from lectern.app import create_app
 from lectern.catalog import catalog
 from lectern.core import settings
+from lectern.runtime.wiring import Engine
 
 BASE = "http://127.0.0.1:8765"
 
@@ -141,7 +146,8 @@ def test_first_run_downloads_the_engine_once_and_reports_it(paths):
         after = client.get("/api/first-run", headers=headers).json()["engine"]
 
     assert before == {"variant": "linux-cuda12", "status": "none", "bytes_done": 0,
-                      "bytes_total": 400, "error": None}  # fmt: skip
+                      "bytes_total": 400, "rate": 0, "stalled": False,
+                      "error": None}  # fmt: skip
     assert (after["status"], after["bytes_done"], after["bytes_total"]) == ("done", 400, 400)
     assert engine.installs == 1
 
@@ -303,3 +309,91 @@ def test_an_mlx_build_is_not_enough_where_mlx_is_not_installed(paths, monkeypatc
     _fake_downloaded(app, "qwen3.5-4b-mlx")
 
     assert client.post("/api/first-run", json={"to": "done"}, headers=headers).status_code == 409
+
+
+class StallingEngine(FakeEngine):
+    """Downloads a quarter of the build, then gets no more bytes until `release` is set."""
+
+    def __init__(self, runtime) -> None:  # noqa: ANN001
+        super().__init__()
+        self.runtime = runtime
+        self.release = threading.Event()
+
+    async def install(self) -> None:
+        self.runtime.engine_progress(self.variant, 0, 400)
+        self.runtime.clock_now += 2.0
+        self.runtime.engine_progress(self.variant, 100, 400)
+        while not self.release.is_set():  # the bytes stopped: wait for the test to end it
+            await asyncio.sleep(0.01)
+        self._installed = True
+
+
+def test_an_engine_download_with_no_bytes_for_30_s_says_it_seems_stuck(paths):
+    app = create_app(paths)
+    runtime = app.state.runtime
+    runtime.clock_now = 1000.0
+    runtime.clock = lambda: runtime.clock_now
+    engine = StallingEngine(runtime)
+    app.state.runtime.engine = engine
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+
+    with TestClient(app, base_url=BASE) as client:
+        client.post("/api/first-run/engine", headers=headers)
+        for _ in range(500):  # until the download has reported its bytes
+            moving = client.get("/api/first-run", headers=headers).json()["engine"]
+            if moving["bytes_done"] == 100:
+                break
+        runtime.clock_now += 31.0
+        stuck = client.get("/api/first-run", headers=headers).json()["engine"]
+        engine.release.set()
+
+    assert (moving["status"], moving["bytes_done"], moving["rate"]) == ("downloading", 100, 50)
+    assert moving["stalled"] is False
+    assert (stuck["status"], stuck["stalled"], stuck["rate"]) == ("downloading", True, 0)
+
+
+class SilentInstaller:
+    """A llama.cpp build that downloads no byte until `release` is set."""
+
+    def __init__(self) -> None:
+        self.release = threading.Event()
+        self.done = False
+
+    def server_path(self, variant: str):  # noqa: ANN201
+        return Path("llama-server") if self.done else None
+
+    def size(self, variant: str) -> int:
+        return 0 if self.done else 400
+
+    def variant_bytes(self, variant: str) -> int:
+        return 400
+
+    async def install(self, variant: str, on_bytes) -> Path:  # noqa: ANN001
+        while not self.release.is_set():
+            await asyncio.sleep(0.01)
+        self.done = True
+        return Path("llama-server")
+
+
+def test_a_retried_engine_download_isnt_stuck_before_it_has_had_a_chance(paths):
+    """The failed one's last report was over two minutes old when Try again was pressed; the
+    new one, through the wiring's Engine and install_reporting, starts the clock again."""
+    app = create_app(paths)
+    runtime = app.state.runtime
+    runtime.clock_now = 1000.0
+    runtime.clock = lambda: runtime.clock_now
+    runtime.engine_progress("linux-cuda12", 100, 400)  # the failed download's last report
+    runtime.clock_now += 130.0
+    installer = SilentInstaller()
+    runtime.engine = Engine(installer, "linux-cuda12", runtime)
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+
+    with TestClient(app, base_url=BASE) as client:
+        client.post("/api/first-run/engine", headers=headers)
+        again = client.get("/api/first-run", headers=headers).json()["engine"]
+        runtime.clock_now += 31.0
+        later = client.get("/api/first-run", headers=headers).json()["engine"]
+        installer.release.set()
+
+    assert (again["status"], again["bytes_done"], again["stalled"]) == ("downloading", 0, False)
+    assert later["stalled"] is True  # no first byte in 30 s: that's stuck too
