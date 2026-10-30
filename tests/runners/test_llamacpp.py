@@ -16,6 +16,24 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 MIB = 1024**2
 
 
+def _executable(path: Path, python: str) -> Path:
+    """A fake llama-server: this Python running `python`. A script with a #! line where that
+    runs; on Windows, which runs no #! script, the script beside a .cmd that starts it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        script = path.with_suffix(".py")
+        script.write_text(python, encoding="utf-8")
+        launcher = path.with_suffix(".cmd")
+        # The interpreter itself, not the venv's python.exe, which starts it as a child: one
+        # process under the .cmd, not two. Stopping the fake still ends only the .cmd.
+        interpreter = getattr(sys, "_base_executable", sys.executable)
+        launcher.write_text(f'@"{interpreter}" -I "{script}" %*\r\n', encoding="utf-8")
+        return launcher
+    path.write_text(f"#!{sys.executable}\n{python}", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 def _spec(**overrides):
     base = dict(
         model_id="qwen3.5-4b",
@@ -35,11 +53,11 @@ def test_args_bind_localhost_use_a_key_file_and_fit():
 
     assert value("--host") == "127.0.0.1"
     assert value("--port") == "41234"
-    assert value("--api-key-file") == "/run/key"
+    assert value("--api-key-file") == str(Path("/run/key"))  # as this OS writes it
     assert "--api-key" not in args  # never the key itself on the command line
     assert (value("-c"), value("-ctk"), value("-ctv")) == ("8192", "q8_0", "q8_0")
     assert (value("--fit"), value("--fit-target")) == ("on", "1024")
-    assert "--jinja" in args and value("--slot-save-path") == "/run/slots"
+    assert "--jinja" in args and value("--slot-save-path") == str(Path("/run/slots"))
     assert value("-lv") == "4"  # needed for the memory lines
     assert "--mmproj" not in args
 
@@ -48,7 +66,7 @@ def test_vision_models_get_their_projector():
     args = build_args(
         _spec(mmproj=Path("/m/mmproj.gguf")), port=1, key_file=Path("k"), slot_dir=Path("s")
     )
-    assert args[args.index("--mmproj") + 1] == "/m/mmproj.gguf"
+    assert args[args.index("--mmproj") + 1] == str(Path("/m/mmproj.gguf"))
 
 
 def test_memory_from_the_real_b11236_log():
@@ -108,9 +126,10 @@ def test_run_dir_has_no_spaces_or_parentheses():
 
 
 def test_a_server_that_exits_is_reported_with_its_log(tmp_path):
-    fake = tmp_path / "llama-server"
-    fake.write_text("#!/bin/sh\necho 'error: model file not found'\nexit 3\n")
-    fake.chmod(0o755)
+    fake = _executable(
+        tmp_path / "llama-server",
+        "print('error: model file not found', flush=True)\nraise SystemExit(3)\n",
+    )
     runner = LlamaCppRunner(fake, tmp_path / "work", ready_timeout=10)
 
     with pytest.raises(RunnerError, match="exited with code 3") as info:
@@ -119,9 +138,7 @@ def test_a_server_that_exits_is_reported_with_its_log(tmp_path):
 
 
 def test_the_run_folder_name_is_safe(tmp_path):
-    fake = tmp_path / "llama-server"
-    fake.write_text("#!/bin/sh\nexit 3\n")
-    fake.chmod(0o755)
+    fake = _executable(tmp_path / "llama-server", "raise SystemExit(3)\n")
     runner = LlamaCppRunner(fake, tmp_path / "work", ready_timeout=10)
 
     with pytest.raises(RunnerError):
@@ -132,9 +149,8 @@ def test_the_run_folder_name_is_safe(tmp_path):
 
 
 def test_a_server_that_never_answers_times_out_and_is_stopped(tmp_path):
-    fake = tmp_path / "llama-server"
-    fake.write_text("#!/bin/sh\nsleep 30\n")
-    fake.chmod(0o755)
+    # Not for long: on Windows, stopping ends the .cmd, and the Python under it sleeps it out.
+    fake = _executable(tmp_path / "llama-server", "import time\ntime.sleep(5)\n")
     runner = LlamaCppRunner(fake, tmp_path / "work", ready_timeout=1)
 
     async def go():
@@ -173,9 +189,13 @@ def test_real_server_starts_needs_its_key_reports_memory_and_stops(tmp_path):
     assert not handle.is_running()
 
 
-FAKE_SERVER = """#!/usr/bin/env python3
-# Stands in for llama-server: fails to bind the first N times, then answers /health.
-import http.server, pathlib, sys
+FAKE_SERVER = """# Stands in for llama-server: fails to bind the first N times, then answers.
+import http.server, os, pathlib, sys, threading
+# Gone in a minute even if nothing stops it: on Windows stopping it ends the .cmd above it.
+# A daemon thread, or an exit before then would wait for it.
+lifetime = threading.Timer(60, os._exit, args=(0,))
+lifetime.daemon = True
+lifetime.start()
 args = sys.argv[1:]
 port = int(args[args.index("--port") + 1])
 count_file = pathlib.Path(__file__).with_name("starts")
@@ -196,18 +216,14 @@ http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
 
 
 def _fake_server(tmp_path, *, fail_binds=0, other_failure=False):
-    server = tmp_path / "bin" / "llama-server"
-    server.parent.mkdir()
-    server.write_text(FAKE_SERVER.format(fail_binds=fail_binds, other_failure=other_failure))
-    server.chmod(0o755)
-    return server
+    source = FAKE_SERVER.format(fail_binds=fail_binds, other_failure=other_failure)
+    return _executable(tmp_path / "bin" / "llama-server", source)
 
 
 def _starts(server):
     return int((server.parent / "starts").read_text())
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="shebang script")
 def test_a_port_taken_before_binding_is_retried_on_a_new_port(tmp_path):
     server = _fake_server(tmp_path, fail_binds=1)
     runner = LlamaCppRunner(server, tmp_path / "work", ready_timeout=20)
@@ -223,7 +239,6 @@ def test_a_port_taken_before_binding_is_retried_on_a_new_port(tmp_path):
     assert _starts(server) == 2
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="shebang script")
 def test_other_start_failures_are_not_retried(tmp_path):
     server = _fake_server(tmp_path, other_failure=True)
     runner = LlamaCppRunner(server, tmp_path / "work", ready_timeout=20)
@@ -233,7 +248,6 @@ def test_other_start_failures_are_not_retried(tmp_path):
     assert _starts(server) == 1
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="shebang script")
 def test_bind_failures_give_up_after_three_attempts(tmp_path):
     server = _fake_server(tmp_path, fail_binds=5)
     runner = LlamaCppRunner(server, tmp_path / "work", ready_timeout=20)

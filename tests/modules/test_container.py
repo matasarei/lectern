@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,15 @@ def test_a_run_is_locked_down_and_mounts_only_what_it_was_given(tmp_path):
     ]
     assert argv[-3:] == (container.IMAGE, "python", "/job/main.py")
     assert (result.ok, result.stdout, result.exit_code) == (True, "42\n", 0)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes; Windows has ACLs")
+def test_the_job_folder_is_the_accounts_own_and_its_out_folder_the_containers(tmp_path):
+    engine = FakeEngine(lambda: FakeProcess(stdout=b"42\n"))
+    script, inputs, job_dir = job(tmp_path)
+
+    asyncio.run(sandbox_with(engine).run(script, inputs, job_dir))
+
     assert oct((job_dir / "out").stat().st_mode & 0o777) == "0o777"
     assert oct(job_dir.stat().st_mode & 0o777) == "0o700"  # other accounts can't get to it
 
@@ -128,6 +138,7 @@ def test_output_beyond_the_cap_is_cut_and_says_so(tmp_path, monkeypatch):
     assert (result.stdout, result.stderr, result.truncated) == ("x" * 10, "err", True)
 
 
+@pytest.mark.usefixtures("symlinks")
 def test_only_regular_files_within_the_caps_become_outputs(tmp_path, monkeypatch):
     monkeypatch.setattr(container, "OUT_FILES_MAX", 2)
     out = tmp_path / "out"
@@ -143,11 +154,14 @@ def test_only_regular_files_within_the_caps_become_outputs(tmp_path, monkeypatch
 
 
 def test_mount_values_quote_awkward_paths():
+    # The source as this OS writes a path (backslashes on Windows); the quoting is the same.
+    comma = str(Path("/p/a,b"))
     assert _bind(Path("/p/a,b"), "/in/x", readonly=True) == (
-        'type=bind,"source=/p/a,b",target=/in/x,readonly'
+        f'type=bind,"source={comma}",target=/in/x,readonly'
     )
+    quote = str(Path('/p/say "hi"')).replace('"', '""')
     assert _bind(Path('/p/say "hi"'), "/out", readonly=False) == (
-        'type=bind,"source=/p/say ""hi""",target=/out'
+        f'type=bind,"source={quote}",target=/out'
     )
 
 

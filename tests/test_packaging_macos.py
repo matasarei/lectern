@@ -20,6 +20,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MACOS = ROOT / "packaging" / "macos"
 
+# The Mac installer, its app and its fakes are sh scripts run with POSIX tools and signals: on
+# Windows none of it runs (packaging/windows is tested there). Linux runs them, the Mac too.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="the Mac installer's scripts need bash and POSIX tools"
+)
+
 # Swift isn't compiled anywhere else: CI is Linux. These run on a Mac with the Command Line Tools.
 needs_swiftc = pytest.mark.skipif(
     sys.platform != "darwin" or shutil.which("swiftc") is None,
