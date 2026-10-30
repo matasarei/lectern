@@ -94,6 +94,15 @@ def _bash(script: Path, *args: str, env: dict[str, str]) -> subprocess.Completed
     )  # fmt: skip
 
 
+def _skip_without_make() -> None:
+    """The Makefile is the way on Linux and the Mac (it runs install.sh); on Windows it's the
+    justfile, tested with its own recipes. GitHub's Windows runners have a make all the same."""
+    if WINDOWS_HOST:
+        pytest.skip("the Makefile is for Linux and the Mac; on Windows the justfile")
+    if shutil.which("make") is None:
+        pytest.skip("make isn't installed")
+
+
 def _install(tmp_path: Path, wheel: Path, *, fail_pip: bool = False, script: str = "install.sh",
              args: tuple[str, ...] = (), **extra: str) -> subprocess.CompletedProcess:  # fmt: skip
     env = _env(tmp_path, **({"FAIL_PIP": "1"} if fail_pip else {}), **extra)
@@ -547,8 +556,7 @@ def test_an_update_with_the_same_version_replaces_the_code_and_keeps_the_data(tm
     ],
 )
 def test_make_runs_the_script_at_the_root(args, runs):
-    if shutil.which("make") is None:
-        pytest.skip("make isn't installed")
+    _skip_without_make()
     shown = subprocess.run(  # noqa: S603
         ["make", "-n", "-C", str(ROOT), *args],  # noqa: S607
         capture_output=True, text=True, timeout=30,
@@ -561,8 +569,7 @@ def test_make_runs_the_script_at_the_root(args, runs):
 def test_a_purge_left_in_the_environment_doesnt_wipe():
     """Make takes the environment's variables as its own: a PURGE=1 exported for something
     else, or left from a test, mustn't turn a plain uninstall into a wipe of the models."""
-    if shutil.which("make") is None:
-        pytest.skip("make isn't installed")
+    _skip_without_make()
     shown = subprocess.run(  # noqa: S603
         ["make", "-n", "-C", str(ROOT), "uninstall"],  # noqa: S607
         capture_output=True, text=True, timeout=30, env={**os.environ, "PURGE": "1"},
@@ -592,8 +599,7 @@ def test_a_purge_left_in_the_environment_doesnt_wipe():
 def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
     """A wipe deletes every model and project, and nothing brings them back. Run for real, on
     a copy of the Makefile beside an uninstall.sh that only writes down what it was given."""
-    if shutil.which("make") is None:
-        pytest.skip("make isn't installed")
+    _skip_without_make()
     shutil.copy(ROOT / "Makefile", tmp_path)
     ran = tmp_path / "ran"
     (tmp_path / "uninstall.sh").write_text(f"#!/bin/sh\nprintf %s \"$*\" > '{ran}'\n")
@@ -617,8 +623,7 @@ def test_make_asks_before_a_full_wipe(tmp_path, args, answer, runs):
 def test_make_from_another_folder_says_where_to_run_it(tmp_path):
     """Its commands are relative to the repository: run from elsewhere with -f, they would
     fail one by one ("./install.sh: No such file or directory"), or build in the wrong place."""
-    if shutil.which("make") is None:
-        pytest.skip("make isn't installed")
+    _skip_without_make()
     shown = subprocess.run(  # noqa: S603
         ["make", "-n", "-f", str(ROOT / "Makefile"), "install"],  # noqa: S607
         capture_output=True, text=True, timeout=30, cwd=tmp_path,
@@ -629,8 +634,7 @@ def test_make_from_another_folder_says_where_to_run_it(tmp_path):
 
 
 def test_make_alone_builds_for_development_and_installs_nothing():
-    if shutil.which("make") is None:
-        pytest.skip("make isn't installed")
+    _skip_without_make()
     shown = subprocess.run(  # noqa: S603
         ["make", "-n", "-C", str(ROOT)], capture_output=True, text=True, timeout=30  # noqa: S607
     )  # fmt: skip

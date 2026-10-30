@@ -87,7 +87,8 @@ jobs:
   # Both suites on Windows, in its own code page (no PYTHONUTF8): the tests of the tray's stop
   # event, the event loop that keeps accepting, and text read and written as UTF-8 run only
   # here. The Linux and Mac installer tests skip, as do symlink tests where links can't be made.
-  # Lint and the web build are the Linux job's; they don't depend on the platform.
+  # Lint is the Linux job's; it doesn't depend on the platform. The web UI is built here too:
+  # tests ask the app for its page, which without it answers that the UI isn't built.
   windows-tests:
     runs-on: windows-latest
     timeout-minutes: 30
@@ -116,6 +117,9 @@ jobs:
         run: |
           uv sync --frozen
           npm --prefix web ci
+
+      - name: Build the web UI
+        run: npm --prefix web run build
 
       - name: Test
         run: |
