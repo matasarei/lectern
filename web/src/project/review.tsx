@@ -7,6 +7,7 @@ import type { DocBlock, DocDoubt, OcrDocument } from "../api/types";
 import { ErrorNote } from "../components";
 import {
   answerDoubt,
+  coversBlock,
   documentKey,
   nextPageWithQuestions,
   openQuestions,
@@ -14,6 +15,8 @@ import {
   pageQuestions,
   reopenDoubt,
   suggestion,
+  suggests,
+  type Answer,
 } from "./ocr-api";
 
 const MARK = /\{(d\d+(?:\.\d+)?)\}/g; // where a doubt sits in a block's text: {d3.1}
@@ -41,6 +44,7 @@ export function ReviewPage({
   const open = questions.filter((q) => q.status === "open");
   const [currentId, setCurrentId] = useState<string | null>(open[0]?.id ?? null);
   const [editing, setEditing] = useState(false);
+  const [alone, setAlone] = useState<string | null>(null); // Later on the document's only question
   const area = useRef<HTMLDivElement>(null);
   // Answered meanwhile (in another tab, say): the page's first open question instead.
   const current = open.find((q) => q.id === currentId) ?? (currentId ? (open[0] ?? null) : null);
@@ -61,8 +65,7 @@ export function ReviewPage({
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: documentKey(projectId, sessionId) });
   const answer = useMutation({
-    mutationFn: (a: { doubt: DocDoubt; value: string; action: "accept" | "edit" }) =>
-      answerDoubt(projectId, sessionId, a.doubt.id, a.value, a.action),
+    mutationFn: (a: { doubt: DocDoubt; answer: Answer }) => answerDoubt(projectId, sessionId, a.doubt.id, a.answer),
     onSuccess: (_, a) => {
       setEditing(false);
       setCurrentId(after(a.doubt.id));
@@ -78,9 +81,21 @@ export function ReviewPage({
     },
   });
 
-  const accept = () => current && answer.mutate({ doubt: current, value: suggestion(current), action: "accept" });
-  const skip = () => current && setCurrentId(after(current.id) ?? current.id);
+  const reply = (a: Answer) => current && answer.mutate({ doubt: current, answer: a });
+  const accept = (value: string) => reply({ action: "accept", value });
+  const keep = () => reply({ action: "keep" });
+  // Enter takes the suggestion, or the reading itself when nothing else is suggested.
+  const primary = () => current && (suggests(current) ? accept(suggestion(current)) : keep());
   const nextPage = nextPageWithQuestions(doc, page);
+  // The page's next open question; after its last, the next page's (it opens on its first).
+  const later = () => {
+    if (!current) return;
+    const next = after(current.id);
+    if (next) setCurrentId(next);
+    else if (nextPage !== null && nextPage !== page) onSelectPage(nextPage);
+    else setAlone(current.id);
+  };
+  const block = current && pageBlocks(doc, page).find((b) => b.doubts.some((d) => d.id === current.id));
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
@@ -89,13 +104,16 @@ export function ReviewPage({
     if (editing || target.closest("input, textarea, select, button") || !current || answer.isPending) return;
     if (e.key === "Enter") {
       e.preventDefault();
-      accept();
+      primary();
+    } else if (e.key === "k" || e.key === "K") {
+      e.preventDefault();
+      keep();
     } else if (e.key === "e" || e.key === "E") {
       e.preventDefault();
       setEditing(true);
     } else if (e.key === "Tab" && !e.shiftKey) {
       e.preventDefault();
-      skip();
+      later();
     }
   };
 
@@ -106,10 +124,14 @@ export function ReviewPage({
       total={open.length}
       editing={editing}
       busy={answer.isPending}
+      removable={!!block && coversBlock(block, current.id)}
+      alone={alone === current.id}
       onAccept={accept}
+      onKeep={keep}
+      onRemove={() => reply({ action: "remove" })}
       onEdit={() => setEditing(true)}
-      onSkip={skip}
-      onSave={(value) => answer.mutate({ doubt: current, value, action: "edit" })}
+      onLater={later}
+      onSave={(value) => reply({ action: "edit", value })}
       onCancel={() => {
         setEditing(false);
         area.current?.focus();
@@ -144,7 +166,9 @@ export function ReviewPage({
         .filter((u) => u.page === page)
         .map((u) => (
           <p key={u.doubt_id} className="text-xs text-muted" data-testid="unplaced">
-            {t("review.unplaced", { raw: u.raw, value: u.value })}
+            {u.action === "remove"
+              ? t("review.unplacedRemoval", { raw: u.raw })
+              : t("review.unplaced", { raw: u.raw, value: u.value })}
           </p>
         ))}
       <div className="grid gap-3 rounded-lg border border-line bg-surface p-4 text-sm">
@@ -165,9 +189,14 @@ export function ReviewPage({
         </span>
         {current && (
           <span className="text-muted">
-            {t("review.accept", { value: suggestion(current) })} <kbd>{t("review.keys.accept")}</kbd> ·{" "}
-            {t("review.edit")} <kbd>{t("review.keys.edit")}</kbd> · {t("review.skip")}{" "}
-            <kbd>{t("review.keys.skip")}</kbd>
+            {suggests(current) && (
+              <>
+                {t("review.accept", { value: suggestion(current) })} <kbd>{t("review.keys.accept")}</kbd> ·{" "}
+              </>
+            )}
+            {t("review.keep", { value: current.raw })}{" "}
+            {!suggests(current) && <kbd>{t("review.keys.accept")}</kbd>} <kbd>{t("review.keys.keep")}</kbd> ·{" "}
+            {t("review.edit")} <kbd>{t("review.keys.edit")}</kbd> · {t("review.later")} <kbd>{t("review.keys.later")}</kbd>
           </span>
         )}
         <span className="ml-auto" />
@@ -205,7 +234,11 @@ function QuestionPanel({
           ) : (
             <>
               <span className="text-muted">
-                {q.raw} → {q.value}
+                {q.value === ""
+                  ? t("review.removed", { raw: q.raw })
+                  : q.value === q.raw
+                    ? t("review.kept", { raw: q.raw })
+                    : `${q.raw} → ${q.value}`}
               </span>
               <button className="text-accent hover:underline" onClick={() => onReopen(q)}>
                 {t("review.reopen")}
@@ -224,9 +257,13 @@ function QuestionCard({
   total,
   editing,
   busy,
+  removable,
+  alone,
   onAccept,
+  onKeep,
+  onRemove,
   onEdit,
-  onSkip,
+  onLater,
   onSave,
   onCancel,
 }: {
@@ -235,25 +272,44 @@ function QuestionCard({
   total: number;
   editing: boolean;
   busy: boolean;
-  onAccept: () => void;
+  removable: boolean; // the question is all of its block
+  alone: boolean; // Later was pressed on the document's only open question
+  onAccept: (value: string) => void;
+  onKeep: () => void;
+  onRemove: () => void;
   onEdit: () => void;
-  onSkip: () => void;
+  onLater: () => void;
   onSave: (value: string) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
   const [value, setValue] = useState(suggestion(doubt));
+  const offered = suggests(doubt);
+  // The other candidates: the suggestion has its own Accept.
+  const choices = [...new Set(doubt.candidates.filter((c) => c.trim() && c !== doubt.raw && c !== suggestion(doubt)))];
   return (
     <div className="grid gap-2 rounded-lg border border-accent bg-paper p-3" data-testid="question-card">
       <p className="text-xs text-muted">
         {t("review.cardTitle", { index, total })} · {t(`review.source.${doubt.source}`)}
       </p>
-      <p className="font-mono">
-        {doubt.raw} → {suggestion(doubt)}
-      </p>
-      {doubt.candidates.length > 1 && (
-        <p className="text-xs text-muted">{t("review.candidates", { list: doubt.candidates.join(" · ") })}</p>
+      <p className="font-mono">{offered ? `${doubt.raw} → ${suggestion(doubt)}` : doubt.raw}</p>
+      {choices.length > 0 && (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          {t("review.couldBe")}
+          {choices.map((c) => (
+            <button
+              key={c}
+              className="rounded border border-line px-1.5 font-mono hover:border-accent"
+              disabled={busy}
+              aria-label={t("review.accept", { value: c })}
+              onClick={() => onAccept(c)}
+            >
+              {c}
+            </button>
+          ))}
+        </p>
       )}
+      {alone && <p className="text-muted">{t("review.alone")}</p>}
       {doubt.reason && <p className="text-muted">{doubt.reason}</p>}
       {editing ? (
         <form
@@ -279,15 +335,26 @@ function QuestionCard({
           </button>
         </form>
       ) : (
-        <div className="flex gap-2">
-          <button className="btn-primary" disabled={busy} onClick={onAccept}>
-            {t("review.accept", { value: suggestion(doubt) })}
+        <div className="flex flex-wrap gap-2">
+          {/* No Accept when the suggestion is the reading itself: it would change nothing. */}
+          {offered && (
+            <button className="btn-primary" disabled={busy} onClick={() => onAccept(suggestion(doubt))}>
+              {t("review.accept", { value: suggestion(doubt) })}
+            </button>
+          )}
+          <button className={offered ? "btn-secondary" : "btn-primary"} disabled={busy} onClick={onKeep}>
+            {t("review.keep", { value: doubt.raw })}
           </button>
           <button className="btn-secondary" onClick={onEdit}>
             {t("review.edit")}
           </button>
-          <button className="btn-secondary" onClick={onSkip}>
-            {t("review.skip")}
+          {removable && (
+            <button className="btn-secondary" disabled={busy} onClick={onRemove}>
+              {t("review.remove")}
+            </button>
+          )}
+          <button className="btn-secondary" onClick={onLater}>
+            {t("review.later")}
           </button>
         </div>
       )}
@@ -355,6 +422,13 @@ function withDoubts(
     if (i % 2 === 0) return part; // text between marks
     const doubt = byId.get(part);
     if (!doubt) return `{${part}}`;
+    if (doubt.status === "resolved" && doubt.value === "") {
+      return (
+        <s key={i} className="text-muted">
+          {doubt.raw}
+        </s>
+      ); // removed: struck out here, left out of the Document's text and its exports
+    }
     if (doubt.status === "resolved") {
       return (
         <span key={i} className="underline decoration-dotted decoration-accent" title={doubt.raw}>

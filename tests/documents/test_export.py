@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import pytest
 
+from lectern.documents.document import Block, Doubt
 from lectern.documents.export import (
     ExportOptions,
     figure_placeholder,
     inline_doubt,
     load_for_export,
     lost,
+    reading_order,
     resolved_options,
     segments,
 )
@@ -116,3 +118,15 @@ def test_a_file_called_docx_that_isnt_one_says_so(tmp_path):
     (tmp_path / "fake.docx").write_bytes(b"not a zip")
     with pytest.raises(ValueError, match="fake.docx isn't a readable DOCX"):
         load_for_export(tmp_path, "fake.docx")
+
+
+def test_a_removed_block_isnt_exported_and_its_pages_note_goes_with_the_next_block():
+    doc = lease()
+    fragment = Doubt(id="d3.9", raw="луги", status="resolved", value="", resolved_by="person")
+    doc.blocks.insert(0, Block(id="b3.0", type="paragraph", page=3, text="{d3.9}.",
+                               doubts=[fragment]))  # fmt: skip
+    doc.pages[0].blocks.insert(0, "b3.0")
+
+    order = reading_order(doc)
+    assert [b.id for b, _, _ in order] == ["b3.1", "b3.2", "b3.3", "b3.4", "b4.1"]
+    assert order[0][1] == "The stamp is the landlord's."

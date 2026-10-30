@@ -15,7 +15,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import HTTPConnection
@@ -55,8 +55,15 @@ class PageChange(BaseModel):
 
 
 class Answer(BaseModel):
-    value: str = Field(min_length=1, max_length=VALUE_LIMIT)
-    action: Literal["accept", "edit"]
+    # accept and edit carry the reading; keep takes the page's own, remove takes nothing
+    value: str | None = Field(default=None, min_length=1, max_length=VALUE_LIMIT)
+    action: Literal["accept", "edit", "keep", "remove"]
+
+    @model_validator(mode="after")
+    def _a_reading_to_accept_or_edit(self) -> Answer:
+        if self.action in ("accept", "edit") and self.value is None:
+            raise ValueError(f"An answer to {self.action} needs the reading.")
+        return self
 
 
 class Rerun(BaseModel):
@@ -265,6 +272,10 @@ async def answer_doubt(
         )  # fmt: skip
     except ocr_store.NoSuchDoubt:
         raise HTTPException(404, "The Document has no such question.") from None
+    except ocr_store.NotWholeBlock:
+        raise HTTPException(
+            422, "Only a question that is all of its block can be removed: edit it instead."
+        ) from None
     published = await run_in_threadpool(_published, request, project, ocr)
     try:
         await jobs(request).tell(project, session_id)

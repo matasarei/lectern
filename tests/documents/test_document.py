@@ -2,7 +2,17 @@ from __future__ import annotations
 
 import json
 
-from lectern.documents.document import Block, Document, Doubt, PageInfo, Source, render_markdown
+from lectern.documents.document import (
+    Block,
+    Document,
+    Doubt,
+    PageInfo,
+    Source,
+    covers_block,
+    removed,
+    render_markdown,
+    render_page,
+)
 
 
 def _lease() -> Document:
@@ -123,3 +133,34 @@ def test_the_open_question_count_follows_a_new_document_json(tmp_path):
     stat = path.stat()
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
     assert open_doubt_count(tmp_path, ocr) == 0
+
+
+def _with_a_fragment(value: str | None) -> Document:
+    """The lease with an invented fragment after its paragraph: a block that is all doubt,
+    open (None) or answered with `value`."""
+    doc = _lease()
+    doubt = Doubt(id="d3", raw="луги", status="open" if value is None else "resolved",
+                  value=value)  # fmt: skip
+    doc.blocks.insert(3, Block(id="b3.6", type="paragraph", page=3, text="{d3}.", doubts=[doubt]))
+    doc.pages[0].blocks.insert(3, "b3.6")
+    return doc
+
+
+def test_only_a_doubt_that_is_all_of_its_block_covers_it():
+    doc = _with_a_fragment(None)
+    blocks = {b.id: b for b in doc.blocks}
+    assert covers_block(blocks["b3.6"], "d3")  # "{d3}.": nothing but the mark and a full stop
+    assert not covers_block(blocks["b3.3"], "d1")  # words around the mark
+    assert not covers_block(blocks["b3.2"], "d2")  # a table's cell
+    assert not covers_block(blocks["b3.6"], "d1")  # another block's doubt
+
+
+def test_a_fragment_answered_with_nothing_is_left_out_of_document_md_but_kept_in_json():
+    assert not removed(_with_a_fragment(None).blocks[3])
+    assert not removed(_with_a_fragment("послуги").blocks[3])  # answered with a reading
+
+    doc = _with_a_fragment("")
+    assert removed(doc.blocks[3])
+    assert "b3.6" not in render_markdown(doc) and "b3.6" not in render_page(doc, 3)
+    assert "{#b3.4 p=3→4}" in render_page(doc, 3)  # the blocks after it are still there
+    assert "b3.6" in doc.to_json()  # the answer can be taken back

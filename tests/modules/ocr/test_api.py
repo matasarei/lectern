@@ -341,6 +341,17 @@ def test_a_doubt_is_accepted_edited_and_reopened_each_a_new_version(api):
     assert reopened.status_code == 200 and reopened.json()["open_doubts"] == 3
 
 
+def test_a_doubt_kept_as_it_was_read_needs_no_value(api):
+    client, headers, *_ = api
+    url, _ = _session_with_doubts(api)
+
+    kept = client.put(f"{url}/doubts/d1.1", json={"action": "keep"}, headers=headers)
+    assert kept.status_code == 200 and kept.json()["open_doubts"] == 2
+    document = client.get(f"{url}/document", headers=headers).json()
+    doubts = {d["id"]: d for b in document["blocks"] for d in b["doubts"]}
+    assert (doubts["d1.1"]["status"], doubts["d1.1"]["value"]) == ("resolved", "1?")
+
+
 def test_cleaning_one_page_again_starts_the_job_for_that_page(api):
     client, headers, _, _, _, server = api
     url, _ = _session_with_doubts(api)
@@ -360,6 +371,8 @@ def test_cleaning_one_page_again_starts_the_job_for_that_page(api):
         ("put", "doubts/d1.1", {"value": "", "action": "edit"}, 422),
         ("put", "doubts/d1.1", {"value": "x" * 201, "action": "edit"}, 422),
         ("put", "doubts/d1.1", {"value": "x", "action": "skip"}, 422),
+        ("put", "doubts/d1.1", {"action": "accept"}, 422),  # accept what?
+        ("put", "doubts/d1.1", {"action": "remove"}, 422),  # "… до 1? числа": words around it
         ("post", "pages/9/clean", None, 404),
     ],
 )

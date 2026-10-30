@@ -81,6 +81,24 @@ class Document(BaseModel):
         return [d for b in self.blocks for d in b.doubts if d.status == "open"]
 
 
+def covers_block(block: Block, doubt_id: str) -> bool:
+    """The doubt is all the block says: its mark once, and no other word (a table's or a
+    figure's text never is). Only such a doubt can be answered by removing its block."""
+    mark = f"{{{doubt_id}}}"
+    if block.type in ("table", "figure") or block.text.count(mark) != 1:
+        return False
+    return re.search(r"\w", block.text.replace(mark, "")) is None
+
+
+def removed(block: Block) -> bool:
+    """A block the person removed (an invented fragment): its doubt answered with nothing.
+    It stays in document.json, so the answer can be taken back, and is left out of
+    everything made from it."""
+    return any(
+        d.status == "resolved" and d.value == "" and covers_block(block, d.id) for d in block.doubts
+    )
+
+
 def render_markdown(doc: Document) -> str:
     """document.md: what the chat reads."""
     lines = [
@@ -103,7 +121,7 @@ def render_markdown(doc: Document) -> str:
             ]
         for block_id in page.blocks:
             block = blocks.get(block_id)
-            if block is None or block.page != page.n:
+            if block is None or block.page != page.n or removed(block):
                 continue  # a block continued from an earlier page is written there
             if block.type == "figure":
                 figures += 1
@@ -124,7 +142,7 @@ def render_page(doc: Document, number: int) -> str | None:
     parts = [
         _render_block(blocks[i], figures.index(i) + 1 if i in figures else 0)
         for i in page.blocks
-        if i in blocks
+        if i in blocks and not removed(blocks[i])
     ]
     return "\n\n".join(parts)
 

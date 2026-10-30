@@ -71,15 +71,27 @@ off, handwritten, has a note.
 What cleanup and OCR weren't sure of becomes a question. The question bar shows how many are
 open on the page and in the document, and moves to the next page with questions. Each
 question card shows the reading, the suggestion (the first candidate that differs from the
-raw text), the reason, and whether it came from cleanup or OCR. With focus in the review,
-**Enter** accepts the suggestion, **E** edits it, **Tab** skips, and **Escape** cancels an
-edit. A resolved question is shown underlined with the original as a tooltip, and its chip
-reopens it.
+raw text), the reason, and whether it came from cleanup or OCR. Its answers:
+
+- **Accept** the suggestion, or click any other candidate to accept that one. There is no
+  Accept when no candidate differs from the reading: it would change nothing.
+- **Keep** the reading as it is, when it was right: recorded as kept, not as an edit.
+- **Edit** it to what the page says.
+- **Remove**, offered only when the question is all of its block (a fragment cleanup made up):
+  the block stays in `document.json`, struck out in the review so the answer can be taken
+  back, and is left out of `document.md`, the Document tab and the exports.
+- **Later** moves on without answering: to the page's next open question, and after its last
+  to the next page with questions. On the document's only open question it says so.
+
+With focus in the review, **Enter** accepts the suggestion (or keeps the reading when there is
+none), **K** keeps, **E** edits, **Tab** is Later, and **Escape** cancels an edit. A resolved
+question is shown underlined with the original as a tooltip, and its chip (*kept*, *removed*,
+or the reading it became) reopens it.
 
 Answers are stored apart from the Document (`ocr_decisions`) and applied every time it is
 assembled, so they survive cleaning a page again. An answer whose text no longer appears,
-because the page was cleaned differently, is shown as *unplaced*. Confirmed readings also go
-into later cleanups of the same session.
+because the page was cleaned differently, is shown as *unplaced*. Confirmed readings (not
+removals) also go into later cleanups of the same session.
 
 ## The Document
 
