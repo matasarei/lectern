@@ -61,6 +61,19 @@ def test_running_headers_and_page_numbers_are_dropped():
     assert doc.pages[1].blocks == ["b2.2"]  # ids kept from cleanup's order
 
 
+def test_a_running_header_merged_into_a_heading_is_taken_off_it():
+    """M4 pages 4, 7 and 10: cleanup put the header and the section's heading in one block."""
+    header = para("Договір оренди № 17/2026")
+    pages = [_page(n, header, para(f"Текст сторінки {n}.")) for n in (1, 2, 3)]
+    pages.append(_page(4, para("Договір оренди № 17/2026\n4. Розділ 4"), para("Текст сторінки 4.")))
+    # The header's words as a page's last line: a header, not a footer, so they stay there.
+    pages.append(_page(5, para("Підписи сторін\nДоговір оренди № 17/2026")))
+    doc = assemble("Lease", "lease.pdf", pages)
+    texts = [b.text for b in doc.blocks]
+    assert "4. Розділ 4" in texts and "Підписи сторін\nДоговір оренди № 17/2026" in texts
+    assert not any(t.startswith("Договір оренди") for t in texts)
+
+
 def test_a_word_hyphenated_across_a_page_break_is_joined_and_the_block_spans_both_pages():
     doc = assemble(
         "Lease",

@@ -295,6 +295,13 @@ def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
     block that only repeats the tail of the word before it goes too (`_a_words_tail`). Each
     block left out is listed as a fix, with the reason."""
     here, there = _words(raw), _words(neighbours)
+    # A word cleanup corrected is this page's too: "Розділі" read, "Розділ" written. Without
+    # it a heading fixed that way looked like the next page's "12. Розділ 12" (m4.md, page 11).
+    # Only a fix whose every word was read here: one sharing a single word ("Договір") could
+    # otherwise vouch for a neighbour's sentence.
+    for fix in page.fixes:
+        if (read := _words(fix.before)) and read <= here:
+            here |= _words(fix.after)
     kept: list[int] = []
     fixes = list(page.fixes)
     for i, block in enumerate(page.blocks):
