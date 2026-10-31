@@ -74,6 +74,21 @@ def test_a_running_header_merged_into_a_heading_is_taken_off_it():
     assert not any(t.startswith("Договір оренди") for t in texts)
 
 
+def test_a_merged_header_and_heading_alike_on_many_pages_loses_only_the_header():
+    """The M4 re-run: the header and the section's heading came back as one block on pages 4,
+    7, 10 and 11, alike once digits are set aside, so the block itself looked like a running
+    line and went whole, heading and all."""
+    header = para("Договір оренди № 17/2026")
+    pages = [_page(n, header, para(f"Текст сторінки {n}.")) for n in (1, 2, 3)]
+    pages += [
+        _page(n, para(f"Договір оренди № 17/2026\n{n}. Розділі {n}"), para(f"Текст {n}."))
+        for n in (4, 7, 10, 11)
+    ]
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert [t for t in texts if "Розділі" in t] == [f"{n}. Розділі {n}" for n in (4, 7, 10, 11)]
+    assert not any("Договір оренди" in t for t in texts)
+
+
 def test_a_word_hyphenated_across_a_page_break_is_joined_and_the_block_spans_both_pages():
     doc = assemble(
         "Lease",
