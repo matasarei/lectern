@@ -1,0 +1,64 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 2,
+   "text": "2. Розділ 2",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "signature",
+   "level": null,
+   "text": "2",
+   "rows": null,
+   "label": null
+  }
+ ],
+ "doubts": [
+  {
+   "block": 4,
+   "raw": "судовому п",
+   "candidates": [
+    "судовому порядку",
+    "судовому процесі"
+   ],
+   "reason": "The OCR output cuts off at 'п' in the phrase 'у судовому п'. Based on the context of dispute resolution and the next page starting with 'Договір оренди № 17/2026' which seems to be a continuation or related document, the most likely completion is 'порядку' (order/procedure), as it fits the standard legal phrasing 'у судовому порядку відповідно до чинного законодавства України'. However, without seeing the full text on the next page, 'порядку' is an inference."
+  }
+ ],
+ "fixes": [
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026",
+   "why": "Kept: the cleanup left this line out."
+  }
+ ]
+}

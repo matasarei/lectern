@@ -1,0 +1,95 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 2,
+   "text": "9. Розділ 9",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "table",
+   "level": null,
+   "text": "",
+   "rows": [
+    [
+     "Місяць",
+     "Сума, грн",
+     "Термін оплати"
+    ],
+    [
+     "Січень",
+     "18 500,00",
+     "05.01.2026"
+    ],
+    [
+     "Лютий",
+     "18 500,00",
+     "05.02.2026"
+    ],
+    [
+     "Березень",
+     "19 200,00",
+     "05.03.2026"
+    ],
+    [
+     "Квітень",
+     "19 200,00",
+     "05.04.2026"
+    ]
+   ],
+   "label": null
+  }
+ ],
+ "doubts": [],
+ "fixes": [
+  {
+   "before": "площено",
+   "after": "площею",
+   "why": "Corrected OCR error: 'площено' is a non-word; context and grammar require 'площею' (area)."
+  },
+  {
+   "before": "площено",
+   "after": "",
+   "why": "Doubt dropped: 'площено' isn't in the page's text. OCR error: 'площено' is not a valid Ukrainian word in this context; 'площею' (instrumental case of 'площа') fits grammatically and contextually as 'area'. The 'н' is likely a stray character or misread 'ю'."
+  },
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026",
+   "why": "Kept: the cleanup left this line out."
+  },
+  {
+   "before": "Місяць | Січень | Лютий | Березень | Квітень",
+   "after": "Місяць | Сума, грн | Термін оплати",
+   "why": "Turned round: the table's columns had been read as its rows."
+  }
+ ]
+}

@@ -1,0 +1,62 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 2,
+   "text": "4. Розділ 4",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null
+  }
+ ],
+ "doubts": [],
+ "fixes": [
+  {
+   "before": "площено",
+   "after": "площею",
+   "why": "Typo correction: 'площено' is not a valid Ukrainian word; 'площею' is the correct instrumental case of 'площа' (area) used after 'загальною'."
+  },
+  {
+   "before": "площено",
+   "after": "",
+   "why": "Doubt dropped: 'площено' isn't in the page's text. OCR error: 'площено' is not a valid Ukrainian word in this context; 'площею' (instrumental case of 'площа') fits grammatically and contextually."
+  },
+  {
+   "before": "вісімнадцять",
+   "after": "вісімнадцять",
+   "why": "Doubt dropped: its only reading is 'вісімнадцять' itself. Contextual correction: The amount 18,500.00 corresponds to 'вісімнадцять тисяч' (eighteen thousand), not 'вісімнадять' (eighteen thousand with a typo) as seen in the next page snippet. The OCR on this page likely misread 'вісімнадцять' as 'ві"
+  },
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026",
+   "why": "Kept: the cleanup left this line out."
+  }
+ ]
+}
