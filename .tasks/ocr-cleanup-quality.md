@@ -60,3 +60,22 @@ samples.
   PR 2: the tables. Later, with the GPU: "Розділі", the chat's then_export and wording, #9 part 2.
 
 - Found in review of fix/ocr-headings-on-repeat (2026-10-31, already on main): assembly drops a single-line block repeated, digits aside, at the top of 3+ pages, so a scan with no running header whose pages each start with "N. Розділ N" loses those headings (`assemble.py`, `_drop_running_lines`).
+
+## Re-run on the Windows laptop (2026-10-31, Intel Arc on battery)
+Evidence: `m4-windows-evidence/rerun-2026-10-31/` (Document, OCR readings, cleanups).
+- Tables: all four the scan's way round (#149). Running header: gone (#148).
+- Headings on pages 4, 7, 10, 11 were lost (cleanup corrected "Розділі" without a fix; assembly
+  dropped the merged header+heading block whole): fixed in draft #150. Not yet measured on a
+  fresh run of #150's code.
+- Still open:
+  1. **then_export:** "Read the scan and prepare DOCX from it." → the chat asked which file;
+     after "m4-lease-scan.pdf" it called `ocr.start` without `then_export` and said it would
+     make the DOCX. (The first re-run passed it, after a confirmation question.) Needs a
+     tool-calling case and clearer `ocr.start` wording.
+  2. **"Розділі"** (OCR misread) unquestioned on page 3's heading.
+  3. **Question cards:** one splits a word ("⟦судовому п⟧орядку"), one is a whole paragraph
+     (page 7), page 12's "спорн" isn't questioned.
+  4. **Sections as paragraphs:** a heading put back from the reading comes back as a paragraph.
+- Write the results into `docs/acceptance/m4.md` (the draft #150 doesn't have them yet).
+- Hand checks never run on Windows (m4.md "Not run here"): left click on the tray icon, Start
+  menu, End task, start at sign-in, the DOCX in Word. The Windows laptop is no longer used.
