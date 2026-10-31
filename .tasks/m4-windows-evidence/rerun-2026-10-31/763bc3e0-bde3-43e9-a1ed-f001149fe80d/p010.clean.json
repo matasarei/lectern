@@ -1,0 +1,65 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026\n10. Розділі 10",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null
+  }
+ ],
+ "doubts": [],
+ "fixes": [
+  {
+   "before": "загальною площено",
+   "after": "загальною площею",
+   "why": "OCR error: 'площено' is not a valid word; context requires instrumental case 'площею'."
+  },
+  {
+   "before": "10. Розділі 10",
+   "after": "",
+   "why": "Doubt dropped: '10. Розділі 10' isn't in the page's text. The word 'Розділі' (Dative/Prepositional case) is grammatically unusual for a section heading, which typically uses the Nominative case 'Розділ'. However, the OCR output explicitly shows 'Розділі'. It could be a typo in the original document "
+  },
+  {
+   "before": "загальною площено",
+   "after": "",
+   "why": "Doubt dropped: 'загальною площено' isn't in the page's text. The word 'площено' is likely an OCR error for 'площею' (instrumental case of 'площа'). The context 'загальною площею' is standard Ukrainian legal phrasing. 'Площено' is not a word. This is an obvious OCR error (missing 'ю' or misread 'ю' a"
+  },
+  {
+   "before": "10. Розділ 10",
+   "after": "",
+   "why": "Left out: it's on a neighbouring page, not this one."
+  },
+  {
+   "before": "",
+   "after": "",
+   "why": "Left out: it's on a neighbouring page, not this one."
+  },
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026\n10. Розділі 10",
+   "why": "Kept: the cleanup left this line out."
+  }
+ ]
+}

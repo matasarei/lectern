@@ -1,0 +1,100 @@
+{
+ "blocks": [
+  {
+   "type": "heading",
+   "level": 1,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 2,
+   "text": "12. Розділ 12",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Усі спорн, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "table",
+   "level": null,
+   "text": "",
+   "rows": [
+    [
+     "Місяць",
+     "Сума, грн",
+     "Термін оплати"
+    ],
+    [
+     "Січень",
+     "18 500,00",
+     "05.01.2026"
+    ],
+    [
+     "Лютий",
+     "18 500,00",
+     "05.02.2026"
+    ],
+    [
+     "Березень",
+     "19 200,00",
+     "05.03.2026"
+    ],
+    [
+     "Квітень",
+     "19 200,00",
+     "05.04.2026"
+    ]
+   ],
+   "label": null
+  }
+ ],
+ "doubts": [],
+ "fixes": [
+  {
+   "before": "спорн",
+   "after": "спори",
+   "why": "Contextual correction: 'Усі спори' is the standard legal phrasing for 'All disputes'. 'Спорн' is grammatically incorrect and likely a missing letter."
+  },
+  {
+   "before": "силн.",
+   "after": "сили.",
+   "why": "Contextual correction: 'обставини непереборної сили' is the correct legal term for 'force majeure'. 'Силн' is a typo."
+  },
+  {
+   "before": "Усі спорн, що виникають з цього Договору...",
+   "after": "",
+   "why": "Doubt dropped: 'Усі спорн, що виникають з цього Договору...' isn't in the page's text. OCR likely dropped a letter in 'спори' (read as 'спорн') or added one ('спорні'). Context suggests 'спори' (disputes) is the standard legal term here, but the text visually appears truncated or malformed."
+  },
+  {
+   "before": "обставин непереборної силн.",
+   "after": "",
+   "why": "Doubt dropped: 'обставин непереборної силн.' isn't in the page's text. The word 'сили' was likely misread as 'силн' due to OCR error; 'обставини непереборної сили' is the correct legal phrase (force majeure)."
+  },
+  {
+   "before": "Місяць | Січень | Лютий | Березень | Квітень",
+   "after": "Місяць | Сума, грн | Термін оплати",
+   "why": "Turned round: the table's columns had been read as its rows."
+  }
+ ]
+}

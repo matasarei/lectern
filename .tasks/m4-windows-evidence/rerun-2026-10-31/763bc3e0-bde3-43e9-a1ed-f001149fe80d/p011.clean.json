@@ -1,0 +1,60 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026\n11. Розділі 11",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null
+  }
+ ],
+ "doubts": [
+  {
+   "block": 3,
+   "raw": "наслідком",
+   "candidates": [
+    "наслідком",
+    "наслідок"
+   ],
+   "reason": "OCR may have added the suffix 'ом' by mistake, but contextually 'наслідком' (as a result of) fits the legal phrase 'стало наслідком обставин' better than 'наслідок обставин'. Keeping as is with note."
+  }
+ ],
+ "fixes": [
+  {
+   "before": "11",
+   "after": "11. Розділ 11",
+   "why": "Combined the stray page number '11' at the top with the heading text below it, as they form a single logical block."
+  },
+  {
+   "before": "11. Розділ 11",
+   "after": "",
+   "why": "Left out: it's on a neighbouring page, not this one."
+  },
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026\n11. Розділі 11",
+   "why": "Kept: the cleanup left this line out."
+  }
+ ]
+}

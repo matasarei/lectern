@@ -1,0 +1,984 @@
+{
+ "schema": "lectern.document/1",
+ "title": "m4-lease-scan",
+ "version": 1,
+ "source": {
+  "artifact": "m4-lease-scan.pdf",
+  "pages": 12
+ },
+ "pages": [
+  {
+   "n": 1,
+   "image": "pages/p001.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b1.2",
+    "b1.3",
+    "b1.4",
+    "b1.5"
+   ],
+   "failed": null
+  },
+  {
+   "n": 2,
+   "image": "pages/p002.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b2.2",
+    "b2.3",
+    "b2.4",
+    "b2.5"
+   ],
+   "failed": null
+  },
+  {
+   "n": 3,
+   "image": "pages/p003.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b3.2",
+    "b3.3",
+    "b3.4",
+    "b3.5",
+    "b3.6"
+   ],
+   "failed": null
+  },
+  {
+   "n": 4,
+   "image": "pages/p004.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b4.2",
+    "b4.3",
+    "b4.4"
+   ],
+   "failed": null
+  },
+  {
+   "n": 5,
+   "image": "pages/p005.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b5.2",
+    "b5.3",
+    "b5.4",
+    "b5.5"
+   ],
+   "failed": null
+  },
+  {
+   "n": 6,
+   "image": "pages/p006.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b6.2",
+    "b6.3",
+    "b6.4",
+    "b6.5",
+    "b6.6"
+   ],
+   "failed": null
+  },
+  {
+   "n": 7,
+   "image": "pages/p007.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b7.2",
+    "b7.3",
+    "b7.4"
+   ],
+   "failed": null
+  },
+  {
+   "n": 8,
+   "image": "pages/p008.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b8.2",
+    "b8.3",
+    "b8.4",
+    "b8.5"
+   ],
+   "failed": null
+  },
+  {
+   "n": 9,
+   "image": "pages/p009.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b9.2",
+    "b9.3",
+    "b9.4",
+    "b9.5",
+    "b9.6"
+   ],
+   "failed": null
+  },
+  {
+   "n": 10,
+   "image": "pages/p010.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b10.2",
+    "b10.3",
+    "b10.4"
+   ],
+   "failed": null
+  },
+  {
+   "n": 11,
+   "image": "pages/p011.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b11.2",
+    "b11.3",
+    "b11.4"
+   ],
+   "failed": null
+  },
+  {
+   "n": 12,
+   "image": "pages/p012.png",
+   "size": [
+    2482,
+    3507
+   ],
+   "note": "",
+   "blocks": [
+    "b12.2",
+    "b12.3",
+    "b12.4",
+    "b12.5",
+    "b12.6"
+   ],
+   "failed": null
+  }
+ ],
+ "blocks": [
+  {
+   "id": "b1.2",
+   "type": "heading",
+   "page": 1,
+   "pages": null,
+   "bbox": null,
+   "level": 1,
+   "text": "1. Розділ 1",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b1.3",
+   "type": "paragraph",
+   "page": 1,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b1.4",
+   "type": "paragraph",
+   "page": 1,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b1.5",
+   "type": "paragraph",
+   "page": 1,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b2.2",
+   "type": "heading",
+   "page": 2,
+   "pages": null,
+   "bbox": null,
+   "level": 2,
+   "text": "2. Розділ 2",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b2.3",
+   "type": "paragraph",
+   "page": 2,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b2.4",
+   "type": "paragraph",
+   "page": 2,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b2.5",
+   "type": "paragraph",
+   "page": 2,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у {d2.1}орядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null,
+   "doubts": [
+    {
+     "id": "d2.1",
+     "raw": "судовому п",
+     "status": "open",
+     "candidates": [
+      "судовому порядку",
+      "судовому процесі"
+     ],
+     "reason": "The OCR output cuts off at 'п' in the phrase 'у судовому п'. Based on the context of dispute resolution and the next page starting with 'Договір оренди № 17/2026' which seems to be a continuation or related document, the most likely completion is 'порядку' (order/procedure), as it fits the standard legal phrasing 'у судовому порядку відповідно до чинного законодавства України'. However, without seeing the full text on the next page, 'порядку' is an inference.",
+     "source": "clean",
+     "value": null,
+     "resolved_by": null
+    }
+   ]
+  },
+  {
+   "id": "b3.2",
+   "type": "heading",
+   "page": 3,
+   "pages": null,
+   "bbox": null,
+   "level": 3,
+   "text": "3. Розділі 3",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b3.3",
+   "type": "paragraph",
+   "page": 3,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b3.4",
+   "type": "paragraph",
+   "page": 3,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b3.5",
+   "type": "paragraph",
+   "page": 3,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною {d3.1} 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Сичових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null,
+   "doubts": [
+    {
+     "id": "d3.1",
+     "raw": "площено",
+     "status": "open",
+     "candidates": [
+      "площу",
+      "площю",
+      "площено"
+     ],
+     "reason": "OCR error likely; 'площю' or 'площу' is grammatically correct in Ukrainian, but the text shows 'площено'. Keeping as is with doubt.",
+     "source": "clean",
+     "value": null,
+     "resolved_by": null
+    }
+   ]
+  },
+  {
+   "id": "b3.6",
+   "type": "table",
+   "page": 3,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "",
+   "rows": [
+    [
+     "Місяць",
+     "Сума, грн",
+     "Термін оплати"
+    ],
+    [
+     "Січень",
+     "18 500,00",
+     "05.01.2026"
+    ],
+    [
+     "Лютий",
+     "18 500,00",
+     "05.02.2026"
+    ],
+    [
+     "Березень",
+     "19 200,00",
+     "05.03.2026"
+    ],
+    [
+     "Квітень",
+     "19 200,00",
+     "05.04.2026"
+    ]
+   ],
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b4.2",
+   "type": "paragraph",
+   "page": 4,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b4.3",
+   "type": "paragraph",
+   "page": 4,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b4.4",
+   "type": "paragraph",
+   "page": 4,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b5.2",
+   "type": "heading",
+   "page": 5,
+   "pages": null,
+   "bbox": null,
+   "level": 2,
+   "text": "5. Розділ 5",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b5.3",
+   "type": "paragraph",
+   "page": 5,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b5.4",
+   "type": "paragraph",
+   "page": 5,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b5.5",
+   "type": "paragraph",
+   "page": 5,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b6.2",
+   "type": "heading",
+   "page": 6,
+   "pages": null,
+   "bbox": null,
+   "level": 2,
+   "text": "6. Розділ 6",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b6.3",
+   "type": "paragraph",
+   "page": 6,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн ({d6.1} тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null,
+   "doubts": [
+    {
+     "id": "d6.1",
+     "raw": "вісімнадцять",
+     "status": "open",
+     "candidates": [
+      "вісімнадцять",
+      "вісімнадиять"
+     ],
+     "reason": "OCR error 'вісімнадиять' is a clear typo for 'вісімнадцять' based on context and standard Ukrainian spelling; corrected to 'вісімнадцять'.",
+     "source": "clean",
+     "value": null,
+     "resolved_by": null
+    }
+   ]
+  },
+  {
+   "id": "b6.4",
+   "type": "paragraph",
+   "page": 6,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b6.5",
+   "type": "paragraph",
+   "page": 6,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b6.6",
+   "type": "table",
+   "page": 6,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "",
+   "rows": [
+    [
+     "Місяць",
+     "Сума, грн",
+     "Термін оплати"
+    ],
+    [
+     "Січень",
+     "18 500,00",
+     "05.01.2026"
+    ],
+    [
+     "Лютий",
+     "18 500,00",
+     "05.02.2026"
+    ],
+    [
+     "Березень",
+     "19 200,00",
+     "05.03.2026"
+    ],
+    [
+     "Квітень",
+     "19 200,00",
+     "05.04.2026"
+    ]
+   ],
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b7.2",
+   "type": "paragraph",
+   "page": 7,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b7.3",
+   "type": "paragraph",
+   "page": 7,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b7.4",
+   "type": "paragraph",
+   "page": 7,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "{d7.1}",
+   "rows": null,
+   "label": null,
+   "doubts": [
+    {
+     "id": "d7.1",
+     "raw": "Усі спорн, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+     "status": "open",
+     "candidates": [
+      "Усі спорні, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+      "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України."
+     ],
+     "reason": "Word 'спорн' is likely a typo for 'спорні' or 'спори' based on context, but the OCR output is ambiguous without visual confirmation.",
+     "source": "clean",
+     "value": null,
+     "resolved_by": null
+    }
+   ]
+  },
+  {
+   "id": "b8.2",
+   "type": "heading",
+   "page": 8,
+   "pages": null,
+   "bbox": null,
+   "level": 2,
+   "text": "8. Розділ 8",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b8.3",
+   "type": "paragraph",
+   "page": 8,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b8.4",
+   "type": "paragraph",
+   "page": 8,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "{d8.1}, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null,
+   "doubts": [
+    {
+     "id": "d8.1",
+     "raw": "Усі спори",
+     "status": "open",
+     "candidates": [
+      "Усі спорн",
+      "Усі спори"
+     ],
+     "reason": "OCR read 'спори' as 'спори' (with a stray 'н' or broken character). Context and legal terminology confirm 'спори' (disputes) is correct. The stray character is an OCR error.",
+     "source": "clean",
+     "value": null,
+     "resolved_by": null
+    }
+   ]
+  },
+  {
+   "id": "b8.5",
+   "type": "paragraph",
+   "page": 8,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною {d8.2} 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null,
+   "doubts": [
+    {
+     "id": "d8.2",
+     "raw": "площею",
+     "status": "open",
+     "candidates": [
+      "площено",
+      "площею"
+     ],
+     "reason": "OCR read 'площею' as 'площено'. Context and grammar confirm 'площею' (instrumental case of 'площа') is correct. The extra 'н' is an OCR error.",
+     "source": "clean",
+     "value": null,
+     "resolved_by": null
+    }
+   ]
+  },
+  {
+   "id": "b9.2",
+   "type": "heading",
+   "page": 9,
+   "pages": null,
+   "bbox": null,
+   "level": 2,
+   "text": "9. Розділ 9",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b9.3",
+   "type": "paragraph",
+   "page": 9,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b9.4",
+   "type": "paragraph",
+   "page": 9,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b9.5",
+   "type": "paragraph",
+   "page": 9,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b9.6",
+   "type": "table",
+   "page": 9,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "",
+   "rows": [
+    [
+     "Місяць",
+     "Сума, грн",
+     "Термін оплати"
+    ],
+    [
+     "Січень",
+     "18 500,00",
+     "05.01.2026"
+    ],
+    [
+     "Лютий",
+     "18 500,00",
+     "05.02.2026"
+    ],
+    [
+     "Березень",
+     "19 200,00",
+     "05.03.2026"
+    ],
+    [
+     "Квітень",
+     "19 200,00",
+     "05.04.2026"
+    ]
+   ],
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b10.2",
+   "type": "paragraph",
+   "page": 10,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b10.3",
+   "type": "paragraph",
+   "page": 10,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b10.4",
+   "type": "paragraph",
+   "page": 10,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b11.2",
+   "type": "paragraph",
+   "page": 11,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b11.3",
+   "type": "paragraph",
+   "page": 11,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b11.4",
+   "type": "paragraph",
+   "page": 11,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало {d11.1} обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": [
+    {
+     "id": "d11.1",
+     "raw": "наслідком",
+     "status": "open",
+     "candidates": [
+      "наслідком",
+      "наслідок"
+     ],
+     "reason": "OCR may have added the suffix 'ом' by mistake, but contextually 'наслідком' (as a result of) fits the legal phrase 'стало наслідком обставин' better than 'наслідок обставин'. Keeping as is with note.",
+     "source": "clean",
+     "value": null,
+     "resolved_by": null
+    }
+   ]
+  },
+  {
+   "id": "b12.2",
+   "type": "heading",
+   "page": 12,
+   "pages": null,
+   "bbox": null,
+   "level": 2,
+   "text": "12. Розділ 12",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b12.3",
+   "type": "paragraph",
+   "page": 12,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b12.4",
+   "type": "paragraph",
+   "page": 12,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b12.5",
+   "type": "paragraph",
+   "page": 12,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "Усі спорн, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null,
+   "doubts": []
+  },
+  {
+   "id": "b12.6",
+   "type": "table",
+   "page": 12,
+   "pages": null,
+   "bbox": null,
+   "level": null,
+   "text": "",
+   "rows": [
+    [
+     "Місяць",
+     "Сума, грн",
+     "Термін оплати"
+    ],
+    [
+     "Січень",
+     "18 500,00",
+     "05.01.2026"
+    ],
+    [
+     "Лютий",
+     "18 500,00",
+     "05.02.2026"
+    ],
+    [
+     "Березень",
+     "19 200,00",
+     "05.03.2026"
+    ],
+    [
+     "Квітень",
+     "19 200,00",
+     "05.04.2026"
+    ]
+   ],
+   "label": null,
+   "doubts": []
+  }
+ ]
+}

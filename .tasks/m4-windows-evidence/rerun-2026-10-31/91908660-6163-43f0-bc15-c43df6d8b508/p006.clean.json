@@ -1,0 +1,100 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 2,
+   "text": "6. Розділ 6",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "table",
+   "level": null,
+   "text": "",
+   "rows": [
+    [
+     "Місяць",
+     "Сума, грн",
+     "Термін оплати"
+    ],
+    [
+     "Січень",
+     "18 500,00",
+     "05.01.2026"
+    ],
+    [
+     "Лютий",
+     "18 500,00",
+     "05.02.2026"
+    ],
+    [
+     "Березень",
+     "19 200,00",
+     "05.03.2026"
+    ],
+    [
+     "Квітень",
+     "19 200,00",
+     "05.04.2026"
+    ]
+   ],
+   "label": null
+  }
+ ],
+ "doubts": [
+  {
+   "block": 2,
+   "raw": "вісімнадцять",
+   "candidates": [
+    "вісімнадцять",
+    "вісімнадиять"
+   ],
+   "reason": "OCR error 'вісімнадиять' is a clear typo for 'вісімнадцять' based on context and standard Ukrainian spelling; corrected to 'вісімнадцять'."
+  }
+ ],
+ "fixes": [
+  {
+   "before": "вісімнадиять",
+   "after": "вісімнадцять",
+   "why": "Typo correction: 'вісімнадиять' is not a valid word; context and standard spelling indicate 'вісімнадцять' (eighteen)."
+  },
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026",
+   "why": "Kept: the cleanup left this line out."
+  },
+  {
+   "before": "Місяць | Січень | Лютий | Березень | Квітень",
+   "after": "Місяць | Сума, грн | Термін оплати",
+   "why": "Turned round: the table's columns had been read as its rows."
+  }
+ ]
+}

@@ -37,9 +37,11 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    fixes it made with the reason for each, and doubts with candidate readings and a reason.
    An unsure OCR word that cleanup left unchanged becomes a doubt of its own. An invalid
    reply is retried once. Code then checks the reply: blocks copied from a neighbouring page
-   are dropped (a word cleanup corrected counts as the page's own, so a heading it fixed
-   isn't taken for the next page's), and so is a one-word block that only repeats the end of the word before it
-   ("луги." after "послуги.") and isn't a word of the page; lines left out are put back,
+   are dropped (a word cleanup corrected counts as the page's own, and so does a number the neighbours don't have, so
+   a heading it fixed, "4. Розділ 4", isn't taken for the next page's "5. Розділ 5"), and so
+   is a one-word block that only repeats the end of the word before it
+   ("луги." after "послуги.") and isn't a word of the page; lines left out are put back
+   (not one at least 90% like a line cleanup wrote: that one was corrected),
    Latin and Cyrillic look-alike letters are restored, a doubt in the wrong block is moved,
    and a doubt whose only candidate is its own text (nothing to decide) is dropped. A table
    cleanup built from a reading that listed it column by column is turned round: one of
@@ -50,8 +52,9 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    the loop is cut before cleanup and listed as a fix that suggests re-running the page.
 4. **Assemble.** Code only, no model (`assemble.py`). A short line (under 100 characters) at
    the top or bottom of three pages or more is a running header or footer and is dropped,
-   along with bare page numbers; where cleanup merged it into the next line's block, that
-   line is taken off and the rest kept. A word hyphenated across a page break is joined, a
+   along with bare page numbers. Lines are counted, not blocks: where cleanup merged the
+   header into the next line's block, that line is taken off and the rest kept, and a block
+   of several lines is never dropped whole. A word hyphenated across a page break is joined, a
    paragraph that runs onto the next page is joined, and a table that continues is merged,
    without its repeated header row. A page note saying "don't merge" (or "do not merge",
    "never merge", "не об'єднувати") keeps that page's first block apart.

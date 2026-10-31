@@ -1,0 +1,47 @@
+{
+ "blocks": [
+  {
+   "type": "heading",
+   "level": 1,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 1,
+   "text": "1. Розділ 1",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null
+  }
+ ],
+ "doubts": [],
+ "fixes": [
+  {
+   "before": "стало н",
+   "after": "стало наслідком",
+   "why": "OCR error: line break split the word 'наслідком' into 'н' at the end of the line and 'аслідком' at the start of the next page; context and standard Ukrainian legal phrasing confirm the full word."
+  }
+ ]
+}

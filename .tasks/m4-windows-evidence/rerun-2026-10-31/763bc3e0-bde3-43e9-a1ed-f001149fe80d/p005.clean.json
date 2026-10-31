@@ -1,0 +1,57 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 2,
+   "text": "5. Розділ 5",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендна плата становить 18 500,00 грн (вісімнадцять тисяч п'ятсот гривень 00 копійок) на місяць і сплачується не пізніше п'ятого числа поточного місяця.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендар зобов'язаний використовувати приміщення виключно за призначенням, підтримувати його в належному стані та своєчасно сплачувати комунальні послуги.",
+   "rows": null,
+   "label": null
+  }
+ ],
+ "doubts": [],
+ "fixes": [
+  {
+   "before": "площено",
+   "after": "площею",
+   "why": "Corrected OCR error: 'площено' is a non-word; context and grammar require 'площею' (area of 48.6 sq. m)."
+  },
+  {
+   "before": "площено",
+   "after": "",
+   "why": "Doubt dropped: 'площено' isn't in the page's text. OCR error: 'площено' is not a valid Ukrainian word in this context; 'площею' (instrumental case of 'площа') fits grammatically and contextually. The extra 'н' is likely a scanning artifact."
+  },
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026",
+   "why": "Kept: the cleanup left this line out."
+  }
+ ]
+}

@@ -167,16 +167,13 @@ def _page_number(block: Block) -> bool:
     return block.type not in ("table", "figure") and PAGE_NUMBER.match(block.text) is not None
 
 
-def _running_candidate(block: Block) -> bool:
-    return (
-        block.type in ("paragraph", "heading")
-        and bool(block.text)
-        and len(block.text) <= RUNNING_LINE_CHARS
-    )
-
-
-def _key(block: Block) -> str:
-    return _line_key(block.text)
+def _edge_line(block: Block, edge: int) -> str:
+    """A paragraph's or heading's first (edge 0) or last (-1) line, if it's short enough to be a
+    running header or footer; "" otherwise."""
+    if block.type not in ("paragraph", "heading") or not block.text:
+        return ""
+    line = block.text.split("\n")[edge]
+    return line if len(line) <= RUNNING_LINE_CHARS else ""
 
 
 def _line_key(text: str) -> str:
@@ -196,12 +193,18 @@ def _strip_running_line(block: Block, edge: int, running: set[str]) -> None:
 def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
     """Bare page numbers at a page's top or bottom, and a short first or last line that
     repeats (digits aside) at the top or bottom of REPEATS pages or more. A shorter document
-    keeps its lines: two pages that happen to start alike aren't a running header."""
+    keeps its lines: two pages that happen to start alike aren't a running header.
+
+    Counted line by line: a header cleanup merged into the block below counts with the rest,
+    and only that line goes. A block of several lines is never dropped whole: "Договір
+    оренди № 17/2026\\n4. Розділі 4" is alike on four pages once digits are set aside, and its
+    heading went with it (m4.md, the re-run)."""
     for edge in (0, -1):
         seen: dict[str, int] = {}
         for blocks in per_page.values():
-            if blocks and _running_candidate(blocks[edge]):
-                seen[_key(blocks[edge])] = seen.get(_key(blocks[edge]), 0) + 1
+            if blocks and (line := _edge_line(blocks[edge], edge)):
+                seen[_line_key(line)] = seen.get(_line_key(line), 0) + 1
+        running = {key for key, count in seen.items() if count >= REPEATS}
         for blocks in per_page.values():
             if not blocks:
                 continue
@@ -210,12 +213,11 @@ def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
             # A page's only block is its content, however alike the pages are.
             repeated = (
                 len(blocks) > 1
-                and _running_candidate(block)
-                and seen.get(_key(block), 0) >= REPEATS
+                and "\n" not in block.text
+                and _line_key(_edge_line(block, edge)) in running
             )
             if numbered or repeated:
                 blocks.pop(edge)
-        running = {key for key, count in seen.items() if count >= REPEATS}
         for blocks in per_page.values():
             if blocks and blocks[edge].type in ("paragraph", "heading"):
                 _strip_running_line(blocks[edge], edge, running)

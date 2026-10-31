@@ -1,0 +1,71 @@
+{
+ "blocks": [
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Договір оренди № 17/2026",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "heading",
+   "level": 2,
+   "text": "8. Розділ 8",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Сторони звільняються від відповідальності за часткове або повне невиконання зобов'язань, якщо воно стало наслідком обставин непереборної сили.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Усі спори, що виникають з цього Договору, вирішуються шляхом переговорів, а в разі недосягнення згоди — у судовому порядку відповідно до чинного законодавства України.",
+   "rows": null,
+   "label": null
+  },
+  {
+   "type": "paragraph",
+   "level": null,
+   "text": "Орендодавець передає, а Орендар приймає у тимчасове платне користування нежитлове приміщення загальною площею 48,6 кв. м, що розташоване за адресою: м. Київ, вул. Січових Стрільців, 21, офіс 14.",
+   "rows": null,
+   "label": null
+  }
+ ],
+ "doubts": [
+  {
+   "block": 3,
+   "raw": "Усі спори",
+   "candidates": [
+    "Усі спорн",
+    "Усі спори"
+   ],
+   "reason": "OCR read 'спори' as 'спори' (with a stray 'н' or broken character). Context and legal terminology confirm 'спори' (disputes) is correct. The stray character is an OCR error."
+  },
+  {
+   "block": 4,
+   "raw": "площею",
+   "candidates": [
+    "площено",
+    "площею"
+   ],
+   "reason": "OCR read 'площею' as 'площено'. Context and grammar confirm 'площею' (instrumental case of 'площа') is correct. The extra 'н' is an OCR error."
+  }
+ ],
+ "fixes": [
+  {
+   "before": "площено",
+   "after": "площею",
+   "why": "Corrected 'площено' to 'площею' based on grammatical context (instrumental case) and standard Ukrainian usage."
+  },
+  {
+   "before": "",
+   "after": "Договір оренди № 17/2026",
+   "why": "Kept: the cleanup left this line out."
+  }
+ ]
+}
