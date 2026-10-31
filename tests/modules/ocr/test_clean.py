@@ -249,6 +249,37 @@ def test_a_heading_cleanup_corrected_isnt_taken_for_the_next_pages():
     assert not any(f.why.startswith("Left out") for f in page.fixes)
 
 
+def test_a_heading_corrected_without_saying_so_is_kept_by_its_number():
+    """Pages 4, 7, 10 and 11 of the M4 re-run: cleanup wrote "4. Розділ 4" for the read
+    "4. Розділі 4" and listed no fix, so only the "4" says it's this page's, not the next."""
+    raw = "4. Розділі 4\nОрендна плата становить 18 500,00 грн на місяць."
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "4. Розділ 4"},
+            {"type": "paragraph", "text": "Орендна плата становить 18 500,00 грн на місяць."},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 4, raw, after="5. Розділ 5"))
+    assert [b.text for b in page.blocks][0] == "4. Розділ 4"
+    assert not any(f.why.startswith("Left out") for f in page.fixes)
+
+
+def test_the_next_pages_heading_copied_here_is_still_left_out():
+    raw = "Орендна плата становить 18 500,00 грн на місяць."
+    reply = {
+        "blocks": [
+            {"type": "paragraph", "text": "Орендна плата становить 18 500,00 грн на місяць."},
+            {"type": "heading", "level": 2, "text": "5. Розділ 5"},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 4, raw, after="5. Розділ 5"))
+    assert [b.text for b in page.blocks] == ["Орендна плата становить 18 500,00 грн на місяць."]
+
+
 @pytest.mark.parametrize(
     "fix",
     [
