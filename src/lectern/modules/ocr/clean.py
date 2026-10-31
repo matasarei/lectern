@@ -309,8 +309,9 @@ def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
     block left out is listed as a fix, with the reason."""
     # Numbers count too, however short: "4. Розділ 4" shares only "Розділ" with the next page's
     # "5. Розділ 5", and its "4" is what says it's this page's (m4.md, pages 4, 7, 10, 11,
-    # where cleanup corrected "Розділі" without listing it).
-    here = _words(raw) | _numbers(raw)
+    # where cleanup corrected "Розділі" without listing it). Only a number the neighbours
+    # don't have: the "5" of "до 5 числа" mustn't vouch for a copied "5. Розділ 5".
+    here = _words(raw) | (_numbers(raw) - _numbers(neighbours))
     there = _words(neighbours) | _numbers(neighbours)
     # A word cleanup corrected is this page's too: "Розділі" read, "Розділ" written. Without
     # it a heading fixed that way looked like the next page's "12. Розділ 12" (m4.md, page 11).

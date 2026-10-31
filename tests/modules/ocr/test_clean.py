@@ -266,18 +266,24 @@ def test_a_heading_corrected_without_saying_so_is_kept_by_its_number():
     assert not any(f.why.startswith("Left out") for f in page.fixes)
 
 
-def test_the_next_pages_heading_copied_here_is_still_left_out():
-    raw = "Орендна плата становить 18 500,00 грн на місяць."
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Орендна плата становить 18 500,00 грн на місяць.",
+        "Орендна плата сплачується до 5 числа кожного місяця.",  # its "5" is the page's too
+    ],
+)
+def test_the_next_pages_heading_copied_here_is_still_left_out(raw):  # noqa: ANN001
     reply = {
         "blocks": [
-            {"type": "paragraph", "text": "Орендна плата становить 18 500,00 грн на місяць."},
+            {"type": "paragraph", "text": raw},
             {"type": "heading", "level": 2, "text": "5. Розділ 5"},
         ],
         "doubts": [],
         "fixes": [],
     }
     page = asyncio.run(clean_page(_client(json.dumps(reply)), 4, raw, after="5. Розділ 5"))
-    assert [b.text for b in page.blocks] == ["Орендна плата становить 18 500,00 грн на місяць."]
+    assert [b.text for b in page.blocks] == [raw]
 
 
 @pytest.mark.parametrize(

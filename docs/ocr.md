@@ -37,7 +37,7 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    fixes it made with the reason for each, and doubts with candidate readings and a reason.
    An unsure OCR word that cleanup left unchanged becomes a doubt of its own. An invalid
    reply is retried once. Code then checks the reply: blocks copied from a neighbouring page
-   are dropped (a word cleanup corrected counts as the page's own, and so does a number, so
+   are dropped (a word cleanup corrected counts as the page's own, and so does a number the neighbours don't have, so
    a heading it fixed, "4. Розділ 4", isn't taken for the next page's "5. Розділ 5"), and so
    is a one-word block that only repeats the end of the word before it
    ("луги." after "послуги.") and isn't a word of the page; lines left out are put back
