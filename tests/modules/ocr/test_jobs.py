@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import json
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -1056,3 +1057,177 @@ def test_a_job_ending_while_its_session_is_read_stays_done(store, tmp_path):
 
     assert (settled.status, settled.paused_reason) == ("done", None)
     assert _status(store, project, sid).status == "done"
+
+
+class _Hold:
+    """Stops a job inside a call on its worker thread, for a request to arrive just then."""
+
+    def __init__(self) -> None:
+        self.reached, self.go = threading.Event(), threading.Event()
+
+    def here(self) -> None:
+        if not self.reached.is_set():
+            self.reached.set()
+            assert self.go.wait(10)
+
+    async def until_reached(self) -> None:
+        while not self.reached.is_set():
+            await asyncio.sleep(0)
+
+
+def _held_at_done(jobs: OcrJobs, hold: _Hold) -> None:
+    real = jobs._set_status
+
+    def set_status(project, session_id, status, **kw):  # noqa: ANN001, ANN202
+        real(project, session_id, status, **kw)
+        if status == "done":
+            hold.here()
+
+    jobs._set_status = set_status
+
+
+def test_cleaning_a_page_again_as_a_job_ends_isnt_lost(store, tmp_path):
+    """Between "done" and the worker letting go, start() saw a job still held and queued nothing:
+    a 202, and the page pending for good (#165)."""
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+    hold = _Hold()
+    _held_at_done(jobs, hold)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await hold.until_reached()
+        await jobs.reclean(project, sid, 2)
+        hold.go.set()
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert len(server.cleanups) == 2 + 1
+    assert [p.clean_status for p in ocr_store.pages(store.db(project), sid)] == ["done", "done"]
+    finished = _status(store, project, sid)
+    assert (finished.status, finished.document_version) == ("done", 2)
+
+
+def test_cleaning_a_page_again_during_assembly_isnt_lost(store, tmp_path, monkeypatch):
+    """The cleanup phase is over by then, so the job has to go round again."""
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+    hold = _Hold()
+    real = ocr_store.redo_document
+
+    def redo_document(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        hold.here()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ocr_store, "redo_document", redo_document)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await hold.until_reached()
+        await jobs.reclean(project, sid, 2)
+        hold.go.set()
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert len(server.cleanups) == 2 + 1
+    assert [p.clean_status for p in ocr_store.pages(store.db(project), sid)] == ["done", "done"]
+    finished = _status(store, project, sid)
+    assert (finished.status, finished.document_version) == ("done", 2)
+
+
+def test_reading_a_page_again_during_cleanup_isnt_lost(store, tmp_path, monkeypatch):
+    """The reading phase is over by then: page 2 waits, to be read and cleaned in this job."""
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+    hold = _Hold()
+    real = ocr_store.save_cleanup
+
+    def save_cleanup(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        hold.here()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ocr_store, "save_cleanup", save_cleanup)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await hold.until_reached()  # page 1's cleanup is being saved
+        await jobs.rerun(project, sid, 2, lease_key=None)
+        hold.go.set()
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert len(server.requests) == 2 + 1
+    pages = ocr_store.pages(store.db(project), sid)
+    assert [(p.status, p.clean_status) for p in pages] == [("done", "done"), ("done", "done")]
+    assert _status(store, project, sid).status == "done"
+
+
+def test_those_who_wait_hear_once_after_the_last_round(store, tmp_path):
+    """A queued export runs on what it hears: not on the Document before the page came back."""
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+    hold = _Hold()
+    _held_at_done(jobs, hold)
+    heard: list[tuple[str, int]] = []
+
+    async def on_status(_project, session_id, status, _notice):  # noqa: ANN001, ANN202
+        version = _status(store, project, session_id).document_version
+        heard.append((status, version))
+
+    jobs.on_status = on_status
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await hold.until_reached()
+        await jobs.reclean(project, sid, 1)
+        hold.go.set()
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert heard == [("done", 2)]
+
+
+def test_a_paused_session_with_pages_waiting_isnt_queued_again(store, tmp_path):
+    server = FakeServer()
+    server.hold = asyncio.Queue()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        while not server.hold._getters:
+            await asyncio.sleep(0)
+        await jobs.pause(project, sid)
+        server.hold.put_nowait(None)  # page 1 finishes, then the job pauses
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert server.requests == ["ocr-model"]
+    paused = _status(store, project, sid)
+    assert (paused.status, paused.paused_reason) == ("paused", "Paused")
+    assert not jobs.active((project.id, sid))
+
+
+def test_a_failed_session_with_pages_waiting_isnt_queued_again(store, tmp_path):
+    server = FakeServer()
+    runtime, runner = _runtime(server, fail=True)
+    project, sid = _session(store, tmp_path, pages=2)
+    jobs = OcrJobs(runtime, store)
+
+    async def go():  # noqa: ANN202
+        await jobs.start(project, sid)
+        await jobs.idle()
+
+    asyncio.run(go())
+    assert _status(store, project, sid).status == "failed"
+    assert server.requests == [] and runner.started == []
+    assert not jobs.active((project.id, sid))

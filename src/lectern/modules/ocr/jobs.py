@@ -309,7 +309,29 @@ class OcrJobs:
                 self._pausing.discard(queued.key)
                 self._pause_signal(queued.key).clear()
                 self._only.pop(queued.key, None)
-            await self.tell(queued.project, queued.key[1])
+            if not await self._asked_for_more(queued):
+                await self.tell(queued.project, queued.key[1])
+
+    async def _asked_for_more(self, queued: _Queued) -> bool:
+        """A page asked for after the job's last look, while it was writing "done": start() saw
+        the job held and queued nothing. The job goes again, and whoever waits hears after it.
+        Asked once the job has let go: a request that saw it held has saved its page by now,
+        and a later one queues itself."""
+        project, session_id = queued.project, queued.key[1]
+        db = await asyncio.to_thread(self.projects.db, project)
+
+        def more() -> bool:
+            done = self._ocr_row(db, session_id).status == "done"
+            return done and self._pages_waiting(db, session_id)
+
+        try:
+            if self.active(queued.key) or not await asyncio.to_thread(more):
+                return False
+            await self.start(project, session_id)
+        except Exception:  # noqa: BLE001 — a job's problem mustn't stop the queue
+            log.exception("Looking for more of OCR session %s failed", session_id)
+            return False
+        return True
 
     def notice(self, project: Project, session_id: int) -> tuple[str, str]:
         """The session's status, and the line that says where it stands: finished, not
@@ -354,10 +376,15 @@ class OcrJobs:
         key = (project.id, session_id)
         db = await asyncio.to_thread(self.projects.db, project)
         await asyncio.to_thread(self._set_status, project, session_id, "running")
-        ocr = await asyncio.to_thread(self._ocr_row, db, session_id)
-        for phase in (self._rasterise, self._recognise, self._clean, self._assemble):
-            if not await phase(project, db, ocr):
-                return
+        while True:
+            ocr = await asyncio.to_thread(self._ocr_row, db, session_id)
+            for phase in (self._rasterise, self._recognise, self._clean, self._assemble):
+                if not await phase(project, db, ocr):
+                    return
+            # A page asked for once its phase had passed: the job goes round again for it.
+            numbers = self._only_pages(key)
+            if not await asyncio.to_thread(self._pages_waiting, db, session_id, numbers):
+                break
         if key in self._only:  # it was paused: it stays paused, the rest of its pages to read
             reason = self._only[key][1]
             await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=reason)
@@ -610,6 +637,16 @@ class OcrJobs:
             query = query.where(OcrPageRow.number.in_(numbers))
         with db() as session:
             return session.scalars(query.order_by(OcrPageRow.number).limit(1)).first()
+
+    @classmethod
+    def _pages_waiting(  # noqa: ANN001 — db is a sessionmaker
+        cls, db, session_id: int, numbers: set[int] | None = None
+    ) -> bool:
+        """A page still to read or to clean."""
+        return (
+            cls._next_page(db, session_id, numbers) is not None
+            or cls._next_to_clean(db, session_id, numbers) is not None
+        )
 
     @staticmethod
     def _ocr_row(db, session_id: int) -> OcrSessionRow:  # noqa: ANN001
