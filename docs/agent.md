@@ -167,4 +167,6 @@ use these tools.
 scores it (`src/lectern/dev/prompts/`): calculations that must go through `code.run`, tool
 choice, a 100-turn chat on a small context that must still quote a block exactly, web search,
 and whether asking for a DOCX of a scan gives `ocr.start` its `then_export` (run with
-`--no-allow-cards`: only the call is judged, nothing is read). Results: [`acceptance/m1b.md`](acceptance/m1b.md), [`m1c.md`](acceptance/m1c.md).
+`--no-allow-cards`: only the call is judged, nothing is read). Results:
+[`acceptance/m1b.md`](acceptance/m1b.md), [`m1c.md`](acceptance/m1c.md),
+[`m4.md`](acceptance/m4.md).

@@ -99,9 +99,13 @@ class Outcome:
         return self.used_tools and self.right and all(self.checks.values())
 
 
+def _spelled(value: str) -> str:
+    return value.lower().lstrip(".")
+
+
 def _same(wanted: str, given: object) -> bool:
     """Spelled the way the tool takes it: ".DOCX" exports to docx too."""
-    return isinstance(given, str) and given.lower().lstrip(".") == wanted
+    return isinstance(given, str) and _spelled(given) == wanted
 
 
 def load(name: str) -> PromptSet:
@@ -137,7 +141,10 @@ def _case(item: dict) -> Case:
         text=tuple(str(t) for t in item.get("text", [])),
         tools=tuple(item.get("tools", [])),
         forbid=tuple(item.get("forbid", [])),
-        args=item.get("args", {}),
+        args={
+            tool: {key: _spelled(str(value)) for key, value in wanted.items()}
+            for tool, wanted in item.get("args", {}).items()
+        },
     )
 
 

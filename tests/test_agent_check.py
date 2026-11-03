@@ -101,6 +101,22 @@ def test_a_tool_argument_a_case_asks_for_must_be_there():
     assert [o.passed for o in results] == [True, True, False, False, False, False]
 
 
+def test_a_set_may_spell_the_argument_as_a_person_would():
+    from lectern.dev.agent_check import _case
+
+    case = _case(
+        {"id": "docx", "prompt": "Read the scan", "args": {"ocr.start": {"then_export": ".DOCX"}}}
+    )
+    assert case.args == {"ocr.start": {"then_export": "docx"}}
+    assert Outcome(case, arguments=[("ocr.start", {"then_export": "docx"})]).passed
+
+
+def test_a_run_that_ended_in_an_error_doesnt_pass_on_its_arguments():
+    case = Case("docx", "Read the scan", args={"ocr.start": {"then_export": "docx"}})
+    broke = Outcome(case, arguments=[("ocr.start", {"then_export": "docx"})], error="stream ended")
+    assert not broke.passed
+
+
 def test_any_call_of_the_tool_can_hold_the_argument():
     case = Case("docx", "Read the scan", args={"ocr.start": {"then_export": "docx"}})
     first_wrong = Outcome(
