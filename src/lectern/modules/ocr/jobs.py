@@ -96,7 +96,9 @@ class OcrJobs:
         self._queue: collections.deque[_Queued] = collections.deque()
         self._current: Key | None = None
         self._pausing: set[Key] = set()
-        self._starting: set[Key] = set()
+        # Whose job this process holds, from start() until the worker lets go of it. One set read
+        # in one step: a read runs in a thread, while the job moves from the queue to the worker.
+        self._held: set[Key] = set()
         self._pause_signals: dict[Key, asyncio.Event] = {}
         # A paused session asked to read some pages again reads only those, then is paused
         # again with its reason: re-reading one page mustn't restart the whole batch.
@@ -117,9 +119,7 @@ class OcrJobs:
 
     def active(self, key: Key) -> bool:
         """This process is running or holding the session's job."""
-        return (
-            key == self._current or key in self._starting or any(q.key == key for q in self._queue)
-        )
+        return key in self._held
 
     # --- reading a session ---------------------------------------------------------------
 
@@ -167,13 +167,14 @@ class OcrJobs:
         self._pause_signal(key).clear()
         if not self.active(key):
             # "queued" is written before the job can be taken up, so it can't land after the
-            # worker's "running". Marked first, so a second start can't queue it twice.
-            self._starting.add(key)
+            # worker's "running". Held first, so a second start can't queue it twice.
+            self._held.add(key)
             try:
                 await asyncio.to_thread(self._set_status, project, session_id, "queued")
-                self._queue.append(_Queued(key, project))
-            finally:
-                self._starting.discard(key)
+            except BaseException:
+                self._held.discard(key)
+                raise
+            self._queue.append(_Queued(key, project))
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._work(), name="ocr-jobs")
 
@@ -194,7 +195,10 @@ class OcrJobs:
         if not waiting:
             raise NotNow("The session isn't running.")
         self._queue.remove(waiting[0])
-        await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=PAUSED)
+        try:
+            await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=PAUSED)
+        finally:  # after the write: "queued" with no job held would read as a restart
+            self._held.discard(key)
 
     async def rerun(
         self, project: Project, session_id: int, number: int, *, lease_key: str | None
@@ -253,6 +257,7 @@ class OcrJobs:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
+        self._held.clear()
 
     async def forget(self, project_id: int) -> None:
         """A removed project: its sessions leave the queue, the one running is stopped where
@@ -269,6 +274,7 @@ class OcrJobs:
             for key in [k for k in kept if k[0] == project_id]:
                 del kept[key]
         self._pausing = {k for k in self._pausing if k[0] != project_id}
+        self._held = {k for k in self._held if k[0] != project_id}
 
     async def idle(self) -> None:
         """For tests: until the queue is empty and nothing is running."""
@@ -292,6 +298,7 @@ class OcrJobs:
                 )
             finally:
                 self._current = None
+                self._held.discard(queued.key)
                 self._pausing.discard(queued.key)
                 self._pause_signal(queued.key).clear()
                 self._only.pop(queued.key, None)

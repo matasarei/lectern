@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -1007,4 +1008,31 @@ def test_cleanup_leases_the_model_the_runtime_names_for_it(store, tmp_path):
 
     asyncio.run(go())
     assert runner.started == ["ocr-model", "gguf-chat"]
+    assert _status(store, project, sid).status == "done"
+
+
+def test_a_job_moving_from_the_queue_to_the_worker_isnt_taken_for_gone(store, tmp_path):
+    """A read runs in a thread while the worker takes the job: looking for it where it was a
+    moment ago found nothing, and a running session read as "Lectern restarted" (#165)."""
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=1)
+    jobs = OcrJobs(runtime, store)
+    key = (project.id, sid)
+
+    class TakenWhileScanned(collections.deque):
+        def __iter__(self):  # noqa: ANN204
+            if self:  # the worker takes the job now, after `_current` was looked at
+                self.clear()
+                jobs._current = key
+            return iter(())
+
+    async def go():  # noqa: ANN202
+        jobs._queue = TakenWhileScanned()
+        await jobs.start(project, sid)  # queued; the worker hasn't run yet
+        settled = jobs.settle(project, sid)
+        assert (settled.status, settled.paused_reason) == ("queued", None)
+        await jobs.idle()
+
+    asyncio.run(go())
     assert _status(store, project, sid).status == "done"
