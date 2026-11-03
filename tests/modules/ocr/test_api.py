@@ -47,7 +47,9 @@ def _start(client, headers, project, artifact_id: int) -> int:  # noqa: ANN001
 def _until_done(client, headers, url: str) -> dict:  # noqa: ANN001
     for _ in range(400):
         body = client.get(url, headers=headers).json()
-        if body["status"] in ("done", "failed", "paused"):
+        # A page asked for just as a job ends: "done" for a moment, until the job goes again.
+        waiting = any(p["clean_status"] in ("pending", "cleaning") for p in body["pages"])
+        if body["status"] in ("failed", "paused") or (body["status"] == "done" and not waiting):
             return body
         time.sleep(0.02)
     raise AssertionError(f"the job never finished: {body}")

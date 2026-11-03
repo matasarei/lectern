@@ -79,6 +79,8 @@ off, handwritten, has a note.
 - **Re-run** reads a page again, with its usual model or another OCR model (one not
   downloaded is shown greyed out). In a paused session only that page is read.
 - **Clean again** cleans a page again without reading it.
+- Either one asked for while a job runs is done before that job ends: the job goes round again
+  if the page's phase has passed, and those waiting on the session hear after that.
 - **Page notes** are free text, up to 5000 characters, written in the OCR tab or through the
   chat (`ocr.note`). A note goes into that page's cleanup prompt; saving one on a page that's
   already cleaned offers *Clean this page again with this note*. The system prompt tells the

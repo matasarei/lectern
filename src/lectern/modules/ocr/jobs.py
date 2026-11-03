@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 import httpx2
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from lectern.agent.turns import Channel
 from lectern.modules.ocr import store as ocr_store
@@ -96,7 +96,9 @@ class OcrJobs:
         self._queue: collections.deque[_Queued] = collections.deque()
         self._current: Key | None = None
         self._pausing: set[Key] = set()
-        self._starting: set[Key] = set()
+        # Whose job this process holds, from start() until the worker lets go of it. One set read
+        # in one step: a read runs in a thread, while the job moves from the queue to the worker.
+        self._held: set[Key] = set()
         self._pause_signals: dict[Key, asyncio.Event] = {}
         # A paused session asked to read some pages again reads only those, then is paused
         # again with its reason: re-reading one page mustn't restart the whole batch.
@@ -117,9 +119,7 @@ class OcrJobs:
 
     def active(self, key: Key) -> bool:
         """This process is running or holding the session's job."""
-        return (
-            key == self._current or key in self._starting or any(q.key == key for q in self._queue)
-        )
+        return key in self._held
 
     # --- reading a session ---------------------------------------------------------------
 
@@ -130,8 +130,15 @@ class OcrJobs:
         with self.projects.db(project).begin() as session:
             ocr = session.get(OcrSessionRow, session_id)
             if ocr.status in ("queued", "running") and not self.active(key):
-                ocr.status, ocr.paused_reason = "paused", RESTARTED
-                ocr.updated_at = now()
+                # Only over what was read: the job may have ended, and let go, since then.
+                session.execute(
+                    update(OcrSessionRow)
+                    .where(
+                        OcrSessionRow.session_id == session_id, OcrSessionRow.status == ocr.status
+                    )
+                    .values(status="paused", paused_reason=RESTARTED, updated_at=now())
+                )
+                session.refresh(ocr)
             return ocr
 
     def summary(self, project: Project, session_id: int) -> dict:
@@ -167,13 +174,14 @@ class OcrJobs:
         self._pause_signal(key).clear()
         if not self.active(key):
             # "queued" is written before the job can be taken up, so it can't land after the
-            # worker's "running". Marked first, so a second start can't queue it twice.
-            self._starting.add(key)
+            # worker's "running". Held first, so a second start can't queue it twice.
+            self._held.add(key)
             try:
                 await asyncio.to_thread(self._set_status, project, session_id, "queued")
-                self._queue.append(_Queued(key, project))
-            finally:
-                self._starting.discard(key)
+            except BaseException:
+                self._held.discard(key)
+                raise
+            self._queue.append(_Queued(key, project))
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._work(), name="ocr-jobs")
 
@@ -194,7 +202,10 @@ class OcrJobs:
         if not waiting:
             raise NotNow("The session isn't running.")
         self._queue.remove(waiting[0])
-        await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=PAUSED)
+        try:
+            await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=PAUSED)
+        finally:  # after the write: "queued" with no job held would read as a restart
+            self._held.discard(key)
 
     async def rerun(
         self, project: Project, session_id: int, number: int, *, lease_key: str | None
@@ -253,6 +264,7 @@ class OcrJobs:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
+        self._held.clear()
 
     async def forget(self, project_id: int) -> None:
         """A removed project: its sessions leave the queue, the one running is stopped where
@@ -269,6 +281,7 @@ class OcrJobs:
             for key in [k for k in kept if k[0] == project_id]:
                 del kept[key]
         self._pausing = {k for k in self._pausing if k[0] != project_id}
+        self._held = {k for k in self._held if k[0] != project_id}
 
     async def idle(self) -> None:
         """For tests: until the queue is empty and nothing is running."""
@@ -292,10 +305,33 @@ class OcrJobs:
                 )
             finally:
                 self._current = None
+                self._held.discard(queued.key)
                 self._pausing.discard(queued.key)
                 self._pause_signal(queued.key).clear()
                 self._only.pop(queued.key, None)
-            await self.tell(queued.project, queued.key[1])
+            if not await self._asked_for_more(queued):
+                await self.tell(queued.project, queued.key[1])
+
+    async def _asked_for_more(self, queued: _Queued) -> bool:
+        """A page asked for after the job's last look, while it was writing "done": start() saw
+        the job held and queued nothing. The job goes again, and whoever waits hears after it.
+        Asked once the job has let go: a request that saw it held has saved its page by now,
+        and a later one queues itself."""
+        project, session_id = queued.project, queued.key[1]
+        db = await asyncio.to_thread(self.projects.db, project)
+
+        def more() -> bool:
+            done = self._ocr_row(db, session_id).status == "done"
+            return done and self._pages_waiting(db, session_id)
+
+        try:
+            if self.active(queued.key) or not await asyncio.to_thread(more):
+                return False
+            await self.start(project, session_id)
+        except Exception:  # noqa: BLE001 — a job's problem mustn't stop the queue
+            log.exception("Looking for more of OCR session %s failed", session_id)
+            return False
+        return True
 
     def notice(self, project: Project, session_id: int) -> tuple[str, str]:
         """The session's status, and the line that says where it stands: finished, not
@@ -340,10 +376,15 @@ class OcrJobs:
         key = (project.id, session_id)
         db = await asyncio.to_thread(self.projects.db, project)
         await asyncio.to_thread(self._set_status, project, session_id, "running")
-        ocr = await asyncio.to_thread(self._ocr_row, db, session_id)
-        for phase in (self._rasterise, self._recognise, self._clean, self._assemble):
-            if not await phase(project, db, ocr):
-                return
+        while True:
+            ocr = await asyncio.to_thread(self._ocr_row, db, session_id)
+            for phase in (self._rasterise, self._recognise, self._clean, self._assemble):
+                if not await phase(project, db, ocr):
+                    return
+            # A page asked for once its phase had passed: the job goes round again for it.
+            numbers = self._only_pages(key)
+            if not await asyncio.to_thread(self._pages_waiting, db, session_id, numbers):
+                break
         if key in self._only:  # it was paused: it stays paused, the rest of its pages to read
             reason = self._only[key][1]
             await asyncio.to_thread(self._set_status, project, session_id, "paused", reason=reason)
@@ -596,6 +637,16 @@ class OcrJobs:
             query = query.where(OcrPageRow.number.in_(numbers))
         with db() as session:
             return session.scalars(query.order_by(OcrPageRow.number).limit(1)).first()
+
+    @classmethod
+    def _pages_waiting(  # noqa: ANN001 — db is a sessionmaker
+        cls, db, session_id: int, numbers: set[int] | None = None
+    ) -> bool:
+        """A page still to read or to clean."""
+        return (
+            cls._next_page(db, session_id, numbers) is not None
+            or cls._next_to_clean(db, session_id, numbers) is not None
+        )
 
     @staticmethod
     def _ocr_row(db, session_id: int) -> OcrSessionRow:  # noqa: ANN001
