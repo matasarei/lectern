@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Literal
 
 import httpx2
@@ -263,6 +264,10 @@ def _say_loop_left_out(page: CleanedPage, repeated: str, more: int) -> CleanedPa
 
 
 WORDS = re.compile(r"\w{3,}")
+NUMBERS = re.compile(r"\d+")
+# A read line and a written one this alike are one line corrected: "4. Розділі 4" and
+# "4. Розділ 4" are 0.96 alike, while "5. Розділ 5" or another table row is 0.78 or less.
+NEARLY_SAME = 0.9
 ON_PAGE = 0.5  # a block with fewer of its words on the page than this came from elsewhere
 
 
@@ -270,9 +275,17 @@ def _words(text: str) -> set[str]:
     return {w.casefold() for w in WORDS.findall(text)}
 
 
-def _block_words(block: CleanBlock) -> set[str]:
+def _numbers(text: str) -> set[str]:
+    return set(NUMBERS.findall(text))
+
+
+def _block_text(block: CleanBlock) -> str:
     cells = " ".join(" ".join(r) for r in block.rows or [])
-    return _words(f"{block.text} {cells} {block.label or ''}")
+    return f"{block.text} {cells} {block.label or ''}"
+
+
+def _block_words(block: CleanBlock) -> set[str]:
+    return _words(_block_text(block))
 
 
 def _a_words_tail(block: CleanBlock, previous: CleanBlock | None, raw: str) -> bool:
@@ -288,13 +301,25 @@ def _a_words_tail(block: CleanBlock, previous: CleanBlock | None, raw: str) -> b
     return not on_page and len(last) > len(word) and last.endswith(word)
 
 
+def _holds(page_text: str, text: str) -> bool:
+    """`text`, spacing aside, is in the page as whole words: "1. Розділ 1" isn't in
+    "11. Розділ 11"."""
+    wanted = re.escape(" ".join(text.split()))
+    return bool(text.strip()) and re.search(rf"(?<!\w){wanted}(?!\w)", page_text) is not None
+
+
 def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
     """Drop blocks copied from a neighbouring page: most of their words aren't in this page's
     own text but are in a neighbour's. A small model given the neighbours' edges for context
     sometimes copies them, and a sentence twice in a contract is worse than a missing one. A
     block that only repeats the tail of the word before it goes too (`_a_words_tail`). Each
     block left out is listed as a fix, with the reason."""
-    here, there = _words(raw), _words(neighbours)
+    # Numbers count too, however short: "4. Розділ 4" shares only "Розділ" with the next page's
+    # "5. Розділ 5", and its "4" is what says it's this page's (m4.md, pages 4, 7, 10, 11,
+    # where cleanup corrected "Розділі" without listing it). Only a number the neighbours
+    # don't have: the "5" of "до 5 числа" mustn't vouch for a copied "5. Розділ 5".
+    here = _words(raw) | (_numbers(raw) - _numbers(neighbours))
+    there = _words(neighbours) | _numbers(neighbours)
     # A word cleanup corrected is this page's too: "Розділі" read, "Розділ" written. Without
     # it a heading fixed that way looked like the next page's "12. Розділ 12" (m4.md, page 11).
     # Only a fix whose every word was read here: one sharing a single word ("Договір") could
@@ -302,13 +327,18 @@ def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
     for fix in page.fixes:
         if (read := _words(fix.before)) and read <= here:
             here |= _words(fix.after)
+    page_text = " ".join(raw.split())
     kept: list[int] = []
     fixes = list(page.fixes)
     for i, block in enumerate(page.blocks):
-        words = _block_words(block)
+        words = _block_words(block) | _numbers(_block_text(block))
         on_page = len(words & here) / len(words) if words else 1.0
         previous = page.blocks[i - 1] if i > 0 else None
-        if on_page < ON_PAGE and len(words & there) > len(words & here):
+        # Half is a copy too: "2. Розділ 2" on page 1 has "Розділ" here and its "2" only there.
+        # Not when it's on the page word for word, though the next page repeats it: its numbers
+        # can't vouch for it then, and if its words are in another block, nothing brings it back.
+        word_for_word = _holds(page_text, block.text)
+        if not word_for_word and on_page <= ON_PAGE and len(words & there) > len(words & here):
             why = "Left out: it's on a neighbouring page, not this one."
         elif _a_words_tail(block, previous, raw):
             why = "Left out: it repeats the end of the word before it, and isn't on the page."
@@ -469,6 +499,9 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
     # Words the model corrected aren't missing: "0плата" is in the blocks as "Оплата". Only
     # corrections count; what was left out (after "") is exactly what may need putting back.
     corrected = set().union(*(_words(f.before) for f in page.fixes if f.after.strip()))
+    # A line written almost as read was corrected too, listed or not: "4. Розділі 4" read,
+    # "4. Розділ 4" written (m4.md, the re-run), which would otherwise come back beside it.
+    written = [line for b in blocks for line in b.text.splitlines() if line.strip()]
     fixes = list(page.fixes)
     insert_at, missing = 0, []
 
@@ -489,7 +522,9 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
         if not words:
             continue
         shared = [len(words & w) / len(words) for w in covered]
-        if len(words & (set().union(*covered) | corrected)) / len(words) < ON_PAGE:
+        if len(words & (set().union(*covered) | corrected)) / len(words) < ON_PAGE and not any(
+            SequenceMatcher(None, line.strip(), w.strip()).ratio() >= NEARLY_SAME for w in written
+        ):
             if not PAGE_NUMBER.match(line):
                 missing.append(line.strip())
             continue
