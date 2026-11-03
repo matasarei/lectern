@@ -423,8 +423,8 @@ def test_lines_that_arent_a_one_letter_repeat_ask_nothing(pages: list[PageInput]
 
 def test_a_word_on_an_already_questioned_line_isnt_asked_again():
     pages = _lease()
-    pages[2] = _amid(3, heading("3. Розділі 3"),
-                     doubts=[CleanDoubt(block=1, raw="Розділі", candidates=["Розділ"])])  # fmt: skip
+    asked = CleanDoubt(block=1, raw="Розділі", candidates=["Розділ"])
+    pages[2] = _amid(3, heading("3. Розділі 3"), doubts=[asked])
 
     doc = assemble("L", "l.pdf", pages)
 
