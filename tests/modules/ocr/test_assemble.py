@@ -20,6 +20,10 @@ def para(text: str) -> CleanBlock:
     return CleanBlock(type="paragraph", text=text)
 
 
+def heading(text: str) -> CleanBlock:
+    return CleanBlock(type="heading", level=2, text=text)
+
+
 def table(*rows: list[str]) -> CleanBlock:
     return CleanBlock(type="table", rows=[list(r) for r in rows])
 
@@ -72,6 +76,56 @@ def test_a_running_header_merged_into_a_heading_is_taken_off_it():
     texts = [b.text for b in doc.blocks]
     assert "4. Розділ 4" in texts and "Підписи сторін\nДоговір оренди № 17/2026" in texts
     assert not any(t.startswith("Договір оренди") for t in texts)
+
+
+def test_sections_numbered_in_turn_at_the_top_of_pages_stay():
+    """On main since before the M4 re-run: "4. Розділ 4", "5. Розділ 5" and "6. Розділ 6" are
+    alike once digits are set aside, and went as a running header."""
+    pages = [_page(n, heading(f"{n}. Розділ {n}"), para(f"Текст {n}.")) for n in (4, 5, 6, 7)]
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert [t for t in texts if "Розділ" in t] == [f"{n}. Розділ {n}" for n in (4, 5, 6, 7)]
+
+
+def test_a_numbered_heading_with_more_lines_keeps_its_first():
+    pages = [_page(n, heading(f"{n}. Розділ {n}"), para(f"Текст {n}.")) for n in (1, 2, 3)]
+    pages.append(_page(4, heading("4. Розділ 4\nОплата"), para("Текст 4.")))
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert "4. Розділ 4\nОплата" in texts
+
+
+def test_a_header_merged_into_numbered_headings_goes_and_the_headings_stay():
+    """Both at once, as the lease's pages have them: the header's line is a running line, and
+    the numbered line under it isn't."""
+    header = para("Договір оренди № 17/2026")
+    pages = [_page(n, header, heading(f"{n}. Розділ {n}"), para(f"Текст {n}.")) for n in (1, 2, 3)]
+    pages += [
+        _page(n, heading(f"Договір оренди № 17/2026\n{n}. Розділ {n}"), para(f"Текст {n}."))
+        for n in (4, 5, 6)
+    ]
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert [t for t in texts if "Розділ" in t] == [f"{n}. Розділ {n}" for n in range(1, 7)]
+    assert not any("Договір оренди" in t for t in texts)
+
+
+def test_a_numbered_heading_typed_as_a_paragraph_on_some_pages_stays():
+    """Cleanup doesn't type a page's heading the same way every time (the M4 re-run did both).
+    A leftover line can be removed in the review; a lost one can't be noticed."""
+    pages = [_page(n, heading(f"{n}. Розділ {n}"), para(f"Текст {n}.")) for n in (1, 2)]
+    pages += [_page(n, para(f"{n}. Розділ {n}"), para(f"Текст {n}.")) for n in (3, 4)]
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert [t for t in texts if "Розділ" in t] == [f"{n}. Розділ {n}" for n in (1, 2, 3, 4)]
+
+
+def test_a_heading_repeated_word_for_word_is_still_a_running_header():
+    pages = [_page(n, heading("Договір оренди № 17/2026"), para(f"Текст {n}.")) for n in (1, 2, 3)]
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert texts == ["Текст 1.", "Текст 2.", "Текст 3."]
+
+
+def test_a_paragraph_numbered_page_by_page_is_still_a_running_line():
+    pages = [_page(n, para(f"Договір, аркуш {n}"), para(f"Текст {n}.")) for n in (1, 2, 3)]
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert texts == ["Текст 1.", "Текст 2.", "Текст 3."]
 
 
 def test_a_merged_header_and_heading_alike_on_many_pages_loses_only_the_header():
