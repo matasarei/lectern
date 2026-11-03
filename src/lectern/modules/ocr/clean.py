@@ -320,6 +320,7 @@ def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
     for fix in page.fixes:
         if (read := _words(fix.before)) and read <= here:
             here |= _words(fix.after)
+    page_text = " ".join(raw.split())
     kept: list[int] = []
     fixes = list(page.fixes)
     for i, block in enumerate(page.blocks):
@@ -327,8 +328,10 @@ def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
         on_page = len(words & here) / len(words) if words else 1.0
         previous = page.blocks[i - 1] if i > 0 else None
         # Half is a copy too: "2. Розділ 2" on page 1 has "Розділ" here and its "2" only there.
-        # A real line taken this way comes back from the reading (`restore_missing_lines`).
-        if on_page <= ON_PAGE and len(words & there) > len(words & here):
+        # Not when it's on the page word for word, though the next page repeats it: its numbers
+        # can't vouch for it then, and if its words are in another block, nothing brings it back.
+        word_for_word = block.text and " ".join(block.text.split()) in page_text
+        if not word_for_word and on_page <= ON_PAGE and len(words & there) > len(words & here):
             why = "Left out: it's on a neighbouring page, not this one."
         elif _a_words_tail(block, previous, raw):
             why = "Left out: it repeats the end of the word before it, and isn't on the page."

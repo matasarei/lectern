@@ -305,6 +305,21 @@ def test_the_next_pages_heading_written_over_this_pages_own_goes_and_its_own_com
     assert [b.text for b in page.blocks] == ["Договір оренди № 17/2026", "1. Розділ 1", body]
 
 
+def test_a_line_on_the_page_word_for_word_stays_though_the_next_page_repeats_it():
+    """Its numbers are the neighbour's too, so they can't vouch for it, and its words are in
+    the next paragraph, so nothing would bring it back."""
+    line = "Сума 18 500,00"
+    body = "Орендна плата: сума 18 500,00 на місяць."
+    reply = {
+        "blocks": [{"type": "paragraph", "text": line}, {"type": "paragraph", "text": body}],
+        "doubts": [],
+        "fixes": [],
+    }
+    after = f"{line}\nІнший текст наступної сторінки."
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 4, f"{line}\n{body}", after=after))
+    assert [b.text for b in page.blocks] == [line, body]
+
+
 def test_a_heading_whose_number_the_next_page_also_has_isnt_lost():
     """Its "4" can't vouch for it, as the next page has one too, so it may be left out as a
     copy; the line comes back from the reading."""
