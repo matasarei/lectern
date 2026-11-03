@@ -117,7 +117,7 @@ export function ModelsPage() {
         <Card title={t("memory.title")}>
           <MemoryGauge
             budget={runtime.data.budget}
-            unified={runtime.data.unified}
+            unified={runtime.data.unified || runtime.data.shared}
             residents={runtime.data.residents}
           />
           <p className="text-sm text-muted">

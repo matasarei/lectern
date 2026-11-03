@@ -10,6 +10,7 @@ export interface Gpu {
   memory_total: number;
   memory_free: number | null;
   unified: boolean;
+  shared: boolean; // an integrated GPU on a PC: what it uses is system RAM
   cuda_driver: string | null;
 }
 
@@ -168,6 +169,7 @@ export interface RuntimeState {
   tier: Tier;
   budget: number;
   unified: boolean;
+  shared: boolean; // the GPU's memory is system RAM, so a model is fitted to what's free
   used: number;
   swaps: number;
   waiting: number;

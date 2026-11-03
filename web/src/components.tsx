@@ -34,7 +34,7 @@ export function HardwareRows({ system }: { system: SystemReport }) {
       <Row label={t("hardware.gpu")} value={gpu ? gpu.name : t("hardware.noGpu")} />
       {gpu && (
         <Row
-          label={gpu.unified ? t("hardware.gpuBudgetUnified") : t("hardware.gpuBudget")}
+          label={gpu.unified || gpu.shared ? t("hardware.gpuBudgetUnified") : t("hardware.gpuBudget")}
           value={formatMemory(hardware.gpu_budget)}
         />
       )}

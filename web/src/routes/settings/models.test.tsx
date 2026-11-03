@@ -267,6 +267,13 @@ describe("Models & memory", () => {
     );
   });
 
+  it("calls a GPU sharing system RAM's budget what the GPU can use, not video memory", async () => {
+    overrides = { "/api/runtime": { ...(RESPONSES["/api/runtime"] as object), shared: true } };
+    renderPage();
+    expect(await screen.findByText("Memory the GPU can use")).toBeTruthy();
+    expect(screen.queryByText("Video memory for models")).toBeNull();
+  });
+
   it("says an OCR job waits for the chat, not for memory", async () => {
     overrides["/api/runtime"] = {
       ...(RESPONSES["/api/runtime"] as object), waiting: 1, activity: null,
