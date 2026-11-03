@@ -126,6 +126,20 @@ lease would unload the chat model waits until the chat has been idle for two min
 **Start now** is pressed; an OCR job gives its lease back after every page, so a chat gets in
 between pages.
 
+An integrated GPU on a PC has no memory of its own: what it uses is system RAM, shared with
+everything else. llama.cpp's Vulkan build says which GPU is which (`uma: 1` in what
+`llama-server -v --list-devices` logs, `hardware/vulkan.py`); nothing else is reliable, as an
+8 GB card in a 16 GB PC has the same share of RAM as an integrated GPU allowed half of it. If a
+discrete GPU is listed too, the budget and the tier come from it. On an integrated GPU alone the
+tier is what its memory gives, as for a card, but a model must also fit what the system can
+spare at that moment: RAM free now, plus what the loaded models hold, less 2 GB. The planner
+then tries a shorter context, and the runtime unloads idle models or waits for one in use, as it
+does for the budget. A model that doesn't fit even alone at the smallest context is refused
+whatever its role, with what it needs, what can be spared, and to close some apps, since putting
+layers on the CPU would keep them in the same RAM. A model over the GPU's share but within what
+can be spared does spill. None of this has been run on a real integrated GPU yet
+([`acceptance/m4.md`](acceptance/m4.md)).
+
 On Windows a model that fits the GPU can still run out the commit (RAM and page file
 together): Windows backs GPU memory with it, and a llama-server commits about 1.5 times the
 planner's estimate (measured: PaddleOCR-VL 3.25 GB of an estimated 2.06, the 9B 8.28 of 6.08).

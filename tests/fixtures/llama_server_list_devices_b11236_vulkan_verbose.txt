@@ -1,0 +1,8 @@
+0.00.015.371 I load_backend: loaded RPC backend from /vk/libggml-rpc.so
+0.00.074.354 D ggml_vulkan: Found 1 Vulkan devices:
+0.00.075.586 D ggml_vulkan: 0 = llvmpipe (LLVM 20.1.2, 128 bits) (llvmpipe) | uma: 0 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 4 | shared memory: 32768 | int dot: 0 | matrix cores: none
+0.00.075.594 D ggml_vulkan: Warning: Device type is CPU. This is probably not the device you want.
+0.00.075.605 I load_backend: loaded Vulkan backend from /vk/libggml-vulkan.so
+0.00.102.229 I load_backend: loaded CPU backend from /vk/libggml-cpu-armv8.2_2.so
+Available devices:
+  Vulkan0: llvmpipe (LLVM 20.1.2, 128 bits) (15719 MiB, 10860 MiB free)

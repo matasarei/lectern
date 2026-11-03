@@ -37,7 +37,7 @@ const RESPONSES: Record<string, unknown> = {
       os: "linux", arch: "x86_64", cpu: "Ryzen", cpu_cores: 8, ram_total: 16 * GIB,
       ram_available: 8 * GIB, gpu_budget: 7.4 * GIB,
       gpus: [{ vendor: "nvidia", name: "RTX 4060", memory_total: 8 * GIB, memory_free: 6 * GIB,
-               unified: false, cuda_driver: "13.0" }],
+               unified: false, shared: false, cuda_driver: "13.0" }],
     },
     tier: "recommended",
     disk_free: 100 * 10 ** 9,
@@ -265,6 +265,49 @@ describe("Models & memory", () => {
     await waitFor(() =>
       expect(posts).toEqual([{ url: "/api/models/coder-7b/download", body: { accept_licence: true } }]),
     );
+  });
+
+  it("calls a GPU sharing system RAM's budget what the GPU can use, not video memory", async () => {
+    const system = RESPONSES["/api/system"] as { hardware: { gpus: object[] } };
+    overrides = {
+      "/api/runtime": { ...(RESPONSES["/api/runtime"] as object), shared: true },
+      "/api/system": {
+        ...system,
+        hardware: { ...system.hardware, gpus: [{ ...system.hardware.gpus[0], shared: true }] },
+      },
+    };
+    renderPage();
+    expect((await screen.findAllByText("Memory the GPU can use")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Video memory for models")).toBeNull();
+  });
+
+  it("describes the GPU with its own memory when an integrated one is listed first", async () => {
+    const system = RESPONSES["/api/system"] as { hardware: { gpus: object[] } };
+    const integrated = { ...system.hardware.gpus[0], name: "Intel UHD 770", shared: true };
+    overrides = {
+      "/api/system": {
+        ...system,
+        hardware: { ...system.hardware, gpus: [integrated, system.hardware.gpus[0]] },
+      },
+    };
+    renderPage();
+    expect(await screen.findByText("RTX 4060")).toBeTruthy();
+    expect(screen.queryByText("Intel UHD 770")).toBeNull();
+    expect(screen.queryByText("Memory the GPU can use")).toBeNull();
+  });
+
+  it("describes the biggest GPU when two have their own memory", async () => {
+    const system = RESPONSES["/api/system"] as { hardware: { gpus: object[] } };
+    const small = { ...system.hardware.gpus[0], name: "RX 6400", memory_total: 4 * GIB };
+    overrides = {
+      "/api/system": {
+        ...system,
+        hardware: { ...system.hardware, gpus: [small, system.hardware.gpus[0]] },
+      },
+    };
+    renderPage();
+    expect(await screen.findByText("RTX 4060")).toBeTruthy();
+    expect(screen.queryByText("RX 6400")).toBeNull();
   });
 
   it("says an OCR job waits for the chat, not for memory", async () => {

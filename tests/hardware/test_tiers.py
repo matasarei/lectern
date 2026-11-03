@@ -116,3 +116,23 @@ def test_no_override_means_detection(monkeypatch):
 
     monkeypatch.delenv("LECTERN_TIER", raising=False)
     assert effective_tier(_mac(48)) is Tier.COMFORTABLE
+
+
+def _shared(*gpus: Gpu) -> HardwareInfo:
+    return HardwareInfo(
+        os="windows", arch="x86_64", cpu="cpu", cpu_cores=8, ram_total=16 * GIB,
+        ram_available=8 * GIB, gpus=list(gpus), gpu_budget=gpu_budget(list(gpus)),
+    )  # fmt: skip
+
+
+def test_an_integrated_gpu_keeps_the_tier_its_memory_gives():
+    """Decided in #151: running on one is an exception, not a setup to plan for."""
+    arc = Gpu("intel", "Arc Graphics", 9400 * MIB, 8293 * MIB, unified=False, shared=True)
+    plain = Gpu("intel", "Arc Graphics", 9400 * MIB, 8293 * MIB, unified=False)
+    assert tier_for(_shared(arc)) == tier_for(_shared(plain)) == Tier.RECOMMENDED
+
+
+def test_the_tier_comes_from_the_discrete_gpu_when_both_are_there():
+    integrated = Gpu("intel", "UHD 770", 16 * GIB, 16 * GIB, unified=False, shared=True)
+    card = Gpu("amd", "RX 6400", 4 * GIB, 4 * GIB, unified=False)
+    assert tier_for(_shared(integrated, card)) == Tier.MINIMUM

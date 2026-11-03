@@ -31,6 +31,7 @@ class Gpu:
     unified: bool  # shares system RAM (Apple Silicon)
     cuda_driver: str | None = None  # e.g. "13.0"; NVIDIA only
     compute_capability: str | None = None  # e.g. "6.1" for Pascal; NVIDIA only
+    shared: bool = False  # an integrated GPU on a PC: what it uses is system RAM, free or not
 
 
 @dataclass(frozen=True)
@@ -56,12 +57,18 @@ def current_os() -> OsName:
     return "linux"
 
 
+def best_gpu(gpus: list[Gpu]) -> Gpu:
+    """The GPU models are planned for: the biggest with memory of its own. An integrated GPU
+    only when there's no other, as what it reports is every heap of system RAM together."""
+    return max(gpus, key=lambda g: (not g.shared, g.memory_total))
+
+
 def gpu_budget(gpus: list[Gpu], *, apple_budget: int | None = None) -> int:
     """How much GPU memory models may use: the biggest card minus the display margin,
     or the Apple GPU wired-memory limit on unified memory."""
     if not gpus:
         return 0
-    best = max(gpus, key=lambda g: g.memory_total)
+    best = best_gpu(gpus)
     if best.unified:
         return apple_budget or 0
     return max(best.memory_total - DISPLAY_MARGIN_BYTES, 0)
@@ -93,6 +100,11 @@ def commit_available() -> int | None:
     if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
         return None
     return int(status.ullAvailPageFile)
+
+
+def ram_available() -> int:
+    """Bytes of system RAM free now, the page cache the OS can give back included."""
+    return psutil.virtual_memory().available
 
 
 def windows_cpu_name() -> str | None:

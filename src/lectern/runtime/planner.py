@@ -116,10 +116,13 @@ def plan(
     unified: bool,
     overhead: int = DEFAULT_OVERHEAD,
     chat: bool = False,
+    spare: int | None = None,
 ) -> FitPlan:
     """Choose context and KV type. `budget` is what models may use in total, `resident` what the
-    already-loaded models hold. Raises DoesNotFit when only a CPU spill is left and chat would
-    fall below the speed floor."""
+    already-loaded models hold. On a GPU that shares system RAM, `spare` is the RAM models may
+    have right now, the loaded ones' included: the smaller of the two is what fits. Raises
+    DoesNotFit when only a CPU spill is left and chat would fall below the speed floor, or when
+    even the smallest context is over `spare`, since a spill stays in the same RAM."""
 
     def fit_target(res: int) -> int:
         # Discrete GPUs report free memory after other processes' allocations; Apple's unified
@@ -130,8 +133,9 @@ def plan(
     # Sharing the GPU may cost a q8_0 KV cache, never context: a shorter context is only for a
     # model that has the GPU to itself. Otherwise the supervisor swaps.
     passes = [(resident, tries[:2]), (0, tries)] if resident > 0 else [(0, tries)]
+    limit = budget if spare is None else min(budget, spare)
     for res, options in passes:
-        free = budget - res
+        free = limit - res
         for ctx, kv_type in options:
             est = weights + kv_bytes(shape, ctx, kv_type) + overhead
             if est <= free:
@@ -140,11 +144,18 @@ def plan(
     # Not even alone on the GPU: llama.cpp will spill layers to the CPU at the smallest context.
     ctx, kv_type = tries[-1]
     est = weights + kv_bytes(shape, ctx, kv_type) + overhead
+    if spare is not None and est > spare:
+        raise DoesNotFit(
+            f"This model needs about {est / GIB:.1f} GB and only {max(spare, 0) / GIB:.1f} GB of "
+            "RAM can be spared. This GPU shares system RAM: close some apps to free memory, "
+            "then try again."
+        )
     gpu_share = max(0.0, min(1.0, budget / est)) if budget > 0 else 0.0
     tps = predicted_tps(weights, gpu_share, tier)
     if chat and tps < CHAT_SPEED_FLOOR:
+        advice = "" if spare is not None else " Choose a smaller model."
         raise DoesNotFit(
             f"Only {gpu_share:.0%} of the model fits on the GPU; chat would run at about "
-            f"{tps:.1f} tokens/s, below {CHAT_SPEED_FLOOR:.0f}. Choose a smaller model."
+            f"{tps:.1f} tokens/s, below {CHAT_SPEED_FLOOR:.0f}.{advice}"
         )
     return FitPlan(ctx, kv_type, est, fit_target(0), False, False, tps)

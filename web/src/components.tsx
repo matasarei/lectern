@@ -25,7 +25,10 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
 export function HardwareRows({ system }: { system: SystemReport }) {
   const { t } = useTranslation();
   const { hardware } = system;
-  const gpu = hardware.gpus[0];
+  // The one the budget comes from (best_gpu, probe.py): the biggest with memory of its own.
+  const gpu = [...hardware.gpus].sort(
+    (a, b) => Number(a.shared) - Number(b.shared) || b.memory_total - a.memory_total,
+  )[0];
   return (
     <>
       <Row label={t("hardware.os")} value={t(`hardware.osNames.${hardware.os}`)} />
@@ -34,7 +37,7 @@ export function HardwareRows({ system }: { system: SystemReport }) {
       <Row label={t("hardware.gpu")} value={gpu ? gpu.name : t("hardware.noGpu")} />
       {gpu && (
         <Row
-          label={gpu.unified ? t("hardware.gpuBudgetUnified") : t("hardware.gpuBudget")}
+          label={gpu.unified || gpu.shared ? t("hardware.gpuBudgetUnified") : t("hardware.gpuBudget")}
           value={formatMemory(hardware.gpu_budget)}
         />
       )}

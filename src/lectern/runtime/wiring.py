@@ -12,7 +12,7 @@ from lectern.catalog import catalog
 from lectern.config import Paths
 from lectern.core import settings
 from lectern.downloads.manager import DownloadManager
-from lectern.hardware.probe import HardwareInfo, commit_available
+from lectern.hardware.probe import HardwareInfo, best_gpu, commit_available, ram_available
 from lectern.hardware.tiers import Tier, effective_tier
 from lectern.runners import mlx
 from lectern.runners.base import Runner
@@ -156,6 +156,7 @@ def build_runtime(
     tier = effective_tier(hw)
     budget, _source = budget_for(hw)
     unified = not hw.gpus or any(g.unified for g in hw.gpus)
+    shared = bool(hw.gpus) and best_gpu(hw.gpus).shared
     installer = LlamaCppInstaller(paths.runners)
     keep_installed_models(sessions, downloads, tier)
 
@@ -280,6 +281,7 @@ def build_runtime(
         if chat_during_job == "pause_job_after_current_item"
         else 0,
         commit_available=commit_available,
+        ram_available=ram_available if shared else lambda: None,
     )
     runtime.cleanup_key = cleanup_key
     runtime.cleanup_default = cleanup_default
