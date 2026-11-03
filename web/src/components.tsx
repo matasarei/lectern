@@ -25,8 +25,10 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
 export function HardwareRows({ system }: { system: SystemReport }) {
   const { t } = useTranslation();
   const { hardware } = system;
-  // The one the budget comes from: an integrated GPU only when it's alone (best_gpu, probe.py).
-  const gpu = hardware.gpus.find((g) => !g.shared) ?? hardware.gpus[0];
+  // The one the budget comes from (best_gpu, probe.py): the biggest with memory of its own.
+  const gpu = [...hardware.gpus].sort(
+    (a, b) => Number(a.shared) - Number(b.shared) || b.memory_total - a.memory_total,
+  )[0];
   return (
     <>
       <Row label={t("hardware.os")} value={t(`hardware.osNames.${hardware.os}`)} />

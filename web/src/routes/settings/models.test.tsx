@@ -37,7 +37,7 @@ const RESPONSES: Record<string, unknown> = {
       os: "linux", arch: "x86_64", cpu: "Ryzen", cpu_cores: 8, ram_total: 16 * GIB,
       ram_available: 8 * GIB, gpu_budget: 7.4 * GIB,
       gpus: [{ vendor: "nvidia", name: "RTX 4060", memory_total: 8 * GIB, memory_free: 6 * GIB,
-               unified: false, cuda_driver: "13.0" }],
+               unified: false, shared: false, cuda_driver: "13.0" }],
     },
     tier: "recommended",
     disk_free: 100 * 10 ** 9,
@@ -294,6 +294,20 @@ describe("Models & memory", () => {
     expect(await screen.findByText("RTX 4060")).toBeTruthy();
     expect(screen.queryByText("Intel UHD 770")).toBeNull();
     expect(screen.queryByText("Memory the GPU can use")).toBeNull();
+  });
+
+  it("describes the biggest GPU when two have their own memory", async () => {
+    const system = RESPONSES["/api/system"] as { hardware: { gpus: object[] } };
+    const small = { ...system.hardware.gpus[0], name: "RX 6400", memory_total: 4 * GIB };
+    overrides = {
+      "/api/system": {
+        ...system,
+        hardware: { ...system.hardware, gpus: [small, system.hardware.gpus[0]] },
+      },
+    };
+    renderPage();
+    expect(await screen.findByText("RTX 4060")).toBeTruthy();
+    expect(screen.queryByText("RX 6400")).toBeNull();
   });
 
   it("says an OCR job waits for the chat, not for memory", async () => {
