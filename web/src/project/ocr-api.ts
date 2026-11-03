@@ -241,6 +241,7 @@ export function openQuestions(doc: OcrDocument): DocDoubt[] {
  * to bottom); null when none is open. */
 export function firstOpenQuestion(doc: OcrDocument): DocDoubt | null {
   const open = openQuestions(doc);
+  if (open.length === 0) return null;
   const page = Math.min(...open.map(doubtPage));
   return open.find((q) => doubtPage(q) === page) ?? null;
 }

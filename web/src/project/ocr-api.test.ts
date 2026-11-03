@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOcrEvent,
   applyToLive,
+  firstOpenQuestion,
   nextPageWithQuestions,
   pageBlocks,
   pageQuestions,
@@ -68,6 +69,21 @@ describe("applyToLive", () => {
 });
 
 describe("the Document's questions", () => {
+  it("finds the first open one: the lowest page, then top to bottom", () => {
+    const doc = documentOf([
+      block("b2.1", "{d2.1}", { doubts: [doubt("d2.1", "a?")] }),
+      block("b1.1", "{d1.1}", { doubts: [doubt("d1.1", "b?", { status: "resolved", value: "b" })] }),
+      block("b1.2", "{d1.2} {d1.3}", { doubts: [doubt("d1.2", "c?"), doubt("d1.3", "d?")] }),
+    ]);
+    expect(firstOpenQuestion(doc)?.id).toBe("d1.2");
+  });
+
+  it("finds none when every question is answered, or there were none", () => {
+    expect(firstOpenQuestion(documentOf([block("b1.1", "Текст", {})]))).toBeNull();
+    const answered = block("b1.1", "{d1.1}", { doubts: [doubt("d1.1", "b?", { status: "resolved", value: "b" })] });
+    expect(firstOpenQuestion(documentOf([answered]))).toBeNull();
+  });
+
   const doc = documentOf([
     block("b1.1", "Оплата до {d1.1} числа, {d2.1}", {
       pages: [1, 2],

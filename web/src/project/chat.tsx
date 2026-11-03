@@ -328,7 +328,6 @@ export function groupReplies(messages: ChatMessage[], breaks: number[]): Group[]
   return groups;
 }
 
-/** Whether a reply has anything of its own to show (tool results only show under their call). */
 /** The newest message that draws a live line for each OCR session (a session's id → the
  * message's): a notice from the model, or ocr.start's result. */
 function newestAboutSession(messages: ChatMessage[]): Map<number, number> {
@@ -340,6 +339,7 @@ function newestAboutSession(messages: ChatMessage[]): Map<number, number> {
   return newest;
 }
 
+/** Whether a reply has anything of its own to show (tool results only show under their call). */
 function shows(group: Group): boolean {
   return group.messages.some((m) => m.role === "assistant" && (m.content || m.tool_calls?.length));
 }
