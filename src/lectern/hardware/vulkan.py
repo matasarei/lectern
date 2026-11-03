@@ -3,6 +3,12 @@
 NVML only knows NVIDIA cards. For everything else, `llama-server --list-devices` reports what
 the Vulkan backend can use, in one format for every backend (llama.cpp common/arg.cpp):
 `  <name>: <description> (<total> MiB, <free> MiB free)`.
+
+Whether a device is integrated, and so shares system RAM, isn't in that line. The Vulkan backend
+logs it at debug level as it starts (`ggml_vulkan: 0 = <name> (<driver>) | uma: 1 | ...`,
+ggml-vulkan.cpp), which `-v` shows when it comes before `--list-devices`, since that option exits
+as soon as it's parsed. The memory can't tell: an 8 GB card in a 16 GB machine has the same
+share of RAM as an integrated GPU allowed half of it.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ MIB = 1024**2
 _LINE = re.compile(
     r"^\s+(?P<name>[^:]+):\s+(?P<desc>.*)\s+\((?P<total>\d+) MiB, (?P<free>\d+) MiB free\)\s*$"
 )
+_TYPE = re.compile(r"ggml_vulkan: (?P<index>\d+) = .*\| uma: (?P<uma>[01]) \|")
 
 
 @dataclass(frozen=True)
@@ -29,9 +36,11 @@ class Device:
     description: str  # e.g. "AMD Radeon RX 7600"
     total: int  # bytes
     free: int  # bytes
+    uma: bool = False  # integrated: its memory is system RAM. False when the log doesn't say
 
 
 def parse_devices(output: str) -> list[Device]:
+    integrated = {f"Vulkan{m['index']}" for m in _TYPE.finditer(output) if m["uma"] == "1"}
     devices = []
     for line in output.splitlines():
         match = _LINE.match(line)
@@ -42,6 +51,7 @@ def parse_devices(output: str) -> list[Device]:
                     description=match["desc"].strip(),
                     total=int(match["total"]) * MIB,
                     free=int(match["free"]) * MIB,
+                    uma=match["name"].strip() in integrated,
                 )
             )
     return devices
@@ -50,7 +60,7 @@ def parse_devices(output: str) -> list[Device]:
 def list_devices(server: Path) -> list[Device]:
     try:
         result = subprocess.run(  # noqa: S603 (fixed argv, no shell)
-            [str(server), "--list-devices"], capture_output=True, text=True, timeout=30
+            [str(server), "-v", "--list-devices"], capture_output=True, text=True, timeout=30
         )
     except (OSError, subprocess.SubprocessError):
         return []
@@ -84,6 +94,7 @@ def gpus_from_devices(devices: list[Device]) -> list[Gpu]:
             memory_total=d.total,
             memory_free=d.free,
             unified=False,
+            shared=d.uma,
         )
         for d in devices
         if d.name.lower().startswith("vulkan") and d.total > 0

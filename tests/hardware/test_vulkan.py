@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from lectern.hardware import vulkan
@@ -45,6 +46,61 @@ def test_only_vulkan_devices_become_gpus():
         ("amd", 8176, False),
         ("intel", 6064, False),
     ]
+
+
+def _verbose(*devices: tuple[int, str, int, int, int]) -> str:
+    """`llama-server -v --list-devices`: the device's type, then the list (line as in the
+    capture below, b11236, ggml_vk_print_gpu_info)."""
+    types = [
+        f"0.00.026.854 D ggml_vulkan: {i} = {name} (driver) | uma: {uma} | fp16: 1 | bf16: 0 | "
+        "fp4: 0 | warp size: 32 | shared memory: 32768 | int dot: 1 | matrix cores: none\n"
+        for i, name, uma, _, _ in devices
+    ]
+    listed = [
+        f"  Vulkan{i}: {name} ({total} MiB, {free} MiB free)\n"
+        for i, name, _, total, free in devices
+    ]
+    return "".join(types) + "Available devices:\n" + "".join(listed)
+
+
+def test_a_real_verbose_capture_parses_and_says_its_type():
+    output = (FIXTURES / "llama_server_list_devices_b11236_vulkan_verbose.txt").read_text()
+    (device,) = vulkan.parse_devices(output)
+    assert device.name == "Vulkan0" and device.description.startswith("llvmpipe (LLVM")
+    assert device.total == 15719 * MIB and device.uma is False
+
+
+def test_an_integrated_gpu_shares_system_ram_and_stays_not_unified():
+    output = _verbose((0, "Intel(R) Arc(TM) Graphics", 1, 9400, 8293))
+    (gpu,) = vulkan.gpus_from_devices(vulkan.parse_devices(output))
+    assert (gpu.vendor, gpu.shared, gpu.unified) == ("intel", True, False)
+
+
+def test_each_device_gets_its_own_type():
+    output = _verbose(
+        (0, "AMD Radeon RX 7600", 0, 8176, 7900), (1, "Intel(R) UHD 770", 1, 16000, 15000)
+    )
+    gpus = vulkan.gpus_from_devices(vulkan.parse_devices(output))
+    assert [g.shared for g in gpus] == [False, True]
+
+
+def test_a_device_with_no_type_line_counts_as_having_its_own_memory():
+    (gpu, _) = vulkan.gpus_from_devices(vulkan.parse_devices(VULKAN_OUTPUT))
+    assert gpu.shared is False
+
+
+def test_the_list_is_asked_for_with_the_verbose_flag_first(tmp_path, monkeypatch):
+    """The type is logged at debug level, and `--list-devices` exits as soon as it's parsed, so
+    a `-v` after it does nothing (b11236, seen in a real run)."""
+    asked: list[list[str]] = []
+
+    def run(argv, **_):  # noqa: ANN001, ANN003
+        asked.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr=VULKAN_OUTPUT)
+
+    monkeypatch.setattr(vulkan.subprocess, "run", run)
+    assert len(vulkan.list_devices(tmp_path / "llama-server")) == 2
+    assert asked[0][1:] == ["-v", "--list-devices"]
 
 
 def test_no_devices_line_gives_nothing():
