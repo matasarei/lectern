@@ -286,6 +286,43 @@ def test_the_next_pages_heading_copied_here_is_still_left_out(raw):  # noqa: ANN
     assert [b.text for b in page.blocks] == [raw]
 
 
+def test_the_next_pages_heading_written_over_this_pages_own_goes_and_its_own_comes_back():
+    """The M4 Mac run, page 1: the 4B wrote "2. Розділ 2" for "1. Розділ 1". Half its words are
+    on the page ("Розділ"), so it stayed, and "1. Розділ 1" looked covered by it."""
+    body = "Орендна плата становить 18 500,00 грн на місяць."
+    raw = f"Договір оренди № 17/2026\n1. Розділ 1\n{body}\n1"
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 1, "text": "Договір оренди № 17/2026"},
+            {"type": "heading", "level": 2, "text": "2. Розділ 2"},
+            {"type": "paragraph", "text": body},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    after = "Договір оренди № 17/2026\n2. Розділ 2\nОрендар утримує приміщення."
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, raw, after=after))
+    assert [b.text for b in page.blocks] == ["Договір оренди № 17/2026", "1. Розділ 1", body]
+
+
+def test_a_heading_whose_number_the_next_page_also_has_isnt_lost():
+    """Its "4" can't vouch for it, as the next page has one too, so it may be left out as a
+    copy; the line comes back from the reading."""
+    body = "Орендна плата становить 18 500,00 грн на місяць."
+    raw = f"4. Розділ 4\n{body}"
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "4. Розділ 4"},
+            {"type": "paragraph", "text": body},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    after = "5. Розділ 5\nОплата до 4 числа кожного місяця."
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 4, raw, after=after))
+    assert [b.text for b in page.blocks] == ["4. Розділ 4", body]
+
+
 @pytest.mark.parametrize(
     "fix",
     [
