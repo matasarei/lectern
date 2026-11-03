@@ -153,6 +153,46 @@ def test_background_jobs_may_run_slowly():
     assert not p.on_gpu and p.predicted_tps < CHAT_SPEED_FLOOR
 
 
+def test_short_of_spare_ram_a_shared_gpu_takes_a_shorter_context():
+    roomy = _plan(weights=3 * GIB, budget=8 * GIB, tier_ctx=65536)
+    short = _plan(weights=3 * GIB, budget=8 * GIB, tier_ctx=65536, spare=roomy.est_bytes - 1)
+    assert short.ctx < roomy.ctx and short.est_bytes <= roomy.est_bytes - 1 and short.on_gpu
+
+
+@pytest.mark.parametrize("chat", [True, False])
+def test_a_model_over_what_can_be_spared_is_refused_for_every_role(chat):
+    """Spilling layers to the CPU saves nothing here: they're in the same RAM."""
+    with pytest.raises(DoesNotFit) as refused:
+        _plan(weights=6 * GIB, budget=8 * GIB, spare=int(4.2 * GIB), chat=chat)
+    message = str(refused.value)
+    assert "4.2 GB" in message and "shares system RAM" in message and "close some apps" in message
+    assert "6." in message  # what it needs, in the same units
+    assert "smaller" not in message
+
+
+def test_nothing_to_spare_doesnt_read_as_a_negative_amount():
+    with pytest.raises(DoesNotFit, match="only 0.0 GB of RAM"):
+        _plan(weights=6 * GIB, budget=8 * GIB, spare=-1 * GIB)
+
+
+def test_over_the_gpus_share_but_within_what_can_be_spared_it_spills_as_before():
+    p = _plan(weights=6 * GIB, budget=4 * GIB, spare=12 * GIB)
+    assert not p.on_gpu and p.predicted_tps is not None
+
+
+def test_a_shared_gpus_chat_too_slow_to_use_isnt_told_to_choose_a_smaller_model():
+    """Decided in #151: this GPU is the exception, and the person's model isn't the problem."""
+    with pytest.raises(DoesNotFit, match="tokens/s") as refused:
+        _plan(weights=20 * GIB, budget=2 * GIB, spare=40 * GIB, chat=True)
+    assert "smaller" not in str(refused.value)
+
+
+def test_without_a_figure_for_spare_ram_nothing_changes():
+    assert _plan(weights=3 * GIB, budget=8 * GIB) == _plan(
+        weights=3 * GIB, budget=8 * GIB, spare=None
+    )
+
+
 def test_fit_target_keeps_other_models_out_only_on_unified_memory():
     discrete = _plan(budget=40 * GIB, resident=2 * GIB, unified=False)
     unified = _plan(budget=40 * GIB, resident=2 * GIB, unified=True)
