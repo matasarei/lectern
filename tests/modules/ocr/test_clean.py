@@ -320,6 +320,23 @@ def test_a_line_on_the_page_word_for_word_stays_though_the_next_page_repeats_it(
     assert [b.text for b in page.blocks] == [line, body]
 
 
+def test_a_copy_found_only_inside_a_longer_line_is_still_a_copy():
+    """"1. Розділ 1" is in "11. Розділ 11", and isn't that line."""
+    body = "Орендна плата становить 18 500,00 грн на місяць."
+    reply = {
+        "blocks": [
+            {"type": "heading", "level": 2, "text": "11. Розділ 11"},
+            {"type": "heading", "level": 2, "text": "1. Розділ 1"},
+            {"type": "paragraph", "text": body},
+        ],
+        "doubts": [],
+        "fixes": [],
+    }
+    raw = f"11. Розділ 11\n{body}"
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 11, raw, after="1. Розділ 1"))
+    assert [b.text for b in page.blocks] == ["11. Розділ 11", body]
+
+
 def test_a_heading_whose_number_the_next_page_also_has_isnt_lost():
     """Its "4" can't vouch for it, as the next page has one too, so it may be left out as a
     copy; the line comes back from the reading."""

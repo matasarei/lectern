@@ -301,6 +301,13 @@ def _a_words_tail(block: CleanBlock, previous: CleanBlock | None, raw: str) -> b
     return not on_page and len(last) > len(word) and last.endswith(word)
 
 
+def _holds(page_text: str, text: str) -> bool:
+    """`text`, spacing aside, is in the page as whole words: "1. Розділ 1" isn't in
+    "11. Розділ 11"."""
+    wanted = re.escape(" ".join(text.split()))
+    return bool(text.strip()) and re.search(rf"(?<!\w){wanted}(?!\w)", page_text) is not None
+
+
 def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
     """Drop blocks copied from a neighbouring page: most of their words aren't in this page's
     own text but are in a neighbour's. A small model given the neighbours' edges for context
@@ -330,7 +337,7 @@ def keep_this_page(page: CleanedPage, raw: str, neighbours: str) -> CleanedPage:
         # Half is a copy too: "2. Розділ 2" on page 1 has "Розділ" here and its "2" only there.
         # Not when it's on the page word for word, though the next page repeats it: its numbers
         # can't vouch for it then, and if its words are in another block, nothing brings it back.
-        word_for_word = block.text and " ".join(block.text.split()) in page_text
+        word_for_word = _holds(page_text, block.text)
         if not word_for_word and on_page <= ON_PAGE and len(words & there) > len(words & here):
             why = "Left out: it's on a neighbouring page, not this one."
         elif _a_words_tail(block, previous, raw):
