@@ -272,6 +272,43 @@ describe("OCR tab", () => {
     expect(within(list).getByText("Page 2").closest("button")?.getAttribute("aria-current")).toBe("true");
   });
 
+  const twoOnOnePage = () => {
+    current = session({
+      status: "done",
+      document: { version: 2, artifact_id: 40, open_doubts: 2 },
+      pages: [page(1, { status: "done", clean_status: "done" })],
+    });
+    currentDoc = documentOf([
+      block("b1.1", "Рахунок № {d1.1}", { doubts: [doubt("d1.1", "1?", { candidates: ["1", "7"] })] }),
+      block("b1.2", "Сума {d1.2} грн", { doubts: [doubt("d1.2", "2?0", { candidates: ["250"] })] }),
+    ]);
+  };
+  const toQuestions = () => screen.findByRole("button", { name: "2 open questions" });
+  const cardText = () => screen.getByTestId("question-card").textContent;
+
+  it("selects the first question on its own page, on every click", async () => {
+    twoOnOnePage();
+    renderTab();
+    const link = await toQuestions();
+    for (let click = 0; click < 2; click++) {
+      fireEvent.click(await screen.findByText("2?0", { selector: "mark" }));
+      await waitFor(() => expect(cardText()).toContain("2?0"));
+      fireEvent.click(link);
+      await waitFor(() => expect(cardText()).toContain("1?"));
+    }
+  });
+
+  it.each(["Scan", "Raw OCR"])("shows the first question when asked from the %s view", async (view) => {
+    twoOnOnePage();
+    renderTab();
+    const link = await toQuestions();
+    await screen.findByTestId("question-card");
+    fireEvent.click(screen.getByRole("button", { name: view }));
+    expect(screen.queryByTestId("question-card")).toBeNull();
+    fireEvent.click(link);
+    await waitFor(() => expect(cardText()).toContain("1?"));
+  });
+
   it("saves a page's note and marks it handwritten", async () => {
     renderTab();
     const note = await screen.findByRole("textbox", { name: "Note for this page" });
