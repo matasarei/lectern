@@ -9,6 +9,7 @@ import pytest
 from lectern.modules.ocr.clean import (
     CLEAN_PROMPT,
     FIXES_MOST,
+    VALUE,
     WHY_CHARS,
     CleanFailed,
     clean_page,
@@ -525,10 +526,59 @@ def test_a_value_held_in_a_table_cell_isnt_put_back():
     assert texts == [""]
 
 
+def test_a_table_saying_a_value_in_its_text_and_its_cells_holds_it_once():
+    """The 4B fills both on a table. Counting both would cover for a row it left out."""
+    table = {"type": "table", "text": "Всього за місяць 990", "rows": [["Всього", "990"]]}
+    texts = _put_back("Всього за місяць 990\nМісяць всього 990", table)
+    assert "Місяць всього 990" in texts
+
+
+def test_a_table_saying_each_value_in_its_text_and_its_cells_isnt_short_of_any():
+    text = "Сума 990\nСума 990"
+    table = {"type": "table", "text": text, "rows": [["Сума", "990"], ["Сума", "990"]]}
+    assert _put_back(text, table) == [text]
+
+
+@pytest.mark.parametrize("raw", ["1998 250,00", "1998\n250,00"])
+def test_a_row_read_on_one_line_or_a_cell_a_line_isnt_short_of_its_values(raw: str):
+    """On one line "1998 250,00" reads as a single value, in two cells as two."""
+    assert _put_back(raw, {"type": "table", "rows": [["1998", "250,00"]]}) == [""]
+
+
+@pytest.mark.parametrize(
+    ("text", "values"),
+    [
+        ("18 500,00 і 18\u00a0500,00", ["18 500,00", "18\u00a0500,00"]),
+        ("05.01.2026", ["05.01.2026"]),
+        ("TOTAL $990", ["990"]),
+        ("05.01.2026р.", ["05.01.2026"]),  # a unit stuck to it: the whole value, not 05.01.202
+        ("500грн", ["500"]),
+        ("18 500,00грн", ["18 500,00"]),
+        ("12-го", ["12"]),
+        ("Б12", []),  # digits ending a word: not a "2"
+        ("0плата", []),  # one digit starting a word is a misread letter or a name
+        ("8B", []),
+    ],
+)
+def test_what_counts_as_a_value(text: str, values: list[str]):
+    assert VALUE.findall(text) == values
+
+
 def test_a_value_the_model_corrected_and_listed_isnt_put_back():
     fix = {"before": "1 500", "after": "7 500", "why": "A digit misread."}
     raw = "Сума: 1 500"
     assert _put_back(raw, _para("Сума: 7 500"), fixes=[fix]) == ["Сума: 7 500"]
+
+
+def test_a_correction_that_keeps_the_value_doesnt_cover_for_a_lost_one():
+    """The fix still holds "18 500,00", and the block has it: the other one is what's gone."""
+    fix = {
+        "before": "Сума за місяць 18 500,00",
+        "after": "Сума за місяць: 18 500,00",
+        "why": "A colon.",
+    }
+    raw = "Сума за місяць 18 500,00\nМісяць сума 18 500,00"
+    assert "Місяць сума 18 500,00" in _put_back(raw, _para(fix["after"]), fixes=[fix])
 
 
 def test_a_page_number_and_a_number_inside_a_word_arent_values_to_put_back():

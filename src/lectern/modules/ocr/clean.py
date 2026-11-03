@@ -269,8 +269,10 @@ def _say_loop_left_out(page: CleanedPage, repeated: str, more: int) -> CleanedPa
 
 WORDS = re.compile(r"\w{3,}")
 NUMBERS = re.compile(r"\d+")
-# A whole value, as written ("18 500,00", "05.01.2026"), not digits inside a word ("0плата").
-VALUE = re.compile(r"(?<![^\W\d])\d+(?:[ \u00a0]\d{3})*(?:[.,/:-]\d+)*(?![^\W\d])")
+# A whole value, as written ("18 500,00", "05.01.2026"), its unit stuck on or not ("500грн",
+# "05.01.2026р."), and not digits in a word ("Б12", "8B", "0плата"). Atomic, so that a value
+# with a letter after it doesn't match by giving up its last digits.
+VALUE = re.compile(r"(?<!\w)(?>\d+(?:[ \u00a0]\d{3})*(?:[.,/:-]\d+)*)(?:(?!\w)|(?<=\d\d))")
 VALUE_LINE_CHARS = 100  # a line this short comes back for a value; a sentence would come twice
 # A read line and a written one this alike are one line corrected: "4. Розділі 4" and
 # "4. Розділ 4" are 0.96 alike, while "5. Розділ 5" or another table row is 0.78 or less.
@@ -293,6 +295,16 @@ def _block_text(block: CleanBlock) -> str:
 
 def _block_words(block: CleanBlock) -> set[str]:
     return _words(_block_text(block))
+
+
+def _block_values(block: CleanBlock) -> Counter[str]:
+    """The values a block holds. A table can say them in its text and in its cells: that's one
+    of each, not two, so it can't cover for a row left out. A row can be read as one line or
+    a cell a line, and "1998" and "250,00" on one line read as a single value: either counts."""
+    rows = block.rows or []
+    in_lines = Counter(v for row in rows for v in VALUE.findall(" ".join(row)))
+    in_cells = Counter(v for row in rows for cell in row for v in VALUE.findall(cell))
+    return Counter(VALUE.findall(f"{block.text} {block.label or ''}")) | in_lines | in_cells
 
 
 def _a_words_tail(block: CleanBlock, previous: CleanBlock | None, raw: str) -> bool:
@@ -513,12 +525,18 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
     written = [line for b in blocks for line in b.text.splitlines() if line.strip()]
     fixes = list(page.fixes)
     insert_at, missing = 0, []
-    # Values the blocks have fewer of than the page. A corrected one isn't short of anything.
+    # Values the blocks have fewer of than the page. One corrected away isn't short of anything;
+    # one the correction kept is in the blocks already.
     values_short = Counter(
         v for line in raw.splitlines() if not PAGE_NUMBER.match(line) for v in VALUE.findall(line)
     )
-    values_short.subtract(v for b in blocks for v in VALUE.findall(_block_text(b)))
-    values_short.subtract(v for f in page.fixes if f.after.strip() for v in VALUE.findall(f.before))
+    for block in blocks:
+        values_short.subtract(_block_values(block))
+    for fix in page.fixes:
+        if fix.after.strip():
+            values_short.subtract(
+                Counter(VALUE.findall(fix.before)) - Counter(VALUE.findall(fix.after))
+            )
 
     def flush() -> None:
         nonlocal insert_at
