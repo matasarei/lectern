@@ -32,8 +32,9 @@ class StartParams(BaseModel):
     name: str = Field(min_length=1, description="The PDF or image, as in project.list.")
     then_export: str | None = Field(
         default=None,
-        description='A format to export the finished document to, e.g. "odt" (see '
-        "export.formats). The export runs when the session finishes.",
+        description='The format to export to once it finishes, e.g. "docx". Pass it whenever '
+        'the person wants the result as a file ("prepare a DOCX from it"): without it nothing '
+        "is exported.",
     )
     keep_layout: bool = Field(
         default=False,
@@ -207,7 +208,9 @@ START = AgentTool(
     name="ocr.start",
     description="Read a scanned PDF or image (no text layer) as an OCR session, opened in a "
     "new tab; keep_layout=true reads a PDF with text too, to keep its tables and layout. Asks "
-    "the person first. then_export queues an export for when it finishes.",
+    "the person first. When the person also wants a file from it (a DOCX, a PDF), give "
+    "then_export in this same call: it is the only way to queue that export, and no other "
+    "call does it later. Call this OCR when you tell the person about it.",
     params=StartParams,
     run=_start,
     confirm=True,

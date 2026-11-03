@@ -31,8 +31,9 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    limit is flagged *cut off*; one where a run of 12 words appears twice is flagged *repeats
    itself* (`projects/text.py`).
 3. **Clean.** The `main` model, or the one chosen for the `clean` role, gets the raw page,
-   the page note, the person's confirmed readings (newest first, at most 30) and 300
-   characters from each neighbouring page's edge. It answers in JSON held to a schema
+   the page note, the person's confirmed readings (newest first, at most 30), the page, and
+   after it, marked as context, 300 characters from each neighbouring page's edge (with them
+   before the page, a small model answered for them instead). It answers in JSON held to a schema
    (`clean.py`): blocks (heading, paragraph, table, list, signature, stamp, figure), the
    fixes it made with the reason for each, and doubts with candidate readings and a reason.
    An unsure OCR word that cleanup left unchanged becomes a doubt of its own. An invalid
@@ -42,7 +43,9 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    words here and the rest there is a copy too, unless it's on the page word for word), and so
    is a one-word block that only repeats the end of the word before it
    ("луги." after "послуги.") and isn't a word of the page; lines left out are put back
-   (not one at least 90% like a line cleanup wrote: that one was corrected),
+   (not one at least 90% like a line cleanup wrote: that one was corrected), and so is a line
+   of up to 100 characters holding a value the reply has fewer of than the page, as a date or
+   an amount has too few letters to tell by its words,
    Latin and Cyrillic look-alike letters are restored, a doubt in the wrong block is moved,
    and a doubt whose only candidate is its own text (nothing to decide) is dropped. A table
    cleanup built from a reading that listed it column by column is turned round: one of

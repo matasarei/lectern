@@ -11,6 +11,7 @@ import json
 import re
 import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,6 +31,7 @@ class Case:
     text: tuple[str, ...] = ()
     tools: tuple[str, ...] = ()  # must be called (any order)
     forbid: tuple[str, ...] = ()  # must not be called
+    args: Mapping[str, Mapping[str, str]] = field(default_factory=dict)  # tool → what it's given
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class Outcome:
     case: Case
     tools: list[str] = field(default_factory=list)  # calls that worked
     attempted: list[str] = field(default_factory=list)  # every call, worked or not
+    arguments: list[tuple[str, dict]] = field(default_factory=list)  # every call's, refused too
     answer: str = ""
     seconds: float = 0.0
     error: str | None = None
@@ -66,9 +69,26 @@ class Outcome:
     @property
     def used_tools(self) -> bool:
         # A required entry may name alternatives: "project.find|project.list" passes on either.
+        return (
+            all(
+                any(option in self.tools for option in needed.split("|"))
+                for needed in self.required
+            )
+            and not any(t in (self.attempted or self.tools) for t in self.forbidden)
+            and self.args_given
+        )
+
+    @property
+    def args_given(self) -> bool:
+        """Every call a case asks for was made with what it asks for. A refused card still
+        counts: the call is what's being judged, and a set can run without starting the work."""
         return all(
-            any(option in self.tools for option in needed.split("|")) for needed in self.required
-        ) and not any(t in (self.attempted or self.tools) for t in self.forbidden)
+            any(
+                name == tool and all(_same(value, given.get(key)) for key, value in wanted.items())
+                for name, given in self.arguments
+            )
+            for tool, wanted in self.case.args.items()
+        )
 
     @property
     def right(self) -> bool:
@@ -77,6 +97,15 @@ class Outcome:
     @property
     def passed(self) -> bool:
         return self.used_tools and self.right and all(self.checks.values())
+
+
+def _spelled(value: str) -> str:
+    return value.lower().lstrip(".")
+
+
+def _same(wanted: str, given: object) -> bool:
+    """Spelled the way the tool takes it: ".DOCX" exports to docx too."""
+    return isinstance(given, str) and _spelled(given) == wanted
 
 
 def load(name: str) -> PromptSet:
@@ -112,6 +141,10 @@ def _case(item: dict) -> Case:
         text=tuple(str(t) for t in item.get("text", [])),
         tools=tuple(item.get("tools", [])),
         forbid=tuple(item.get("forbid", [])),
+        args={
+            tool: {key: _spelled(str(value)) for key, value in wanted.items()}
+            for tool, wanted in item.get("args", {}).items()
+        },
     )
 
 
@@ -135,16 +168,29 @@ CLAUSE_3_3 = (
 
 
 def materialise(files: list[Path], into: Path) -> list[Path]:
-    """The set's files: from prompts/files/, or made here (lease-1998.docx)."""
+    """The set's files: from prompts/files/, or made here (lease-1998.docx, scan-lease.png)."""
     ready = []
     for path in files:
         if path.is_file():
             ready.append(path)
         elif path.name == "lease-1998.docx":
             ready.append(_write_lease(into / path.name))
+        elif path.name == "scan-lease.png":
+            ready.append(_write_scan(into / path.name))
         else:
             raise ValueError(f"The prompt set needs {path.name}, which isn't there.")
     return ready
+
+
+def _write_scan(path: Path) -> Path:
+    """A page image with no text layer. The OCR set only asks for it to be read: what counts is
+    how the tool is called, so its card is refused and the page is never read."""
+    from PIL import Image, ImageDraw
+
+    page = Image.new("L", (800, 1100), "white")
+    ImageDraw.Draw(page).text((80, 80), "Lease 17/2026", fill="black")
+    page.save(path)
+    return path
 
 
 def _write_lease(path: Path) -> Path:
@@ -307,6 +353,7 @@ def _ask(client, pid: int, session_id: int, case: Case, *, allow_cards: bool) ->
             kind = event.get("type")
             if kind == "tool":
                 outcome.attempted.append(event["name"])
+                outcome.arguments.append((event["name"], _arguments(event.get("arguments", ""))))
                 calls[event["call_id"]] = event["name"]
             elif kind == "tool_result":
                 # Only a call that worked counts as using the tool; a refused or failed one
@@ -337,11 +384,22 @@ def _ask(client, pid: int, session_id: int, case: Case, *, allow_cards: bool) ->
     return outcome
 
 
+def _arguments(text: str) -> dict:
+    """A call's arguments, as far as the model wrote them properly."""
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _line(o: Outcome) -> str:
     mark = "PASS" if o.passed else "FAIL"
     failed = [name for name, ok in o.checks.items() if not ok]
     if o.forbidden and any(t in (o.attempted or o.tools) for t in o.forbidden):
         failed.append("called a forbidden tool")
+    if not o.args_given:
+        failed.append("wrong tool arguments")
     tools = ",".join(t.split(".")[-1] if t.startswith("code.") else t for t in o.tools) or "-"
     failed_calls = len(o.attempted) - len(o.tools)
     if failed_calls > 0:

@@ -163,7 +163,10 @@ use these tools.
 
 ## Checking the chat
 
-`lectern dev agent-check --set calc|tools|long|web` runs a prompt set against the chat and
+`lectern dev agent-check --set calc|tools|long|web|ocr` runs a prompt set against the chat and
 scores it (`src/lectern/dev/prompts/`): calculations that must go through `code.run`, tool
-choice, a 100-turn chat on a small context that must still quote a block exactly, and web
-search. Results: [`acceptance/m1b.md`](acceptance/m1b.md), [`m1c.md`](acceptance/m1c.md).
+choice, a 100-turn chat on a small context that must still quote a block exactly, web search,
+and whether asking for a DOCX of a scan gives `ocr.start` its `then_export` (run with
+`--no-allow-cards`: only the call is judged, nothing is read). Results:
+[`acceptance/m1b.md`](acceptance/m1b.md), [`m1c.md`](acceptance/m1c.md),
+[`m4.md`](acceptance/m4.md).
