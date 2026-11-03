@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 
-from lectern.hardware.probe import GIB, HardwareInfo
+from lectern.hardware.probe import GIB, HardwareInfo, best_gpu
 
 
 class Tier(StrEnum):
@@ -41,7 +41,7 @@ TIER_SUMMARY = {
 def tier_for(hw: HardwareInfo) -> Tier:
     if not hw.gpus or hw.gpu_budget <= 0:
         return Tier.BELOW_MINIMUM
-    best = max(hw.gpus, key=lambda g: g.memory_total)
+    best = best_gpu(hw.gpus)
     tier = Tier.BELOW_MINIMUM
     for candidate, min_vram_gib, min_apple_gib in THRESHOLDS:
         if best.unified:

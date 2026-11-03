@@ -11,7 +11,9 @@ from lectern.hardware.probe import (
     DISPLAY_MARGIN_BYTES,
     GIB,
     Gpu,
+    best_gpu,
     commit_available,
+    gpu_budget,
     probe,
     windows_cpu_name,
 )
@@ -257,3 +259,20 @@ def test_the_registry_is_only_asked_on_windows():
 def test_windows_has_a_processor_name():
     name = windows_cpu_name()
     assert name and "Family" not in name
+
+
+def _vulkan(name: str, memory_gib: int, *, shared: bool) -> Gpu:
+    return Gpu("intel", name, memory_gib * GIB, memory_gib * GIB, unified=False, shared=shared)
+
+
+def test_the_budget_comes_from_the_discrete_gpu_however_much_the_integrated_one_reports():
+    """An integrated GPU's total sums every heap (b11236), so it can look the bigger."""
+    gpus = [_vulkan("UHD 770", 16, shared=True), _vulkan("Arc A380", 6, shared=False)]
+    assert best_gpu(gpus).name == "Arc A380"
+    assert gpu_budget(gpus) == 6 * GIB - DISPLAY_MARGIN_BYTES
+
+
+def test_an_integrated_gpu_alone_is_the_one_used():
+    gpus = [_vulkan("Arc Graphics", 9, shared=True)]
+    assert best_gpu(gpus).name == "Arc Graphics"
+    assert gpu_budget(gpus) == 9 * GIB - DISPLAY_MARGIN_BYTES
