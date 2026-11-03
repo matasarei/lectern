@@ -28,7 +28,8 @@ class Doubt(BaseModel):
     status: Literal["open", "resolved"] = "open"
     candidates: list[str] = Field(default_factory=list)
     reason: str = ""
-    source: Literal["clean", "ocr"] = "clean"  # the cleanup model, or an unsure OCR word
+    # the cleanup model, an unsure OCR word, or a word off the same lines elsewhere in the document
+    source: Literal["clean", "ocr", "repeat"] = "clean"
     value: str | None = None  # the reading chosen when resolved
     resolved_by: str | None = None
 
