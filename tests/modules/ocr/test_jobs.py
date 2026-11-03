@@ -1036,3 +1036,23 @@ def test_a_job_moving_from_the_queue_to_the_worker_isnt_taken_for_gone(store, tm
 
     asyncio.run(go())
     assert _status(store, project, sid).status == "done"
+
+
+def test_a_job_ending_while_its_session_is_read_stays_done(store, tmp_path):
+    """settle() read "running", then the job wrote "done" and let go before it asked whether the
+    job was held. Nothing would ever put "done" back: finished, shown paused until Resume."""
+    server = FakeServer()
+    runtime, _ = _runtime(server)
+    project, sid = _session(store, tmp_path, pages=1)
+    jobs = OcrJobs(runtime, store)
+    jobs._set_status(project, sid, "running")
+
+    def ended_just_now(key: tuple[int, int]) -> bool:  # noqa: ARG001
+        jobs._set_status(project, sid, "done")
+        return False
+
+    jobs.active = ended_just_now
+    settled = jobs.settle(project, sid)
+
+    assert (settled.status, settled.paused_reason) == ("done", None)
+    assert _status(store, project, sid).status == "done"

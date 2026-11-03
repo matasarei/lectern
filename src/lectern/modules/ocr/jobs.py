@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import TypeVar
 
 import httpx2
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from lectern.agent.turns import Channel
 from lectern.modules.ocr import store as ocr_store
@@ -130,8 +130,15 @@ class OcrJobs:
         with self.projects.db(project).begin() as session:
             ocr = session.get(OcrSessionRow, session_id)
             if ocr.status in ("queued", "running") and not self.active(key):
-                ocr.status, ocr.paused_reason = "paused", RESTARTED
-                ocr.updated_at = now()
+                # Only over what was read: the job may have ended, and let go, since then.
+                session.execute(
+                    update(OcrSessionRow)
+                    .where(
+                        OcrSessionRow.session_id == session_id, OcrSessionRow.status == ocr.status
+                    )
+                    .values(status="paused", paused_reason=RESTARTED, updated_at=now())
+                )
+                session.refresh(ocr)
             return ocr
 
     def summary(self, project: Project, session_id: int) -> dict:
