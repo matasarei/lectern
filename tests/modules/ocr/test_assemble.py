@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from lectern.documents.document import render_markdown
 from lectern.modules.ocr.assemble import PageInput, assemble
 from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
+from lectern.modules.ocr.review import Decision, apply_decisions
 
 
 def _page(n: int, *blocks: CleanBlock, doubts=(), note: str = "", unsure=()) -> PageInput:  # noqa: ANN001
@@ -299,3 +302,153 @@ def test_a_question_in_a_table_given_as_text_and_rows_is_marked_in_its_cell():
     (block,) = doc.blocks
     assert block.rows == [["Rate"], ["{d5.1}"]]
     assert "| ⟦100.00 \\| open⟧ |" in render_markdown(doc)  # in its cell, | escaped
+
+
+def _amid(n: int, *blocks: CleanBlock, **kw) -> PageInput:  # noqa: ANN003
+    """A page's blocks between text of its own: not at an edge, where a repeat is a header."""
+    return _page(n, para(f"Початок {'а' * n}."), *blocks, para(f"Кінець {'б' * n}."), **kw)
+
+
+def _lines(*texts: str) -> list[PageInput]:
+    return [_amid(n, para(text)) for n, text in enumerate(texts, start=1)]
+
+
+def _asked(doc) -> list[str]:  # noqa: ANN001
+    return [d.raw for b in doc.blocks for d in b.doubts]
+
+
+MISREAD_ON = {3, 4, 7, 10, 11}
+
+
+def _lease() -> list[PageInput]:
+    """The M4 lease's headings: "Розділ" on the scan, "Розділі" as read on five pages (#158)."""
+    words = {n: "Розділі" if n in MISREAD_ON else "Розділ" for n in range(1, 13)}
+    return [_amid(n, heading(f"{n}. {word} {n}")) for n, word in words.items()]
+
+
+def test_a_repeated_line_one_letter_off_the_commoner_ones_is_questioned():
+    doc = assemble("L", "l.pdf", _lease())
+
+    doubted = {b.page: b for b in doc.blocks if b.doubts}
+    assert set(doubted) == MISREAD_ON
+    block = doubted[3]
+    assert block.text == "3. {d3.1} 3"
+    doubt = block.doubts[0]
+    assert (doubt.raw, doubt.candidates, doubt.source) == ("Розділі", ["Розділ"], "repeat")
+    assert "Розділ" in doubt.reason
+
+
+def test_accepting_a_repeated_lines_question_changes_that_line_only():
+    doc = assemble("L", "l.pdf", _lease())
+    answer = Decision(page=3, doubt_id="d3.1", raw="Розділі", value="Розділ", action="accept")
+
+    answered, unplaced = apply_decisions(doc, [answer])
+
+    assert unplaced == []
+    assert {d.id: d.status for b in answered.blocks for d in b.doubts} == {
+        "d3.1": "resolved", "d4.1": "open", "d7.1": "open", "d10.1": "open", "d11.1": "open",
+    }  # fmt: skip
+    text = render_markdown(answered)
+    assert "3. Розділ 3" in text
+    assert "3. Розділі 3" not in text
+    assert "⟦Розділі | open | Розділ⟧ 4" in text
+
+
+def test_an_answer_stays_when_the_pages_other_questions_move():
+    """Cleaned again with a question of its own, d3.1 is that one: the answer follows the text."""
+    answer = Decision(page=3, doubt_id="d3.1", raw="Розділі", value="Розділ", action="accept")
+    pages = _lease()
+    pages[2] = _amid(3, para("Сума 1? грн."), heading("3. Розділі 3"),
+                     doubts=[CleanDoubt(block=1, raw="1?", candidates=["10"])])  # fmt: skip
+
+    answered, unplaced = apply_decisions(assemble("L", "l.pdf", pages), [answer])
+
+    assert unplaced == []
+    by_raw = {d.raw: d for b in answered.blocks for d in b.doubts if b.page == 3}
+    assert (by_raw["Розділі"].id, by_raw["Розділі"].status) == ("d3.2", "resolved")
+    assert by_raw["1?"].status == "open"
+
+
+@pytest.mark.parametrize(
+    "pages",
+    [
+        pytest.param(_lines("1. Розділі 1", "2. Розділ 2", "3. Розділ 3"), id="commoner-under-3"),
+        pytest.param(
+            _lines("1. Розділі 1", "2. Розділі 2", "3. Розділ 3", "4. Розділ 4"), id="a-tie"
+        ),
+        pytest.param(
+            _lines("1. розділ 1", "2. Розділ 2", "3. Розділ 3", "4. Розділ 4"), id="case-only"
+        ),
+        pytest.param(_lines("1. Том 1", "2. Тім 2", "3. Тім 3", "4. Тім 4"), id="short-word"),
+        pytest.param(
+            _lines("Розділі один", "Розділ два", "Розділ два", "Розділ два"), id="no-digit"
+        ),
+        pytest.param(
+            _lines(
+                "1. Глава Розділі 1",
+                "2. Частина Розділ 2",
+                "3. Частина Розділ 3",
+                "4. Частина Розділ 4",
+            ),  # fmt: skip
+            id="two-words-differ",
+        ),
+        pytest.param(
+            _lines("1. Розділили 1", "2. Розділ 2", "3. Розділ 3", "4. Розділ 4"), id="two-letters"
+        ),
+        pytest.param(
+            _lines("1. Розділі1", "2. Розділ2", "3. Розділ3", "4. Розділ4"), id="digits-on-the-word"
+        ),
+        pytest.param(
+            [
+                _amid(n, para(f"{n}. Розділ {n} " + "і довгий текст далі " * 3 + word))
+                for n, word in enumerate(["а", "а", "а", "а"], start=1)
+            ]
+            + [_amid(5, para("5. Розділі 5 " + "і довгий текст далі " * 3 + "а"))],
+            id="a-long-line",
+        ),  # fmt: skip
+        pytest.param(
+            [
+                _amid(1, table(["1", "Розділі"])),
+                _amid(2, table(["2", "Розділ"])),
+                _amid(3, table(["3", "Розділ"])),
+                _amid(4, table(["4", "Розділ"])),
+            ],
+            id="a-table",
+        ),  # fmt: skip
+    ],
+)
+def test_lines_that_arent_a_one_letter_repeat_ask_nothing(pages: list[PageInput]):
+    assert _asked(assemble("L", "l.pdf", pages)) == []
+
+
+def test_a_word_on_an_already_questioned_line_isnt_asked_again():
+    pages = _lease()
+    asked = CleanDoubt(block=1, raw="Розділі", candidates=["Розділ"])
+    pages[2] = _amid(3, heading("3. Розділі 3"), doubts=[asked])
+
+    doc = assemble("L", "l.pdf", pages)
+
+    on_page_3 = [d for b in doc.blocks if b.page == 3 for d in b.doubts]
+    assert [(d.id, d.source) for d in on_page_3] == [("d3.1", "clean")]
+
+
+def test_the_question_goes_on_that_line_though_the_block_has_the_word_earlier():
+    pages = _lease()
+    pages[2] = _amid(3, para("Розділі цього договору діють.\n3. Розділі 3"))
+
+    doc = assemble("L", "l.pdf", pages)
+
+    block = next(b for b in doc.blocks if b.page == 3 and b.doubts)
+    assert block.text == "Розділі цього договору діють.\n3. {d3.1} 3"
+
+
+def test_earlier_doubts_on_the_page_keep_their_ids():
+    pages = _lease()
+    pages[2] = _amid(3, para("Сума 1? грн, Хрещатик."), heading("3. Розділі 3"),
+                     doubts=[CleanDoubt(block=1, raw="1?", candidates=["10"])],
+                     unsure=["Хрещатик"])  # fmt: skip
+
+    doc = assemble("L", "l.pdf", pages)
+
+    on_page_3 = {d.id: d.source for b in doc.blocks if b.page == 3 for d in b.doubts}
+    assert on_page_3 == {"d3.1": "clean", "d3.2": "ocr", "d3.3": "repeat"}

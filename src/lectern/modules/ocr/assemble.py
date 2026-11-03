@@ -8,17 +8,19 @@
 - a table that continues at the top of the next page is merged, unless a page note says not
   to ("don't merge");
 - doubts get their ids, `d<page>.<n>` like the blocks' (so a page cleaned again never
-  renumbers another page's doubts): cleanup's own, then unsure OCR words still in the text.
+  renumbers another page's doubts): cleanup's own, then unsure OCR words still in the text,
+  then a word one letter off the same word in lines repeated through the document.
 """
 
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 
 from lectern.documents.document import Block, Document, Doubt, PageInfo, Source
 from lectern.modules.ocr.clean import PAGE_NUMBER, CleanBlock, CleanedPage
-from lectern.modules.ocr.doubts import ocr_doubts
+from lectern.modules.ocr.doubts import EDGE, ocr_doubts
 
 DIGITS = re.compile(r"\d+")
 NO_MERGE = re.compile(r"\b(?:don'?t|do not|never)\s+merge\b|не\s+об['’]?єдну", re.I)
@@ -27,6 +29,9 @@ LEFT_MARK = re.compile(r"⟨([^⟨⟩]+)\?⟩")  # an unsure-word mark cleanup s
 CELL_GAP = re.compile(r"\s{2,}|\t")
 REPEATS = 3  # a line at the top or bottom of this many pages is a running header or footer
 RUNNING_LINE_CHARS = 100  # a running header or footer is a short line, never a paragraph
+PATTERN_LINE_CHARS = 60  # a line repeated through a document, digits aside: a heading, a label
+PATTERN_WORD_LETTERS = 4  # shorter, one letter off is another word as often as a misreading
+REPEAT_REASON = 'Other lines like this one have "{}" here.'
 
 
 @dataclass
@@ -53,6 +58,7 @@ def assemble(title: str, source: str, pages: list[PageInput], *, version: int = 
     for page in pages:
         for block in per_page[page.n]:
             _add_ocr_doubts(block, page.unsure, counters[page.n])
+    _add_repeated_line_doubts(per_page, counters)
     infos = [
         PageInfo(
             n=p.n,
@@ -159,6 +165,80 @@ def _add_ocr_doubts(block: Block, unsure: list[str], counter: _Counter) -> None:
             row[i], more = ocr_doubts(cell, unsure, counter.take)
             doubts += more
     block.doubts += doubts
+
+
+def _pattern_line(line: str) -> bool:
+    return len(line) <= PATTERN_LINE_CHARS and bool(DIGITS.search(line)) and "{d" not in line
+
+
+def _one_letter_off(word: str, other: str) -> bool:
+    """One letter changed, added or taken away; a change of case doesn't count."""
+    if word.casefold() == other.casefold():
+        return False
+    if len(word) == len(other):
+        return sum(a != b for a, b in zip(word, other, strict=True)) == 1
+    short, long = sorted((word, other), key=len)
+    if len(long) - len(short) != 1:
+        return False
+    return any(long[:i] + long[i + 1 :] == short for i in range(len(long)))
+
+
+def _commoner_word(pattern: str, counts: Counter[str]) -> tuple[str, str] | None:
+    """The (word, commoner word) when a pattern ("#. Розділі #") differs by one word, one letter
+    off, from the commonest pattern that's enough commoner than it ("#. Розділ #")."""
+    words = pattern.split()
+    for other, count in counts.most_common():
+        if count < REPEATS or count <= counts[pattern]:
+            break
+        theirs = other.split()
+        differ = [(a, b) for a, b in zip(words, theirs, strict=False) if a != b]
+        if len(words) != len(theirs) or len(differ) != 1:
+            continue
+        word, commoner = (EDGE.sub("", w) for w in differ[0])
+        if "#" in differ[0][0] or not word.isalpha() or len(word) < PATTERN_WORD_LETTERS:
+            continue  # digits stuck to it ("Розділі5") aren't a word to offer another for
+        if _one_letter_off(word, commoner):
+            return word, commoner
+    return None
+
+
+def _add_repeated_line_doubts(
+    per_page: dict[int, list[Block]], counters: dict[int, _Counter]
+) -> None:
+    """A question on "Розділі" in "4. Розділі 4", when more lines read "5. Розділ 5". A misreading
+    can be a real word the OCR model is sure of, and only the other pages show it: the M4 lease
+    has it on 5 headings of 12. Lines only, not words anywhere: Ukrainian's endings make many
+    words one letter off another that's right (плата, плати). The text stays as read until the
+    person answers."""
+    blocks = [
+        (n, block)
+        for n, page in per_page.items()
+        for block in page
+        if block.type in ("paragraph", "heading") and block.text
+    ]
+    counts = Counter(
+        DIGITS.sub("#", line.strip())
+        for _, block in blocks
+        for line in block.text.split("\n")
+        if _pattern_line(line.strip())
+    )
+    for n, block in blocks:
+        lines = block.text.split("\n")
+        for i, line in enumerate(lines):
+            if not _pattern_line(line.strip()):
+                continue
+            found = _commoner_word(DIGITS.sub("#", line.strip()), counts)
+            if found is None:
+                continue
+            word, commoner = found
+            doubt_id = counters[n].take()
+            pattern = rf"(?<!\w){re.escape(word)}(?!\w)"
+            lines[i] = re.sub(pattern, f"{{{doubt_id}}}", line, count=1)
+            block.doubts.append(
+                Doubt(id=doubt_id, raw=word, candidates=[commoner], source="repeat",
+                      reason=REPEAT_REASON.format(commoner))
+            )  # fmt: skip
+        block.text = "\n".join(lines)
 
 
 def _page_number(block: Block) -> bool:

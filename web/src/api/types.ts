@@ -428,7 +428,7 @@ export interface DocDoubt {
   status: "open" | "resolved";
   candidates: string[];
   reason: string;
-  source: "clean" | "ocr";
+  source: "clean" | "ocr" | "repeat";
   value: string | null; // the reading chosen
   resolved_by: string | null;
 }

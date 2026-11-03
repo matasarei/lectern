@@ -64,6 +64,11 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    paragraph that runs onto the next page is joined, and a table that continues is merged,
    without its repeated header row. A page note saying "don't merge" (or "do not merge",
    "never merge", "не об'єднувати") keeps that page's first block apart.
+   A short numbered line (60 characters or fewer) that matches commoner lines but for one word,
+   one letter off, gets a question offering the commoner form: "4. Розділі 4" among
+   "5. Розділ 5". The commoner form needs three lines or more and more lines than this one. It
+   compares lines, not words anywhere: Ukrainian's endings make many words one letter off
+   another that's right (плата, плати), so a lone misread word isn't asked about.
 
 The model is leased a page at a time and given back between pages, so a chat can get the GPU
 after the current page. Once the chat has been idle for two minutes the job takes it back.
