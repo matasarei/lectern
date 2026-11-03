@@ -30,6 +30,7 @@ export function ReviewPage({
   sessionId,
   doc,
   page,
+  asked = null,
   onSelectPage,
   onBack,
 }: {
@@ -37,6 +38,7 @@ export function ReviewPage({
   sessionId: number;
   doc: OcrDocument;
   page: number;
+  asked?: { id: string } | null; // a question asked for from outside: each new object selects it
   onSelectPage: (page: number) => void;
   onBack?: () => void; // to the chat that started the session, once every question is answered
 }) {
@@ -47,18 +49,24 @@ export function ReviewPage({
   // Every question the Document had is answered (one with none never had any to answer).
   const answeredAll = openQuestions(doc).length === 0 && doc.blocks.some((b) => b.doubts.length > 0);
   const notCleaned = doc.pages.filter((p) => p.failed).map((p) => p.n);
-  const [currentId, setCurrentId] = useState<string | null>(open[0]?.id ?? null);
+  const [currentId, setCurrentId] = useState<string | null>(asked?.id ?? open[0]?.id ?? null);
   const [editing, setEditing] = useState(false);
   const [alone, setAlone] = useState<string | null>(null); // Later on the document's only question
   const area = useRef<HTMLDivElement>(null);
+  const [seenAsked, setSeenAsked] = useState(asked);
+  if (asked !== seenAsked) {
+    setSeenAsked(asked);
+    setCurrentId(asked?.id ?? null);
+    setEditing(false);
+  }
   // Answered meanwhile (in another tab, say): the page's first open question instead.
   const current = open.find((q) => q.id === currentId) ?? (currentId ? (open[0] ?? null) : null);
 
   useEffect(() => {
     if (open.length > 0) area.current?.focus(); // a page with questions: the keys work at once
-    // Only when the page changes, not on every answer.
+    // Only when the page changes or a question is asked for, not on every answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, asked]);
 
   /** The open question after `id` on this page (wrapping), leaving `id` out. */
   const after = (id: string): string | null => {

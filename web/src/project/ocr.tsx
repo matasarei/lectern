@@ -12,7 +12,8 @@ import { OcrSteps, type OcrStepsInput, stepStartedAt } from "./ocr-steps";
 import { ImagePreview } from "./file";
 import {
   cleanPageAgain,
-  firstQuestionPage,
+  doubtPage,
+  firstOpenQuestion,
   ocrPath,
   ocrProgress,
   useOcrDocument,
@@ -50,14 +51,23 @@ export function OcrTab({
   // Null until a page is picked. Asked to open at the questions (the chat's "N open
   // questions"), the page shown is the first open question's, once the Document is here.
   const [picked, setSelected] = useState<number | null>(toQuestions ? null : initialPage);
-  const firstQuestion = doc.data ? firstQuestionPage(doc.data) : null;
+  const first = doc.data ? firstOpenQuestion(doc.data) : null;
+  const firstQuestion = first && doubtPage(first);
+  // Asked for from the steps bar. A new object each click, so that asking again after moving
+  // to another question selects it again.
+  const [asked, setAsked] = useState<{ id: string } | null>(null);
   // Landed once, then it stays put: answering a question shouldn't move the page under the
   // person, nor the last answer send it back to the first page.
   if (picked === null && doc.data) setSelected(firstQuestion ?? initialPage);
   const selected = picked ?? initialPage;
-  // Its page opens on its first open question. Offered once the Document says where that is:
-  // before, a click would do nothing.
-  const toFirstQuestion = firstQuestion !== null ? () => setSelected(firstQuestion) : undefined;
+  // Offered once the Document says where it is: before, a click would do nothing.
+  const toFirstQuestion =
+    first && firstQuestion !== null
+      ? () => {
+          setSelected(firstQuestion);
+          setAsked({ id: first.id });
+        }
+      : undefined;
 
   if (session.isError) {
     return (
@@ -93,6 +103,7 @@ export function OcrTab({
               base={base}
               page={page}
               doc={doc.data}
+              asked={asked}
               onSelectPage={setSelected}
               onBack={chatId !== null ? () => onOpen({ kind: "session", id: chatId }) : undefined}
               jobRunning={session.data.status === "running" || session.data.status === "queued"}
@@ -262,6 +273,7 @@ function PageView({
   base,
   page,
   doc,
+  asked,
   onSelectPage,
   onBack,
   jobRunning,
@@ -271,12 +283,18 @@ function PageView({
   base: string;
   page: OcrPage;
   doc: OcrDocument | undefined;
+  asked: { id: string } | null; // a question asked for: the review has to be showing
   onSelectPage: (page: number) => void;
   onBack?: () => void; // to the chat that started it
   jobRunning: boolean;
 }) {
   const { t } = useTranslation();
   const [view, setView] = useState<View>("split");
+  const [seenAsked, setSeenAsked] = useState(asked);
+  if (asked !== seenAsked) {
+    setSeenAsked(asked);
+    if (view === "scan" || view === "raw") setView("split"); // neither shows the review
+  }
   return (
     <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-3 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -313,6 +331,7 @@ function PageView({
               sessionId={sessionId}
               doc={doc}
               page={page.number}
+              asked={asked}
               onSelectPage={onSelectPage}
               onBack={onBack}
             />

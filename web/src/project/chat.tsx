@@ -328,6 +328,17 @@ export function groupReplies(messages: ChatMessage[], breaks: number[]): Group[]
   return groups;
 }
 
+/** The newest message that draws a live line for each OCR session (a session's id → the
+ * message's): a notice from the model, or ocr.start's result. */
+function newestAboutSession(messages: ChatMessage[]): Map<number, number> {
+  const newest = new Map<number, number>();
+  for (const message of messages) {
+    if (message.role !== "assistant" && message.tool_name !== "ocr.start") continue;
+    for (const ref of message.refs) if (ref.kind === "session") newest.set(ref.id, message.id);
+  }
+  return newest;
+}
+
 /** Whether a reply has anything of its own to show (tool results only show under their call). */
 function shows(group: Group): boolean {
   return group.messages.some((m) => m.role === "assistant" && (m.content || m.tool_calls?.length));
@@ -372,6 +383,7 @@ function Transcript({
   );
   // A card shows under the line of the call it asks about (the live reply has the others).
   const cards = new Map(live.cards.map((card) => [card.call_id, card] as const));
+  const newest = newestAboutSession(messages);
   // The markers go where the model's view starts: after the messages covered by the summary,
   // and after any it had to leave out of the last call (counted from the summary on).
   const leftOut = live.context?.left_out ?? 0;
@@ -415,6 +427,7 @@ function Transcript({
                             result={results.get(call.id)}
                             progress={live.progress[call.id]}
                             followups={followups}
+                            newestAbout={newest}
                             onOpen={onOpen}
                           />
                           {cards.has(call.id) && <ConfirmCard card={cards.get(call.id)!} onDecide={onDecide} />}
@@ -422,9 +435,9 @@ function Transcript({
                       ))}
                       {message.content && <Markdown text={message.content} />}
                       {/* The notice says where the session stood when it was written; the
-                          line under it says where it stands now. */}
+                          line under the newest about it says where it stands now. */}
                       {message.refs
-                        .filter((r) => r.kind === "session")
+                        .filter((r) => r.kind === "session" && newest.get(r.id) === message.id)
                         .map((r) => (
                           <OcrLine
                             key={r.id}
@@ -577,6 +590,7 @@ function ToolLine({
   result,
   progress,
   followups,
+  newestAbout,
   onOpen,
 }: {
   projectId: number;
@@ -584,6 +598,7 @@ function ToolLine({
   result: ChatMessage | undefined;
   progress: LiveTurn["progress"][string] | undefined;
   followups: Chat["followups"];
+  newestAbout: Map<number, number>;
   onOpen: (tab: Tab) => void;
 }) {
   const { t } = useTranslation();
@@ -603,7 +618,7 @@ function ToolLine({
       </details>
       {!result && progress && <Progress progress={progress} />}
       {script && <ScriptCode projectId={projectId} path={script} />}
-      {ocr && (
+      {ocr && newestAbout.get(ocr.id) === result?.id && (
         <OcrLine
           projectId={projectId}
           sessionId={ocr.id}

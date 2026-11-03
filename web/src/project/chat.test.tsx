@@ -770,6 +770,57 @@ describe("The chat's message when an OCR session finishes", () => {
     expect(screen.getByText(/isn't finished yet/)).toBeTruthy(); // what was said then, as it was
   });
 
+  const notice = (id: number, sessionId = 8) =>
+    message(id, {
+      role: "assistant",
+      content: `Notice ${id}: OCR · scan.jpg isn't finished yet.`,
+      refs: [{ kind: "session", id: sessionId, name: "scan.jpg", ref: null }],
+    });
+  const startedChat = (more: ReturnType<typeof message>[]) => [
+    message(1, { content: "Read the scan" }),
+    message(2, {
+      role: "assistant",
+      tool_calls: [{ id: "c1", type: "function", function: { name: "ocr_start", arguments: "{}" } }],
+    }),
+    message(3, {
+      role: "tool", tool_call_id: "c1", tool_name: "ocr.start", content: "Started an OCR session.",
+      refs: [{ kind: "session", id: 8, name: "scan.jpg", ref: null }],
+    }),
+    ...more,
+  ];
+  const summary = (id: number) => ({
+    id, kind: "ocr", title: `scan${id}.jpg`, messages: 0, created_at: "", updated_at: "",
+    ocr: { pages: 2, status: "done", folder: `scan${id}`, document_version: 3, open_doubts: 0, figures: 0,
+           failed_pages: [], clear: true },
+  });
+
+  it("shows a session's live line once, under the newest message about it", async () => {
+    chat.messages = startedChat([notice(4), notice(5)]);
+    items = { ...items, sessions: [summary(8)] };
+    renderChat();
+    const line = await screen.findByTestId("ocr-line");
+    expect(screen.getAllByTestId("ocr-line")).toHaveLength(1);
+    const newest = screen.getByText(/Notice 5/);
+    expect(newest.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText(/Notice 4/)).toBeTruthy(); // what was said then stays
+  });
+
+  it("keeps the line under ocr.start until a notice comes", async () => {
+    chat.messages = startedChat([]);
+    items = { ...items, sessions: [summary(8)] };
+    renderChat();
+    expect(await screen.findByTestId("ocr-line")).toBeTruthy();
+    expect(screen.getAllByTestId("ocr-line")).toHaveLength(1);
+  });
+
+  it("gives each session in a chat its own line", async () => {
+    chat.messages = startedChat([notice(4), notice(5, 9), notice(6)]);
+    items = { ...items, sessions: [summary(8), summary(9)] };
+    renderChat();
+    await screen.findAllByTestId("ocr-line");
+    expect(screen.getAllByTestId("ocr-line")).toHaveLength(2);
+  });
+
   it("opens the document or exports it, without asking the model", async () => {
     chat.messages = [
       message(1, { content: "Read the scan" }),
