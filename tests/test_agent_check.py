@@ -70,7 +70,7 @@ def test_the_calc_set_has_23_prompts_and_its_files():
 
 
 def test_an_unknown_set_names_the_ones_there_are():
-    with pytest.raises(ValueError, match="No prompt set 'nope'. Sets: calc, long, tools"):
+    with pytest.raises(ValueError, match="No prompt set 'nope'. Sets: calc, long, ocr, tools"):
         load_set("nope")
 
 
@@ -87,6 +87,90 @@ def test_a_forbidden_tool_fails_the_prompt():
         case, tools=["document.read", "artifact.trash"], answer="The payment day", **rules
     )
     assert (safe.passed, trashed.passed) == (True, False)
+
+
+def test_a_tool_argument_a_case_asks_for_must_be_there():
+    case = Case("docx", "Read the scan", args={"ocr.start": {"then_export": "docx"}})
+    with_it = Outcome(case, arguments=[("ocr.start", {"name": "s.png", "then_export": "docx"})])
+    written_otherwise = Outcome(case, arguments=[("ocr.start", {"then_export": ".DOCX"})])
+    without = Outcome(case, arguments=[("ocr.start", {"name": "s.png"})])
+    another_format = Outcome(case, arguments=[("ocr.start", {"then_export": "odt"})])
+    another_tool = Outcome(case, arguments=[("document.read", {"then_export": "docx"})])
+    never_called = Outcome(case)
+    results = [with_it, written_otherwise, without, another_format, another_tool, never_called]
+    assert [o.passed for o in results] == [True, True, False, False, False, False]
+
+
+def test_any_call_of_the_tool_can_hold_the_argument():
+    case = Case("docx", "Read the scan", args={"ocr.start": {"then_export": "docx"}})
+    first_wrong = Outcome(
+        case, arguments=[("ocr.start", {"name": "s.png"}), ("ocr.start", {"then_export": "docx"})]
+    )
+    assert first_wrong.passed
+
+
+class OneTurn:
+    """A server whose model calls one tool, and the card for it is refused."""
+
+    def __init__(self, arguments: str):
+        self.arguments = arguments
+        self.decisions: list[dict] = []
+
+    def post(self, url, json=None):  # noqa: A002, ANN001
+        class R:
+            status_code = 202
+            text = ""
+
+        if "/confirmations/" in url:
+            self.decisions.append(json)
+        return R()
+
+    def stream(self, method, url, timeout=None):  # noqa: ANN001
+        import contextlib
+        import json as j
+
+        events = [
+            {"type": "tool", "call_id": "c1", "name": "ocr.start", "arguments": self.arguments},
+            {"type": "confirm", "confirmation_id": 3},
+            {"type": "tool_result", "call_id": "c1", "error": True},
+            {"type": "delta", "text": "All right."},
+            {"type": "turn", "status": "done"},
+        ]
+
+        class S:
+            def iter_lines(inner):  # noqa: N805
+                return [f"data: {j.dumps(e)}" for e in events]
+
+        return contextlib.nullcontext(S())
+
+
+def test_a_refused_call_still_shows_what_it_asked_for():
+    from lectern.dev.agent_check import _ask
+
+    case = Case("docx", "Read the scan", args={"ocr.start": {"then_export": "docx"}})
+    client = OneTurn('{"name": "scan.png", "then_export": "docx"}')
+    outcome = _ask(client, 1, 2, case, allow_cards=False)
+    assert client.decisions == [{"approve": False}]
+    assert outcome.tools == [] and outcome.passed
+
+
+def test_a_call_whose_arguments_arent_json_doesnt_pass():
+    from lectern.dev.agent_check import _ask, _line
+
+    case = Case("docx", "Read the scan", args={"ocr.start": {"then_export": "docx"}})
+    outcome = _ask(OneTurn('{"then_export": '), 1, 2, case, allow_cards=False)
+    assert outcome.arguments == [("ocr.start", {})] and not outcome.passed
+    assert "wrong tool arguments" in _line(outcome)
+
+
+def test_the_ocr_set_checks_then_export_on_a_scan_made_at_run_time(tmp_path):
+    from lectern.dev.agent_check import load, materialise
+
+    prompt_set = load("ocr")
+    assert all(c.args == {"ocr.start": {"then_export": "docx"}} for c in prompt_set.cases)
+    assert "scan-to-docx" in {c.id for c in prompt_set.cases}
+    (scan,) = materialise(prompt_set.files, tmp_path)
+    assert scan.name == "scan-lease.png" and scan.stat().st_size > 0
 
 
 def test_extra_checks_must_all_hold():
@@ -188,7 +272,7 @@ def test_a_conversation_run_checks_compaction_and_the_transcript():
     assert outcome.passed
 
 
-@pytest.mark.parametrize("name", ["calc", "tools", "long", "web"])
+@pytest.mark.parametrize("name", ["calc", "tools", "long", "web", "ocr"])
 def test_every_set_loads_and_every_prompt_checks_something(name):
     from lectern.dev.agent_check import load
 
@@ -197,9 +281,9 @@ def test_every_set_loads_and_every_prompt_checks_something(name):
     if prompt_set.conversation:
         cases.append(prompt_set.conversation.final)
     assert len({c.id for c in cases}) == len(cases)
-    assert all(c.numbers or c.text or c.tools or c.forbid for c in cases)
+    assert all(c.numbers or c.text or c.tools or c.forbid or c.args for c in cases)
     for path in prompt_set.files:
-        assert path.is_file() or path.name == "lease-1998.docx"
+        assert path.is_file() or path.name in ("lease-1998.docx", "scan-lease.png")
 
 
 def test_the_tools_set_has_about_30_prompts_and_ends_with_the_trash():

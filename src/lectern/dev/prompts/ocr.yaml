@@ -1,0 +1,15 @@
+# The OCR tool's arguments (issue #146, docs/acceptance/m4.md): asked for a DOCX of a scan, does
+# the chat queue the export with ocr.start's then_export? The 9B has left it out, then said the
+# DOCX would be made. Run it with --no-allow-cards: the card is refused, so nothing is read, and
+# what's scored is how the tool was called.
+
+files:
+  - scan-lease.png         # made at run time: see _write_scan in agent_check.py
+
+prompts:
+  - id: scan-to-docx       # the words the M4 run used
+    prompt: "Read the scan and prepare DOCX from it."
+    args: {ocr.start: {then_export: docx}}
+  - id: scan-to-docx-named
+    prompt: "Read scan-lease.png and prepare a DOCX from it."
+    args: {ocr.start: {then_export: docx}}
