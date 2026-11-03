@@ -55,7 +55,9 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    the top or bottom of three pages or more is a running header or footer and is dropped,
    along with bare page numbers. Lines are counted, not blocks: where cleanup merged the
    header into the next line's block, that line is taken off and the rest kept, and a block
-   of several lines is never dropped whole. A word hyphenated across a page break is joined, a
+   of several lines is never dropped whole. Digits are set aside when comparing lines, except
+   that sections numbered in turn ("4. Розділ 4", "5. Розділ 5") stay when any of them is
+   typed as a heading. A word hyphenated across a page break is joined, a
    paragraph that runs onto the next page is joined, and a table that continues is merged,
    without its repeated header row. A page note saying "don't merge" (or "do not merge",
    "never merge", "не об'єднувати") keeps that page's first block apart.

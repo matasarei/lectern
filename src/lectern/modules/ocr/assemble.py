@@ -190,6 +190,24 @@ def _strip_running_line(block: Block, edge: int, running: set[str]) -> None:
     block.text = "\n".join(lines[1:] if edge == 0 else lines[:-1])
 
 
+def _running_keys(per_page: dict[int, list[Block]], edge: int) -> set[str]:
+    """The lines (digits aside) at this edge of REPEATS pages or more, sections numbered in
+    turn left out: "4. Розділ 4", "5. Розділ 5" are alike only with their numbers set aside.
+    Any page typing one as a heading is enough, since cleanup doesn't type them the same way
+    every time, and a running line left in can be removed in the review, where a lost heading
+    can't even be noticed."""
+    found: dict[str, list[tuple[str, str]]] = {}
+    for blocks in per_page.values():
+        if blocks and (line := _edge_line(blocks[edge], edge)):
+            found.setdefault(_line_key(line), []).append((line, blocks[edge].type))
+    return {
+        key
+        for key, lines in found.items()
+        if len(lines) >= REPEATS
+        and not (len({line for line, _ in lines}) > 1 and any(t == "heading" for _, t in lines))
+    }
+
+
 def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
     """Bare page numbers at a page's top or bottom, and a short first or last line that
     repeats (digits aside) at the top or bottom of REPEATS pages or more. A shorter document
@@ -200,11 +218,7 @@ def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
     оренди № 17/2026\\n4. Розділі 4" is alike on four pages once digits are set aside, and its
     heading went with it (m4.md, the re-run)."""
     for edge in (0, -1):
-        seen: dict[str, int] = {}
-        for blocks in per_page.values():
-            if blocks and (line := _edge_line(blocks[edge], edge)):
-                seen[_line_key(line)] = seen.get(_line_key(line), 0) + 1
-        running = {key for key, count in seen.items() if count >= REPEATS}
+        running = _running_keys(per_page, edge)
         for blocks in per_page.values():
             if not blocks:
                 continue
