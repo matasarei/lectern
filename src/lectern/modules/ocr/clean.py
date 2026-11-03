@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Literal
@@ -32,6 +33,7 @@ CLEAN_TOKENS_OVER = 512  # and this much over, for its doubts and fixes
 # the context itself cuts a dense page's reply off, whatever the room asked for.)
 CLEAN_TOKENS_MOST = 8192
 EDGE_CHARS = 300  # of each neighbouring page, for words and tables that cross the break
+NOT_THIS_PAGE = "For context only, not part of this page."
 # How long a reply of CLEAN_TOKENS is waited for: about 5 tokens a second, half what the
 # 4 GB tier is asked to reach. A reply given more room is given longer, at the same speed.
 CLEAN_TIMEOUT = 600.0
@@ -175,11 +177,13 @@ def page_message(
             "Readings the person confirmed elsewhere in this document (use them when the same "
             f"text appears): {readings}."
         )
-    if before:
-        parts.append(f"The previous page ends with:\n{before[-EDGE_CHARS:]}")
-    if after:
-        parts.append(f"The next page starts with:\n{after[:EDGE_CHARS]}")
+    # The page first: with its neighbours right before it, a small model answers for them (the
+    # 4B gave lease page 6 as the previous page's "5" and one paragraph; #157).
     parts.append(f"<page>\n{raw}\n</page>")
+    if before:
+        parts.append(f"{NOT_THIS_PAGE} The previous page ends with:\n{before[-EDGE_CHARS:]}")
+    if after:
+        parts.append(f"{NOT_THIS_PAGE} The next page starts with:\n{after[:EDGE_CHARS]}")
     return "\n\n".join(parts)
 
 
@@ -265,6 +269,9 @@ def _say_loop_left_out(page: CleanedPage, repeated: str, more: int) -> CleanedPa
 
 WORDS = re.compile(r"\w{3,}")
 NUMBERS = re.compile(r"\d+")
+# A whole value, as written ("18 500,00", "05.01.2026"), not digits inside a word ("0плата").
+VALUE = re.compile(r"(?<![^\W\d])\d+(?:[ \u00a0]\d{3})*(?:[.,/:-]\d+)*(?![^\W\d])")
+VALUE_LINE_CHARS = 100  # a line this short comes back for a value; a sentence would come twice
 # A read line and a written one this alike are one line corrected: "4. Розділі 4" and
 # "4. Розділ 4" are 0.96 alike, while "5. Розділ 5" or another table row is 0.78 or less.
 NEARLY_SAME = 0.9
@@ -490,10 +497,12 @@ def restore_lookalikes(page: CleanedPage, raw: str) -> CleanedPage:
 
 def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
     """Put back a line of the page that the model left out: fewer than ON_PAGE of its words (of
-    3 letters or more) are in the blocks. It goes after the block holding the line before it,
-    or first; lines left out together form one block, line by line. A small model has dropped
-    the top of a page as 'belonging to the previous page', and has answered with a neighbour's
-    text instead of this page's. A bare page number isn't put back: leaving it out was right."""
+    3 letters or more) are in the blocks, or it's a short line holding a value the blocks have
+    fewer of than the page ("18 500,00" in a sentence and in two rows; a date, whose words are
+    only its year). It goes after the block holding the line before it, or first; lines left
+    out together form one block, line by line. A small model has dropped the top of a page as
+    'belonging to the previous page', and has answered with a neighbour's text instead of this
+    page's. A bare page number isn't put back: leaving it out was right."""
     blocks = list(page.blocks)
     covered = [_block_words(b) for b in blocks]
     # Words the model corrected aren't missing: "0плата" is in the blocks as "Оплата". Only
@@ -504,6 +513,12 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
     written = [line for b in blocks for line in b.text.splitlines() if line.strip()]
     fixes = list(page.fixes)
     insert_at, missing = 0, []
+    # Values the blocks have fewer of than the page. A corrected one isn't short of anything.
+    values_short = Counter(
+        v for line in raw.splitlines() if not PAGE_NUMBER.match(line) for v in VALUE.findall(line)
+    )
+    values_short.subtract(v for b in blocks for v in VALUE.findall(_block_text(b)))
+    values_short.subtract(v for f in page.fixes if f.after.strip() for v in VALUE.findall(f.before))
 
     def flush() -> None:
         nonlocal insert_at
@@ -519,15 +534,23 @@ def restore_missing_lines(page: CleanedPage, raw: str) -> CleanedPage:
 
     for line in raw.splitlines():
         words = _words(line.replace("⟨", "").replace("?⟩", ""))
-        if not words:
+        values = VALUE.findall(line)
+        if not words and not values:
             continue
-        shared = [len(words & w) / len(words) for w in covered]
-        if len(words & (set().union(*covered) | corrected)) / len(words) < ON_PAGE and not any(
+        words_gone = (
+            bool(words) and len(words & (set().union(*covered) | corrected)) / len(words) < ON_PAGE
+        )
+        value_gone = len(line) <= VALUE_LINE_CHARS and any(values_short[v] > 0 for v in values)
+        if (words_gone or value_gone) and not any(
             SequenceMatcher(None, line.strip(), w.strip()).ratio() >= NEARLY_SAME for w in written
         ):
             if not PAGE_NUMBER.match(line):
                 missing.append(line.strip())
+                values_short.subtract(values)
             continue
+        if not words:
+            continue
+        shared = [len(words & w) / len(words) for w in covered]
         # The block holding most of the line, the first such at or after where we are. A line
         # that only shares a word or two with the blocks (a header the model left out) says
         # nothing about where we are.

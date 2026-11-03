@@ -83,6 +83,25 @@ def test_a_page_is_sent_with_its_note_neighbours_and_schema_and_comes_back_as_bl
     assert page.fixes[0].after == "Оплата"
 
 
+def test_the_page_comes_before_its_neighbours_which_are_marked_as_context():
+    """With the neighbours right before the page, the 4B answered for them: lease page 6 came
+    back as the previous page's "5" and one paragraph, its table gone (#157). With the page
+    first, none of the 11 pages measured was short of a value."""
+    seen: list[dict] = []
+    _clean(
+        _client(json.dumps(GOOD), seen=seen), note="Нотатка.", before="Кінець.", after="Початок."
+    )
+    text = seen[0]["messages"][1]["content"]
+    note, page, before, after = (
+        text.index("Note from the person"),
+        text.index("<page>"),
+        text.index("The previous page ends with"),
+        text.index("The next page starts with"),
+    )
+    assert note < page < before < after
+    assert text.count("For context only, not part of this page.") == 2
+
+
 def test_the_schema_caps_the_list_of_fixes():
     """The 4B has listed every line of a short invoice as a fix that changed nothing ("No
     change needed"), until its reply was cut off. The schema stops the list, so the page
@@ -321,7 +340,7 @@ def test_a_line_on_the_page_word_for_word_stays_though_the_next_page_repeats_it(
 
 
 def test_a_copy_found_only_inside_a_longer_line_is_still_a_copy():
-    """"1. Розділ 1" is in "11. Розділ 11", and isn't that line."""
+    """ "1. Розділ 1" is in "11. Розділ 11", and isn't that line."""
     body = "Орендна плата становить 18 500,00 грн на місяць."
     reply = {
         "blocks": [
@@ -468,6 +487,64 @@ def test_lines_mostly_missing_are_put_back_line_by_line():
     }
     page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, raw))
     assert [b.text for b in page.blocks][1] == "New set of pedal arms\nLabor 3hrs"
+
+
+def _put_back(raw: str, *blocks: dict, fixes=()) -> list[str]:  # noqa: ANN001
+    reply = {"blocks": list(blocks), "doubts": [], "fixes": list(fixes)}
+    page = asyncio.run(clean_page(_client(json.dumps(reply)), 1, raw))
+    return [b.text for b in page.blocks]
+
+
+def _para(text: str) -> dict:
+    return {"type": "paragraph", "text": text}
+
+
+def test_a_line_whose_value_is_gone_is_put_back_though_its_words_are_elsewhere():
+    """Sample invoice: "TOTAL $990" gone, with "total" and nothing else of it on the page."""
+    assert "TOTAL $990" in _put_back("Total due today\nTOTAL $990", _para("Total due today"))
+
+
+def test_dates_and_amounts_with_few_letters_are_put_back():
+    """Lease page 6: a date counts only its "2026" as a word, and an amount only its "500"."""
+    raw = "Строк до 2026 року.\n05.01.2026\n05.02.2026\n15.00"
+    texts = _put_back(raw, _para("Строк до 2026 року."))
+    assert "05.01.2026\n05.02.2026\n15.00" in texts
+
+
+def test_an_amount_repeated_in_the_reading_is_counted_each_time():
+    """Lease page 6: "18 500,00" in the text and in two rows. Once in the reply isn't three."""
+    raw = "Плата становить 18 500,00 грн.\nСічень\n18 500,00\nЛютий\n18 500,00"
+    blocks = (_para("Плата становить 18 500,00 грн."), _para("Січень\nЛютий"))
+    joined = "\n".join(_put_back(raw, *blocks))
+    assert joined.count("18 500,00") == 3
+
+
+def test_a_value_held_in_a_table_cell_isnt_put_back():
+    table = {"type": "table", "rows": [["Сума", "Дата"], ["18 500,00", "05.01.2026"]]}
+    texts = _put_back("Сума\nДата\n18 500,00\n05.01.2026", table)
+    assert texts == [""]
+
+
+def test_a_value_the_model_corrected_and_listed_isnt_put_back():
+    fix = {"before": "1 500", "after": "7 500", "why": "A digit misread."}
+    raw = "Сума: 1 500"
+    assert _put_back(raw, _para("Сума: 7 500"), fixes=[fix]) == ["Сума: 7 500"]
+
+
+def test_a_page_number_and_a_number_inside_a_word_arent_values_to_put_back():
+    raw = "Договір оренди приміщення.\n0плата\n3"
+    fix = {"before": "0плата", "after": "Оплата", "why": "A letter read as a digit."}
+    texts = _put_back(raw, _para("Договір оренди приміщення."), _para("Оплата"), fixes=[fix])
+    assert texts == ["Договір оренди приміщення.", "Оплата"]
+
+
+def test_a_long_line_short_of_a_value_doesnt_come_back_whole():
+    """A sentence twice is worse than a number written differently in it, and short lines are
+    where a table's values are."""
+    tail = "і сплачується не пізніше п'ятого числа кожного місяця, протягом усього строку дії."
+    written = f"Орендна плата становить 18 500 гривень {tail}"
+    read = f"Орендна плата становить 18 500,00 гривень {tail}"
+    assert _put_back(read, _para(written)) == [written]
 
 
 def test_a_line_the_model_corrected_isnt_put_back():
