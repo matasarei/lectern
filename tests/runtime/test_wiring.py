@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from lectern.catalog import catalog
@@ -53,6 +55,25 @@ def test_bad_env_override_says_what_is_wrong(monkeypatch, bad):
     monkeypatch.setenv("LECTERN_BUDGET_MB", bad)
     with pytest.raises(ValueError, match="LECTERN_BUDGET_MB must be a whole number"):
         budget_for(_hw())
+
+
+def _on(paths, gpus: list[Gpu]):  # noqa: ANN202
+    engine = make_engine(paths.app_db)
+    migrate(engine)
+    sessions = make_sessionmaker(engine)
+    hw = dataclasses.replace(_hw(int(7.4 * GIB)), gpus=gpus)
+    return build_runtime(paths, DownloadManager(paths.models, sessions), hw, sessions)
+
+
+def test_only_a_gpu_sharing_system_ram_is_fitted_to_the_ram_free(paths, monkeypatch):
+    monkeypatch.delenv("LECTERN_BUDGET_MB", raising=False)
+    monkeypatch.setattr(wiring, "ram_available", lambda: 6 * GIB)
+    integrated = Gpu("intel", "Arc", 9 * GIB, 8 * GIB, unified=False, shared=True)
+    card = Gpu("amd", "RX", 8 * GIB, 8 * GIB, unified=False)
+    assert _on(paths, [integrated]).ram_available() == 6 * GIB
+    assert _on(paths, [card]).ram_available() is None
+    assert _on(paths, [integrated, card]).ram_available() is None  # the card is the one used
+    assert _on(paths, []).ram_available() is None  # on the CPU, the budget already says
 
 
 @pytest.fixture

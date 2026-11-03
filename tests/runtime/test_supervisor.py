@@ -73,6 +73,7 @@ def _runtime(
     runner: FakeRunner | None = None,
     *,
     commit_available=lambda: None,  # noqa: ANN001
+    ram_available=lambda: None,  # noqa: ANN001
 ):
     runner = runner or FakeRunner()
 
@@ -93,6 +94,7 @@ def _runtime(
         resolve=resolve,
         runner_for=lambda choice: runner,
         commit_available=commit_available,
+        ram_available=ram_available,
     )
     return runtime, runner
 
@@ -1011,6 +1013,110 @@ def test_waiting_for_a_person_is_reported_and_undone_on_error():
     active, statuses = asyncio.run(go())
     assert active
     assert statuses == ["started", "waiting", "resumed"]
+
+
+class FakeRam:
+    """System RAM on a shared GPU: what's free now, less the models loaded so far, each taking
+    its weights."""
+
+    def __init__(self, free_gib: float, runner: FakeRunner, sizes_gib: dict[str, float]):
+        self.free = free_gib * GIB
+        self.runner = runner
+        self.sizes = sizes_gib
+
+    def __call__(self) -> int:
+        loaded = [h for h in self.runner.handles if h.alive]
+        return int(
+            self.free - sum(self.sizes[h.model_id.removesuffix("-model")] * GIB for h in loaded)
+        )
+
+
+def _shared_runtime(free_gib: float, sizes: dict[str, float], budget_gib: float = 8):
+    runner = FakeRunner()
+    return _runtime(budget_gib, sizes, runner, ram_available=FakeRam(free_gib, runner, sizes))
+
+
+def test_on_a_shared_gpu_an_idle_model_goes_when_ram_is_short():
+    """Both fit the GPU's 8 GB, but not the RAM the system can spare."""
+    runtime, runner = _shared_runtime(8, {"ocr": 3, "main": 4})
+
+    async def go():
+        async with runtime.lease("ocr", Priority.JOB):
+            pass
+        async with runtime.lease("main", Priority.JOB):
+            pass
+
+    asyncio.run(go())
+    assert runner.started == ["ocr-model", "main-model"]
+    assert [r["role"] for r in runtime.state()["residents"]] == ["main"]
+    assert runtime.swaps == 1
+
+
+def test_on_a_shared_gpu_with_ram_to_spare_both_stay_loaded():
+    runtime, _ = _shared_runtime(20, {"ocr": 1, "main": 4})
+
+    async def go():
+        async with runtime.lease("ocr", Priority.JOB):
+            pass
+        async with runtime.lease("main", Priority.JOB):
+            pass
+
+    asyncio.run(go())
+    assert sorted(r["role"] for r in runtime.state()["residents"]) == ["main", "ocr"]
+    assert runtime.swaps == 0
+
+
+def test_on_a_shared_gpu_a_model_in_use_is_waited_for_not_unloaded():
+    runtime, runner = _shared_runtime(8, {"ocr": 3, "main": 4})
+
+    async def go():
+        lease = runtime.lease("ocr", Priority.JOB)
+        await lease.__aenter__()
+        second = asyncio.create_task(_use(runtime, "main"))
+        await _until(lambda: runtime.state()["waiting"] == 1)
+        assert runner.started == ["ocr-model"]
+        await lease.__aexit__(None, None, None)
+        await second
+
+    asyncio.run(go())
+    assert runner.started == ["ocr-model", "main-model"]
+
+
+async def _use(runtime: ModelRuntime, role: str) -> None:
+    async with runtime.lease(role, Priority.JOB):
+        pass
+
+
+def test_alone_and_still_over_what_can_be_spared_says_what_to_do():
+    runtime, runner = _shared_runtime(5, {"main": 4})
+
+    with pytest.raises(NotAvailable, match="shares system RAM"):
+        asyncio.run(_use(runtime, "main"))
+    assert runner.started == []
+
+
+def test_a_refused_model_can_load_once_ram_has_been_freed():
+    runner = FakeRunner()
+    ram = FakeRam(5, runner, {"main": 4})
+    runtime, _ = _runtime(8, {"main": 4}, runner, ram_available=ram)
+
+    with pytest.raises(NotAvailable):
+        asyncio.run(_use(runtime, "main"))
+    ram.free = 16 * GIB  # the person closed some apps
+    asyncio.run(_use(runtime, "main"))
+    assert runner.started == ["main-model"]
+
+
+def test_needs_room_counts_what_can_be_spared():
+    runtime, _ = _shared_runtime(8, {"ocr": 3, "main": 4})
+    asyncio.run(_use(runtime, "ocr"))
+    assert runtime.needs_room("main")
+
+
+def test_the_state_says_when_a_gpu_shares_system_ram():
+    shared, _ = _shared_runtime(8, {"main": 4})
+    own, _ = _runtime(8, {"main": 4})
+    assert shared.state()["shared"] is True and own.state()["shared"] is False
 
 
 class FakeCommit:

@@ -16,6 +16,8 @@ for the role's model, loading it first if needed. Rules:
 - A runner that died is noticed on the next lease and started again.
 - On Windows, which backs GPU memory with commit (RAM plus page file), a model that fits beside
   the loaded ones but would leave less than COMMIT_MARGIN of commit unloads an idle one first.
+- On a GPU that shares system RAM, a model is fitted to the RAM that can be spared at that
+  moment, read at each load: an idle model goes first, and one that can't fit is refused.
 
 One asyncio.Condition guards all of it. Loading happens with the lock held: there is one GPU,
 so loads are serial anyway.
@@ -46,6 +48,7 @@ log = logging.getLogger(__name__)
 CHAT_IDLE_RESUME = 120.0  # seconds the chat is idle before a job may unload it (docs/models.md)
 GIB = 1024**3
 COMMIT_MARGIN = 2 * GIB  # of commit kept free on Windows after a model loads
+SHARED_RAM_MARGIN = 2 * GIB  # of RAM kept free on a GPU that shares it, after a model loads
 # What a llama-server commits on Windows, against the plan's estimate: measured on the M4
 # laptop (CUDA, docs/acceptance/m4.md) at 1.58x for PaddleOCR-VL (3.25 of 2.06 GB) and 1.36x
 # for Qwen3.5 9B (8.28 of 6.08 GB).
@@ -109,6 +112,7 @@ class ModelRuntime:
         chat_idle_resume: float = 0.0,
         clock: Callable[[], float] = time.monotonic,
         commit_available: Callable[[], int | None] = lambda: None,
+        ram_available: Callable[[], int | None] = lambda: None,
     ) -> None:
         self.budget = budget
         self.unified = unified
@@ -122,6 +126,9 @@ class ModelRuntime:
         # Bytes the OS can still commit, where that's what runs out first (Windows); None
         # elsewhere, and then only the GPU budget counts.
         self.commit_available = commit_available
+        # Bytes of system RAM free now, on a GPU whose memory is that RAM (an integrated one on
+        # a PC); None elsewhere. Read at each load: other programs use it too.
+        self.ram_available = ram_available
         self.events = EventHub()
         self.swaps = 0
         self._residents: dict[str, Resident] = {}  # by role
@@ -174,6 +181,7 @@ class ModelRuntime:
         return {
             "budget": self.budget,
             "unified": self.unified,
+            "shared": self.ram_available() is not None,
             "used": self.resident_bytes(),
             "swaps": self.swaps,
             "waiting": len(self._queue),
@@ -213,6 +221,7 @@ class ModelRuntime:
                 resident=self.resident_bytes(),
                 unified=self.unified,
                 chat=False,
+                spare=self._spare_ram(),
             )
         except planner.DoesNotFit:
             return True
@@ -444,6 +453,7 @@ class ModelRuntime:
                     resident=self.resident_bytes(),
                     unified=self.unified,
                     chat=chat,
+                    spare=self._spare_ram(),
                 )
             except planner.DoesNotFit as exc:
                 raise NotAvailable(str(exc)) from exc
@@ -474,6 +484,14 @@ class ModelRuntime:
         except NotAvailable:
             return None
         return None if choice.model_id == current.choice.model_id else choice
+
+    def _spare_ram(self) -> int | None:
+        """On a GPU sharing system RAM, what models may have of it: what's free, what the loaded
+        ones hold (it's theirs to give back), less what's kept for everything else."""
+        available = self.ram_available()
+        if available is None:
+            return None
+        return available + self.resident_bytes() - SHARED_RAM_MARGIN
 
     def _commit_short(self, plan: planner.FitPlan) -> str | None:
         """Why loading this plan would leave too little commit, or None when it wouldn't (or

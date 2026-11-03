@@ -102,6 +102,11 @@ def commit_available() -> int | None:
     return int(status.ullAvailPageFile)
 
 
+def ram_available() -> int:
+    """Bytes of system RAM free now, the page cache the OS can give back included."""
+    return psutil.virtual_memory().available
+
+
 def windows_cpu_name() -> str | None:
     """The processor's name as Windows shows it ("Intel(R) Core(TM) Ultra 7 155H"), from the
     registry; None elsewhere or when it isn't there. platform.processor() gives only its
