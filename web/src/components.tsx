@@ -25,7 +25,8 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
 export function HardwareRows({ system }: { system: SystemReport }) {
   const { t } = useTranslation();
   const { hardware } = system;
-  const gpu = hardware.gpus[0];
+  // The one the budget comes from: an integrated GPU only when it's alone (best_gpu, probe.py).
+  const gpu = hardware.gpus.find((g) => !g.shared) ?? hardware.gpus[0];
   return (
     <>
       <Row label={t("hardware.os")} value={t(`hardware.osNames.${hardware.os}`)} />

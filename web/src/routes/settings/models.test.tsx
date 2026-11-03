@@ -281,6 +281,21 @@ describe("Models & memory", () => {
     expect(screen.queryByText("Video memory for models")).toBeNull();
   });
 
+  it("describes the GPU with its own memory when an integrated one is listed first", async () => {
+    const system = RESPONSES["/api/system"] as { hardware: { gpus: object[] } };
+    const integrated = { ...system.hardware.gpus[0], name: "Intel UHD 770", shared: true };
+    overrides = {
+      "/api/system": {
+        ...system,
+        hardware: { ...system.hardware, gpus: [integrated, system.hardware.gpus[0]] },
+      },
+    };
+    renderPage();
+    expect(await screen.findByText("RTX 4060")).toBeTruthy();
+    expect(screen.queryByText("Intel UHD 770")).toBeNull();
+    expect(screen.queryByText("Memory the GPU can use")).toBeNull();
+  });
+
   it("says an OCR job waits for the chat, not for memory", async () => {
     overrides["/api/runtime"] = {
       ...(RESPONSES["/api/runtime"] as object), waiting: 1, activity: null,
