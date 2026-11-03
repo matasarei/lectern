@@ -93,6 +93,20 @@ def test_a_numbered_heading_with_more_lines_keeps_its_first():
     assert "4. Розділ 4\nОплата" in texts
 
 
+def test_a_header_merged_into_numbered_headings_goes_and_the_headings_stay():
+    """Both at once, as the lease's pages have them: the header's line is a running line, and
+    the numbered line under it isn't."""
+    header = para("Договір оренди № 17/2026")
+    pages = [_page(n, header, heading(f"{n}. Розділ {n}"), para(f"Текст {n}.")) for n in (1, 2, 3)]
+    pages += [
+        _page(n, heading(f"Договір оренди № 17/2026\n{n}. Розділ {n}"), para(f"Текст {n}."))
+        for n in (4, 5, 6)
+    ]
+    texts = [b.text for b in assemble("Lease", "lease.pdf", pages).blocks]
+    assert [t for t in texts if "Розділ" in t] == [f"{n}. Розділ {n}" for n in range(1, 7)]
+    assert not any("Договір оренди" in t for t in texts)
+
+
 def test_a_numbered_heading_typed_as_a_paragraph_on_some_pages_stays():
     """Cleanup doesn't type a page's heading the same way every time (the M4 re-run did both).
     A leftover line can be removed in the review; a lost one can't be noticed."""
