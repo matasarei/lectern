@@ -360,6 +360,48 @@ def test_a_page_number_called_an_image_doesnt_stop_a_word_joining_across_the_bre
     assert block.text == "пеню у розмірі 0,5% від суми заборгованості, включно з днем оплати."
 
 
+MONTHS = (["Місяць", "Сума, грн"], ["Січень", "18 500,00"])
+
+
+def test_a_pages_own_number_as_a_tables_last_row_goes():
+    """Seen on the lease with the 4B: the page's number in the table's text, so a last row."""
+    (block,) = assemble("L", "l.pdf", [_page(12, table(*MONTHS, ["12"]))]).blocks
+    assert block.rows == [list(row) for row in MONTHS]
+
+
+def test_a_pages_own_number_goes_from_a_last_row_with_empty_cells_too():
+    (block,) = assemble("L", "l.pdf", [_page(12, table(*MONTHS, ["", " 12 "]))]).blocks
+    assert block.rows == [list(row) for row in MONTHS]
+
+
+@pytest.mark.parametrize(
+    "blocks",
+    [
+        pytest.param([table(*MONTHS, ["11"])], id="not this page's number"),
+        pytest.param([table(*MONTHS, ["12"]), para("Текст.")], id="not the page's last block"),
+        pytest.param([table(["Сума"], ["18"], ["12"])], id="one column"),
+        pytest.param([table(*MONTHS, ["12", "18 500,00"])], id="a second filled cell"),
+        pytest.param([table(["12", ""])], id="the only row"),
+    ],
+)
+def test_a_tables_last_row_stays_unless_its_only_the_pages_number(blocks):
+    doc = assemble("L", "l.pdf", [_page(12, *blocks)])
+    assert doc.blocks[0].rows == blocks[0].rows
+
+
+def test_a_table_continuing_on_the_next_page_merges_without_the_number_row():
+    doc = assemble(
+        "L",
+        "l.pdf",
+        [
+            _page(12, table(*MONTHS, ["12"])),
+            _page(13, table(["Лютий", "18 500,00"], ["13"])),
+        ],
+    )
+    (block,) = doc.blocks
+    assert block.rows == [*[list(row) for row in MONTHS], ["Лютий", "18 500,00"]]
+
+
 def test_a_question_in_a_table_given_as_text_and_rows_is_marked_in_its_cell():
     """Seen on a real invoice: cleanup gave the table both as text and as rows. The table is
     shown from its rows, so a question marked only in its text would vanish."""
