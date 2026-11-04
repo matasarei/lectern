@@ -32,6 +32,11 @@ RUNNING_LINE_CHARS = 100  # a running header or footer is a short line, never a 
 PATTERN_LINE_CHARS = 60  # a line repeated through a document, digits aside: a heading, a label
 PATTERN_WORD_LETTERS = 4  # shorter, one letter off is another word as often as a misreading
 REPEAT_REASON = 'Other lines like this one have "{}" here.'
+# A label or text naming a page number, as a small model types one for a figure: "Page number",
+# "page_number_1". A printed number itself is PAGE_NUMBER's.
+PAGE_NUMBER_NAME = re.compile(
+    r"^(?:page[\s_-]*(?:num(?:ber)?|no\.?)|номер\s+сторінки)(?:[\s_-]*\d+)?$", re.I
+)
 
 
 @dataclass
@@ -243,8 +248,15 @@ def _add_repeated_line_doubts(
 
 def _page_number(block: Block) -> bool:
     """A bare page number, whatever the model called it: a small model has typed "стор. 2 з 3"
-    as a signature or a stamp."""
-    return block.type not in ("table", "figure") and PAGE_NUMBER.match(block.text) is not None
+    as a signature or a stamp, and "8" as a figure, or one with no text labelled "Page number"
+    (m4.md, the 9B). Every export would print that as an image that doesn't exist."""
+    if block.type == "table":
+        return False
+    return (
+        PAGE_NUMBER.match(block.text) is not None
+        or PAGE_NUMBER_NAME.match(block.text.strip()) is not None
+        or PAGE_NUMBER_NAME.match((block.label or "").strip()) is not None
+    )
 
 
 def _edge_line(block: Block, edge: int) -> str:
@@ -289,9 +301,10 @@ def _running_keys(per_page: dict[int, list[Block]], edge: int) -> set[str]:
 
 
 def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
-    """Bare page numbers at a page's top or bottom, and a short first or last line that
-    repeats (digits aside) at the top or bottom of REPEATS pages or more. A shorter document
-    keeps its lines: two pages that happen to start alike aren't a running header.
+    """Bare page numbers at a page's top or bottom, whatever the model typed them as, or as a
+    table's last row, and a short first or last line that repeats (digits aside) at the top or
+    bottom of REPEATS pages or more. A shorter document keeps its lines: two pages that happen
+    to start alike aren't a running header.
 
     Counted line by line: a header cleanup merged into the block below counts with the rest,
     and only that line goes. A block of several lines is never dropped whole: "Договір
@@ -315,10 +328,22 @@ def _drop_running_lines(per_page: dict[int, list[Block]], total: int) -> None:
         for blocks in per_page.values():
             if blocks and blocks[edge].type in ("paragraph", "heading"):
                 _strip_running_line(blocks[edge], edge, running)
-    for blocks in per_page.values():  # a number left at an edge after a header went
+    for page, blocks in per_page.items():  # a number left at an edge after a header went
         for edge in (0, -1):
             if blocks and _page_number(blocks[edge]):
                 blocks.pop(edge)
+        _drop_page_number_row(blocks, page)
+
+
+def _drop_page_number_row(blocks: list[Block], page: int) -> None:
+    """A last row holding only the page's own number, on the table that ends the page: the 4B
+    put "12" in page 12's table (m4.md). Narrow on purpose, since a wrong one would lose a value
+    with nothing to show for it: a printed number that isn't the page's own stays."""
+    rows = (blocks[-1].rows or []) if blocks and blocks[-1].type == "table" else []
+    if len(rows) < 2 or max(len(row) for row in rows) < 2:
+        return
+    if [cell.strip() for cell in rows[-1] if cell.strip()] == [str(page)]:
+        rows.pop()
 
 
 def _join_across(before: list[Block], after: list[Block], notes: str) -> None:

@@ -293,6 +293,115 @@ def test_a_page_number_the_model_called_a_signature_is_dropped_and_the_break_joi
     assert block.pages == [2, 3]
 
 
+def figure(text: str = "", label: str | None = None) -> CleanBlock:
+    return CleanBlock(type="figure", text=text, label=label)
+
+
+@pytest.mark.parametrize(
+    "number",
+    [
+        figure("8"),  # the 4B, on the lease
+        figure("12", "page_number"),
+        figure("page_number_1"),
+        figure(label="Page number"),  # the 9B, on the lease
+        figure(label="page_number"),
+        figure(label="page no."),
+        figure(label="Номер сторінки"),
+        CleanBlock(type="stamp", label="page_number"),
+    ],
+)
+@pytest.mark.parametrize("at_top", [True, False])
+def test_a_page_number_the_model_called_an_image_is_dropped(number, at_top):
+    blocks = (number, para("Текст.")) if at_top else (para("Текст."), number)
+    doc = assemble("L", "l.pdf", [_page(8, *blocks)])
+    assert [b.text for b in doc.blocks] == ["Текст."]
+    assert doc.pages[0].blocks == [doc.blocks[0].id]
+    assert "[Image" not in render_markdown(doc)
+
+
+def test_a_page_number_image_gone_leaves_the_other_blocks_ids():
+    doc = assemble("L", "l.pdf", [_page(8, figure("8"), para("Один."), para("Два."))])
+    assert [b.id for b in doc.blocks] == ["b8.2", "b8.3"]
+
+
+@pytest.mark.parametrize(
+    "real",
+    [
+        figure(label="Color Bars"),
+        figure("Logo", "Figure"),
+        figure(label="12 pt: OCR CHECK"),
+        figure(),
+        figure(label="Page 3 of the plan: floor"),
+    ],
+)
+def test_a_real_image_at_a_pages_edge_stays(real):
+    doc = assemble("L", "l.pdf", [_page(8, para("Текст."), real)])
+    assert doc.blocks[-1].type == "figure"
+    assert len(doc.blocks) == 2
+
+
+def test_an_image_labelled_page_number_in_the_middle_of_a_page_stays():
+    doc = assemble(
+        "L", "l.pdf", [_page(8, para("Один."), figure(label="Page number"), para("Два."))]
+    )
+    assert [b.type for b in doc.blocks] == ["paragraph", "figure", "paragraph"]
+
+
+def test_a_page_number_called_an_image_doesnt_stop_a_word_joining_across_the_break():
+    doc = assemble(
+        "L",
+        "l.pdf",
+        [
+            _page(2, para("пеню у розмірі 0,5% від суми заборго-"), figure(label="Page number")),
+            _page(3, figure("3"), para("ваності, включно з днем оплати.")),
+        ],
+    )
+    (block,) = doc.blocks
+    assert block.text == "пеню у розмірі 0,5% від суми заборгованості, включно з днем оплати."
+
+
+MONTHS = (["Місяць", "Сума, грн"], ["Січень", "18 500,00"])
+
+
+def test_a_pages_own_number_as_a_tables_last_row_goes():
+    """Seen on the lease with the 4B: the page's number in the table's text, so a last row."""
+    (block,) = assemble("L", "l.pdf", [_page(12, table(*MONTHS, ["12"]))]).blocks
+    assert block.rows == [list(row) for row in MONTHS]
+
+
+def test_a_pages_own_number_goes_from_a_last_row_with_empty_cells_too():
+    (block,) = assemble("L", "l.pdf", [_page(12, table(*MONTHS, ["", " 12 "]))]).blocks
+    assert block.rows == [list(row) for row in MONTHS]
+
+
+@pytest.mark.parametrize(
+    "blocks",
+    [
+        pytest.param([table(*MONTHS, ["11"])], id="not this page's number"),
+        pytest.param([table(*MONTHS, ["12"]), para("Текст.")], id="not the page's last block"),
+        pytest.param([table(["Сума"], ["18"], ["12"])], id="one column"),
+        pytest.param([table(*MONTHS, ["12", "18 500,00"])], id="a second filled cell"),
+        pytest.param([table(["12", ""])], id="the only row"),
+    ],
+)
+def test_a_tables_last_row_stays_unless_its_only_the_pages_number(blocks):
+    doc = assemble("L", "l.pdf", [_page(12, *blocks)])
+    assert doc.blocks[0].rows == blocks[0].rows
+
+
+def test_a_table_continuing_on_the_next_page_merges_without_the_number_row():
+    doc = assemble(
+        "L",
+        "l.pdf",
+        [
+            _page(12, table(*MONTHS, ["12"])),
+            _page(13, table(["Лютий", "18 500,00"], ["13"])),
+        ],
+    )
+    (block,) = doc.blocks
+    assert block.rows == [*[list(row) for row in MONTHS], ["Лютий", "18 500,00"]]
+
+
 def test_a_question_in_a_table_given_as_text_and_rows_is_marked_in_its_cell():
     """Seen on a real invoice: cleanup gave the table both as text and as rows. The table is
     shown from its rows, so a question marked only in its text would vanish."""

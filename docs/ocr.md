@@ -56,7 +56,10 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    the loop is cut before cleanup and listed as a fix that suggests re-running the page.
 4. **Assemble.** Code only, no model (`assemble.py`). A short line (under 100 characters) at
    the top or bottom of three pages or more is a running header or footer and is dropped,
-   along with bare page numbers. Lines are counted, not blocks: where cleanup merged the
+   along with bare page numbers at a page's top or bottom, whatever cleanup typed them as: a
+   figure with a number for its text, or named "Page number" in its text or label, goes too.
+   So does a last row holding only the page's own number, on a table that ends the page. A
+   real figure stays. Lines are counted, not blocks: where cleanup merged the
    header into the next line's block, that line is taken off and the rest kept, and a block
    of several lines is never dropped whole. Digits are set aside when comparing lines, except
    that sections numbered in turn ("4. Розділ 4", "5. Розділ 5") stay when any of them is
