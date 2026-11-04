@@ -237,6 +237,28 @@ def test_a_send_that_finds_the_browser_gone_ends_the_stream_quietly():
     assert socket.closed_with is None  # nobody to tell
 
 
+class _SocketGoneByClose(_Socket):
+    """A browser that goes in the moment before it's told why the socket is closing."""
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        raise WebSocketDisconnect(code=1006)
+
+
+def test_a_browser_gone_as_the_app_shuts_down_isnt_an_error():
+    """Seen in CI as a traceback in the log of a Ctrl+C (`tests/test_serve_shutdown.py`)."""
+    socket = _SocketGoneByClose()
+    socket.app.state.shutting_down.set()
+    asyncio.run(asyncio.wait_for(ws.socket_events(socket, asyncio.Queue(), []), 5))
+
+
+def test_a_browser_gone_as_its_login_ends_isnt_an_error():
+    async def signed_out() -> bool:
+        return False
+
+    socket = _SocketGoneByClose(signed_in=signed_out)
+    asyncio.run(asyncio.wait_for(ws.socket_events(socket, asyncio.Queue(), []), 5))
+
+
 # --- a login that ends while its socket is open --------------------------------------------------
 
 

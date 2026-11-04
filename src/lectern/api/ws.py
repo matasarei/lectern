@@ -77,10 +77,12 @@ async def socket_events(
             # couldn't be asked. Raised so it is logged, as on an HTTP stream: dropped
             # here, the page would reopen the socket into the same thing without a word.
             raise failure
-    if turned_out:
-        await websocket.close(code=NOT_SIGNED_IN, reason="Not signed in")
-    elif ran_out:  # the events ran out with the browser still there: the app is shutting down
-        await websocket.close(code=GOING_AWAY)
+    # The browser can go in the moment since those were read: nobody to tell then, either.
+    with contextlib.suppress(WebSocketDisconnect):
+        if turned_out:
+            await websocket.close(code=NOT_SIGNED_IN, reason="Not signed in")
+        elif ran_out:  # the events ran out with the browser still there: the app is shutting down
+            await websocket.close(code=GOING_AWAY)
 
 
 async def refuse(websocket: WebSocket, code: int, reason: str) -> None:
