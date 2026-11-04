@@ -32,6 +32,11 @@ RUNNING_LINE_CHARS = 100  # a running header or footer is a short line, never a 
 PATTERN_LINE_CHARS = 60  # a line repeated through a document, digits aside: a heading, a label
 PATTERN_WORD_LETTERS = 4  # shorter, one letter off is another word as often as a misreading
 REPEAT_REASON = 'Other lines like this one have "{}" here.'
+# A label or text naming a page number, as a small model types one for a figure: "Page number",
+# "page_number_1". A printed number itself is PAGE_NUMBER's.
+PAGE_NUMBER_NAME = re.compile(
+    r"^(?:page[\s_-]*(?:num(?:ber)?|no\.?)|номер\s+сторінки)(?:[\s_-]*\d+)?$", re.I
+)
 
 
 @dataclass
@@ -243,8 +248,15 @@ def _add_repeated_line_doubts(
 
 def _page_number(block: Block) -> bool:
     """A bare page number, whatever the model called it: a small model has typed "стор. 2 з 3"
-    as a signature or a stamp."""
-    return block.type not in ("table", "figure") and PAGE_NUMBER.match(block.text) is not None
+    as a signature or a stamp, and "8" as a figure, or one with no text labelled "Page number"
+    (m4.md, the 9B). Every export would print that as an image that doesn't exist."""
+    if block.type == "table":
+        return False
+    return (
+        PAGE_NUMBER.match(block.text) is not None
+        or PAGE_NUMBER_NAME.match(block.text.strip()) is not None
+        or PAGE_NUMBER_NAME.match((block.label or "").strip()) is not None
+    )
 
 
 def _edge_line(block: Block, edge: int) -> str:
