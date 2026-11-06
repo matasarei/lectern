@@ -326,6 +326,10 @@ class NotWholeBlock(ValueError):
     """Removing was asked for a doubt that isn't all of its block: there'd be words left."""
 
 
+class NotRepeatable(ValueError):
+    """The doubt's answer is a removal: it's about one block, not a reading to give others."""
+
+
 # Held weakly: a session's lock lives while someone holds it (two writers at once get the
 # same one), and goes with the last, rather than one per session for as long as the app runs.
 _locks: weakref.WeakValueDictionary[tuple[str, int], threading.RLock] = (
@@ -439,6 +443,42 @@ def decide(
                                raw=doubt.raw, value=value, action=action, decided_by=user_id)
             )  # fmt: skip
         return _republish(root, db, session_id)
+
+
+def answer_others(
+    root: Path, db: sessionmaker[Session], session_id: int, doubt_id: str, *, user_id: int
+) -> tuple[OcrSessionRow, list[str]]:
+    """Give the answer this doubt has to every open doubt on the same text, whatever their
+    candidates: a misread repeated through a document is one question asked in many places
+    (#167). Each gets a decision of its own, so each is reopened on its own; the Document is
+    published once. Returns the session and the doubts answered; with none left, nothing is
+    written or published, so asking twice is safe."""
+    with document_lock(root, session_id):
+        ocr = _ocr(db, session_id)
+        document = load_document(root, ocr)
+        matched, _ = match_decisions(document, decisions(db, session_id)) if document else ({}, [])
+        if doubt_id not in matched:
+            raise NoSuchDoubt(doubt_id)
+        answer = matched[doubt_id]
+        if answer.action == "remove":
+            raise NotRepeatable(doubt_id)
+        others = [
+            d
+            for b in document.blocks
+            for d in b.doubts
+            if d.raw == answer.raw and d.id not in matched
+        ]
+        if not others:
+            return ocr, []
+        with db.begin() as session:
+            session.add_all(
+                OcrDecisionRow(session_id=session_id, page=doubt_page(d) or 0, doubt_id=d.id,
+                               raw=d.raw, value=answer.value, action=answer.action,
+                               decided_by=user_id)
+                for d in others
+            )  # fmt: skip
+        ocr, _ = _republish(root, db, session_id)
+        return ocr, [d.id for d in others]
 
 
 def reopen(root: Path, db: sessionmaker[Session], session_id: int, doubt_id: str) -> OcrSessionRow:

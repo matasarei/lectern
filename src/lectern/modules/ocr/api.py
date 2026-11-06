@@ -285,6 +285,34 @@ async def answer_doubt(
     return published
 
 
+@router.post("/projects/{project_id}/ocr/{session_id}/doubts/{doubt_id}/others")
+async def answer_others(
+    project_id: int, session_id: int, doubt_id: str, request: Request, user: CurrentUser
+) -> dict:
+    """Give a doubt's answer to every open doubt on the same text, in one new version. No
+    body: the answer is the one stored, so a tab showing an older Document can't send its
+    own. Like any answer, it can be the last one, so whoever waits on the session hears."""
+    project = await open_ocr(request, project_id, session_id, user)
+    try:
+        ocr, _ = await run_in_threadpool(
+            lambda: ocr_store.answer_others(
+                project.root, store(request).db(project), session_id, doubt_id, user_id=user.id
+            )
+        )
+    except ocr_store.NoSuchDoubt:
+        raise HTTPException(404, "No answered question has that id.") from None
+    except ocr_store.NotRepeatable:
+        raise HTTPException(
+            422, "A removal is about one block: answer the others on their own."
+        ) from None
+    published = await run_in_threadpool(_published, request, project, ocr)
+    try:
+        await jobs(request).tell(project, session_id)
+    except Exception:  # noqa: BLE001 — the answers are saved; a waiting export hears it later
+        log.exception("Telling about OCR session %s after answering others failed", session_id)
+    return published
+
+
 @router.delete("/projects/{project_id}/ocr/{session_id}/doubts/{doubt_id}")
 def reopen_doubt(
     project_id: int, session_id: int, doubt_id: str, request: Request, user: CurrentUser

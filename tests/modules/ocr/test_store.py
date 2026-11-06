@@ -248,6 +248,136 @@ def test_keeping_a_reading_resolves_it_as_it_was_read(store, tmp_path):
     assert [(d.value, d.action) for d in ocr_store.decisions(db, sid)] == [("1?", "keep")]
 
 
+def _repeated_session(store, tmp_path: Path):  # noqa: ANN001, ANN202
+    """A one-page session asking about "Розділі" three times (d1.1, d1.3, d1.4, the last with
+    other candidates), about "1?" once (d1.2), and about the fragment "луги." twice (d1.5, d1.6:
+    each all of its block)."""
+    from lectern.modules.ocr.clean import CleanBlock, CleanDoubt, CleanedPage
+
+    project, db, sid = _cleaned_session(store, tmp_path)
+    (page,) = ocr_store.pages(db, sid)
+    texts = [
+        "1. Розділі 1",
+        "Оплата до 1? числа.",
+        "2. Розділі 2",
+        "3. Розділі 3",
+        "луги.",
+        "луги.",
+    ]
+    cleaned = CleanedPage(
+        blocks=[CleanBlock(type="paragraph", text=t) for t in texts],
+        doubts=[
+            CleanDoubt(block=0, raw="Розділі", candidates=["Розділ"]),
+            CleanDoubt(block=1, raw="1?", candidates=["15"]),
+            CleanDoubt(block=2, raw="Розділі", candidates=["Розділ"]),
+            CleanDoubt(block=3, raw="Розділі", candidates=["Розділу", "Розділ"]),
+            CleanDoubt(block=4, raw="луги."),
+            CleanDoubt(block=5, raw="луги."),
+        ],
+    )
+    ocr_store.save_cleanup(project.root, db, ocr_store._ocr(db, sid), page.id, cleaned)
+    ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+    return project, db, sid, cleaned
+
+
+def _values(project, ocr) -> dict[str, str | None]:  # noqa: ANN001
+    doc = ocr_store.load_document(project.root, ocr)
+    return {d.id: d.value for b in doc.blocks for d in b.doubts}
+
+
+def test_the_others_on_the_same_text_get_the_answer_in_one_new_version(store, tmp_path):
+    """Whatever their candidates: the person gave the answer, so the model's guesses don't
+    matter any more (#167)."""
+    project, db, sid, _ = _repeated_session(store, tmp_path)
+    ocr, _ = ocr_store.decide(project.root, db, sid, "d1.1", value="Розділ", action="accept",
+                              user_id=LOCAL_USER.id)  # fmt: skip
+    assert ocr.document_version == 2
+
+    ocr, answered = ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+
+    assert ocr.document_version == 3 and answered == ["d1.3", "d1.4"]
+    values = _values(project, ocr)
+    assert (values["d1.3"], values["d1.4"], values["d1.2"]) == ("Розділ", "Розділ", None)
+    rows = {d.doubt_id: d for d in ocr_store.decisions(db, sid)}
+    assert {(d.raw, d.value, d.action, d.page) for d in rows.values()} == {
+        ("Розділі", "Розділ", "accept", 1)
+    }
+
+
+def test_the_others_dont_take_an_answer_already_given_to_one_of_them(store, tmp_path):
+    project, db, sid, _ = _repeated_session(store, tmp_path)
+    ocr_store.decide(project.root, db, sid, "d1.3", value="Розділу", action="edit",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    ocr_store.decide(project.root, db, sid, "d1.1", value="Розділ", action="accept",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+
+    ocr, answered = ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+
+    assert answered == ["d1.4"]
+    assert (_values(project, ocr)["d1.3"], _values(project, ocr)["d1.4"]) == ("Розділу", "Розділ")
+
+
+def test_a_reading_kept_is_kept_in_the_others_too(store, tmp_path):
+    project, db, sid, _ = _repeated_session(store, tmp_path)
+    ocr_store.decide(project.root, db, sid, "d1.1", value=None, action="keep",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    ocr, _ = ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+    assert {d.action for d in ocr_store.decisions(db, sid)} == {"keep"}
+    assert _values(project, ocr)["d1.4"] == "Розділі"
+
+
+def test_with_no_others_left_nothing_is_written_or_published(store, tmp_path):
+    project, db, sid, _ = _repeated_session(store, tmp_path)
+    ocr_store.decide(project.root, db, sid, "d1.1", value="Розділ", action="accept",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+    before = ocr_store.decisions(db, sid)
+
+    ocr, answered = ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+
+    assert (answered, ocr.document_version) == ([], 3)
+    assert ocr_store.decisions(db, sid) == before
+
+
+def test_the_others_are_answered_only_from_an_answer_that_isnt_a_removal(store, tmp_path):
+    project, db, sid, _ = _repeated_session(store, tmp_path)
+    with pytest.raises(ocr_store.NoSuchDoubt):  # no such question
+        ocr_store.answer_others(project.root, db, sid, "d1.9", user_id=LOCAL_USER.id)
+    with pytest.raises(ocr_store.NoSuchDoubt):  # still open: no answer to give the others
+        ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+    ocr_store.decide(project.root, db, sid, "d1.5", value=None, action="remove",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    with pytest.raises(ocr_store.NotRepeatable):  # about one block, not a reading
+        ocr_store.answer_others(project.root, db, sid, "d1.5", user_id=LOCAL_USER.id)
+    assert len(ocr_store.decisions(db, sid)) == 1
+
+
+def test_each_of_the_others_is_reopened_on_its_own(store, tmp_path):
+    project, db, sid, _ = _repeated_session(store, tmp_path)
+    ocr_store.decide(project.root, db, sid, "d1.1", value="Розділ", action="accept",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+
+    ocr = ocr_store.reopen(project.root, db, sid, "d1.3")
+
+    values = _values(project, ocr)
+    assert (values["d1.1"], values["d1.3"], values["d1.4"]) == ("Розділ", None, "Розділ")
+
+
+def test_the_others_answers_survive_cleaning_the_page_again(store, tmp_path):
+    project, db, sid, cleaned = _repeated_session(store, tmp_path)
+    ocr_store.decide(project.root, db, sid, "d1.1", value="Розділ", action="accept",
+                     user_id=LOCAL_USER.id)  # fmt: skip
+    ocr_store.answer_others(project.root, db, sid, "d1.1", user_id=LOCAL_USER.id)
+    (page,) = ocr_store.pages(db, sid)
+
+    ocr_store.save_cleanup(project.root, db, ocr_store._ocr(db, sid), page.id, cleaned)
+    ocr, unplaced = ocr_store.redo_document(project.root, db, sid, owner_id=LOCAL_USER.id)
+
+    values = _values(project, ocr)
+    assert unplaced == [] and [values[i] for i in ("d1.1", "d1.3", "d1.4")] == ["Розділ"] * 3
+
+
 def _with_a_fragment(store, tmp_path: Path):  # noqa: ANN001, ANN202
     """The session, cleaned again with an invented block after the paragraph: "луги.", all
     of it a doubt (d1.2)."""
