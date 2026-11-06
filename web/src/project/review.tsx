@@ -7,13 +7,16 @@ import type { DocBlock, DocDoubt, OcrDocument } from "../api/types";
 import { ErrorNote } from "../components";
 import {
   answerDoubt,
+  answerOthers,
   coversBlock,
   documentKey,
+  doubtPage,
   nextPageWithQuestions,
   openQuestions,
   pageBlocks,
   pageQuestions,
   reopenDoubt,
+  sameOpenQuestions,
   suggestion,
   suggests,
   type Answer,
@@ -59,6 +62,14 @@ export function ReviewPage({
     setCurrentId(asked?.id ?? null);
     setEditing(false);
   }
+  // The question just answered, for offering its answer to the others on the same text; on
+  // another page the offer would be about something no longer in view.
+  const [answeredId, setAnsweredId] = useState<string | null>(null);
+  const [seenPage, setSeenPage] = useState(page);
+  if (page !== seenPage) {
+    setSeenPage(page);
+    setAnsweredId(null);
+  }
   // Answered meanwhile (in another tab, say): the page's first open question instead.
   const current = open.find((q) => q.id === currentId) ?? (currentId ? (open[0] ?? null) : null);
 
@@ -82,6 +93,8 @@ export function ReviewPage({
     onSuccess: (_, a) => {
       setEditing(false);
       setCurrentId(after(a.doubt.id));
+      // A removal is about one block, not a reading to give the others.
+      setAnsweredId(a.answer.action === "remove" ? null : a.doubt.id);
       area.current?.focus();
       void refresh();
     },
@@ -90,9 +103,24 @@ export function ReviewPage({
     mutationFn: (doubt: DocDoubt) => reopenDoubt(projectId, sessionId, doubt.id),
     onSuccess: (_, doubt) => {
       setCurrentId(doubt.id);
+      setAnsweredId(null);
       void refresh();
     },
   });
+  const repeat = useMutation({
+    mutationFn: (doubt: DocDoubt) => answerOthers(projectId, sessionId, doubt.id),
+    onSuccess: () => {
+      setAnsweredId(null);
+      area.current?.focus();
+      void refresh();
+    },
+  });
+  // Offered once the Document says it's answered, so never from one that hasn't caught up.
+  const answered = doc.blocks
+    .flatMap((b) => b.doubts)
+    .find((d) => d.id === answeredId && d.status === "resolved" && d.value !== "");
+  const others = answered ? sameOpenQuestions(doc, answered) : [];
+  const answerAll = () => answered && others.length > 0 && !repeat.isPending && repeat.mutate(answered);
 
   const reply = (a: Answer) => current && answer.mutate({ doubt: current, answer: a });
   const accept = (value: string) => reply({ action: "accept", value });
@@ -114,7 +142,14 @@ export function ReviewPage({
     const target = e.target as HTMLElement;
     // On a control (the card's buttons, a question chip, the edit box) the keys keep their
     // usual meaning: Enter presses it, Tab moves on. They answer only from the review itself.
-    if (editing || target.closest("input, textarea, select, button") || !current || answer.isPending) return;
+    if (editing || target.closest("input, textarea, select, button") || answer.isPending) return;
+    // Before the check for a current question: after a page's last answer there's none.
+    if ((e.key === "a" || e.key === "A") && others.length > 0) {
+      e.preventDefault();
+      answerAll();
+      return;
+    }
+    if (!current) return;
     if (e.key === "Enter") {
       e.preventDefault();
       primary();
@@ -151,7 +186,8 @@ export function ReviewPage({
       }}
     />
   );
-  const error = answer.error ?? reopen.error;
+  const error = answer.error ?? reopen.error ?? repeat.error;
+  const otherPages = [...new Set(others.map(doubtPage))].sort((a, b) => a - b);
 
   return (
     <div
@@ -197,6 +233,25 @@ export function ReviewPage({
         className="sticky bottom-0 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm"
         data-testid="question-bar"
       >
+        {/* The answer just given, offered to the same reading elsewhere: in the bar, so it's in
+            view however far the page is scrolled. Ignored, it changes nothing. */}
+        {answered && others.length > 0 && (
+          <div className="flex basis-full flex-wrap items-center gap-2" data-testid="same-answer">
+            <span>
+              {answered.value === answered.raw
+                ? t("review.sameKept", { raw: answered.raw, pages: otherPages.join(", "), count: otherPages.length })
+                : t("review.same", {
+                    raw: answered.raw,
+                    value: answered.value,
+                    pages: otherPages.join(", "),
+                    count: otherPages.length,
+                  })}
+            </span>
+            <button className="btn-secondary" disabled={repeat.isPending} onClick={answerAll}>
+              {t("review.sameAll", { count: others.length })} <kbd>{t("review.keys.same")}</kbd>
+            </button>
+          </div>
+        )}
         {/* The last one answered: say so, and the way back to the chat that started it,
             where whatever it queued (an export) goes on. */}
         {answeredAll ? (

@@ -520,11 +520,18 @@
       "ocr": "OCR"
     },
     "figure": "[Image: {{label}} · no cut-out yet]",
+    "same_one": "“{{raw}}” → “{{value}}”: also on page {{pages}}.",
+    "same_other": "“{{raw}}” → “{{value}}”: also on pages {{pages}}.",
+    "sameKept_one": "“{{raw}}” kept: also on page {{pages}}.",
+    "sameKept_other": "“{{raw}}” kept: also on pages {{pages}}.",
+    "sameAll_one": "Answer the other one the same way",
+    "sameAll_other": "Answer the other {{count}} the same way",
     "keys": {
       "accept": "Enter",
       "keep": "K",
       "edit": "E",
-      "later": "Tab"
+      "later": "Tab",
+      "same": "A"
     }
   },
   "document": {
