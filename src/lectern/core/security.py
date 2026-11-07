@@ -54,9 +54,12 @@ HOST_BOUND = "__Host-"
 SIGNING_IN = "/api/login"
 THIS_COMPUTER = frozenset({"127.0.0.1", "::1"})
 
+# frame-src blob: is for the file tab's PDF preview: the page fetches the PDF with its token
+# and shows it from a blob URL it made itself, typed application/pdf, in the browser's viewer.
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
-    "style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+    "style-src 'self'; script-src 'self'; frame-src 'self' blob:; frame-ancestors 'none'; "
+    "base-uri 'none'"
 )
 SECURITY_HEADERS = (
     (b"content-security-policy", CONTENT_SECURITY_POLICY.encode()),

@@ -425,6 +425,7 @@
     "gone": "This file is no longer in the project.",
     "textIndexed": "readable by the chat and search",
     "imageAlt": "Preview of {{name}}",
+    "pdfTitle": "{{name}} in the browser's PDF viewer",
     "fromWeb": "Opened from {{host}} in a chat:"
   },
   "ocr": {

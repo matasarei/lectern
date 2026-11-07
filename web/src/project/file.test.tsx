@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Artifact, ProjectItems, Tab } from "../api/types";
-import { FileTab, TEXT_PREVIEW_LIMIT } from "./file";
+import { FileTab, PDF_PREVIEW_LIMIT, TEXT_PREVIEW_LIMIT } from "./file";
 
 const artifact = (over: Partial<Artifact>): Artifact => ({
   id: 4, name: "reply.md", kind: "generated", mime: "text/markdown", size: 40, text: "indexed",
@@ -190,6 +190,26 @@ describe("File tab", () => {
     renderFile(artifact({ name: "lease-1998.doc", mime: "application/msword", preview: "legacy" }));
     expect(screen.getByText(/Word 97–2003 and RTF files can't be shown here/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
+    expect(requested).toEqual([]);
+  });
+
+  it("shows a PDF in the browser's viewer, from a blob URL typed as a PDF", async () => {
+    const made: Blob[] = [];
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = (b: Blob) => (made.push(b), "blob:pdf");
+      static revokeObjectURL = () => {};
+    });  // prettier-ignore
+    renderFile(artifact({ name: "lease.pdf", mime: "application/pdf", preview: "pdf" }));
+    const frame = await screen.findByTitle("lease.pdf in the browser's PDF viewer");
+    expect(frame.tagName).toBe("IFRAME");
+    expect(frame.getAttribute("src")).toBe("blob:pdf");
+    expect(made.map((b) => b.type)).toEqual(["application/pdf"]);
+    expect(requested).toEqual(["/api/projects/1/artifacts/4/content"]);
+  });
+
+  it("offers a PDF too large to show as a download", () => {
+    renderFile(artifact({ name: "atlas.pdf", mime: "application/pdf", preview: "pdf", size: PDF_PREVIEW_LIMIT + 1 }));
+    expect(screen.getByText("This file is too large to show here. Download it to open it.")).toBeTruthy();
     expect(requested).toEqual([]);
   });
 

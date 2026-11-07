@@ -90,6 +90,12 @@ def test_the_api_isnt_described_to_whoever_asks(client, path):
     assert response.headers["content-type"].startswith("text/html")  # the page itself
 
 
+def test_frames_come_only_from_lectern_and_its_own_blobs():
+    # The PDF preview's frame; nothing from another site can be framed into the page.
+    assert "frame-src 'self' blob:;" in CONTENT_SECURITY_POLICY
+    assert "frame-ancestors 'none'" in CONTENT_SECURITY_POLICY
+
+
 def test_rejections_also_have_csp(client):
     response = client.get("/health", headers={"Host": "evil.example"})
     assert response.headers["content-security-policy"] == CONTENT_SECURITY_POLICY

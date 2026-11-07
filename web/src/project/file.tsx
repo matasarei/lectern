@@ -11,6 +11,8 @@ import { startOcr } from "./ocr-api";
 
 /** Text shown in the page up to this size; bigger files download. */
 export const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
+/** A PDF is fetched whole into the page to be shown, so only up to this size. */
+export const PDF_PREVIEW_LIMIT = 100 * 1024 * 1024;
 /** What an OCR session can read (the server decides by the name's extension too). */
 const PAGE_SOURCES = [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"];
 
@@ -79,6 +81,9 @@ function Preview({ base, artifact, keepLines }: { base: string; artifact: Artifa
       return <TextPreview url={url} markdown={artifact.preview === "markdown"} keepLines={keepLines} />;
     case "image":
       return <ImagePreview url={url} name={artifact.name} />;
+    case "pdf":
+      if (artifact.size > PDF_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
+      return <PdfPreview url={url} name={artifact.name} />;
     case "document":
       return <DocumentPreview url={`${base}/markdown`} />;
     case "legacy":
@@ -133,6 +138,37 @@ function DocumentPreview({ url }: { url: string }) {
   );
 }
 
+/** A PDF in the browser's own viewer. It needs the token too, so it's fetched and framed from
+ * a blob URL, which Lectern types as a PDF itself (the CSP allows frames from blob: for this). */
+function PdfPreview({ url, name }: { url: string; name: string }) {
+  const { t } = useTranslation();
+  const blob = useQuery({
+    queryKey: ["file-pdf", url],
+    queryFn: async () => new Blob([await (await apiRaw(url)).blob()], { type: "application/pdf" }),
+  });
+  const src = useObjectUrl(blob.data);
+  if (blob.isError) return <ErrorNote message={t("common.loadFailed")} />;
+  if (!src) return <p className="text-muted">{t("common.loading")}</p>;
+  return (
+    <iframe
+      src={src}
+      title={t("file.pdfTitle", { name })}
+      className="h-[80vh] w-full rounded-lg border border-line"
+    />
+  );
+}
+
+/** An object URL for a blob while it's shown, revoked after. */
+function useObjectUrl(blob: Blob | undefined): string | null {
+  const src = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
+  useEffect(() => {
+    return () => {
+      if (src) URL.revokeObjectURL(src);
+    };
+  }, [src]);
+  return src;
+}
+
 /** Images need the token, so they're fetched and shown from a blob URL. */
 export function ImagePreview({ url, name }: { url: string; name: string }) {
   const { t } = useTranslation();
@@ -140,12 +176,7 @@ export function ImagePreview({ url, name }: { url: string; name: string }) {
     queryKey: ["file-blob", url],
     queryFn: async () => (await apiRaw(url)).blob(),
   });
-  const src = useMemo(() => (blob.data ? URL.createObjectURL(blob.data) : null), [blob.data]);
-  useEffect(() => {
-    return () => {
-      if (src) URL.revokeObjectURL(src);
-    };
-  }, [src]);
+  const src = useObjectUrl(blob.data);
   if (blob.isError) return <ErrorNote message={t("common.loadFailed")} />;
   if (!src) return <p className="text-muted">{t("common.loading")}</p>;
   return <img src={src} alt={t("file.imageAlt", { name })} className="max-h-[80vh] rounded-lg border border-line" />;
