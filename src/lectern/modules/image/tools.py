@@ -93,9 +93,8 @@ def _question(ctx: ToolContext, params: GenerateParams) -> str:
     images = _images(ctx)
     entry = _model(ctx)
     engine = _engine_bytes(images)
-    width, height = shape_size(images, entry, params.shape)
-    wait = wait_text(images.estimate(entry, width, height))
-    text = f"Make a {width}×{height} picture with {entry.title}? It should take {wait}."
+    # The size and the wait are each shape's, beside it: the person may change the shape.
+    text = f"Make a picture with {entry.title}?"
     if not model_download.on_disk(ctx, entry):
         if (why := model_download.why_not(ctx, entry)) is not None:
             raise ToolError(f"{entry.title} isn't downloaded, and {why}.")

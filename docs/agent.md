@@ -153,10 +153,9 @@ Two ways in:
 - **From the message.** The model decides to call the tool and writes the prompt. A card
   always asks first: on a 4 GB card a picture takes minutes and unloads the chat's model.
   The card shows:
-  - the size and the expected wait;
-  - what downloads first;
+  - the model, and what downloads first;
   - the prompt, which the person can change;
-  - the shapes, each with its size and wait.
+  - the shapes, each with its size and expected wait.
 
   The wait comes from this computer's own last picture of that model at the nearest size (the
   `image_timings` table), scaled by the pixels, and from a first guess per tier before there

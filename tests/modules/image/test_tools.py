@@ -59,10 +59,11 @@ def _params(**changes):  # noqa: ANN202
 # --- the card ----------------------------------------------------------------------------
 
 
-def test_the_card_names_the_size_the_model_and_the_wait(image_ctx):
+def test_the_card_names_the_model(image_ctx):
     ctx = image_ctx()
     text = GENERATE.confirm_text(ctx, _params())
-    assert text == "Make a 768×768 picture with FLUX.2 klein 4B? It should take about 2 min."
+    # The size and wait are each shape's, beside it on the card (the shape can change)
+    assert text == "Make a picture with FLUX.2 klein 4B?"
 
 
 def test_the_card_says_what_downloads_first(image_ctx):
