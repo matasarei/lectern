@@ -261,3 +261,126 @@ def test_the_models_a_role_can_be_given_leave_out_mlx_builds():
         "chandra-ocr-2",  # a restricted licence doesn't stop it being chosen
     }
     assert models.choices_for("stt") == []
+
+
+# --- image models ------------------------------------------------------------------------------
+
+_SHA = "a" * 64
+_REV = "b" * 40
+
+
+def _image_entry(**changes):
+    entry = {
+        "id": "test-image",
+        "title": "Test image model",
+        "quant": "Q4_0",
+        "roles": ["image"],
+        "format": "sd",
+        "repo": "someone/test-image-GGUF",
+        "revision": _REV,
+        "licence": "Apache-2.0",
+        "permissive": True,
+        "files": {
+            "model": [{"path": "diffusion.gguf", "size": 10, "sha256": _SHA}],
+            "text_encoder": {
+                "path": "encoder.gguf",
+                "size": 10,
+                "sha256": _SHA,
+                "repo": "someone/encoder-GGUF",
+                "revision": "c" * 40,
+            },
+            "vae": {"path": "vae.safetensors", "size": 10, "sha256": _SHA},
+        },
+        "image": {
+            "steps": 4,
+            "cfg": 1.0,
+            "sampler": "euler",
+            "sizes": {"minimum": {"default": 768, "max_pixels": 1024 * 1024}},
+        },
+    }
+    entry.update(changes)
+    return entry
+
+
+def _with(entry):
+    raw = _raw()
+    raw["models"].append(entry)
+    return catalog.Catalog.model_validate(raw)
+
+
+def test_an_image_model_loads_with_files_from_other_repos():
+    entry = _with(_image_entry()).get("test-image")
+    assert [f.path for f in entry.files.all()] == [
+        "diffusion.gguf",
+        "encoder.gguf",
+        "vae.safetensors",
+    ]
+    assert entry.files.text_encoder.repo == "someone/encoder-GGUF"
+    assert entry.size == 30
+    assert entry.suits(Tier.MINIMUM)
+    assert not entry.suits(Tier.RECOMMENDED)
+
+
+def test_an_image_model_needs_its_image_block():
+    with pytest.raises(ValidationError, match="needs an `image:` block"):
+        _with(_image_entry(image=None))
+
+
+def test_an_image_model_needs_an_encoder_and_a_vae():
+    entry = _image_entry()
+    del entry["files"]["vae"]
+    with pytest.raises(ValidationError, match="text encoder and a VAE"):
+        _with(entry)
+
+
+def test_the_image_role_and_the_sd_format_go_together():
+    with pytest.raises(ValidationError, match="go together"):
+        _with(_image_entry(format="gguf"))
+    with pytest.raises(ValidationError, match="go together"):
+        _with(_image_entry(roles=["main"]))
+
+
+def test_a_chat_model_cant_have_an_image_block():
+    raw = _raw()
+    raw["models"][0]["image"] = _image_entry()["image"]
+    with pytest.raises(ValidationError, match="only an image model"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_a_restricted_image_model_cant_be_a_default():
+    entry = _image_entry(permissive=False, defaults={"image": ["minimum"]})
+    with pytest.raises(ValidationError, match="restricted-licence"):
+        _with(entry)
+
+
+def test_an_image_default_needs_a_size_for_its_tier():
+    with pytest.raises(ValidationError, match="no size for"):
+        _with(_image_entry(defaults={"image": ["recommended"]}))
+
+
+def test_a_files_own_repo_needs_its_own_revision():
+    entry = _image_entry()
+    del entry["files"]["text_encoder"]["revision"]
+    with pytest.raises(ValidationError, match="needs its own revision"):
+        _with(entry)
+
+
+def test_two_files_cant_share_a_path():
+    entry = _image_entry()
+    entry["files"]["vae"]["path"] = "encoder.gguf"
+    with pytest.raises(ValidationError, match="same path"):
+        _with(entry)
+
+
+def test_an_image_files_path_stays_in_the_model_folder():
+    entry = _image_entry()
+    entry["files"]["text_encoder"]["path"] = "../escape.gguf"
+    with pytest.raises(ValidationError, match="plain relative path"):
+        _with(entry)
+
+
+def test_an_image_default_size_must_fit_its_pixels():
+    entry = _image_entry()
+    entry["image"]["sizes"]["minimum"] = {"default": 1024, "max_pixels": 512 * 512}
+    with pytest.raises(ValidationError, match="over max_pixels"):
+        _with(entry)

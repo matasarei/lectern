@@ -112,7 +112,7 @@ def _model(request: Request, entry: CatalogEntry) -> dict:
         "size": entry.size,
         "licence": entry.licence,
         "recommended": cat.defaults_for(runtime.tier).get("main") == entry,
-        "suits_tier": runtime.tier in entry.ctx,  # listed for this computer's tier
+        "suits_tier": entry.suits(runtime.tier),  # listed for this computer's tier
         "download": downloads.state(entry).to_dict(),
         # The same model in MLX's format, which runs in its place with MLX switched on.
         "mlx_build": None if build is None else _build(request, build),
