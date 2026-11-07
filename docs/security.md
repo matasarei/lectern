@@ -22,8 +22,11 @@ The checks sit in one place, not route by route: the `LocalGuard` middleware
   browser gets it from the access link's `#token=` fragment (`lectern url` prints the link)
   and keeps it in the tab's session storage. This token check is the CSRF protection.
 - **Headers.** Every response carries a strict Content-Security-Policy (`default-src 'self'`,
-  no inline scripts or styles, `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`
-  and `Referrer-Policy: no-referrer`. The OpenAPI pages are off.
+  no inline scripts or styles, `frame-ancestors 'none'`; frames only from Lectern itself and
+  from `blob:`, for the PDF preview), `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: no-referrer`. The one exception is an HTML file opened as a page, which
+  gets a sandboxing policy instead (see [Files and paths](#files-and-paths)). The OpenAPI
+  pages are off.
 
 ## Accounts
 
@@ -69,9 +72,23 @@ password, the account disabled (`api/ws.py`, `api/sse.py`).
   Windows can't store are refused, names are at most 180 characters, and a file at most
   2 GB. A taken name gets ` (2)`, ` (3)`.
 - **Serving.** Files are typed by extension. Only plain text, Markdown, CSV and PNG, JPEG,
-  GIF and WebP images are shown in the browser; everything else downloads as
+  GIF and WebP images are served inline; everything else downloads as
   `application/octet-stream`. With `nosniff` and the CSP, an imported HTML or SVG file can't
   run in Lectern's origin (`api/projects.py`).
+- **Previews.** The file tab reads a file through that same route, with the token, and shows
+  it by its kind (`projects/preview.py`): text and code as text, never as HTML; a PDF from a
+  `blob:` URL the page makes itself, typed as a PDF, in the browser's own viewer; a DOCX or
+  ODT as Markdown the server makes of it (up to 500,000 characters; a document whose text
+  part unzips past 32 MB isn't opened), through react-markdown like any Markdown.
+- **An HTML file as a page.** It never runs under Lectern's address, where it could read the
+  token. The page asks for a link (a POST, so the token and Origin checks apply) and opens
+  `/view/<ticket>` in a new tab: the ticket is 32 random bytes held in memory, opens that one
+  file of that one person, once, within 60 seconds, and is the only thing outside `/api`
+  that serves a project file. It is served with
+  `sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
+  instead of Lectern's policy: no scripts, forms or pop-ups, an origin of its own that can't
+  reach Lectern's storage or cookies, and nothing fetched from outside, so opening a file
+  makes no network request (`api/view.py`).
 - **Markdown** in the UI goes through react-markdown without raw HTML.
 
 ## Instructions hidden in documents
