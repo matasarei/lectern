@@ -394,6 +394,46 @@ def _trim_dots(text: str) -> str:
     return DOTS.sub("", text).strip() or text.strip()
 
 
+def _times_placed(text: str, holder: list[str]) -> int:
+    """How often `text` is in a block whose text and cells are `holder`, counted where
+    assembly would mark it: in the cells if any holds it, else in the text."""
+    cells = [c for c in holder[1:] if text in c]
+    return sum(c.count(text) for c in cells) if cells else holder[0].count(text)
+
+
+def _narrow(raw: str, candidates: list[str], holder: list[str]) -> tuple[str, list[str]]:
+    """The doubt cut to the words its candidates change: the words at its start and its end
+    that every candidate shares go, then punctuation they all share at either edge. A model
+    asking about one word sometimes gives the whole clause, and each candidate is the clause
+    again ("Усі спорн, що виникають…" → "спорн", m4.md page 7). Not narrowed when that leaves
+    the doubt or a candidate empty, or when the doubt's block holds the narrowed text more
+    than once: assembly marks the first, which may not be the one asked about."""
+    if not candidates:
+        return raw, candidates
+    spans = [[m.span() for m in re.finditer(r"\S+", t)] for t in [raw, *candidates]]
+    words = [[t[s:e] for s, e in sp] for t, sp in zip([raw, *candidates], spans, strict=True)]
+    shortest = min(map(len, words))
+    lead = 0
+    while lead < shortest and all(w[lead] == words[0][lead] for w in words):
+        lead += 1
+    trail = 0
+    while trail < shortest - lead and all(w[-1 - trail] == words[0][-1 - trail] for w in words):
+        trail += 1
+    if lead + trail >= len(words[0]):
+        return raw, candidates  # every word shared: nothing is left to ask about
+    cut = []
+    for text, sp in zip([raw, *candidates], spans, strict=True):
+        middle = sp[lead : len(sp) - trail]
+        cut.append(text[middle[0][0] : middle[-1][1]] if middle else "")
+    while all(c and not c[0].isalnum() and c[0] == cut[0][0] for c in cut):
+        cut = [c[1:] for c in cut]
+    while all(c and not c[-1].isalnum() and c[-1] == cut[0][-1] for c in cut):
+        cut = [c[:-1] for c in cut]
+    if not all(cut) or _times_placed(cut[0], holder) != 1:
+        return raw, candidates
+    return cut[0], list(dict.fromkeys(cut[1:]))
+
+
 def _place_doubts(page: CleanedPage) -> CleanedPage:
     """What a schema can't say: every doubt points at a block that holds its text. A small
     model often names the wrong block, or keeps the ⟨word?⟩ mark in the doubt; a page isn't
@@ -411,6 +451,8 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
             None,
         )
         candidates = list(dict.fromkeys(_trim_dots(c) for c in doubt.candidates if c.strip()))
+        if holder is not None:
+            raw, candidates = _narrow(raw, candidates, texts[holder])
         if holder is None:
             why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
             fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))

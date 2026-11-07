@@ -187,11 +187,63 @@ def test_a_doubt_shortened_with_dots_is_kept_without_them(dots: str):
     page's text as written, so it was dropped and "спорн" stayed unquestioned (#159)."""
     page = _doubts_on(
         DISPUTES,
-        {"block": 0, "raw": f"Усі спорн{dots}", "candidates": [f"Усі спори{dots}", "Усі спорні"]},
+        {"block": 0, "raw": f"Усі спорн{dots}", "candidates": [f"Всі спори{dots}", "Усі спорні"]},
     )
     (doubt,) = page.doubts
     assert doubt.raw == "Усі спорн"
-    assert doubt.candidates == ["Усі спори", "Усі спорні"]
+    assert doubt.candidates == ["Всі спори", "Усі спорні"]
+
+
+CLAUSE = "Усі спорн, що виникають з цього Договору"
+
+
+@pytest.mark.parametrize(
+    ("raw", "candidates", "narrowed"),
+    [
+        # page 7 on the 9B: the whole clause, one word changed (#159)
+        (CLAUSE, [CLAUSE.replace("спорн", "спори")], ["спори"]),
+        # page 12 on the 9B: the same, shortened with "..."
+        (f"{CLAUSE}...", [CLAUSE.replace("спорн", "спори") + "..."], ["спори"]),
+        # several readings, one of them the text as read
+        (CLAUSE, [CLAUSE.replace("спорн", s) for s in ("спори", "спорні", "спорн")],
+         ["спори", "спорні", "спорн"]),
+    ],
+)  # fmt: skip
+def test_a_clause_long_doubt_is_narrowed_to_the_word_its_candidates_change(
+    raw: str, candidates: list[str], narrowed: list[str]
+):
+    (doubt,) = _doubts_on(DISPUTES, {"block": 0, "raw": raw, "candidates": candidates}).doubts
+    assert doubt.raw == "спорн"  # the comma both share is left out too
+    assert doubt.candidates == narrowed
+
+
+def test_a_doubt_is_narrowed_to_a_number_its_candidates_change():
+    text = "Приміщення загальною площею 48,6 кв. м."
+    doubts = [{"block": 0, "raw": "площею 48,6 кв.", "candidates": ["площею 48.6 кв."]}]
+    (doubt,) = _doubts_on(text, *doubts).doubts
+    assert (doubt.raw, doubt.candidates) == ("48,6", ["48.6"])
+
+
+def test_a_doubt_is_not_narrowed_to_text_its_block_holds_twice():
+    """Assembly marks the first place a doubt's text is in its block: narrowed to "48,6", the
+    mark would land on the first 48,6, not the one asked about."""
+    text = "Площа 48,6 кв. м, корисна площа 48,6 кв. м."
+    doubts = [{"block": 0, "raw": "корисна площа 48,6", "candidates": ["корисна площа 46,8"]}]
+    (doubt,) = _doubts_on(text, *doubts).doubts
+    assert (doubt.raw, doubt.candidates) == ("корисна площа 48,6", ["корисна площа 46,8"])
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [
+        [],  # nothing to compare with: the model's doubt about the whole clause
+        ["Всі спори, які виникають за цим Договором"],  # different throughout
+        ["Усі що виникають з цього Договору"],  # one that leaves "спорн," out: nothing left
+    ],
+)
+def test_a_long_doubt_that_cannot_be_narrowed_keeps_its_span(candidates: list[str]):
+    (doubt,) = _doubts_on(DISPUTES, {"block": 0, "raw": CLAUSE, "candidates": candidates}).doubts
+    assert (doubt.raw, doubt.candidates) == (CLAUSE, candidates)
 
 
 def test_a_doubt_that_is_only_dots_is_dropped_and_said_so():
