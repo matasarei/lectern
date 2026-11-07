@@ -83,7 +83,7 @@ def _args(**changes):  # noqa: ANN202
     values = dict(
         model=Path("/m/d.gguf"), text_encoder=Path("/m/e.gguf"), vae=Path("/m/v.safetensors"),
         image=klein().image, prompt="a lighthouse", width=768, height=512, seed=7,
-        output=Path("/w/picture.png"), max_vram_bytes=3 * GIB, offload=True,
+        output=Path("/w/picture.png"), max_vram_bytes=3 * GIB, tier=Tier.MINIMUM,
     )  # fmt: skip
     values.update(changes)
     return build_args(**values)
@@ -104,9 +104,20 @@ def test_the_command_line_for_a_small_gpu_offloads_and_tiles():
     assert args[-2:] == ["--offload-to-cpu", "--vae-tiling"]
 
 
-def test_the_command_line_for_a_big_gpu_keeps_everything_on_it():
-    args = _args(offload=False)
-    assert "--offload-to-cpu" not in args and "--vae-tiling" not in args
+@pytest.mark.parametrize(
+    ("tier", "flags", "max_vram"),
+    [
+        (Tier.BELOW_MINIMUM, ["--backend", "cpu"], False),  # no usable GPU: the CPU
+        (Tier.MINIMUM, ["--offload-to-cpu", "--vae-tiling"], True),
+        (Tier.RECOMMENDED, ["--offload-to-cpu"], True),
+        (Tier.COMFORTABLE, [], True),  # everything on the GPU
+    ],
+)
+def test_each_tier_gets_the_memory_flags_of_the_tier_table(tier, flags, max_vram):
+    args = _args(tier=tier)
+    memory = ("--backend", "--offload-to-cpu", "--vae-tiling")
+    assert [a for a in args if a in memory or a == "cpu"] == flags
+    assert ("--max-vram" in args) is max_vram
 
 
 def test_a_prompt_is_one_argument_whatever_it_holds():
@@ -307,3 +318,14 @@ def test_a_real_sd_cli_makes_a_picture(tmp_path):
     made = asyncio.run(made_by.make(klein(), "a red lighthouse on a cliff at dusk", 512, 512, 1))
     assert Image.open(io.BytesIO(made.png)).size == (512, 512)
     assert made.timing.step > 0
+
+
+def test_below_the_minimum_a_small_gpus_budget_doesnt_refuse_a_picture_on_the_cpu(tmp_path):
+    runtime = _runtime(Tier.BELOW_MINIMUM, budget_gib=1)  # a 1.6 GB card: picture on the CPU
+    made_by, _ = images(tmp_path, runtime)
+
+    made = asyncio.run(made_by.make(klein(), "a cat", 512, 512, 1))
+
+    assert made.width == 512
+    argv = json.loads((tmp_path / "bin" / "argv.json").read_text())
+    assert argv[argv.index("--backend") + 1] == "cpu" and "--max-vram" not in argv

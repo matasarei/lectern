@@ -30,6 +30,7 @@ from typing import Any
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.concurrency import run_in_threadpool
 
 from lectern.catalog.catalog import IMAGE_ROLE, CatalogEntry, ImageSettings, ImageSize
 from lectern.core.tables import ImageTimingRow
@@ -115,9 +116,23 @@ def clamp_size(size: ImageSize, width: int | None, height: int | None) -> tuple[
 
 
 def offloads(tier: Tier) -> bool:
-    """Weights wait in RAM and come to the GPU when each part runs, below the comfortable tier:
-    the pieces together are more than a 4 GB or 8 GB card holds beside the picture."""
-    return tier is not Tier.COMFORTABLE
+    """Weights wait in RAM and come to the GPU when each part runs, on the minimum and
+    recommended tiers: the pieces together are more than a 4 GB or 8 GB card holds beside the
+    picture."""
+    return tier in (Tier.MINIMUM, Tier.RECOMMENDED)
+
+
+def memory_flags(tier: Tier) -> list[str]:
+    """sd-cli's memory flags for a tier (docs/models.md#image-models): below the minimum it
+    runs on the CPU; on a 4 GB card the weights wait in RAM and the VAE decodes in tiles; on
+    an 8 GB card the weights wait in RAM; above that everything stays on the GPU."""
+    if tier is Tier.BELOW_MINIMUM:
+        return ["--backend", "cpu"]
+    if tier is Tier.MINIMUM:
+        return ["--offload-to-cpu", "--vae-tiling"]
+    if tier is Tier.RECOMMENDED:
+        return ["--offload-to-cpu"]
+    return []
 
 
 def need_bytes(entry: CatalogEntry, width: int, height: int, *, offload: bool) -> int:
@@ -143,7 +158,7 @@ def build_args(
     seed: int,
     output: Path,
     max_vram_bytes: int,
-    offload: bool,
+    tier: Tier,
 ) -> list[str]:
     """sd-cli's arguments, after the program. Never through a shell."""
     args = [
@@ -159,11 +174,10 @@ def build_args(
         "-s", str(seed),
         "-o", str(output),
         "--flash-attn", "off,diffusion=on",
-        "--max-vram", f"{max_vram_bytes / GIB:.2f}",
     ]  # fmt: skip
-    if offload:
-        args += ["--offload-to-cpu", "--vae-tiling"]
-    return args
+    if tier is not Tier.BELOW_MINIMUM:  # a GPU budget; the CPU has none
+        args += ["--max-vram", f"{max_vram_bytes / GIB:.2f}"]
+    return args + memory_flags(tier)
 
 
 def parse_progress(text: str) -> list[tuple[int, int, float]]:
@@ -279,8 +293,11 @@ class Images:
         (Stop), sd-cli is killed and the room given back before the cancellation goes on."""
         image = _image(entry)
         files = entry.files
-        offload = offloads(self.tier)
-        need = need_bytes(entry, width, height, offload=offload)
+        need = need_bytes(entry, width, height, offload=offloads(self.tier))
+        if self.tier is Tier.BELOW_MINIMUM:
+            # On the CPU the room held only keeps it from running beside a loaded model; a
+            # small GPU's budget mustn't refuse it.
+            need = min(need, self.runtime.budget)
         on_progress({"phase": "engine"})
         cli = await self.installer.install(self.variant())
         work = self.run_dir / "image" / uuid.uuid4().hex
@@ -297,7 +314,7 @@ class Images:
             seed=seed,
             output=output,
             max_vram_bytes=need,
-            offload=offload,
+            tier=self.tier,
         )
         try:
             on_progress({"phase": "waiting"})
@@ -306,10 +323,11 @@ class Images:
             ):
                 timing = await self._run(cli, args, work, image.steps, on_progress)
             on_progress({"phase": "checking"})
-            png = _checked_png(output, width, height)
+            # Reading and writing a picture of up to 2 MP, and the database: not on the loop
+            png = await run_in_threadpool(_checked_png, output, width, height)
         finally:
             shutil.rmtree(work, ignore_errors=True)
-        self._remember(entry, width, height, timing)
+        await run_in_threadpool(self._remember, entry, width, height, timing)
         return Made(png, width, height, seed, timing)
 
     async def _run(
