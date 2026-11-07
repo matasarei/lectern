@@ -137,7 +137,7 @@ These are starting values until measured on 4 GB and 8 GB machines
 - the largest piece when the weights wait in RAM, or all three pieces when they don't;
 - plus 1 GiB per megapixel and 300 MiB.
 
-`sd-cli` is told the same figure (`--max-vram`).
+On the minimum and recommended tiers `sd-cli` is told the same figure (`--max-vram`).
 
 ## Fitting a model
 

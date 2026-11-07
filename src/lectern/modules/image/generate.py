@@ -175,7 +175,7 @@ def build_args(
         "-o", str(output),
         "--flash-attn", "off,diffusion=on",
     ]  # fmt: skip
-    if tier is not Tier.BELOW_MINIMUM:  # a GPU budget; the CPU has none
+    if offloads(tier):  # the budget its graph is cut to; not on the CPU, nor where all fits
         args += ["--max-vram", f"{max_vram_bytes / GIB:.2f}"]
     return args + memory_flags(tier)
 

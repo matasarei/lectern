@@ -110,7 +110,7 @@ def test_the_command_line_for_a_small_gpu_offloads_and_tiles():
         (Tier.BELOW_MINIMUM, ["--backend", "cpu"], False),  # no usable GPU: the CPU
         (Tier.MINIMUM, ["--offload-to-cpu", "--vae-tiling"], True),
         (Tier.RECOMMENDED, ["--offload-to-cpu"], True),
-        (Tier.COMFORTABLE, [], True),  # everything on the GPU
+        (Tier.COMFORTABLE, [], False),  # everything on the GPU, with no budget to cut to
     ],
 )
 def test_each_tier_gets_the_memory_flags_of_the_tier_table(tier, flags, max_vram):
