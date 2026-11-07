@@ -468,9 +468,11 @@ def _widen(raw: str, candidates: list[str], holder: list[str]) -> tuple[str, lis
 def _place_doubts(page: CleanedPage) -> CleanedPage:
     """What a schema can't say: every doubt points at a block that holds its text. A small
     model often names the wrong block, or keeps the ⟨word?⟩ mark in the doubt; a page isn't
-    failed for that. The doubt moves to the first block that holds its text; one no block
-    holds is dropped and listed as a fix, so it isn't lost silently, as is one whose only
-    candidate is its own text. A reading given twice is kept once."""
+    failed for that. "..." at either end goes (`_trim_dots`), and the doubt moves to the first
+    block that holds its text; one no block holds is dropped and listed as a fix, so it isn't
+    lost silently, as is one whose only candidate is its own text. A doubt is cut to the words
+    its candidates change (`_narrow`), then grown to whole words (`_widen`). A reading given
+    twice is kept once."""
     # Where assembly can put a doubt's mark: in the block's text, or within one table cell.
     texts = [[b.text, *(c for r in b.rows or [] for c in r)] for b in page.blocks]
     doubts, fixes = [], list(page.fixes)
