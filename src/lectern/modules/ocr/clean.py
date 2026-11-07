@@ -434,6 +434,37 @@ def _narrow(raw: str, candidates: list[str], holder: list[str]) -> tuple[str, li
     return cut[0], list(dict.fromkeys(cut[1:]))
 
 
+# The letters of a word running up to a doubt's start, and on from its end; an apostrophe
+# between letters is part of the word ("обов'язки").
+WORD_BEFORE = re.compile(r"(?:\w+['’ʼ])*\w*$")
+WORD_AFTER = re.compile(r"\w*(?:['’ʼ]\w+)*")
+
+
+def _widen(raw: str, candidates: list[str], holder: list[str]) -> tuple[str, list[str]]:
+    """The doubt grown to whole words where it starts or ends inside one, in the place
+    assembly will mark it: the 9B asked about "судовому п" in "судовому порядку", and the
+    mark cut the word (#159). Each candidate grows the same way, or doesn't, whichever makes
+    it nearest the widened text's length (then the most like it): a model that cut the word
+    in its doubt often gave whole words for its readings, and a reading is about as long as
+    what it replaces ("спори" for "спор" in "спорн" stays "спори", not "спорин")."""
+    text = next((c for c in holder[1:] if raw in c), holder[0])
+    at = text.find(raw)
+    left = WORD_BEFORE.search(text[:at]).group(0) if raw[0].isalnum() else ""
+    right = WORD_AFTER.match(text, at + len(raw)).group(0) if raw[-1].isalnum() else ""
+    if not (left or right):
+        return raw, candidates
+    widened = left + raw + right
+
+    def grown(candidate: str) -> str:
+        ways = [left + candidate + right, left + candidate, candidate + right, candidate]
+        return max(
+            ways,
+            key=lambda w: (-abs(len(w) - len(widened)), SequenceMatcher(None, w, widened).ratio()),
+        )
+
+    return widened, list(dict.fromkeys(map(grown, candidates)))
+
+
 def _place_doubts(page: CleanedPage) -> CleanedPage:
     """What a schema can't say: every doubt points at a block that holds its text. A small
     model often names the wrong block, or keeps the ⟨word?⟩ mark in the doubt; a page isn't
@@ -452,7 +483,7 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
         )
         candidates = list(dict.fromkeys(_trim_dots(c) for c in doubt.candidates if c.strip()))
         if holder is not None:
-            raw, candidates = _narrow(raw, candidates, texts[holder])
+            raw, candidates = _widen(*_narrow(raw, candidates, texts[holder]), texts[holder])
         if holder is None:
             why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
             fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))

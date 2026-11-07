@@ -246,6 +246,34 @@ def test_a_long_doubt_that_cannot_be_narrowed_keeps_its_span(candidates: list[st
     assert (doubt.raw, doubt.candidates) == (CLAUSE, candidates)
 
 
+@pytest.mark.parametrize(
+    ("text", "doubt", "widened"),
+    [
+        # the 9B's "⟦судовому п⟧орядку" (#159); its readings were already whole words
+        (DISPUTES, ("судовому п", ["судовому порядку", "судовим порядком"]),
+         ("судовому порядку", ["судовому порядку", "судовим порядком"])),
+        # a reading of the part asked about grows with it
+        (DISPUTES, ("орн", ["ори"]), ("спорн", ["спори"])),
+        # a reading of the whole word doesn't
+        (DISPUTES, ("спор", ["спори", "спорні"]), ("спорн", ["спори", "спорні"])),
+        # an apostrophe inside a word is part of it
+        ("Права та обов'язки сторін.", ("язки", ["язку"]), ("обов'язки", ["обов'язку"])),
+    ],
+)  # fmt: skip
+def test_a_doubt_splitting_a_word_is_widened_to_whole_words(
+    text: str, doubt: tuple[str, list[str]], widened: tuple[str, list[str]]
+):
+    raw, candidates = doubt
+    (found,) = _doubts_on(text, {"block": 0, "raw": raw, "candidates": candidates}).doubts
+    assert (found.raw, found.candidates) == widened
+
+
+def test_a_doubt_splitting_a_number_in_a_table_cell_is_widened_to_the_cell():
+    reply = {**GOOD, "doubts": [{"block": 2, "raw": "50,0", "candidates": ["30,0"]}]}
+    (doubt,) = _clean(_client(json.dumps(reply))).doubts
+    assert (doubt.block, doubt.raw, doubt.candidates) == (2, "250,00", ["230,00"])
+
+
 def test_a_doubt_that_is_only_dots_is_dropped_and_said_so():
     page = _doubts_on(DISPUTES, {"block": 0, "raw": "...", "candidates": ["спори"]})
     assert page.doubts == []
