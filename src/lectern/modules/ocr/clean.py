@@ -385,25 +385,107 @@ def _tidy_fixes(page: CleanedPage) -> CleanedPage:
 
 
 UNSURE_MARK = re.compile(r"⟨([^⟨⟩]*?)\??⟩")
+# "..." or "…" at either end: a model shortening a long doubt ("Усі спорн, що виникають...")
+DOTS = re.compile(r"^\s*(?:\.{3}|…)\s*|\s*(?:\.{3}|…)\s*$")
+
+
+def _trim_dots(text: str) -> str:
+    """`text` without "..." at its start or end, unless that's all it is."""
+    return DOTS.sub("", text).strip() or text.strip()
+
+
+def _times_placed(text: str, holder: list[str]) -> int:
+    """How often `text` is in a block whose text and cells are `holder`, counted where
+    assembly would mark it: in the cells if any holds it, else in the text."""
+    cells = [c for c in holder[1:] if text in c]
+    return sum(c.count(text) for c in cells) if cells else holder[0].count(text)
+
+
+def _narrow(raw: str, candidates: list[str], holder: list[str]) -> tuple[str, list[str]]:
+    """The doubt cut to the words its candidates change: the words at its start and its end
+    that every candidate shares go, then punctuation they all share at either edge. A model
+    asking about one word sometimes gives the whole clause, and each candidate is the clause
+    again ("Усі спорн, що виникають…" → "спорн", m4.md page 7). Not narrowed when that leaves
+    the doubt or a candidate empty, or when the doubt's block holds the narrowed text more
+    than once: assembly marks the first, which may not be the one asked about."""
+    if not candidates:
+        return raw, candidates
+    spans = [[m.span() for m in re.finditer(r"\S+", t)] for t in [raw, *candidates]]
+    words = [[t[s:e] for s, e in sp] for t, sp in zip([raw, *candidates], spans, strict=True)]
+    shortest = min(map(len, words))
+    lead = 0
+    while lead < shortest and all(w[lead] == words[0][lead] for w in words):
+        lead += 1
+    trail = 0
+    while trail < shortest - lead and all(w[-1 - trail] == words[0][-1 - trail] for w in words):
+        trail += 1
+    if lead + trail >= len(words[0]):
+        return raw, candidates  # every word shared: nothing is left to ask about
+    cut = []
+    for text, sp in zip([raw, *candidates], spans, strict=True):
+        middle = sp[lead : len(sp) - trail]
+        cut.append(text[middle[0][0] : middle[-1][1]] if middle else "")
+    while all(c and not c[0].isalnum() and c[0] == cut[0][0] for c in cut):
+        cut = [c[1:] for c in cut]
+    while all(c and not c[-1].isalnum() and c[-1] == cut[0][-1] for c in cut):
+        cut = [c[:-1] for c in cut]
+    if not all(cut) or _times_placed(cut[0], holder) != 1:
+        return raw, candidates
+    return cut[0], list(dict.fromkeys(cut[1:]))
+
+
+# The letters of a word running up to a doubt's start, and on from its end; an apostrophe
+# between letters is part of the word ("обов'язки").
+WORD_BEFORE = re.compile(r"(?:\w+['’ʼ])*\w*$")
+WORD_AFTER = re.compile(r"\w*(?:['’ʼ]\w+)*")
+
+
+def _widen(raw: str, candidates: list[str], holder: list[str]) -> tuple[str, list[str]]:
+    """The doubt grown to whole words where it starts or ends inside one, in the place
+    assembly will mark it: the 9B asked about "судовому п" in "судовому порядку", and the
+    mark cut the word (#159). Each candidate grows the same way, or doesn't, whichever makes
+    it nearest the widened text's length (then the most like it): a model that cut the word
+    in its doubt often gave whole words for its readings, and a reading is about as long as
+    what it replaces ("спори" for "спор" in "спорн" stays "спори", not "спорин")."""
+    text = next((c for c in holder[1:] if raw in c), holder[0])
+    at = text.find(raw)
+    left = WORD_BEFORE.search(text[:at]).group(0) if raw[0].isalnum() else ""
+    right = WORD_AFTER.match(text, at + len(raw)).group(0) if raw[-1].isalnum() else ""
+    if not (left or right):
+        return raw, candidates
+    widened = left + raw + right
+
+    def grown(candidate: str) -> str:
+        ways = [left + candidate + right, left + candidate, candidate + right, candidate]
+        return max(
+            ways,
+            key=lambda w: (-abs(len(w) - len(widened)), SequenceMatcher(None, w, widened).ratio()),
+        )
+
+    return widened, list(dict.fromkeys(map(grown, candidates)))
 
 
 def _place_doubts(page: CleanedPage) -> CleanedPage:
     """What a schema can't say: every doubt points at a block that holds its text. A small
     model often names the wrong block, or keeps the ⟨word?⟩ mark in the doubt; a page isn't
-    failed for that. The doubt moves to the first block that holds its text; one no block
-    holds is dropped and listed as a fix, so it isn't lost silently, as is one whose only
-    candidate is its own text. A reading given twice is kept once."""
+    failed for that. "..." at either end goes (`_trim_dots`), and the doubt moves to the first
+    block that holds its text; one no block holds is dropped and listed as a fix, so it isn't
+    lost silently, as is one whose only candidate is its own text. A doubt is cut to the words
+    its candidates change (`_narrow`), then grown to whole words (`_widen`). A reading given
+    twice is kept once."""
     # Where assembly can put a doubt's mark: in the block's text, or within one table cell.
     texts = [[b.text, *(c for r in b.rows or [] for c in r)] for b in page.blocks]
     doubts, fixes = [], list(page.fixes)
     for doubt in page.doubts:
-        raw = UNSURE_MARK.sub(r"\1", doubt.raw).strip()
+        raw = _trim_dots(UNSURE_MARK.sub(r"\1", doubt.raw))
         named = [doubt.block] if doubt.block < len(texts) else []
         holder = next(
             (i for i in named + list(range(len(texts))) if raw and any(raw in t for t in texts[i])),
             None,
         )
-        candidates = list(dict.fromkeys(c.strip() for c in doubt.candidates if c.strip()))
+        candidates = list(dict.fromkeys(_trim_dots(c) for c in doubt.candidates if c.strip()))
+        if holder is not None:
+            raw, candidates = _widen(*_narrow(raw, candidates, texts[holder]), texts[holder])
         if holder is None:
             why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
             fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))

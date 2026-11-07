@@ -172,6 +172,114 @@ def test_a_doubt_whose_only_reading_is_its_own_text_is_dropped_and_said_so():
     assert page.fixes[-1].after == "числа"  # the text stays; only the question goes
 
 
+DISPUTES = "Усі спорн, що виникають з цього Договору, вирішуються в судовому порядку."
+
+
+def _doubts_on(text: str, *doubts: dict):  # noqa: ANN202
+    """A page of one paragraph, `text`, read as it is, with these doubts on it."""
+    reply = {"blocks": [{"type": "paragraph", "text": text}], "doubts": list(doubts), "fixes": []}
+    return _clean(_client(json.dumps(reply)), raw=text)
+
+
+@pytest.mark.parametrize("dots", ["...", "…", " ..."])
+def test_a_doubt_shortened_with_dots_is_kept_without_them(dots: str):
+    """The 9B's page 12 asked about "Усі спорн, що виникають з цього Договору...": not in the
+    page's text as written, so it was dropped and "спорн" stayed unquestioned (#159)."""
+    page = _doubts_on(
+        DISPUTES,
+        {"block": 0, "raw": f"Усі спорн{dots}", "candidates": [f"Всі спори{dots}", "Усі спорні"]},
+    )
+    (doubt,) = page.doubts
+    assert doubt.raw == "Усі спорн"
+    assert doubt.candidates == ["Всі спори", "Усі спорні"]
+
+
+CLAUSE = "Усі спорн, що виникають з цього Договору"
+
+
+@pytest.mark.parametrize(
+    ("raw", "candidates", "narrowed"),
+    [
+        # page 7 on the 9B: the whole clause, one word changed (#159)
+        (CLAUSE, [CLAUSE.replace("спорн", "спори")], ["спори"]),
+        # page 12 on the 9B: the same, shortened with "..."
+        (f"{CLAUSE}...", [CLAUSE.replace("спорн", "спори") + "..."], ["спори"]),
+        # several readings, one of them the text as read
+        (CLAUSE, [CLAUSE.replace("спорн", s) for s in ("спори", "спорні", "спорн")],
+         ["спори", "спорні", "спорн"]),
+    ],
+)  # fmt: skip
+def test_a_clause_long_doubt_is_narrowed_to_the_word_its_candidates_change(
+    raw: str, candidates: list[str], narrowed: list[str]
+):
+    (doubt,) = _doubts_on(DISPUTES, {"block": 0, "raw": raw, "candidates": candidates}).doubts
+    assert doubt.raw == "спорн"  # the comma both share is left out too
+    assert doubt.candidates == narrowed
+
+
+def test_a_doubt_is_narrowed_to_a_number_its_candidates_change():
+    text = "Приміщення загальною площею 48,6 кв. м."
+    doubts = [{"block": 0, "raw": "площею 48,6 кв.", "candidates": ["площею 48.6 кв."]}]
+    (doubt,) = _doubts_on(text, *doubts).doubts
+    assert (doubt.raw, doubt.candidates) == ("48,6", ["48.6"])
+
+
+def test_a_doubt_is_not_narrowed_to_text_its_block_holds_twice():
+    """Assembly marks the first place a doubt's text is in its block: narrowed to "48,6", the
+    mark would land on the first 48,6, not the one asked about."""
+    text = "Площа 48,6 кв. м, корисна площа 48,6 кв. м."
+    doubts = [{"block": 0, "raw": "корисна площа 48,6", "candidates": ["корисна площа 46,8"]}]
+    (doubt,) = _doubts_on(text, *doubts).doubts
+    assert (doubt.raw, doubt.candidates) == ("корисна площа 48,6", ["корисна площа 46,8"])
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [
+        [],  # nothing to compare with: the model's doubt about the whole clause
+        ["Всі спори, які виникають за цим Договором"],  # different throughout
+        ["Усі що виникають з цього Договору"],  # one that leaves "спорн," out: nothing left
+    ],
+)
+def test_a_long_doubt_that_cannot_be_narrowed_keeps_its_span(candidates: list[str]):
+    (doubt,) = _doubts_on(DISPUTES, {"block": 0, "raw": CLAUSE, "candidates": candidates}).doubts
+    assert (doubt.raw, doubt.candidates) == (CLAUSE, candidates)
+
+
+@pytest.mark.parametrize(
+    ("text", "doubt", "widened"),
+    [
+        # the 9B's "⟦судовому п⟧орядку" (#159); its readings were already whole words
+        (DISPUTES, ("судовому п", ["судовому порядку", "судовим порядком"]),
+         ("судовому порядку", ["судовому порядку", "судовим порядком"])),
+        # a reading of the part asked about grows with it
+        (DISPUTES, ("орн", ["ори"]), ("спорн", ["спори"])),
+        # a reading of the whole word doesn't
+        (DISPUTES, ("спор", ["спори", "спорні"]), ("спорн", ["спори", "спорні"])),
+        # an apostrophe inside a word is part of it
+        ("Права та обов'язки сторін.", ("язки", ["язку"]), ("обов'язки", ["обов'язку"])),
+    ],
+)  # fmt: skip
+def test_a_doubt_splitting_a_word_is_widened_to_whole_words(
+    text: str, doubt: tuple[str, list[str]], widened: tuple[str, list[str]]
+):
+    raw, candidates = doubt
+    (found,) = _doubts_on(text, {"block": 0, "raw": raw, "candidates": candidates}).doubts
+    assert (found.raw, found.candidates) == widened
+
+
+def test_a_doubt_splitting_a_number_in_a_table_cell_is_widened_to_the_cell():
+    reply = {**GOOD, "doubts": [{"block": 2, "raw": "50,0", "candidates": ["30,0"]}]}
+    (doubt,) = _clean(_client(json.dumps(reply))).doubts
+    assert (doubt.block, doubt.raw, doubt.candidates) == (2, "250,00", ["230,00"])
+
+
+def test_a_doubt_that_is_only_dots_is_dropped_and_said_so():
+    page = _doubts_on(DISPUTES, {"block": 0, "raw": "...", "candidates": ["спори"]})
+    assert page.doubts == []
+    assert page.fixes[-1].why.startswith("Doubt dropped: '...' isn't in the page's text.")
+
+
 def test_a_doubt_may_sit_in_a_table_cell():
     reply = {**GOOD, "doubts": [{"block": 2, "raw": "250,00", "candidates": ["230,00"]}]}
     assert _clean(_client(json.dumps(reply))).doubts[0].block == 2

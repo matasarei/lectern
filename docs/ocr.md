@@ -47,7 +47,11 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    of up to 100 characters holding a value the reply has fewer of than the page, as a date or
    an amount has too few letters to tell by its words,
    Latin and Cyrillic look-alike letters are restored, a doubt in the wrong block is moved,
-   and a doubt whose only candidate is its own text (nothing to decide) is dropped. A table
+   and a doubt whose only candidate is its own text (nothing to decide) is dropped. A doubt's
+   text loses a "..." at either end, is cut to the words its candidates change (a clause
+   given whole for one word becomes that word, unless the block holds that word twice), and
+   is grown to whole words where it starts or ends inside one ("судовому п" becomes
+   "судовому порядку"); its candidates change to match. A table
    cleanup built from a reading that listed it column by column is turned round: one of
    three rows and three columns or more, each row a run of the reading's lines, holding one
    kind of value past its label (text, numbers, dates) while every column mixes them. A
