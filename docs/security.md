@@ -78,8 +78,8 @@ password, the account disabled (`api/ws.py`, `api/sse.py`).
 - **Previews.** The file tab reads a file through that same route, with the token, and shows
   it by its kind (`projects/preview.py`): text and code as text, never as HTML; a PDF from a
   `blob:` URL the page makes itself, typed as a PDF, in the browser's own viewer; a DOCX or
-  ODT as Markdown the server makes of it (up to 500,000 characters; a document whose text
-  part unzips past 32 MB isn't opened), through react-markdown like any Markdown.
+  ODT as Markdown the server makes of it (up to 500,000 characters; a document whose XML
+  parts unzip past 32 MB together isn't opened), through react-markdown like any Markdown.
 - **An HTML file as a page.** It never runs under Lectern's address, where it could read the
   token. The page asks for a link (a POST, so the token and Origin checks apply) and opens
   `/view/<ticket>` in a new tab: the ticket is 32 random bytes held in memory, opens that one

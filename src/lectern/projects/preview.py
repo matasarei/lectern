@@ -32,10 +32,10 @@ IMAGE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 # Mac: python-docx walks ~1 M characters a second, so the whole of a long DOCX would keep the
 # page waiting for many seconds; odfdo is quicker, but react-markdown has the same text to draw.
 DOCUMENT_PREVIEW_CHARS = 500_000
-# A document whose text part unzips to more than this isn't opened: a 1.3 MB DOCX of 8 M
-# characters had a 16 MB document.xml, and a small zip can unzip to gigabytes.
+# A document whose XML parts unzip to more than this, together, isn't opened: a 1.3 MB DOCX of
+# 8 M characters had a 16 MB document.xml, and a small zip can unzip to gigabytes. All its XML
+# parts count, whatever their names: the main part's name is the package's to choose.
 DOCUMENT_XML_LIMIT = 32 * 1024 * 1024
-MAIN_PART = {".docx": "word/document.xml", ".odt": "content.xml"}
 
 
 class DocumentTooLarge(Exception):
@@ -67,6 +67,10 @@ def preview_kind(name: str, mime: str) -> Kind | None:
     return None
 
 
+def _is_xml(name: str) -> bool:
+    return name.lower().endswith((".xml", ".rels"))
+
+
 def document_markdown(path: Path) -> DocumentPreview:
     """A DOCX or ODT as Markdown, for the page, up to DOCUMENT_PREVIEW_CHARS. Raises
     ValueError when it can't be read, DocumentTooLarge when its text is too big to open."""
@@ -77,7 +81,7 @@ def document_markdown(path: Path) -> DocumentPreview:
         raise ValueError(f"{path.name} isn't a DOCX or ODT file.")
     try:
         with zipfile.ZipFile(path) as archive:
-            unzipped = archive.getinfo(MAIN_PART[suffix]).file_size
+            unzipped = sum(i.file_size for i in archive.infolist() if _is_xml(i.filename))
         if unzipped > DOCUMENT_XML_LIMIT:
             raise DocumentTooLarge(f"{path.name} has too much text to show here.")
         if suffix == ".docx":

@@ -184,3 +184,35 @@ def test_a_document_with_a_damaged_compressed_part_says_it_couldnt_be_read(
 
     with pytest.raises(ValueError, match=f"{name} couldn't be read as a document"):
         document_markdown(path)
+
+
+def test_a_docx_whose_main_part_has_another_name_is_still_read(tmp_path):
+    # python-docx finds the main part through the package's relationships, not by its name.
+    original = write_docx(tmp_path / "original.docx")
+    renamed = tmp_path / "renamed.docx"
+    moves = {
+        "word/document.xml": "word/main.xml",
+        "word/_rels/document.xml.rels": "word/_rels/main.xml.rels",
+    }
+    with (
+        zipfile.ZipFile(original) as source,
+        zipfile.ZipFile(renamed, "w", zipfile.ZIP_DEFLATED) as out,
+    ):
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename in ("[Content_Types].xml", "_rels/.rels"):
+                data = data.replace(b"word/document.xml", b"word/main.xml")
+            out.writestr(moves.get(item.filename, item.filename), data)
+
+    assert document_markdown(renamed).markdown.startswith("# Договір оренди")
+
+
+def test_every_xml_part_counts_toward_the_size_limit(tmp_path, monkeypatch):
+    path = write_odt(tmp_path / "lease.odt")
+    with zipfile.ZipFile(path) as archive:
+        sizes = {i.filename: i.file_size for i in archive.infolist()}
+    # Room for content.xml alone, not for it and styles.xml together.
+    monkeypatch.setattr(preview, "DOCUMENT_XML_LIMIT", sizes["content.xml"] + 1)
+
+    with pytest.raises(preview.DocumentTooLarge):
+        document_markdown(path)
