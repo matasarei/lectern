@@ -770,6 +770,13 @@ def ask_about_unmade_fixes(page: CleanedPage, listed: list[CleanFix]) -> Cleaned
         holder = next((i for i, h in enumerate(texts) if any(found.search(t) for t in h)), None)
         if holder is None:
             continue
+        if any(d.block == holder and (old in d.raw or d.raw in old) for d in doubts):
+            continue  # asked about already, by cleanup or by an earlier fix
+        # Assembly marks the first place the text is in the block, cells first: a fix of
+        # "плата" in "Оплата і плата" would mark "Оплата".
+        text = next((c for c in texts[holder][1:] if old in c), texts[holder][0])
+        if not found.match(text, text.find(old)):
+            continue
         doubts.append(
             CleanDoubt(block=holder, raw=old, candidates=[new], reason=UNMADE_REASON.format(new))
         )

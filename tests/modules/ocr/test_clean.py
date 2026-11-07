@@ -309,6 +309,39 @@ def test_a_fix_that_was_made_adds_no_question(text: str, fix: tuple[str, str]):
     assert _listed(text, fix).doubts == []
 
 
+@pytest.mark.parametrize(
+    "asked",
+    [
+        {"block": 0, "raw": "спорн", "candidates": ["спори", "спорні"]},
+        {"block": 0, "raw": CLAUSE, "candidates": []},  # a question on the clause holding it
+    ],
+)
+def test_a_word_already_asked_about_gets_no_second_question(asked: dict):
+    """The 4B listed "спорн" → "спори" on pages 7, 8 and 12 and asked about it too."""
+    page = _listed(DISPUTES, ("спорн", "спори"), doubts=(asked,))
+    assert [d.raw for d in page.doubts] == [asked["raw"]]
+
+
+def test_a_deletion_listed_as_a_fix_adds_no_question():
+    assert _listed("Оплата | до 10 числа.", ("|", "")).doubts == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Оплата до 10 числа.",  # "плата" only inside "Оплата"
+        "Оплата і плата до 10 числа.",  # its first place, where the mark would go, is inside it
+    ],
+)
+def test_a_fix_whose_word_is_only_inside_another_adds_no_question(text: str):
+    assert _listed(text, ("плата", "плати")).doubts == []
+
+
+def test_a_fix_listed_twice_adds_one_question():
+    page = _listed("3. Розділі 3", ("Розділі", "Розділ"), ("Розділі", "Розділ"))
+    assert [(d.raw, d.candidates) for d in page.doubts] == [("Розділі", ["Розділ"])]
+
+
 def test_a_doubt_may_sit_in_a_table_cell():
     reply = {**GOOD, "doubts": [{"block": 2, "raw": "250,00", "candidates": ["230,00"]}]}
     assert _clean(_client(json.dumps(reply))).doubts[0].block == 2
