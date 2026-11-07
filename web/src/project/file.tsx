@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { apiRaw, ApiError } from "../api/client";
+import { apiFetch, apiRaw, ApiError } from "../api/client";
 import type { Artifact, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { fileType, formatBytes } from "../format";
@@ -35,11 +35,12 @@ export function FileTab({
 }) {
   const { t } = useTranslation();
   if (!artifact) return <p className="p-4 text-muted">{t("file.gone")}</p>;
-  const url = `/api/projects/${projectId}/artifacts/${artifact.id}/content`;
+  const base = `/api/projects/${projectId}/artifacts/${artifact.id}`;
+  const url = `${base}/content`;
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[1fr_18rem]">
       <div className="min-w-0">
-        <Preview url={url} artifact={artifact} keepLines={publishedByOcr(artifact, items)} />
+        <Preview base={base} artifact={artifact} keepLines={publishedByOcr(artifact, items)} />
       </div>
       <aside className="grid content-start gap-2 rounded-lg border border-line bg-surface p-4">
         <h2 className="font-semibold break-all">{artifact.name}</h2>
@@ -66,8 +67,10 @@ function publishedByOcr(artifact: Artifact, items: ProjectItems): boolean {
   return items.sessions.some((s) => s.id === artifact.from.id && s.kind === "ocr");
 }
 
-function Preview({ url, artifact, keepLines }: { url: string; artifact: Artifact; keepLines: boolean }) {
+/** `base`: the file's API path; its content is `${base}/content`. */
+function Preview({ base, artifact, keepLines }: { base: string; artifact: Artifact; keepLines: boolean }) {
   const { t } = useTranslation();
+  const url = `${base}/content`;
   switch (artifact.preview) {
     case "markdown":
     case "text":
@@ -76,6 +79,8 @@ function Preview({ url, artifact, keepLines }: { url: string; artifact: Artifact
       return <TextPreview url={url} markdown={artifact.preview === "markdown"} keepLines={keepLines} />;
     case "image":
       return <ImagePreview url={url} name={artifact.name} />;
+    case "document":
+      return <DocumentPreview url={`${base}/markdown`} />;
     case "legacy":
       return <p className="text-muted">{t("file.legacy")}</p>;
     default:
@@ -104,6 +109,27 @@ function TextPreview({ url, markdown, keepLines }: { url: string; markdown: bool
     <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
       {text.data}
     </pre>
+  );
+}
+
+/** A DOCX or ODT, converted to Markdown by the server and shown like any Markdown file. */
+function DocumentPreview({ url }: { url: string }) {
+  const { t } = useTranslation();
+  const doc = useQuery({
+    queryKey: ["file-markdown", url],
+    queryFn: () => apiFetch<{ markdown: string; cut: boolean }>(url),
+  });
+  if (doc.isError) {
+    return <ErrorNote message={doc.error instanceof ApiError ? doc.error.detail : t("common.loadFailed")} />;
+  }
+  if (doc.data === undefined) return <p className="text-muted">{t("common.loading")}</p>;
+  return (
+    <div className="grid gap-2">
+      {doc.data.cut && <p className="text-muted">{t("file.documentCut")}</p>}
+      <div className="rounded-lg border border-line bg-surface p-4" data-testid="document-preview">
+        <Markdown text={doc.data.markdown} />
+      </div>
+    </div>
   );
 }
 

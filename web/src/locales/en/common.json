@@ -420,6 +420,7 @@
     "download": "Download",
     "tooLarge": "This file is too large to show here. Download it to open it.",
     "noPreview": "This kind of file can't be shown here yet.",
+    "documentCut": "Only the beginning of this document is shown here. Download it to see all of it.",
     "legacy": "Word 97–2003 and RTF files can't be shown here. Save it as DOCX to see it here, or download it.",
     "gone": "This file is no longer in the project.",
     "textIndexed": "readable by the chat and search",

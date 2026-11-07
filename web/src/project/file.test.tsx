@@ -32,6 +32,14 @@ beforeEach(() => {
       expect(new Headers(init?.headers).get("X-Lectern-Token")).toBe("t");
       if (url.endsWith("/5/content")) return new Response(new Blob(["png"], { type: "image/png" }));
       if (url === "/api/projects/1/ocr") return new Response(JSON.stringify({ id: 7, kind: "ocr" }));
+      if (url.endsWith("/8/markdown")) {
+        return new Response(JSON.stringify({ detail: "lease.odt couldn't be read as a document (TypeError)." }),
+                            { status: 400 });  // prettier-ignore
+      }
+      if (url.endsWith("/9/markdown")) return new Response(JSON.stringify({ markdown: "# Long", cut: true }));
+      if (url.endsWith("/markdown")) {
+        return new Response(JSON.stringify({ markdown: "# Lease\n\n| a | b |\n|---|---|\n| 1 | 2 |", cut: false }));
+      }
       return new Response(body);
     }),
   );
@@ -156,6 +164,26 @@ describe("File tab", () => {
     renderFile(artifact({ size: TEXT_PREVIEW_LIMIT + 1 }));
     expect(screen.getByText("This file is too large to show here. Download it to open it.")).toBeTruthy();
     expect(requested).toEqual([]);
+  });
+
+  it("shows a DOCX or ODT as the Markdown the server made of it", async () => {
+    const { container } = renderFile(artifact({ name: "lease.docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", preview: "document" }));
+    expect((await screen.findByText("Lease")).tagName).toBe("H3");
+    expect(screen.getByTestId("document-preview")).toBeTruthy();
+    await waitFor(() => expect(container.querySelector("table")).not.toBeNull());
+    expect(requested).toEqual(["/api/projects/1/artifacts/4/markdown"]);
+    expect(screen.queryByText(/Only the beginning/)).toBeNull();
+  });
+
+  it("says when only the beginning of a long document is shown", async () => {
+    renderFile(artifact({ id: 9, name: "code.odt", mime: "application/vnd.oasis.opendocument.text", preview: "document" }));
+    expect(await screen.findByText("Only the beginning of this document is shown here. Download it to see all of it.")).toBeTruthy();
+    expect((await screen.findByText("Long")).tagName).toBe("H3");
+  });
+
+  it("says so when a document can't be read", async () => {
+    renderFile(artifact({ id: 8, name: "lease.odt", mime: "application/vnd.oasis.opendocument.text", preview: "document" }));
+    expect(await screen.findByText("lease.odt couldn't be read as a document (TypeError).")).toBeTruthy();
   });
 
   it("says an old Word or RTF file can't be shown, and offers it to download", () => {
