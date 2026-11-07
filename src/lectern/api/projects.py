@@ -219,6 +219,19 @@ def artifact_markdown(
     return {"markdown": preview.markdown, "cut": preview.cut}
 
 
+@router.post("/projects/{project_id}/artifacts/{artifact_id}/view")
+def artifact_view_link(
+    project_id: int, artifact_id: int, request: Request, user: CurrentUser
+) -> dict:
+    """A link that opens an HTML file once, as a page in a tab of its own, sandboxed
+    (`lectern.api.view`)."""
+    row, _path = owned_file(request, project_id, artifact_id, user)
+    if preview_kind(row.path, row.mime) != "html":
+        raise HTTPException(400, "Only HTML files open as a page.")
+    ticket = request.app.state.view_tickets.issue(user, project_id, artifact_id)
+    return {"url": f"/view/{ticket}"}
+
+
 # --- Overview, search and tabs -------------------------------------------------------------
 
 

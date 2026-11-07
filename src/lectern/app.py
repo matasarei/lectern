@@ -21,6 +21,8 @@ from lectern.agent.export_tools import export_tools
 from lectern.agent.turns import TurnManager
 from lectern.api import api_router, open_api_router
 from lectern.api.accounts import SignInGate
+from lectern.api.view import ViewTickets
+from lectern.api.view import router as view_router
 from lectern.api.ws import LOGIN_CHECK_SECONDS
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
@@ -166,8 +168,10 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    app.state.view_tickets = ViewTickets(clock)  # an HTML file opened in a tab of its own
     app.include_router(open_api_router())
     app.include_router(api_router(module_routers(modules), dev=dev))
+    app.include_router(view_router)  # /view/<ticket>, outside /api
     mount_web(app, web_dist)  # last: it answers every path the API didn't
     app.add_middleware(
         LocalGuard,
