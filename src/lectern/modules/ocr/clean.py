@@ -216,10 +216,12 @@ async def clean_page(
     for attempt in range(2):
         reply = await _ask(client, messages, room)
         try:
-            page = CleanedPage.model_validate_json(reply.text)
-            page = keep_this_page(_place_doubts(_tidy_fixes(page)), raw, before + "\n" + after)
+            page = _tidy_fixes(CleanedPage.model_validate_json(reply.text))
+            listed = page.fixes  # the model's own; the checks below add theirs
+            page = keep_this_page(_place_doubts(page), raw, before + "\n" + after)
             page = restore_missing_lines(restore_lookalikes(page, raw), raw)
-            return _say_loop_left_out(upright_tables(page, raw), repeated, more)
+            page = ask_about_unmade_fixes(upright_tables(page, raw), listed)
+            return _say_loop_left_out(page, repeated, more)
         except (ValidationError, ValueError) as exc:
             if reply.cut_off:
                 # Asking again gives the same page the same room: it would fail the same way,
@@ -740,6 +742,40 @@ def upright_tables(page: CleanedPage, raw: str) -> CleanedPage:
     if len(fixes) == len(page.fixes):
         return page
     return page.model_copy(update={"blocks": blocks, "fixes": fixes})
+
+
+UNMADE_REASON = "Cleanup listed this as fixed to “{}” but left it as read."
+
+
+def _whole(text: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<!\w){re.escape(text)}(?!\w)")
+
+
+def ask_about_unmade_fixes(page: CleanedPage, listed: list[CleanFix]) -> CleanedPage:
+    """A fix the model listed but didn't make becomes a doubt offering the listed word: its old
+    word is still in the blocks, as whole words, and its new one isn't anywhere. The 9B listed
+    "Розділі" → "Розділ" on the lease's pages 3 and 10, left the headings as read and asked
+    nothing (#170). The text stays as read: a small model's fix can be wrong ("площу" for
+    "площею"), so the person decides. `listed` is the model's own fixes, not the ones code
+    added."""
+    texts = [[b.text, *(c for r in b.rows or [] for c in r)] for b in page.blocks]
+    doubts = list(page.doubts)
+    for fix in listed:
+        old, new = UNSURE_MARK.sub(r"\1", fix.before).strip(), fix.after.strip()
+        if not old or not new or old == new:
+            continue  # nothing read, or a deletion: no reading to offer
+        found, wanted = _whole(old), _whole(new)
+        if any(wanted.search(t) for holder in texts for t in holder):
+            continue  # made, here or elsewhere on the page
+        holder = next((i for i, h in enumerate(texts) if any(found.search(t) for t in h)), None)
+        if holder is None:
+            continue
+        doubts.append(
+            CleanDoubt(block=holder, raw=old, candidates=[new], reason=UNMADE_REASON.format(new))
+        )
+    if len(doubts) == len(page.doubts):
+        return page
+    return page.model_copy(update={"doubts": doubts})
 
 
 def _shift(old: list[CleanBlock], new: list[CleanBlock]) -> dict[int, int]:
