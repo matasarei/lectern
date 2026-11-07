@@ -55,7 +55,7 @@ def _nvidia(cuda, capability="8.9"):
     ],
 )
 def test_select_variant(hw, vulkan, expected):
-    assert select_variant(hw, has_vulkan=lambda: vulkan) == expected
+    assert select_variant(hw, has_vulkan=lambda: vulkan, macos_version=lambda: (26, 1)) == expected
     assert expected in VARIANTS
 
 
@@ -72,6 +72,12 @@ def test_every_pinned_asset_has_size_and_sha256_of_the_pinned_build():
             assert asset.size > 0 and len(asset.sha256) == 64
             assert commit in asset.name or asset.name.startswith("cudart-")
     assert sdcpp.SD_CPP_BUILD in sdcpp.RELEASE_URL
+
+
+def test_a_mac_older_than_the_builds_minimum_is_refused_with_why():
+    with pytest.raises(UnsupportedPlatform, match="needs macOS 26 or later"):
+        select_variant(_hw("macos", "arm64"), macos_version=lambda: (15, 6))
+    assert select_variant(_hw("macos", "arm64"), macos_version=lambda: (26, 0)) == "macos-arm64"
 
 
 # --- installing ----------------------------------------------------------------------------

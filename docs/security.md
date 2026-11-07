@@ -91,6 +91,13 @@ the [sandbox](agent.md#the-script-sandbox): no network, a read-only filesystem, 
 capabilities, an unprivileged user, limits on processes, memory and CPU, the inputs read-only,
 killed after 60 seconds.
 
+Pictures are made by stable-diffusion.cpp's `sd-cli`, a pinned build checked against its
+SHA-256 like llama.cpp's. It runs once per picture with an argument list, never through a
+shell. The prompt is one argument, which sd-cli takes whole whatever it starts with. No LoRA or
+embeddings folder is ever passed, so a name in a prompt can't make it load a file. It listens
+on no port. What it writes must read as a PNG of the size asked; it is written again without
+the metadata sd-cli embeds before it becomes a project file.
+
 ## Data leaving the machine
 
 No telemetry and no cloud models. Lectern connects out to download models (Hugging Face) and

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import platform
 import shutil
 import sys
 from collections.abc import Callable
@@ -95,14 +96,30 @@ VARIANTS: dict[str, tuple[Asset, ...]] = {
 }
 
 
-def select_variant(hw: HardwareInfo, *, has_vulkan: Callable[[], bool] = _has_vulkan) -> str:
+# The Mac build's minimum macOS (`vtool -show-build sd-cli`: minos 26.0, at master-1053-5a1ba5d).
+MACOS_MINIMUM = (26, 0)
+
+
+def _macos_version() -> tuple[int, int]:
+    parts = [int(p) for p in (platform.mac_ver()[0] or "0").split(".")[:2] if p.isdigit()]
+    return (parts + [0, 0])[0], (parts + [0, 0])[1]
+
+
+def select_variant(
+    hw: HardwareInfo,
+    *,
+    has_vulkan: Callable[[], bool] = _has_vulkan,
+    macos_version: Callable[[], tuple[int, int]] = _macos_version,
+) -> str:
     """Which build makes images here: Metal on Apple Silicon, CUDA 12 for NVIDIA on Windows,
     Vulkan when a Vulkan loader is present (NVIDIA on Linux, AMD, Intel), else CPU."""
     x64 = hw.arch.lower() in ("x86_64", "amd64")
     if hw.os == "macos":
-        if hw.arch == "arm64":
-            return "macos-arm64"
-        raise UnsupportedPlatform("Intel Macs aren't supported yet.")
+        if hw.arch != "arm64":
+            raise UnsupportedPlatform("Intel Macs aren't supported yet.")
+        if macos_version() < MACOS_MINIMUM:
+            raise UnsupportedPlatform("the image engine needs macOS 26 or later.")
+        return "macos-arm64"
     if not x64:
         raise UnsupportedPlatform(
             f"No stable-diffusion.cpp build is pinned for {hw.os} on {hw.arch}."
