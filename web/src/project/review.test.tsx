@@ -83,6 +83,18 @@ describe("reviewing a page", () => {
     expect(within(card()).getByText(/OCR/)).toBeTruthy();
   });
 
+  it("names the repeated-line check as a question's source, not its key", () => {
+    renderPage(
+      documentOf([
+        block("b1.1", "4. {d1.1} 4", {
+          doubts: [doubt("d1.1", "Розділі", { candidates: ["Розділ"], source: "repeat" })],
+        }),
+      ]),
+    );
+    expect(within(card()).queryByText(/review\.source/)).toBeNull();
+    expect(within(card()).getByText(/repeated lines/)).toBeTruthy();
+  });
+
   it("moves on with Tab (Later) without saving anything, and wraps round on the page", () => {
     renderPage();
     fireEvent.keyDown(area(), { key: "Tab" });

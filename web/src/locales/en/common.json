@@ -517,7 +517,8 @@
     "couldBe": "Could be:",
     "source": {
       "clean": "cleanup",
-      "ocr": "OCR"
+      "ocr": "OCR",
+      "repeat": "repeated lines"
     },
     "figure": "[Image: {{label}} · no cut-out yet]",
     "same_one": "“{{raw}}” → “{{value}}”: also on page {{pages}}.",
