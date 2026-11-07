@@ -265,3 +265,134 @@ describe("reviewing a page", () => {
     ]);
   });
 });
+
+describe("the same answer for a question asked elsewhere (#167)", () => {
+  const raw = "Розділі";
+  /** "Розділі" on pages 1, 2 and twice on 3, with other candidates on page 2; "1?" on page 1;
+   * a fragment "луги." on pages 1 and 2. `answered` resolves those ids with their value. */
+  const repeated = (answered: Record<string, string> = {}): OcrDocument => {
+    const q = (id: string, text: string, candidates: string[]) =>
+      doubt(id, text, {
+        candidates,
+        ...(id in answered ? { status: "resolved" as const, value: answered[id] } : {}),
+      });
+    return documentOf([
+      block("b1.1", "1. {d1.1} 1", { doubts: [q("d1.1", raw, ["Розділ"])] }),
+      block("b1.2", "Оплата до {d1.2} числа.", { doubts: [q("d1.2", "1?", ["15"])] }),
+      block("b1.3", "{d1.3}", { doubts: [q("d1.3", "луги.", [])] }),
+      block("b2.1", "2. {d2.1} 2", { doubts: [q("d2.1", raw, ["Розділу", "Розділ"])] }),
+      block("b2.2", "{d2.2}", { doubts: [q("d2.2", "луги.", [])] }),
+      block("b3.1", "3. {d3.1} 3", { doubts: [q("d3.1", raw, ["Розділ"])] }),
+      block("b3.2", "Знову {d3.2}.", { doubts: [q("d3.2", raw, ["Розділ"])] }),
+    ]);
+  };
+
+  /** The review as the app shows it: the Document comes back answered after each request. */
+  function renderLive(doc: OcrDocument, page = 1) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (d: OcrDocument, p: number) => (
+      <QueryClientProvider client={client}>
+        <ReviewPage projectId={1} sessionId={2} doc={d} page={p} onSelectPage={() => {}} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(doc, page));
+    return (d: OcrDocument, p = page) => rerender(view(d, p));
+  }
+
+  const line = () => screen.queryByTestId("same-answer");
+  const answerAll = (count: number) =>
+    within(line()!).getByRole("button", { name: new RegExp(`Answer the other ${count} the same way`) });
+
+  async function answerFirst(page = 1) {
+    const update = renderLive(repeated(), page);
+    fireEvent.keyDown(area(), { key: "Enter" });
+    await waitFor(() => expect(calls).toHaveLength(1));
+    return update;
+  }
+
+  it("after an answer, names the reading, the answer, and the other pages, each once", async () => {
+    const update = await answerFirst();
+    update(repeated({ "d1.1": "Розділ" }));
+    expect(line()!.textContent).toContain("“Розділі” → “Розділ”: also on pages 2, 3.");
+    expect(answerAll(3)).toBeTruthy(); // whatever their candidates
+  });
+
+  it("answers them all in one request, by the button", async () => {
+    const update = await answerFirst();
+    update(repeated({ "d1.1": "Розділ" }));
+    fireEvent.click(answerAll(3));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1]).toEqual({ method: "POST", url: "/api/projects/1/ocr/2/doubts/d1.1/others", body: null });
+    await waitFor(() => expect(line()).toBeNull()); // used: gone
+  });
+
+  it("answers them all with A, even after the page's last question", async () => {
+    const update = renderLive(repeated(), 2);
+    fireEvent.click(within(card()).getByRole("button", { name: "Accept Розділу" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    update(repeated({ "d2.1": "Розділу" }));
+    expect(line()!.textContent).toContain("“Розділі” → “Розділу”: also on pages 1, 3.");
+    fireEvent.keyDown(area(), { key: "a" });
+    await waitFor(() => expect(calls[1]).toMatchObject({ method: "POST", url: "/api/projects/1/ocr/2/doubts/d2.1/others" }));
+  });
+
+  it("says a reading kept as kept", async () => {
+    const update = renderLive(repeated());
+    fireEvent.keyDown(area(), { key: "k" });
+    await waitFor(() => expect(calls).toHaveLength(1));
+    update(repeated({ "d1.1": raw }));
+    expect(line()!.textContent).toContain("“Розділі” kept: also on pages 2, 3.");
+  });
+
+  it("offers nothing after a removal, or for a question asked only once", async () => {
+    const update = renderLive(repeated());
+    fireEvent.click(screen.getByText("луги.", { selector: "mark" }));
+    fireEvent.click(within(card()).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    update(repeated({ "d1.3": "" }));
+    expect(line()).toBeNull();
+
+    fireEvent.click(screen.getByText("1?", { selector: "mark" }));
+    fireEvent.keyDown(area(), { key: "Enter" });
+    await waitFor(() => expect(calls).toHaveLength(2));
+    update(repeated({ "d1.3": "", "d1.2": "15" }));
+    expect(line()).toBeNull();
+  });
+
+  it("leaves A alone while nothing is offered, and while typing", async () => {
+    const update = renderLive(repeated());
+    fireEvent.keyDown(area(), { key: "a" });
+    expect(calls).toEqual([]);
+
+    fireEvent.keyDown(area(), { key: "Enter" });
+    await waitFor(() => expect(calls).toHaveLength(1));
+    update(repeated({ "d1.1": "Розділ" }));
+    fireEvent.keyDown(area(), { key: "e" }); // editing the next question, "1?"
+    fireEvent.keyDown(screen.getByLabelText("The reading"), { key: "a" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("goes away on another page, on Reopen, and when the next answer replaces it", async () => {
+    let update = await answerFirst();
+    update(repeated({ "d1.1": "Розділ" }), 2);
+    expect(line()).toBeNull();
+
+    cleanup();
+    calls = [];
+    update = await answerFirst();
+    update(repeated({ "d1.1": "Розділ" }));
+    const answered = screen.getByText("Розділі → Розділ").closest("li")!;
+    fireEvent.click(within(answered).getByRole("button", { name: "Reopen" }));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(line()).toBeNull();
+
+    cleanup();
+    calls = [];
+    update = await answerFirst();
+    update(repeated({ "d1.1": "Розділ" }));
+    fireEvent.keyDown(area(), { key: "Enter" }); // "1?", the page's next question
+    await waitFor(() => expect(calls).toHaveLength(2));
+    update(repeated({ "d1.1": "Розділ", "d1.2": "15" }));
+    expect(line()).toBeNull();
+  });
+});

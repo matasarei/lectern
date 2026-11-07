@@ -187,6 +187,12 @@ export function reopenDoubt(projectId: number, sessionId: number, doubtId: strin
   });
 }
 
+/** Give a question's answer to every open question on the same text, in one new version. No
+ * body: the server takes the answer it has stored. */
+export function answerOthers(projectId: number, sessionId: number, doubtId: string): Promise<DocumentSummary> {
+  return apiPost<DocumentSummary>(`${ocrPath(projectId, sessionId)}/doubts/${doubtId}/others`);
+}
+
 export function cleanPageAgain(projectId: number, sessionId: number, page: number): Promise<OcrPage> {
   return apiPost<OcrPage>(`${ocrPath(projectId, sessionId)}/pages/${page}/clean`);
 }
@@ -235,6 +241,12 @@ export function pageQuestions(doc: OcrDocument, page: number): DocDoubt[] {
 
 export function openQuestions(doc: OcrDocument): DocDoubt[] {
   return doc.blocks.flatMap((b) => b.doubts.filter((d) => d.status === "open"));
+}
+
+/** The other open questions on exactly the same text, whatever their candidates: one misread
+ * asked in many places (#167). */
+export function sameOpenQuestions(doc: OcrDocument, doubt: DocDoubt): DocDoubt[] {
+  return openQuestions(doc).filter((d) => d.raw === doubt.raw && d.id !== doubt.id);
 }
 
 /** The Document's first open question, in the order the review walks them (page by page, top

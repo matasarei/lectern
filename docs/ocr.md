@@ -119,8 +119,16 @@ raw text), the reason, and whether it came from cleanup or OCR. Its answers:
 - **Later** moves on without answering: to the page's next open question, and after its last
   to the next page with questions. On the document's only open question it says so.
 
+A misread repeated through a document is asked about in each place. After an Accept, a Keep
+or an Edit, if other open questions are on exactly the same text (whatever their
+candidates), the question bar says so and names their pages, with a button to **answer the
+others the same way**: one new version, each of them answered on its own, so each keeps its
+own Reopen. Ignored, it changes nothing; it goes on another page, on Reopen, and when the
+next answer replaces it. A removal offers nothing, since it is about one block.
+
 With focus in the review, **Enter** accepts the suggestion (or keeps the reading when there is
-none), **K** keeps, **E** edits, **Tab** is Later, and **Escape** cancels an edit. A resolved
+none), **K** keeps, **E** edits, **Tab** is Later, **A** answers the others the same way while
+that is offered, and **Escape** cancels an edit. A resolved
 question is shown underlined with the original as a tooltip, and its chip (*kept*, *removed*,
 or the reading it became) reopens it.
 

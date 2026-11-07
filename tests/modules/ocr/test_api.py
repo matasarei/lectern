@@ -323,6 +323,61 @@ def test_an_answer_is_kept_even_when_telling_whoever_waits_fails(api):
     assert answered.status_code == 200 and answered.json()["open_doubts"] == 2
 
 
+def test_the_others_on_the_same_text_get_the_answer_in_one_new_version(api):
+    """Each page asks about "1?": answered on page 1, the other two get the same answer."""
+    client, headers, *_ = api
+    url, _ = _session_with_doubts(api)
+    client.put(f"{url}/doubts/d1.1", json={"value": "15", "action": "accept"}, headers=headers)
+
+    others = client.post(f"{url}/doubts/d1.1/others", headers=headers)
+
+    assert others.status_code == 200, others.text
+    assert (others.json()["version"], others.json()["open_doubts"]) == (3, 0)
+    document = client.get(f"{url}/document", headers=headers).json()
+    assert {d["id"]: d["value"] for b in document["blocks"] for d in b["doubts"]} == {
+        "d1.1": "15", "d2.1": "15", "d3.1": "15"
+    }  # fmt: skip
+    again = client.post(f"{url}/doubts/d1.1/others", headers=headers).json()
+    assert again["version"] == 3  # nothing left to answer: no new version
+
+
+def test_answering_the_others_tells_whoever_waits_and_keeps_them_if_telling_fails(api):
+    client, headers, app, *_ = api
+    url, _ = _session_with_doubts(api)
+    heard: list[str] = []
+
+    async def on_status(project, session_id, status, notice):  # noqa: ANN001, ANN202
+        heard.append(notice)
+
+    app.state.ocr_jobs.on_status = on_status
+    client.put(f"{url}/doubts/d1.1", json={"value": "15", "action": "accept"}, headers=headers)
+    client.post(f"{url}/doubts/d1.1/others", headers=headers)
+    assert heard[-1] == "OCR · lease-scan.pdf finished · 3 pages."
+
+    async def broken(project, session_id):  # noqa: ANN001, ANN202
+        raise RuntimeError("the summary couldn't be read")
+
+    app.state.ocr_jobs.tell = broken
+    client.delete(f"{url}/doubts/d2.1", headers=headers)
+    client.delete(f"{url}/doubts/d3.1", headers=headers)
+    answered = client.post(f"{url}/doubts/d1.1/others", headers=headers)
+    assert answered.status_code == 200 and answered.json()["open_doubts"] == 0
+
+
+def test_a_removal_isnt_given_to_the_others(api, monkeypatch):
+    from lectern.modules.ocr import store as ocr_store
+
+    client, headers, *_ = api
+    url, _ = _session_with_doubts(api)
+
+    def removal(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise ocr_store.NotRepeatable("d1.1")
+
+    monkeypatch.setattr(ocr_store, "answer_others", removal)
+    refused = client.post(f"{url}/doubts/d1.1/others", headers=headers)
+    assert refused.status_code == 422 and "removal" in refused.json()["detail"]
+
+
 def test_a_doubt_is_accepted_edited_and_reopened_each_a_new_version(api):
     client, headers, *_ = api
     url, _ = _session_with_doubts(api)
@@ -371,6 +426,8 @@ def test_cleaning_one_page_again_starts_the_job_for_that_page(api):
     [
         ("put", "doubts/d9.9", {"value": "x", "action": "edit"}, 404),  # no such doubt
         ("delete", "doubts/d1.1", None, 404),  # open: nothing to reopen
+        ("post", "doubts/d9.9/others", None, 404),  # no such doubt
+        ("post", "doubts/d1.1/others", None, 404),  # open: no answer to give the others
         ("put", "doubts/d1.1", {"value": "", "action": "edit"}, 422),
         ("put", "doubts/d1.1", {"value": "x" * 201, "action": "edit"}, 422),
         ("put", "doubts/d1.1", {"value": "x", "action": "skip"}, 422),
@@ -398,6 +455,7 @@ def test_someone_elses_session_takes_no_decisions(api):
                          headers=headers)  # fmt: skip
         assert put.status_code == 404, url
         assert client.delete(f"{url}/doubts/d1.1", headers=headers).status_code == 404
+        assert client.post(f"{url}/doubts/d1.1/others", headers=headers).status_code == 404
         assert client.post(f"{url}/pages/1/clean", headers=headers).status_code == 404
 
 
