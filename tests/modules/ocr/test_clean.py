@@ -172,6 +172,34 @@ def test_a_doubt_whose_only_reading_is_its_own_text_is_dropped_and_said_so():
     assert page.fixes[-1].after == "числа"  # the text stays; only the question goes
 
 
+DISPUTES = "Усі спорн, що виникають з цього Договору, вирішуються в судовому порядку."
+
+
+def _doubts_on(text: str, *doubts: dict):  # noqa: ANN202
+    """A page of one paragraph, `text`, read as it is, with these doubts on it."""
+    reply = {"blocks": [{"type": "paragraph", "text": text}], "doubts": list(doubts), "fixes": []}
+    return _clean(_client(json.dumps(reply)), raw=text)
+
+
+@pytest.mark.parametrize("dots", ["...", "…", " ..."])
+def test_a_doubt_shortened_with_dots_is_kept_without_them(dots: str):
+    """The 9B's page 12 asked about "Усі спорн, що виникають з цього Договору...": not in the
+    page's text as written, so it was dropped and "спорн" stayed unquestioned (#159)."""
+    page = _doubts_on(
+        DISPUTES,
+        {"block": 0, "raw": f"Усі спорн{dots}", "candidates": [f"Усі спори{dots}", "Усі спорні"]},
+    )
+    (doubt,) = page.doubts
+    assert doubt.raw == "Усі спорн"
+    assert doubt.candidates == ["Усі спори", "Усі спорні"]
+
+
+def test_a_doubt_that_is_only_dots_is_dropped_and_said_so():
+    page = _doubts_on(DISPUTES, {"block": 0, "raw": "...", "candidates": ["спори"]})
+    assert page.doubts == []
+    assert page.fixes[-1].why.startswith("Doubt dropped: '...' isn't in the page's text.")
+
+
 def test_a_doubt_may_sit_in_a_table_cell():
     reply = {**GOOD, "doubts": [{"block": 2, "raw": "250,00", "candidates": ["230,00"]}]}
     assert _clean(_client(json.dumps(reply))).doubts[0].block == 2

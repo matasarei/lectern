@@ -385,6 +385,13 @@ def _tidy_fixes(page: CleanedPage) -> CleanedPage:
 
 
 UNSURE_MARK = re.compile(r"⟨([^⟨⟩]*?)\??⟩")
+# "..." or "…" at either end: a model shortening a long doubt ("Усі спорн, що виникають...")
+DOTS = re.compile(r"^\s*(?:\.{3}|…)\s*|\s*(?:\.{3}|…)\s*$")
+
+
+def _trim_dots(text: str) -> str:
+    """`text` without "..." at its start or end, unless that's all it is."""
+    return DOTS.sub("", text).strip() or text.strip()
 
 
 def _place_doubts(page: CleanedPage) -> CleanedPage:
@@ -397,13 +404,13 @@ def _place_doubts(page: CleanedPage) -> CleanedPage:
     texts = [[b.text, *(c for r in b.rows or [] for c in r)] for b in page.blocks]
     doubts, fixes = [], list(page.fixes)
     for doubt in page.doubts:
-        raw = UNSURE_MARK.sub(r"\1", doubt.raw).strip()
+        raw = _trim_dots(UNSURE_MARK.sub(r"\1", doubt.raw))
         named = [doubt.block] if doubt.block < len(texts) else []
         holder = next(
             (i for i in named + list(range(len(texts))) if raw and any(raw in t for t in texts[i])),
             None,
         )
-        candidates = list(dict.fromkeys(c.strip() for c in doubt.candidates if c.strip()))
+        candidates = list(dict.fromkeys(_trim_dots(c) for c in doubt.candidates if c.strip()))
         if holder is None:
             why = f"Doubt dropped: {doubt.raw!r} isn't in the page's text. {doubt.reason}"
             fixes.append(CleanFix(before=doubt.raw, after="", why=why[:WHY_CHARS]))
