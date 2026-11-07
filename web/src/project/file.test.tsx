@@ -9,7 +9,7 @@ import { FileTab, TEXT_PREVIEW_LIMIT } from "./file";
 
 const artifact = (over: Partial<Artifact>): Artifact => ({
   id: 4, name: "reply.md", kind: "generated", mime: "text/markdown", size: 40, text: "indexed",
-  text_note: null, from: { kind: "session", id: 1, note: null, title: "Payment terms" },
+  text_note: null, preview: "markdown", from: { kind: "session", id: 1, note: null, title: "Payment terms" },
   created_at: "", modified_at: "", ...over,
 });
 
@@ -59,11 +59,24 @@ function renderFile(a: Artifact | undefined, onOpen: (tab: Tab) => void = () => 
 
 describe("File tab", () => {
   it("shows text as text, never as HTML", async () => {
-    const { container } = renderFile(artifact({ name: "notes.txt", mime: "text/plain" }));
+    const { container } = renderFile(artifact({ name: "notes.txt", mime: "text/plain", preview: "text" }));
     const pre = await screen.findByText(/<script>alert\(1\)<\/script>/);
     expect(pre.tagName).toBe("PRE");
     expect(container.querySelector("script")).toBeNull();
     expect(requested).toEqual(["/api/projects/1/artifacts/4/content"]);
+  });
+
+  it("shows code and data files as text", async () => {
+    body = '{"rent": 1200}';
+    renderFile(artifact({ name: "terms.json", mime: "application/json", preview: "text" }));
+    expect((await screen.findByText('{"rent": 1200}')).tagName).toBe("PRE");
+  });
+
+  it("shows an HTML file's source as text, never as HTML", async () => {
+    body = "<h1>Hi</h1><script>alert(1)</script>";
+    const { container } = renderFile(artifact({ name: "page.html", mime: "text/html", preview: "html" }));
+    expect((await screen.findByText(body)).tagName).toBe("PRE");
+    expect(container.querySelector("h1, script")).toBeNull();
   });
 
   it("shows Markdown as Markdown, its raw HTML never as HTML", async () => {
@@ -122,19 +135,20 @@ describe("File tab", () => {
   });
 
   it("shows images from a blob URL", async () => {
-    renderFile(artifact({ id: 5, name: "stamp.png", mime: "image/png", text: "none", text_note: "no text" }));
+    renderFile(artifact({ id: 5, name: "stamp.png", mime: "image/png", text: "none", text_note: "no text",
+                        preview: "image" }));
     const img = await screen.findByAltText("Preview of stamp.png");
     expect(img.getAttribute("src")).toBe("blob:preview");
   });
 
   it("offers a download for other files, and big text files", () => {
     renderFile(
-      artifact({ name: "scan.pdf", mime: "application/pdf", kind: "imported", text: "none",
-                 text_note: "no text layer", from: { kind: "import", id: null, note: null, title: null } }),
+      artifact({ name: "archive.zip", mime: "application/zip", kind: "imported", text: "none", preview: null,
+                 text_note: "no text to read", from: { kind: "import", id: null, note: null, title: null } }),
     );  // prettier-ignore
     expect(screen.getByText("This kind of file can't be shown here yet.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
-    expect(screen.getByText("no text layer")).toBeTruthy();
+    expect(screen.getByText("no text to read")).toBeTruthy();
     expect(screen.getByText("imported")).toBeTruthy();
     expect(requested).toEqual([]);
     cleanup();
@@ -147,7 +161,7 @@ describe("File tab", () => {
   it("opens a PDF or an image as an OCR session in a new tab", async () => {
     const opened: Tab[] = [];
     renderFile(
-      artifact({ id: 6, name: "lease-scan.PDF", mime: "application/pdf", kind: "imported" }),
+      artifact({ id: 6, name: "lease-scan.PDF", mime: "application/pdf", kind: "imported", preview: "pdf" }),
       (tab) => opened.push(tab),
     );
     fireEvent.click(screen.getByRole("button", { name: "Open as OCR session" }));

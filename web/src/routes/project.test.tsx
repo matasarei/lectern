@@ -33,7 +33,7 @@ const RESPONSES: Record<string, unknown> = {
     artifacts: [
       {
         id: 7, name: "lease.md", kind: "imported", mime: "text/markdown", size: 10, text: "indexed",
-        text_note: null, from: { kind: "import", id: null, note: null, title: null },
+        text_note: null, preview: "markdown", from: { kind: "import", id: null, note: null, title: null },
         created_at: "", modified_at: "",
       },
     ],

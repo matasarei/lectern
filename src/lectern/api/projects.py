@@ -18,6 +18,7 @@ from starlette.requests import HTTPConnection
 
 from lectern.core.auth import User, current_user
 from lectern.projects import files, search
+from lectern.projects.preview import preview_kind
 from lectern.projects.store import (
     UNTITLED,
     NameMismatch,
@@ -123,6 +124,7 @@ def artifact_dict(row: ArtifactRow, from_title: str | None = None) -> dict:
         "size": row.size,
         "text": row.text_status,
         "text_note": row.text_note,
+        "preview": preview_kind(row.path, row.mime),
         "from": {
             "kind": row.from_kind,
             "id": row.from_id,

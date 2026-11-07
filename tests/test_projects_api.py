@@ -87,6 +87,7 @@ def test_import_a_file_and_read_it_back(api):
     assert (body["name"], body["kind"], body["text"], body["from"]["kind"]) == (
         "notes.md", "imported", "indexed", "import"
     )  # fmt: skip
+    assert body["preview"] == "markdown"
 
     content = client.get(f"/api/projects/{pid}/artifacts/{body['id']}/content", headers=headers)
     assert content.content == b"# Hi\nthere"

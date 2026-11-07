@@ -11,8 +11,6 @@ import { startOcr } from "./ocr-api";
 
 /** Text shown in the page up to this size; bigger files download. */
 export const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
-const TEXT_MIMES = ["text/plain", "text/markdown", "text/csv"];
-const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 /** What an OCR session can read (the server decides by the name's extension too). */
 const PAGE_SOURCES = [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"];
 
@@ -21,8 +19,9 @@ export function isPageSource(artifact: Artifact): boolean {
   return PAGE_SOURCES.some((suffix) => name.endsWith(suffix));
 }
 
-/** A file in a tab: Markdown as Markdown and other text as text (neither ever as HTML),
- * images as images, and the details with where the file came from. */
+/** A file in a tab, shown the way the server's preview kind says: Markdown as Markdown and
+ * other text (code, an HTML file's source) as text, neither ever as HTML; images as images;
+ * and the details with where the file came from. */
 export function FileTab({
   projectId,
   artifact,
@@ -69,12 +68,17 @@ function publishedByOcr(artifact: Artifact, items: ProjectItems): boolean {
 
 function Preview({ url, artifact, keepLines }: { url: string; artifact: Artifact; keepLines: boolean }) {
   const { t } = useTranslation();
-  if (TEXT_MIMES.includes(artifact.mime)) {
-    if (artifact.size > TEXT_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
-    return <TextPreview url={url} markdown={artifact.mime === "text/markdown"} keepLines={keepLines} />;
+  switch (artifact.preview) {
+    case "markdown":
+    case "text":
+    case "html":
+      if (artifact.size > TEXT_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
+      return <TextPreview url={url} markdown={artifact.preview === "markdown"} keepLines={keepLines} />;
+    case "image":
+      return <ImagePreview url={url} name={artifact.name} />;
+    default:
+      return <p className="text-muted">{t("file.noPreview")}</p>;
   }
-  if (IMAGE_MIMES.includes(artifact.mime)) return <ImagePreview url={url} name={artifact.name} />;
-  return <p className="text-muted">{t("file.noPreview")}</p>;
 }
 
 function TextPreview({ url, markdown, keepLines }: { url: string; markdown: boolean; keepLines: boolean }) {
