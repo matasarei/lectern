@@ -76,6 +76,8 @@ function Preview({ url, artifact, keepLines }: { url: string; artifact: Artifact
       return <TextPreview url={url} markdown={artifact.preview === "markdown"} keepLines={keepLines} />;
     case "image":
       return <ImagePreview url={url} name={artifact.name} />;
+    case "legacy":
+      return <p className="text-muted">{t("file.legacy")}</p>;
     default:
       return <p className="text-muted">{t("file.noPreview")}</p>;
   }

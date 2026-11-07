@@ -158,6 +158,13 @@ describe("File tab", () => {
     expect(requested).toEqual([]);
   });
 
+  it("says an old Word or RTF file can't be shown, and offers it to download", () => {
+    renderFile(artifact({ name: "lease-1998.doc", mime: "application/msword", preview: "legacy" }));
+    expect(screen.getByText(/Word 97–2003 and RTF files can't be shown here/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download" })).toBeTruthy();
+    expect(requested).toEqual([]);
+  });
+
   it("opens a PDF or an image as an OCR session in a new tab", async () => {
     const opened: Tab[] = [];
     renderFile(
