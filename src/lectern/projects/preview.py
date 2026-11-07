@@ -15,6 +15,7 @@ its own lists of types.
 from __future__ import annotations
 
 import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -87,12 +88,14 @@ def document_markdown(path: Path) -> DocumentPreview:
             markdown = Document(path).to_markdown()
             if not isinstance(markdown, str):  # a spreadsheet's tables
                 raise TypeError("not a text document")
-    # What a broken file raises, seen on junk bytes, a zip without the document's part, and bad
-    # XML: zipfile's BadZipFile, a KeyError for the missing part, python-docx's OpcError,
-    # lxml's syntax errors (a SyntaxError); odfdo's NotImplementedError for a drawing or
-    # a presentation saved as .odt.
+    # What a broken file raises, seen on junk bytes, a zip without the document's part, bad
+    # XML and a damaged or cut-off compressed part: zipfile's BadZipFile, a KeyError for the
+    # missing part, python-docx's OpcError, odfdo's TypeError for a file that isn't a zip,
+    # lxml's syntax errors (a SyntaxError), zlib.error and EOFError from the compressed part,
+    # odfdo's NotImplementedError for a drawing or a presentation saved as .odt.
     except (
-        OpcError, zipfile.BadZipFile, KeyError, TypeError, SyntaxError, NotImplementedError, OSError
+        OpcError, zipfile.BadZipFile, KeyError, TypeError, SyntaxError, zlib.error, EOFError,
+        NotImplementedError, OSError,
     ) as exc:  # fmt: skip
         raise ValueError(
             f"{path.name} couldn't be read as a document ({type(exc).__name__})."

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 import zipfile
 from pathlib import Path
 
@@ -151,3 +152,35 @@ def test_a_document_whose_text_unzips_too_big_isnt_opened(tmp_path, monkeypatch,
 
     with pytest.raises(preview.DocumentTooLarge, match="has too much text to show here"):
         document_markdown(writer(tmp_path / f"lease{suffix}"))
+
+
+def _damage_part(path: Path, part: str, *, cut: bool) -> Path:
+    """The file with its compressed `part` damaged in place, or cut off part-way."""
+    with zipfile.ZipFile(path) as archive:
+        info = archive.getinfo(part)
+    data = bytearray(path.read_bytes())
+    name_len, extra_len = struct.unpack(
+        "<HH", data[info.header_offset + 26 : info.header_offset + 30]
+    )
+    start = info.header_offset + 30 + name_len + extra_len
+    if cut:
+        data = data[: start + info.compress_size // 2]
+    else:
+        for i in range(start + 2, start + 40):
+            data[i] ^= 0xFF
+    path.write_bytes(bytes(data))
+    return path
+
+
+@pytest.mark.parametrize("cut", [False, True], ids=["damaged", "cut-off"])
+@pytest.mark.parametrize(
+    ("writer", "name", "part"),
+    [(write_docx, "lease.docx", "word/document.xml"), (write_odt, "lease.odt", "content.xml")],
+)
+def test_a_document_with_a_damaged_compressed_part_says_it_couldnt_be_read(
+    tmp_path, writer, name, part, cut
+):
+    path = _damage_part(writer(tmp_path / name), part, cut=cut)
+
+    with pytest.raises(ValueError, match=f"{name} couldn't be read as a document"):
+        document_markdown(path)
