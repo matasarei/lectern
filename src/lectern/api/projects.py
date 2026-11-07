@@ -7,6 +7,7 @@ project both answer 404, so ids can't be probed.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -18,6 +19,7 @@ from starlette.requests import HTTPConnection
 
 from lectern.core.auth import User, current_user
 from lectern.projects import files, search
+from lectern.projects.preview import DocumentTooLarge, document_markdown, preview_kind
 from lectern.projects.store import (
     UNTITLED,
     NameMismatch,
@@ -123,6 +125,7 @@ def artifact_dict(row: ArtifactRow, from_title: str | None = None) -> dict:
         "size": row.size,
         "text": row.text_status,
         "text_note": row.text_note,
+        "preview": preview_kind(row.path, row.mime),
         "from": {
             "kind": row.from_kind,
             "id": row.from_id,
@@ -167,10 +170,11 @@ INLINE = ("text/plain", "text/markdown", "text/csv", "image/png", "image/jpeg", 
           "image/webp")  # fmt: skip
 
 
-@router.get("/projects/{project_id}/artifacts/{artifact_id}/content")
-def artifact_content(
-    project_id: int, artifact_id: int, request: Request, user: CurrentUser
-) -> FileResponse:
+def owned_file(
+    request: Request, project_id: int, artifact_id: int, user: User
+) -> tuple[ArtifactRow, Path]:
+    """A file of the user's in one of their projects, and where it is on disk; 404 when it
+    isn't theirs, is in the trash, or has gone from the folder."""
     project = open_project(request, project_id, user)
     with store(request).db(project)() as session:
         row = session.get(ArtifactRow, artifact_id)
@@ -179,6 +183,14 @@ def artifact_content(
     path = files.inside(project.root, row.path)
     if not path.is_file():
         raise HTTPException(404, "The file is no longer in the project folder.")
+    return row, path
+
+
+@router.get("/projects/{project_id}/artifacts/{artifact_id}/content")
+def artifact_content(
+    project_id: int, artifact_id: int, request: Request, user: CurrentUser
+) -> FileResponse:
+    row, path = owned_file(request, project_id, artifact_id, user)
     inline = row.mime in INLINE
     return FileResponse(
         path,
@@ -187,6 +199,37 @@ def artifact_content(
         content_disposition_type="inline" if inline else "attachment",
         headers={"Cache-Control": "no-store"},  # LocalGuard adds nosniff and the CSP
     )
+
+
+@router.get("/projects/{project_id}/artifacts/{artifact_id}/markdown")
+def artifact_markdown(
+    project_id: int, artifact_id: int, request: Request, user: CurrentUser
+) -> dict:
+    """A DOCX or ODT as Markdown, for the file tab (react-markdown shows it, never raw HTML).
+    A sync route: FastAPI runs the conversion in a worker thread."""
+    row, path = owned_file(request, project_id, artifact_id, user)
+    if preview_kind(row.path, row.mime) != "document":
+        raise HTTPException(400, "Only DOCX and ODT files are shown as Markdown.")
+    try:
+        preview = document_markdown(path)
+    except DocumentTooLarge as exc:
+        raise HTTPException(413, f"{exc} Download it to open it.") from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"markdown": preview.markdown, "cut": preview.cut}
+
+
+@router.post("/projects/{project_id}/artifacts/{artifact_id}/view")
+def artifact_view_link(
+    project_id: int, artifact_id: int, request: Request, user: CurrentUser
+) -> dict:
+    """A link that opens an HTML file once, as a page in a tab of its own, sandboxed
+    (`lectern.api.view`)."""
+    row, _path = owned_file(request, project_id, artifact_id, user)
+    if preview_kind(row.path, row.mime) != "html":
+        raise HTTPException(400, "Only HTML files open as a page.")
+    ticket = request.app.state.view_tickets.issue(user, project_id, artifact_id)
+    return {"url": f"/view/{ticket}"}
 
 
 # --- Overview, search and tabs -------------------------------------------------------------

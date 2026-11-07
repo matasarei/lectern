@@ -16,8 +16,8 @@ const ITEMS: ProjectItems = {
   artifacts: [
     {
       id: 5, name: "lease-scan.pdf", kind: "imported", mime: "application/pdf", size: 1, text: "none",
-      text_note: null, from: { kind: "import", id: null, note: null, title: null }, created_at: "",
-      modified_at: "",
+      text_note: null, preview: "pdf", from: { kind: "import", id: null, note: null, title: null },
+      created_at: "", modified_at: "",
     },
   ],
 };

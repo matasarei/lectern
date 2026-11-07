@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { apiRaw, ApiError } from "../api/client";
+import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
 import type { Artifact, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { fileType, formatBytes } from "../format";
@@ -11,8 +11,8 @@ import { startOcr } from "./ocr-api";
 
 /** Text shown in the page up to this size; bigger files download. */
 export const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
-const TEXT_MIMES = ["text/plain", "text/markdown", "text/csv"];
-const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/** A PDF is fetched whole into the page to be shown, so only up to this size. */
+export const PDF_PREVIEW_LIMIT = 100 * 1024 * 1024;
 /** What an OCR session can read (the server decides by the name's extension too). */
 const PAGE_SOURCES = [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"];
 
@@ -21,8 +21,9 @@ export function isPageSource(artifact: Artifact): boolean {
   return PAGE_SOURCES.some((suffix) => name.endsWith(suffix));
 }
 
-/** A file in a tab: Markdown as Markdown and other text as text (neither ever as HTML),
- * images as images, and the details with where the file came from. */
+/** A file in a tab, shown the way the server's preview kind says: Markdown as Markdown and
+ * other text (code, an HTML file's source) as text, neither ever as HTML; images as images;
+ * and the details with where the file came from. */
 export function FileTab({
   projectId,
   artifact,
@@ -36,11 +37,12 @@ export function FileTab({
 }) {
   const { t } = useTranslation();
   if (!artifact) return <p className="p-4 text-muted">{t("file.gone")}</p>;
-  const url = `/api/projects/${projectId}/artifacts/${artifact.id}/content`;
+  const base = `/api/projects/${projectId}/artifacts/${artifact.id}`;
+  const url = `${base}/content`;
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[1fr_18rem]">
       <div className="min-w-0">
-        <Preview url={url} artifact={artifact} keepLines={publishedByOcr(artifact, items)} />
+        <Preview base={base} artifact={artifact} keepLines={publishedByOcr(artifact, items)} />
       </div>
       <aside className="grid content-start gap-2 rounded-lg border border-line bg-surface p-4">
         <h2 className="font-semibold break-all">{artifact.name}</h2>
@@ -67,14 +69,38 @@ function publishedByOcr(artifact: Artifact, items: ProjectItems): boolean {
   return items.sessions.some((s) => s.id === artifact.from.id && s.kind === "ocr");
 }
 
-function Preview({ url, artifact, keepLines }: { url: string; artifact: Artifact; keepLines: boolean }) {
+/** `base`: the file's API path; its content is `${base}/content`. */
+function Preview({ base, artifact, keepLines }: { base: string; artifact: Artifact; keepLines: boolean }) {
   const { t } = useTranslation();
-  if (TEXT_MIMES.includes(artifact.mime)) {
-    if (artifact.size > TEXT_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
-    return <TextPreview url={url} markdown={artifact.mime === "text/markdown"} keepLines={keepLines} />;
+  const url = `${base}/content`;
+  switch (artifact.preview) {
+    case "markdown":
+    case "text":
+      if (artifact.size > TEXT_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
+      return <TextPreview url={url} markdown={artifact.preview === "markdown"} keepLines={keepLines} />;
+    case "html":
+      return (
+        <div className="grid gap-2">
+          <OpenHtml base={base} />
+          {artifact.size > TEXT_PREVIEW_LIMIT ? (
+            <p className="text-muted">{t("file.tooLarge")}</p>
+          ) : (
+            <TextPreview url={url} markdown={false} keepLines={false} />
+          )}
+        </div>
+      );
+    case "image":
+      return <ImagePreview url={url} name={artifact.name} />;
+    case "pdf":
+      if (artifact.size > PDF_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
+      return <PdfPreview url={url} name={artifact.name} />;
+    case "document":
+      return <DocumentPreview url={`${base}/markdown`} />;
+    case "legacy":
+      return <p className="text-muted">{t("file.legacy")}</p>;
+    default:
+      return <p className="text-muted">{t("file.noPreview")}</p>;
   }
-  if (IMAGE_MIMES.includes(artifact.mime)) return <ImagePreview url={url} name={artifact.name} />;
-  return <p className="text-muted">{t("file.noPreview")}</p>;
 }
 
 function TextPreview({ url, markdown, keepLines }: { url: string; markdown: boolean; keepLines: boolean }) {
@@ -101,6 +127,93 @@ function TextPreview({ url, markdown, keepLines }: { url: string; markdown: bool
   );
 }
 
+/** Opens an HTML file as a page in a new tab, where the server serves it sandboxed: its styles
+ * apply, its scripts don't run, and it can't reach Lectern (`lectern.api.view`). The tab is
+ * opened in the click itself, before the one-use link is asked for: a browser blocks a tab
+ * opened after waiting on a request. */
+function OpenHtml({ base }: { base: string }) {
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="grid gap-1">
+      <button
+        className="btn-secondary w-fit"
+        onClick={async () => {
+          const tab = window.open("", "_blank");
+          if (!tab) {
+            setError(t("file.tabBlocked"));
+            return;
+          }
+          tab.opener = null; // the page it shows has no business with this one
+          try {
+            const { url } = await apiPost<{ url: string }>(`${base}/view`);
+            tab.location.assign(new URL(url, window.location.origin).href);
+            setError(null);
+          } catch (e) {
+            tab.close();
+            setError(e instanceof ApiError ? e.detail : t("common.loadFailed"));
+          }
+        }}
+      >
+        {t("file.openInTab")}
+      </button>
+      {error && <ErrorNote message={error} />}
+    </div>
+  );
+}
+
+/** A DOCX or ODT, converted to Markdown by the server and shown like any Markdown file. */
+function DocumentPreview({ url }: { url: string }) {
+  const { t } = useTranslation();
+  const doc = useQuery({
+    queryKey: ["file-markdown", url],
+    queryFn: () => apiFetch<{ markdown: string; cut: boolean }>(url),
+  });
+  if (doc.isError) {
+    return <ErrorNote message={doc.error instanceof ApiError ? doc.error.detail : t("common.loadFailed")} />;
+  }
+  if (doc.data === undefined) return <p className="text-muted">{t("common.loading")}</p>;
+  return (
+    <div className="grid gap-2">
+      {doc.data.cut && <p className="text-muted">{t("file.documentCut")}</p>}
+      <div className="rounded-lg border border-line bg-surface p-4" data-testid="document-preview">
+        <Markdown text={doc.data.markdown} />
+      </div>
+    </div>
+  );
+}
+
+/** A PDF in the browser's own viewer. It needs the token too, so it's fetched and framed from
+ * a blob URL, which Lectern types as a PDF itself (the CSP allows frames from blob: for this). */
+function PdfPreview({ url, name }: { url: string; name: string }) {
+  const { t } = useTranslation();
+  const blob = useQuery({
+    queryKey: ["file-pdf", url],
+    queryFn: async () => new Blob([await (await apiRaw(url)).blob()], { type: "application/pdf" }),
+  });
+  const src = useObjectUrl(blob.data);
+  if (blob.isError) return <ErrorNote message={t("common.loadFailed")} />;
+  if (!src) return <p className="text-muted">{t("common.loading")}</p>;
+  return (
+    <iframe
+      src={src}
+      title={t("file.pdfTitle", { name })}
+      className="h-[80vh] w-full rounded-lg border border-line"
+    />
+  );
+}
+
+/** An object URL for a blob while it's shown, revoked after. */
+function useObjectUrl(blob: Blob | undefined): string | null {
+  const src = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
+  useEffect(() => {
+    return () => {
+      if (src) URL.revokeObjectURL(src);
+    };
+  }, [src]);
+  return src;
+}
+
 /** Images need the token, so they're fetched and shown from a blob URL. */
 export function ImagePreview({ url, name }: { url: string; name: string }) {
   const { t } = useTranslation();
@@ -108,12 +221,7 @@ export function ImagePreview({ url, name }: { url: string; name: string }) {
     queryKey: ["file-blob", url],
     queryFn: async () => (await apiRaw(url)).blob(),
   });
-  const src = useMemo(() => (blob.data ? URL.createObjectURL(blob.data) : null), [blob.data]);
-  useEffect(() => {
-    return () => {
-      if (src) URL.revokeObjectURL(src);
-    };
-  }, [src]);
+  const src = useObjectUrl(blob.data);
   if (blob.isError) return <ErrorNote message={t("common.loadFailed")} />;
   if (!src) return <p className="text-muted">{t("common.loading")}</p>;
   return <img src={src} alt={t("file.imageAlt", { name })} className="max-h-[80vh] rounded-lg border border-line" />;

@@ -275,12 +275,14 @@ def _pdf_text(path: Path) -> Extracted:
     return Extracted(chunks=chunks, note=note)
 
 
-def docx_markdown(path: Path) -> str:
-    """A DOCX as Markdown with real pipe tables, for building a Document from it (export)."""
-    return _docx(path, pipe_tables=True)
+def docx_markdown(path: Path, *, limit: int | None = None) -> str:
+    """A DOCX as Markdown with real pipe tables, for building a Document from it (export) and
+    for the file tab. `limit`: stop once past about that many characters (the file tab's
+    preview, which would otherwise walk a whole long document at ~1 s per million)."""
+    return _docx(path, pipe_tables=True, limit=limit)
 
 
-def _docx(path: Path, *, pipe_tables: bool = False) -> str:
+def _docx(path: Path, *, pipe_tables: bool = False, limit: int | None = None) -> str:
     """Paragraphs and tables in document order, headings as Markdown headings. Table rows are
     "a | b" for the search index; with pipe_tables, Markdown tables a parser recognises."""
     import docx
@@ -288,7 +290,13 @@ def _docx(path: Path, *, pipe_tables: bool = False) -> str:
 
     document = docx.Document(str(path))
     lines: list[str] = []
+    size = counted = 0  # characters so far, from the first `counted` lines
     for item in document.iter_inner_content():
+        if limit is not None:
+            size += sum(len(line) + 1 for line in lines[counted:])
+            counted = len(lines)
+            if size > limit:
+                break
         if isinstance(item, Table):
             for n, row in enumerate(item.rows):
                 cells = [cell.text.strip() for cell in row.cells]

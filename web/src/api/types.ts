@@ -249,6 +249,8 @@ export interface Artifact {
   size: number;
   text: "none" | "indexed" | "failed";
   text_note: string | null;
+  /** How the file tab shows it (`lectern.projects.preview`); null: it can't. */
+  preview: "markdown" | "text" | "html" | "image" | "pdf" | "document" | "legacy" | null;
   from: {
     kind: "import" | "session" | "artifact";
     id: number | null;
