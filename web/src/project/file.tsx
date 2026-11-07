@@ -103,11 +103,21 @@ function Preview({ base, artifact, keepLines }: { base: string; artifact: Artifa
   }
 }
 
+/** A text file's bytes as the chat reads them (`lectern.projects.text._read_text`): UTF-8,
+ * its byte-order mark dropped, else windows-1251, the usual encoding of older Ukrainian files. */
+function decodeText(bytes: ArrayBuffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1251").decode(bytes);
+  }
+}
+
 function TextPreview({ url, markdown, keepLines }: { url: string; markdown: boolean; keepLines: boolean }) {
   const { t } = useTranslation();
   const text = useQuery({
     queryKey: ["file-text", url],
-    queryFn: async () => (await apiRaw(url)).text(),
+    queryFn: async () => decodeText(await (await apiRaw(url)).arrayBuffer()),
   });
   if (text.isError) {
     return <ErrorNote message={text.error instanceof ApiError ? text.error.detail : t("common.loadFailed")} />;
