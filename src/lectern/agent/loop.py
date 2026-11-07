@@ -15,10 +15,11 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 import httpx2
+from pydantic import BaseModel
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
@@ -34,7 +35,14 @@ from lectern.agent.context import (
 )
 from lectern.agent.prompts import EXACT_CHECK, system_prompt
 from lectern.agent.state import ChatState
-from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
+from lectern.agent.tools import (
+    AgentTool,
+    Decision,
+    Registry,
+    ToolContext,
+    ToolError,
+    ToolResult,
+)
 from lectern.core.auth import User
 from lectern.downloads.fetch import DownloadError
 from lectern.projects import search
@@ -62,11 +70,15 @@ class TurnRun:
     runtime: ModelRuntime
     registry: Registry
     emit: Callable[[dict], None]
-    decide: Callable[[int], asyncio.Future[bool]]
+    decide: Callable[[int], asyncio.Future[Decision]]
     turn_state: Callable[[int], str] = lambda _sid: "idle"
     downloads: object = None  # passed on to tools (the coding model's download)
     sandbox: object = None  # passed on to tools (the Sandbox module)
     ocr_jobs: object = None  # passed on to tools (the OCR module)
+    images: object = None  # passed on to tools (the image module)
+    # The async tools at work, by tool call: the person can stop one (its Stop button) and the
+    # turn goes on without it.
+    running_tools: dict[str, asyncio.Task] = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
     # The chat's token counts, by model: kept from call to call and turn to turn
     token_counts: dict[str, dict[str, int]] = field(default_factory=dict)
@@ -382,6 +394,7 @@ async def run_tool(
         downloads=run.downloads,
         sandbox=run.sandbox,
         ocr_jobs=run.ocr_jobs,
+        images=run.images,
         registry=run.registry,
     )
     if tool.confirm:
@@ -391,17 +404,59 @@ async def run_tool(
                 if tool.confirm_text
                 else f"Run {tool.name}?"
             )
+            fields = (
+                await run_in_threadpool(tool.confirm_fields, context, params)
+                if tool.confirm_fields
+                else None
+            )
         except ToolError as exc:
             return _failure(failed, key, exc)
-        approved = await _confirm(run, call, tool.name, question, function["arguments"])
-        if not approved:
+        decision = await _ask(run, call, tool.name, question, function["arguments"], fields=fields)
+        if not decision.approved:
             return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
+        if fields and decision.values:
+            try:
+                params = _with_card_values(tool, params, fields, decision.values)
+            except ToolError as exc:
+                return ToolResult(f"Error: {exc}")
     try:
         if inspect.iscoroutinefunction(tool.run):
-            return await tool.run(context, params)
+            return await _run_stoppable(run, call["id"], tool, tool.run(context, params))
         return await run_in_threadpool(tool.run, context, params)
     except ToolError as exc:
         return _failure(failed, key, exc)
+
+
+def _with_card_values(
+    tool: AgentTool, params: BaseModel, fields: list[dict], values: dict[str, str]
+) -> BaseModel:
+    """The tool's parameters with what the person left on the card: only the card's fields,
+    validated as the model's arguments are."""
+    names = {f["name"] for f in fields}
+    changed = {name: value for name, value in values.items() if name in names}
+    return tool.validate({**params.model_dump(), **changed})
+
+
+async def _run_stoppable(
+    run: TurnRun, call_id: str, tool: AgentTool, work: Awaitable[ToolResult]
+) -> ToolResult:
+    """Run an async tool as a task the person can stop on its own (`TurnManager.stop_tool`):
+    stopped, it ends with a result saying so and the turn goes on. Stopping the whole turn
+    still stops the turn."""
+    task = asyncio.ensure_future(work)
+    run.running_tools[call_id] = task
+    try:
+        return await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if task.cancelled() and not (current is not None and current.cancelling()):
+            return ToolResult(
+                f"The person stopped {tool.name} before it finished: nothing was made. Don't "
+                "run it again unless they ask."
+            )
+        raise
+    finally:
+        run.running_tools.pop(call_id, None)
 
 
 def _failure(
@@ -415,6 +470,19 @@ def _failure(
 async def _confirm(
     run: TurnRun, call: dict, name: str, text: str, arguments: str, kind: str = "allow"
 ) -> bool:
+    return (await _ask(run, call, name, text, arguments, kind)).approved
+
+
+async def _ask(
+    run: TurnRun,
+    call: dict,
+    name: str,
+    text: str,
+    arguments: str,
+    kind: str = "allow",
+    *,
+    fields: list[dict] | None = None,
+) -> Decision:
     def create() -> int:
         with run.sessions.begin() as session:
             row = ConfirmationRow(
@@ -434,18 +502,21 @@ async def _confirm(
             "name": name,
             "text": text,
             "kind": kind,  # which buttons the page shows
+            **({"fields": fields} if fields else {}),  # what the person can change on it
         }
     )
     try:
         # The model is idle while the person reads the card: a job held for the chat may go
         async with run.runtime.waiting_for_person():
-            approved = await future
+            decision = await future
     except asyncio.CancelledError:
         await run_in_threadpool(_record_decision, run, confirmation_id, False)
         raise
-    await run_in_threadpool(_record_decision, run, confirmation_id, approved)
-    run.emit({"type": "confirmed", "confirmation_id": confirmation_id, "approved": approved})
-    return approved
+    await run_in_threadpool(_record_decision, run, confirmation_id, decision.approved)
+    run.emit(
+        {"type": "confirmed", "confirmation_id": confirmation_id, "approved": decision.approved}
+    )
+    return decision
 
 
 def _record_decision(run: TurnRun, confirmation_id: int, approved: bool) -> None:

@@ -88,6 +88,8 @@ class Send(BaseModel):
 
 class Decision(BaseModel):
     approve: bool
+    # On a card with fields: what the person left in them (field name → value).
+    values: dict[str, str] | None = None
 
 
 @router.post("/projects/{project_id}/sessions", status_code=201)
@@ -268,7 +270,8 @@ def decide(
 ) -> dict:
     project = open_project(request, project_id, user)
     open_session(request, project, session_id, user)
-    if not turns(request).decide((project.id, session_id), confirmation_id, body.approve):
+    key = (project.id, session_id)
+    if not turns(request).decide(key, confirmation_id, body.approve, body.values):
         raise HTTPException(404, "Nothing is waiting for that answer.")
     return {"approved": body.approve}
 
@@ -277,6 +280,17 @@ def decide(
 async def stop(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
     project = await open_chat(request, project_id, session_id, user)
     return {"stopped": await turns(request).stop((project.id, session_id))}
+
+
+@router.post("/projects/{project_id}/sessions/{session_id}/tools/{call_id}/stop")
+async def stop_tool(
+    project_id: int, session_id: int, call_id: str, request: Request, user: CurrentUser
+) -> dict:
+    """Stop one tool at work (an image being made): the turn goes on without it."""
+    project = await open_chat(request, project_id, session_id, user)
+    if not turns(request).stop_tool((project.id, session_id), call_id):
+        raise HTTPException(404, "That tool isn't running.")
+    return {"stopped": True}
 
 
 @router.post("/projects/{project_id}/sessions/{session_id}/followups/{followup_id}/run",

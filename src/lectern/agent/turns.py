@@ -18,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.agent import followups
 from lectern.agent.loop import TurnRun, run_tool, run_turn, store_message
-from lectern.agent.tools import Registry
+from lectern.agent.tools import Decision, Registry
 from lectern.core.auth import User
 from lectern.projects.store import NEW_CHAT, UNTITLED, Project, ProjectStore
 from lectern.projects.tables import ArtifactRow, SessionRow
@@ -87,7 +87,7 @@ class Channel:
 @dataclass
 class Turn:
     task: asyncio.Task[str]
-    waiting: dict[int, asyncio.Future[bool]] = field(default_factory=dict)
+    waiting: dict[int, asyncio.Future[Decision]] = field(default_factory=dict)
 
 
 class TurnManager:
@@ -100,11 +100,13 @@ class TurnManager:
         downloads: object = None,
         sandbox: object = None,
         ocr_jobs: object = None,
+        images: object = None,
     ) -> None:
         self.runtime = runtime
         self.downloads = downloads
         self.sandbox = sandbox
         self.ocr_jobs = ocr_jobs
+        self.images = images
         self.projects = projects
         # A fixed registry, or a function giving each turn's (modules offer tools depending
         # on what's available right now, such as a running container engine).
@@ -119,6 +121,8 @@ class TurnManager:
         self._follow_up_keys: set[tuple[int, int, str]] = set()  # (project, chat, follow-up)
         # Each chat's token counts, by model, kept between its turns (lectern.agent.context)
         self._token_counts: dict[Key, dict[str, dict[str, int]]] = {}
+        # Each chat's async tools at work, by tool call (TurnRun.running_tools)
+        self._running_tools: dict[Key, dict[str, asyncio.Task]] = {}
 
     def channel(self, key: Key) -> Channel:
         if key not in self._channels:
@@ -220,6 +224,8 @@ class TurnManager:
             downloads=self.downloads,
             sandbox=self.sandbox,
             ocr_jobs=self.ocr_jobs,
+            images=self.images,
+            running_tools=self._running_tools.setdefault(key, {}),
             token_counts=self._token_counts.setdefault(key, {}),
         )
 
@@ -455,18 +461,30 @@ class TurnManager:
         finally:
             self._starting.discard(key)
 
-    def _decision(self, key: Key, confirmation_id: int) -> asyncio.Future[bool]:
-        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+    def _decision(self, key: Key, confirmation_id: int) -> asyncio.Future[Decision]:
+        future: asyncio.Future[Decision] = asyncio.get_running_loop().create_future()
         self._turns[key].waiting[confirmation_id] = future
         return future
 
-    def decide(self, key: Key, confirmation_id: int, approve: bool) -> bool:
-        """The person's answer to a card. False when nothing is waiting for it."""
+    def decide(
+        self, key: Key, confirmation_id: int, approve: bool, values: dict[str, str] | None = None
+    ) -> bool:
+        """The person's answer to a card, with what they left in its fields if it has any.
+        False when nothing is waiting for it."""
         turn = self._turns.get(key)
         future = turn.waiting.get(confirmation_id) if turn else None
         if future is None or future.done():
             return False
-        future.set_result(approve)
+        future.set_result(Decision(approve, values))
+        return True
+
+    def stop_tool(self, key: Key, call_id: str) -> bool:
+        """Stop one tool at work (an image being made); the turn goes on. False when that
+        tool isn't running."""
+        task = self._running_tools.get(key, {}).get(call_id)
+        if task is None or task.done():
+            return False
+        task.cancel()
         return True
 
     async def stop(self, key: Key) -> bool:
