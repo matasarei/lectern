@@ -425,6 +425,8 @@
     "gone": "This file is no longer in the project.",
     "textIndexed": "readable by the chat and search",
     "imageAlt": "Preview of {{name}}",
+    "openInTab": "Open as a page in a new tab",
+    "tabBlocked": "The browser didn't open a new tab. Allow pop-ups for Lectern and try again.",
     "pdfTitle": "{{name}} in the browser's PDF viewer",
     "fromWeb": "Opened from {{host}} in a chat:"
   },

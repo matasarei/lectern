@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { apiFetch, apiRaw, ApiError } from "../api/client";
+import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
 import type { Artifact, ProjectItems, Tab } from "../api/types";
 import { ErrorNote, Row } from "../components";
 import { fileType, formatBytes } from "../format";
@@ -76,9 +76,19 @@ function Preview({ base, artifact, keepLines }: { base: string; artifact: Artifa
   switch (artifact.preview) {
     case "markdown":
     case "text":
-    case "html":
       if (artifact.size > TEXT_PREVIEW_LIMIT) return <p className="text-muted">{t("file.tooLarge")}</p>;
       return <TextPreview url={url} markdown={artifact.preview === "markdown"} keepLines={keepLines} />;
+    case "html":
+      return (
+        <div className="grid gap-2">
+          <OpenHtml base={base} />
+          {artifact.size > TEXT_PREVIEW_LIMIT ? (
+            <p className="text-muted">{t("file.tooLarge")}</p>
+          ) : (
+            <TextPreview url={url} markdown={false} keepLines={false} />
+          )}
+        </div>
+      );
     case "image":
       return <ImagePreview url={url} name={artifact.name} />;
     case "pdf":
@@ -114,6 +124,41 @@ function TextPreview({ url, markdown, keepLines }: { url: string; markdown: bool
     <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-sm">
       {text.data}
     </pre>
+  );
+}
+
+/** Opens an HTML file as a page in a new tab, where the server serves it sandboxed: its styles
+ * apply, its scripts don't run, and it can't reach Lectern (`lectern.api.view`). The tab is
+ * opened in the click itself, before the one-use link is asked for: a browser blocks a tab
+ * opened after waiting on a request. */
+function OpenHtml({ base }: { base: string }) {
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="grid gap-1">
+      <button
+        className="btn-secondary w-fit"
+        onClick={async () => {
+          const tab = window.open("", "_blank");
+          if (!tab) {
+            setError(t("file.tabBlocked"));
+            return;
+          }
+          tab.opener = null; // the page it shows has no business with this one
+          try {
+            const { url } = await apiPost<{ url: string }>(`${base}/view`);
+            tab.location.assign(new URL(url, window.location.origin).href);
+            setError(null);
+          } catch (e) {
+            tab.close();
+            setError(e instanceof ApiError ? e.detail : t("common.loadFailed"));
+          }
+        }}
+      >
+        {t("file.openInTab")}
+      </button>
+      {error && <ErrorNote message={error} />}
+    </div>
   );
 }
 

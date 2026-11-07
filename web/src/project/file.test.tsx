@@ -36,6 +36,8 @@ beforeEach(() => {
         return new Response(JSON.stringify({ detail: "lease.odt couldn't be read as a document (TypeError)." }),
                             { status: 400 });  // prettier-ignore
       }
+      if (url.endsWith("/10/view")) return new Response(JSON.stringify({ detail: "No such file." }), { status: 404 });
+      if (url.endsWith("/view")) return new Response(JSON.stringify({ url: "/view/tkt" }));
       if (url.endsWith("/9/markdown")) return new Response(JSON.stringify({ markdown: "# Long", cut: true }));
       if (url.endsWith("/markdown")) {
         return new Response(JSON.stringify({ markdown: "# Lease\n\n| a | b |\n|---|---|\n| 1 | 2 |", cut: false }));
@@ -164,6 +166,37 @@ describe("File tab", () => {
     renderFile(artifact({ size: TEXT_PREVIEW_LIMIT + 1 }));
     expect(screen.getByText("This file is too large to show here. Download it to open it.")).toBeTruthy();
     expect(requested).toEqual([]);
+  });
+
+  it("opens an HTML file as a page in a new tab, opened before the link is asked for", async () => {
+    const order: string[] = [];
+    const tab = { opener: {} as unknown, location: { assign: vi.fn((u: string) => order.push(`assign ${u}`)) }, close: vi.fn() };
+    vi.stubGlobal("open", vi.fn(() => (order.push("open"), tab)));
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
+    await waitFor(() => expect(tab.location.assign).toHaveBeenCalled());
+    expect(order).toEqual(["open", `assign ${window.location.origin}/view/tkt`]);
+    expect(tab.opener).toBeNull();
+    expect(requested).toContain("/api/projects/1/artifacts/4/view");
+    expect(tab.close).not.toHaveBeenCalled();
+  });
+
+  it("closes the new tab and says why when the link can't be had", async () => {
+    const tab = { opener: null, location: { assign: vi.fn() }, close: vi.fn() };
+    vi.stubGlobal("open", vi.fn(() => tab));
+    renderFile(artifact({ id: 10, name: "page.html", mime: "text/html", preview: "html" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
+    expect(await screen.findByText("No such file.")).toBeTruthy();
+    expect(tab.close).toHaveBeenCalled();
+    expect(tab.location.assign).not.toHaveBeenCalled();
+  });
+
+  it("says so when the browser blocks the new tab", async () => {
+    vi.stubGlobal("open", vi.fn(() => null));
+    renderFile(artifact({ name: "page.html", mime: "text/html", preview: "html" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
+    expect(await screen.findByText(/didn't open a new tab/)).toBeTruthy();
+    expect(requested).not.toContain("/api/projects/1/artifacts/4/view");
   });
 
   it("shows a DOCX or ODT as the Markdown the server made of it", async () => {
