@@ -777,8 +777,13 @@ def ask_about_unmade_fixes(page: CleanedPage, listed: list[CleanFix]) -> Cleaned
         text = next((c for c in texts[holder][1:] if old in c), texts[holder][0])
         if not found.match(text, text.find(old)):
             continue
+        # "площено 48,6" → "площею 48,6" asks about "площено". Already whole words, so the
+        # narrowed text is too: no widening to do.
+        raw, candidates = _narrow(old, [new], texts[holder])
         doubts.append(
-            CleanDoubt(block=holder, raw=old, candidates=[new], reason=UNMADE_REASON.format(new))
+            CleanDoubt(
+                block=holder, raw=raw, candidates=candidates, reason=UNMADE_REASON.format(new)
+            )
         )
     if len(doubts) == len(page.doubts):
         return page

@@ -337,6 +337,11 @@ def test_a_fix_whose_word_is_only_inside_another_adds_no_question(text: str):
     assert _listed(text, ("плата", "плати")).doubts == []
 
 
+def test_a_fix_of_two_words_asks_about_the_one_it_changes():
+    page = _listed("Приміщення загальною площено 48,6 кв. м.", ("площено 48,6", "площею 48,6"))
+    assert [(d.raw, d.candidates) for d in page.doubts] == [("площено", ["площею"])]
+
+
 def test_a_fix_listed_twice_adds_one_question():
     page = _listed("3. Розділі 3", ("Розділі", "Розділ"), ("Розділі", "Розділ"))
     assert [(d.raw, d.candidates) for d in page.doubts] == [("Розділі", ["Розділ"])]
