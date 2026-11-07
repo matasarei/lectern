@@ -81,9 +81,18 @@ class Retitle(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class ForcedTool(BaseModel):
+    """A tool the person asks for with their message (the Image toggle). Only a tool that
+    allows it (AgentTool.forced_question) runs this way; the turn says so otherwise."""
+
+    name: str = Field(min_length=1, max_length=64)
+    arguments: dict[str, str] = Field(default_factory=dict, max_length=8)
+
+
 class Send(BaseModel):
     text: str = Field(min_length=1, max_length=MESSAGE_LIMIT)
     attachments: list[int] = Field(default_factory=list, max_length=ATTACH_LIMIT)
+    tool: ForcedTool | None = None
 
 
 class Decision(BaseModel):
@@ -189,8 +198,9 @@ async def send(
     project = await open_chat(request, project_id, session_id, user)
     try:
         message_id = await turns(request).send(
-            project, user, session_id, body.text, body.attachments
-        )
+            project, user, session_id, body.text, body.attachments,
+            body.tool.model_dump() if body.tool else None,
+        )  # fmt: skip
     except Busy:
         raise HTTPException(409, "This chat is still answering. Wait, or press Stop.") from None
     return {"message_id": message_id}

@@ -453,6 +453,44 @@ describe("Chat", () => {
     });
   });
 
+  it("asks for a picture with the Image toggle, in the shape chosen, and turns it off once sent", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const toggle = screen.getByRole("button", { name: "Image" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByLabelText("Picture shape")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).placeholder).toBe("Describe the picture…");
+    fireEvent.change(screen.getByLabelText("Picture shape"), { target: { value: "portrait" } });
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "a lighthouse in fog" } });
+    fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toEqual({
+      url: "/api/projects/1/sessions/1/messages",
+      body: {
+        text: "a lighthouse in fog",
+        attachments: [],
+        tool: { name: "image.generate", arguments: { shape: "portrait" } },
+      },
+    });
+    await waitFor(() => expect(toggle.getAttribute("aria-pressed")).toBe("false"));
+  });
+
+  it("sends a plain message once the Image toggle is switched off again", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const toggle = screen.getByRole("button", { name: "Image" });
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "hello" } });
+    fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body).toEqual({ text: "hello", attachments: [] });
+  });
+
   it("opens a tab when a tool asks for it, but not again when the turn is replayed", async () => {
     const openTab = {
       type: "tool_result", call_id: "c2", text: "Opened", error: false, refs: [],

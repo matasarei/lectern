@@ -91,6 +91,10 @@ class AgentTool:
     # {"name": "prompt", "kind": "text" | "choice", "value": "…", "choices": [{"value": …}]}.
     # Runs after confirm_text. The tool then runs with the values the card sends back.
     confirm_fields: Callable[[ToolContext, Any], list[dict]] | None = None
+    # A tool the person can ask for directly (the chat's Image toggle): the model writes only
+    # the arguments the person didn't give, and no card asks first, but for this question
+    # when it has one (something to download first). None: the tool can't be asked for so.
+    forced_question: Callable[[ToolContext, Any], str | None] | None = None
 
     @property
     def wire_name(self) -> str:

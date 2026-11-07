@@ -26,6 +26,8 @@ import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
 
 const ARGS_SHOWN = 80;
+// The Image toggle's shapes (image.generate's `shape`).
+const IMAGE_SHAPES = ["square", "portrait", "landscape", "large"] as const;
 const RESULT_SHOWN = 120;
 
 /** A chat: the transcript, the reply streaming in, tool calls as grey lines, cards that ask
@@ -50,6 +52,9 @@ export function ChatTab({
 
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Artifact[]>([]);
+  // The Image toggle: the next message asks for a picture, in this shape. It goes off once
+  // the message is sent, so a picture is always a choice made for that message.
+  const [image, setImage] = useState<(typeof IMAGE_SHAPES)[number] | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   // Choosing a file already in the project: from the button, or "@name" in the box (`start`:
   // where the "@" is, so the "@name" text goes when a file is chosen).
@@ -67,10 +72,12 @@ export function ChatTab({
       apiPost<{ message_id: number }>(`${base}/messages`, {
         text,
         attachments: attached.map((a) => a.id),
+        ...(image ? { tool: { name: "image.generate", arguments: { shape: image } } } : {}),
       }),
     onSuccess: () => {
       setText("");
       setAttached([]);
+      setImage(null);
       setPick(null); // a list left open belongs to the text that just went
       void queryClient.invalidateQueries({ queryKey: ["chat", projectId, sessionId] });
     },
@@ -215,7 +222,7 @@ export function ChatTab({
         )}
         <textarea
           aria-label={t("chat.inputLabel")}
-          placeholder={t("chat.placeholder")}
+          placeholder={image ? t("chat.imagePlaceholder") : t("chat.placeholder")}
           rows={2}
           className="w-full resize-none bg-transparent text-sm outline-none"
           value={text}
@@ -286,6 +293,29 @@ export function ChatTab({
           >
             @
           </button>
+          <button
+            type="button"
+            className={image ? "btn-primary" : "btn-secondary"}
+            aria-pressed={image !== null}
+            title={t("chat.imageToggleHint")}
+            onClick={() => setImage(image ? null : "square")}
+          >
+            {t("chat.imageToggle")}
+          </button>
+          {image && (
+            <select
+              aria-label={t("chat.imageShape")}
+              className="rounded-md border border-line bg-paper px-2 py-1 text-sm"
+              value={image}
+              onChange={(e) => setImage(e.target.value as (typeof IMAGE_SHAPES)[number])}
+            >
+              {IMAGE_SHAPES.map((shape) => (
+                <option key={shape} value={shape}>
+                  {t(`chat.choice.shape.${shape}`)}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             ref={picker}
             type="file"

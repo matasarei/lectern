@@ -448,3 +448,12 @@ def test_a_cards_values_must_be_text(api):
     assert bad.status_code == 422
     none = client.post(url, json={"approve": True, "values": {"prompt": "x"}}, headers=headers)
     assert none.status_code == 404  # well formed; nothing is waiting for it
+
+
+def test_a_tool_asked_for_with_a_message_is_validated(api):
+    client, headers, _, pid, _ = api([])
+    url = f"/api/projects/{pid}/sessions/1/messages"
+    bad = {"text": "x", "tool": {"name": "image.generate", "arguments": {"shape": ["square"]}}}
+    assert client.post(url, json=bad, headers=headers).status_code == 422
+    nameless = {"text": "x", "tool": {"name": "", "arguments": {}}}
+    assert client.post(url, json=nameless, headers=headers).status_code == 422

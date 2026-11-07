@@ -424,7 +424,11 @@
         "landscape": "Landscape",
         "large": "Large square"
       }
-    }
+    },
+    "imageToggle": "Image",
+    "imageToggleHint": "Make a picture from this message, without asking first",
+    "imageShape": "Picture shape",
+    "imagePlaceholder": "Describe the picture…"
   },
   "file": {
     "details": "Details",

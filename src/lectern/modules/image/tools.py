@@ -105,6 +105,24 @@ def _question(ctx: ToolContext, params: GenerateParams) -> str:
     return text
 
 
+def _forced_question(ctx: ToolContext, params: GenerateParams) -> str | None:
+    """Asked for with the Image toggle: no card, but for a download the person can't have
+    known about."""
+    images = _images(ctx)
+    entry = _model(ctx)
+    engine = _engine_bytes(images)
+    missing = []
+    if not model_download.on_disk(ctx, entry):
+        if (why := model_download.why_not(ctx, entry)) is not None:
+            raise ToolError(f"{entry.title} isn't downloaded, and {why}.")
+        missing.append(f"{entry.title} ({entry.size / 1e9:.1f} GB)")
+    if engine:
+        missing.append(f"the image engine ({engine / 1e6:.0f} MB)")
+    if not missing:
+        return None
+    return f"Making pictures needs {' and '.join(missing)} downloaded first. Download now?"
+
+
 def _fields(ctx: ToolContext, params: GenerateParams) -> list[dict]:
     images = _images(ctx)
     entry = _model(ctx)
@@ -207,4 +225,5 @@ GENERATE = AgentTool(
     confirm=True,
     confirm_text=_question,
     confirm_fields=_fields,
+    forced_question=_forced_question,
 )

@@ -154,15 +154,22 @@ class TurnManager:
         return "waiting" if any(not f.done() for f in turn.waiting.values()) else "running"
 
     async def send(
-        self, project: Project, user: User, session_id: int, text: str, attachments: list[int]
+        self,
+        project: Project,
+        user: User,
+        session_id: int,
+        text: str,
+        attachments: list[int],
+        force: dict | None = None,
     ) -> int:
-        """Store the person's message and start the turn. Returns the message id."""
+        """Store the person's message and start the turn. Returns the message id. `force`: a
+        tool the person asked for directly (TurnRun.force)."""
         key = (project.id, session_id)
         if self.state(key) != "idle":
             raise Busy()
         self._starting.add(key)  # before the first await, so nothing can slip in between
         try:
-            return await self._start(key, project, user, session_id, text, attachments)
+            return await self._start(key, project, user, session_id, text, attachments, force)
         finally:
             self._starting.discard(key)
 
@@ -174,10 +181,12 @@ class TurnManager:
         session_id: int,
         text: str,
         attachments: list[int],
+        force: dict | None = None,
     ) -> int:
         sessions = await run_in_threadpool(self.projects.db, project)
         valid = await run_in_threadpool(_live_attachments, sessions, user, attachments)
         run = self._new_run(key, project, sessions, user, session_id)
+        run.force = force
         message_id = await run_in_threadpool(
             lambda: store_message(
                 run, role="user", content=text, attachments=json.dumps(valid) if valid else None
