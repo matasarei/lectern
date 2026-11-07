@@ -51,7 +51,11 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    text loses a "..." at either end, is cut to the words its candidates change (a clause
    given whole for one word becomes that word, unless the block holds that word twice), and
    is grown to whole words where it starts or ends inside one ("судовому п" becomes
-   "судовому порядку"); its candidates change to match. A table
+   "судовому порядку"); its candidates change to match. A fix cleanup lists but doesn't
+   make (the old word still in the blocks as whole words, the new one nowhere) becomes a
+   doubt on the old word offering the new one, the text left as read, unless the word
+   already has a doubt or the first place it appears in its block is inside another word;
+   a fix of several words asks about the one it changes. A table
    cleanup built from a reading that listed it column by column is turned round: one of
    three rows and three columns or more, each row a run of the reading's lines, holding one
    kind of value past its label (text, numbers, dates) while every column mixes them. A
