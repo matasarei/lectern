@@ -11,7 +11,7 @@ from lectern.catalog import catalog
 from lectern.hardware.probe import HardwareInfo
 from lectern.hardware.tiers import Tier
 
-ROLES_EVERY_TIER_NEEDS = {"main", "ocr", "ocr.hand", "code"}
+ROLES_EVERY_TIER_NEEDS = {"main", "ocr", "ocr.hand", "code", "image"}
 
 
 def test_shipped_catalog_loads():
@@ -48,6 +48,7 @@ def test_minimum_tier_defaults_match_the_docs():
         "ocr": "paddleocr-vl-1.6",
         "ocr.hand": "qwen3-vl-4b",
         "code": "qwen2.5-coder-1.5b",
+        "image": "flux2-klein-4b",
     }
 
 
@@ -58,6 +59,7 @@ def test_recommended_tier_defaults_match_the_docs():
         "ocr": "paddleocr-vl-1.6",
         "ocr.hand": "qwen3-vl-8b",
         "code": "qwen2.5-coder-7b",
+        "image": "flux2-klein-4b-q8",
     }
 
 
@@ -196,7 +198,7 @@ def test_a_model_without_an_mlx_build_has_none():
 
 @pytest.mark.parametrize("tier", list(Tier))
 def test_no_default_is_an_mlx_build(tier):
-    assert all(entry.format == "gguf" for entry in catalog.load().defaults_for(tier).values())
+    assert all(entry.format != "mlx" for entry in catalog.load().defaults_for(tier).values())
 
 
 def _raw_with_build() -> tuple[dict, dict]:
@@ -384,3 +386,11 @@ def test_an_image_default_size_must_fit_its_pixels():
     entry["image"]["sizes"]["minimum"] = {"default": 1024, "max_pixels": 512 * 512}
     with pytest.raises(ValidationError, match="over max_pixels"):
         _with(entry)
+
+
+def test_the_shipped_image_models_are_permissive_and_pin_every_piece():
+    for model_id in ("flux2-klein-4b", "flux2-klein-4b-q8", "z-image-turbo"):
+        entry = catalog.load().get(model_id)
+        assert entry.permissive and entry.format == "sd"
+        assert entry.files.text_encoder.revision and entry.files.vae.revision
+        assert entry.pin != entry.revision  # a newer pin of a piece is an update
