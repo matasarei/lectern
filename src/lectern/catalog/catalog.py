@@ -14,6 +14,7 @@ the VAE, so each of those files may name its own `repo` and `revision`.
 
 from __future__ import annotations
 
+import hashlib
 from functools import cache
 from importlib import resources
 from typing import Literal
@@ -136,6 +137,22 @@ class CatalogEntry(BaseModel):
     @property
     def licence_notice(self) -> bool:
         return not self.permissive
+
+    def source(self, file: ModelFile) -> str:
+        """Where a file downloads from on Hugging Face: `<repo>/resolve/<revision>/<path>`,
+        the file's own repo and revision when it names them, else the entry's."""
+        repo, revision = (file.repo, file.revision) if file.repo else (self.repo, self.revision)
+        return f"{repo}/resolve/{revision}/{file.path}"
+
+    @property
+    def pin(self) -> str:
+        """The version a download is recorded at, to notice that the catalog pins a newer one:
+        the entry's revision, or, when some files come from other repos, a digest of every
+        revision, so that a newer pin of any piece shows as an update."""
+        own = [f.revision for f in self.files.all() if f.revision]
+        if not own:
+            return self.revision
+        return hashlib.sha256("|".join([self.revision, *own]).encode()).hexdigest()[:40]
 
     def suits(self, tier: Tier) -> bool:
         """Listed for that tier: a context for it, or an image size."""

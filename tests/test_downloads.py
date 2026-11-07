@@ -1059,3 +1059,90 @@ def test_a_deleted_model_no_longer_counts_as_downloaded(paths, sessions):
     assert (state.status, state.bytes_done) == ("none", len(MMPROJ))
     asyncio.run(_finish(manager, entry))
     assert (paths.models / "tiny" / "tiny.gguf").read_bytes() == MODEL
+
+
+# --- an image model: pieces from other repositories ---------------------------------------------
+
+ENCODER = b"ENCODER" + bytes(range(100)) * 30
+VAE = b"VAE" + bytes(range(50)) * 20
+
+
+def _image_entry(encoder_revision: str = "c" * 40) -> CatalogEntry:
+    def file(path: str, data: bytes, **extra: str) -> dict:
+        return {"path": path, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()} | extra
+
+    return CatalogEntry.model_validate(
+        {
+            "id": "picture",
+            "title": "Picture",
+            "quant": "Q4_0",
+            "roles": ["image"],
+            "format": "sd",
+            "repo": "acme/picture-GGUF",
+            "revision": "a" * 40,
+            "licence": "Apache-2.0",
+            "permissive": True,
+            "files": {
+                "model": [file("picture.gguf", MODEL)],
+                "text_encoder": file(
+                    "encoder.gguf", ENCODER, repo="other/encoder-GGUF", revision=encoder_revision
+                ),
+                "vae": file("vae.safetensors", VAE, repo="third/vae", revision="d" * 40),
+            },
+            "image": {
+                "steps": 4,
+                "cfg": 1.0,
+                "sampler": "euler",
+                "sizes": {"minimum": {"default": 768, "max_pixels": 1024 * 1024}},
+            },
+        }
+    )
+
+
+def test_each_file_downloads_from_its_own_repository_at_its_own_revision(paths, sessions):
+    hub = FakeHub({"picture.gguf": MODEL, "encoder.gguf": ENCODER, "vae.safetensors": VAE})
+    manager = _manager(paths, sessions, hub)
+    entry = _image_entry()
+
+    asyncio.run(_finish(manager, entry))
+
+    urls = sorted(r.url.path for r in hub.requests)
+    assert urls == [
+        "/acme/picture-GGUF/resolve/" + "a" * 40 + "/picture.gguf",
+        "/other/encoder-GGUF/resolve/" + "c" * 40 + "/encoder.gguf",
+        "/third/vae/resolve/" + "d" * 40 + "/vae.safetensors",
+    ]
+    folder = paths.models / "picture"
+    assert (folder / "encoder.gguf").read_bytes() == ENCODER
+    assert (folder / "vae.safetensors").read_bytes() == VAE
+    assert manager.state(entry).status == "done"
+
+
+def test_a_piece_from_another_repository_is_checked_against_its_sha256(paths, sessions):
+    hub = FakeHub(
+        {"picture.gguf": MODEL, "encoder.gguf": b"not the encoder", "vae.safetensors": VAE}
+    )
+    manager = _manager(paths, sessions, hub)
+    entry = _image_entry()
+
+    asyncio.run(_finish(manager, entry))
+
+    assert manager.state(entry).status == "failed"
+    assert not (paths.models / "picture" / "encoder.gguf").exists()
+    assert _row(sessions, "picture").revision is None
+
+
+def test_a_newer_pin_of_one_piece_shows_as_an_update(paths, sessions):
+    hub = FakeHub({"picture.gguf": MODEL, "encoder.gguf": ENCODER, "vae.safetensors": VAE})
+    manager = _manager(paths, sessions, hub)
+    entry = _image_entry()
+    asyncio.run(_finish(manager, entry))
+
+    assert _row(sessions, "picture").revision == entry.pin
+    assert len(entry.pin) == 40 and entry.pin != entry.revision
+    assert manager.update_available(entry) is False
+    assert manager.update_available(_image_entry(encoder_revision="e" * 40)) is True
+
+
+def test_a_model_from_one_repository_is_still_recorded_at_its_revision():
+    assert _entry().pin == "a" * 40
