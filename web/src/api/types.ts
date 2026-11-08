@@ -202,6 +202,39 @@ export interface RuntimeSettings {
 
 export type CardKind = "allow" | "retry";
 
+// --- languages (the translate module) ---------------------------------------------------
+
+/** A model a language can be given on this computer (GET /api/languages). */
+export interface LanguageOption {
+  id: string;
+  title: string;
+  size: number;
+  licence: string;
+  /** A restricted licence: it has to be read and accepted before the download. */
+  licence_notice: boolean;
+  /** What the licence limits, in a sentence; null for an open licence. */
+  notes: string | null;
+  /** The best results of the options. */
+  best: boolean;
+  /** The best of the options with an open licence. */
+  open_licence: boolean;
+  download: DownloadState;
+}
+
+export interface Language {
+  /** ISO 639-1 (or 639-3 where there's no two-letter code); the page names it. */
+  code: string;
+  /** Null: not added. `previous` translates until `model` is on disk. */
+  added: { model: string; previous: string | null } | null;
+  /** Best first. None: the chat model translates it as well as anything this computer runs. */
+  options: LanguageOption[];
+}
+
+export interface LanguagesResponse {
+  tier: Tier;
+  languages: Language[];
+}
+
 export interface WebSettings {
   values: { enabled: boolean };
   /** Whether an admin set a Brave Search API key. The key itself is never sent. */
