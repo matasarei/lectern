@@ -682,11 +682,12 @@ def _with_check(history: History, draft: str) -> History:
     return History([*history.messages, *asked], history.attachments, history.state)
 
 
+CALL_QUOTE_CHARS = 300  # how much of what a checked call writes the question quotes
 # A numbered list's markers ("1. ", "2) ") at the start of a line: not numbers anyone wrote.
 _LIST_MARKER = re.compile(r"(?m)^\s*\d{1,3}[.)]\s")
 
 
-def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[tuple[str, list[str]]]:
+def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[tuple[str, list[str], str]]:
     """For each call in the reply to a tool that writes the person's content (`writes`): the
     numbers it would write that no message, no tool result and no pin gave, nor the text it
     writes over (pdf.edit's `find`). Only while the sandbox is offered: the check asks for
@@ -717,16 +718,21 @@ def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[tuple[str, 
             if value not in known
         ]
         if new:
-            found.append((tool.wire_name, list(dict.fromkeys(new))))
+            found.append((tool.wire_name, list(dict.fromkeys(new)), written))
     return found
 
 
-def _with_call_check(history: History, unchecked: list[tuple[str, list[str]]]) -> History:
-    """The turn so far and the question. The draft call isn't shown: a call with no result in
-    front of the model made it say the work "wasn't done yet". Not stored."""
-    tool = unchecked[0][0]
-    numbers = ", ".join(n for _, ns in unchecked for n in ns)
-    asked = {"id": None, "role": "user", "content": CALL_CHECK.format(tool=tool, numbers=numbers)}
+def _with_call_check(history: History, unchecked: list[tuple[str, list[str], str]]) -> History:
+    """The turn so far and the question, which quotes what the call would write, so the model
+    redoes all of it, not only the total. The draft call itself isn't shown: a call with no
+    result in front of the model made it say the work "wasn't done yet". Not stored."""
+    tool, _, written = unchecked[0]
+    numbers = ", ".join(n for _, ns, _ in unchecked for n in ns)
+    written = " ".join(written.split())
+    if len(written) > CALL_QUOTE_CHARS:
+        written = written[:CALL_QUOTE_CHARS] + "…"
+    text = CALL_CHECK.format(tool=tool, numbers=numbers, written=written)
+    asked = {"id": None, "role": "user", "content": text}
     return History([*history.messages, asked], history.attachments, history.state)
 
 

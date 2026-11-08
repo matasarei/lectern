@@ -441,7 +441,7 @@ def test_a_call_writing_a_total_nobody_gave_is_checked_and_computed_first(store)
     check = handle.requests[1]["messages"]
     assert check[-1] == {
         "role": "user",
-        "content": CALL_CHECK.format(tool="doc_write", numbers="4172.03"),
+        "content": CALL_CHECK.format(tool="doc_write", numbers="4172.03", written="Total: 4172.03"),
     }
     assert all(m.get("content") != "Total: 4172.03" for m in check)  # the draft isn't shown
     assert _tool_rows(store, project) == ["code.write", "code.run", "doc.write"]
@@ -513,3 +513,17 @@ def test_the_call_check_counts_towards_the_turns_model_calls(store, monkeypatch)
 
     assert status == "error" and RAN == ["doc.write"] and len(handle.requests) == 2
     assert any("Stopped after" in str(e.get("detail")) for e in seen if e["type"] == "error")
+
+
+def test_the_call_check_quotes_a_long_written_text_cut_short(store):
+    long = "Total: 4172.03. " + "Notes about the payment schedule. " * 20
+    manager, project, handle = _writer(store, [
+        tool_reply("doc_write", {"text": long}), text_reply("NO_CALC"), text_reply("Saved."),
+    ])  # fmt: skip
+
+    _run(manager, project, ADD_AND_SAVE)
+
+    asked = handle.requests[1]["messages"][-1]["content"]
+    quoted = asked.split("“", 1)[1].split("”", 1)[0]
+    assert quoted.startswith("Total: 4172.03.") and quoted.endswith("…")
+    assert len(quoted) == loop.CALL_QUOTE_CHARS + 1

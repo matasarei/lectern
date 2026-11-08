@@ -68,12 +68,14 @@ NO_CALC"""
 # added totals up in its head and wrote them through pdf.edit, 6 times in 8
 # (docs/acceptance/pdf-edit.md). Measured on the 4B, replaying the 11 sum turns of the pdf
 # set twice each (2026-11-08): "If any is an exact result … call code_write" computed 1 of 22;
-# this wording 22 of 22, and still answered NO_CALC to a clause's "5" 6 times in 6.
-CALL_CHECK = """Lectern check: you were about to write {numbers} with {tool}, a number you \
-worked out yourself: no message or tool result has it. Sums, differences and totals must come \
+# "you worked it out yourself … call code_write now" 22 of 22. Without the call quoted, the
+# model redid only the total and dropped the call's other edits (2 of 4 sum turns); quoted,
+# 22 of 22 still computed, and it computed a clause's "5" needlessly 1 time in 8.
+CALL_CHECK = """Lectern check: your {tool} call would write “{written}”. {numbers} is in no \
+message or tool result: you worked it out yourself. Sums, differences and totals must come \
 from a script. Call code_write now with a brief that has the numbers to add up, then \
-code_run, then {tool} with its output. Only if {numbers} was copied from the person or a \
-file, reply with only: NO_CALC"""
+code_run, then {tool} again with everything above, the number from the output. Only if \
+{numbers} was copied from the person or a file, reply with only: NO_CALC"""
 
 
 def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
