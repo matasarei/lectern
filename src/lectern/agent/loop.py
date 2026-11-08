@@ -689,9 +689,10 @@ _LIST_MARKER = re.compile(r"(?m)^\s*\d{1,3}[.)]\s")
 
 def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[tuple[str, list[str], str]]:
     """For each call in the reply to a tool that writes the person's content (`writes`): the
-    numbers it would write that no message, no tool result and no pin gave, nor the text it
-    writes over (pdf.edit's `find`). Only while the sandbox is offered: the check asks for
-    code_run. A call whose arguments don't validate isn't looked at; running it fails."""
+    numbers it would write that no message, tool result, pin, summary or attached file gave,
+    nor the text it writes over (pdf.edit's `find`). Only while the sandbox is offered: the
+    check asks for code_run. A call whose arguments don't validate isn't looked at; running it
+    fails."""
     if not reply.calls or run.registry.get("code_run") is None:
         return []
     given = {
@@ -702,6 +703,7 @@ def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[tuple[str, 
     }
     given.update(n for pin in history.state.pinned for n in numbers_in(pin.text))
     given.update(numbers_in(history.state.summary))
+    given.update(n for attached in history.attachments for n in numbers_in(attached.text))
     found = []
     for call in reply.calls:
         tool = run.registry.get(call["function"]["name"])

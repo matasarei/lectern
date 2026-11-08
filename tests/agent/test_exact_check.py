@@ -527,3 +527,19 @@ def test_the_call_check_quotes_a_long_written_text_cut_short(store):
     quoted = asked.split("“", 1)[1].split("”", 1)[0]
     assert quoted.startswith("Total: 4172.03.") and quoted.endswith("…")
     assert len(quoted) == loop.CALL_QUOTE_CHARS + 1
+
+
+def test_a_number_in_a_file_attached_to_the_chat_is_given(store):
+    from .test_loop import add_file
+
+    manager, project, handle = _writer(store, [
+        tool_reply("doc_write", {"text": "Invoice total: 1,480.00"}), text_reply("Saved."),
+    ])  # fmt: skip
+    invoice = add_file(store, project, "invoice.txt", "Total due 1,480.00 by 10 December.")
+
+    async def scenario():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "Put the invoice total in the file.", [invoice])
+        return await manager.wait((project.id, 1))
+
+    assert asyncio.run(scenario()) == "done"
+    assert RAN == ["doc.write"] and len(handle.requests) == 2  # no check
