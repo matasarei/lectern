@@ -20,7 +20,7 @@ from lectern.agent.core_tools import _artifact_by_name, _file_ref
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult
 from lectern.catalog.catalog import CatalogEntry
 from lectern.catalog.languages import name
-from lectern.modules.translate.languages import Added, choose, options
+from lectern.modules.translate.languages import Added, chat_model, choose, options
 from lectern.projects import files, search
 from lectern.projects.tables import ArtifactRow
 from lectern.projects.text import TEXT_EXTENSIONS, _read_text
@@ -250,8 +250,9 @@ def _suggestion(source: str, target: str, added: tuple[Added, ...], ctx: ToolCon
     target first, since that's the text written; English last, since every translation model
     has it and the other language is the one asked about."""
     already = {code for code, *_ in added}
+    chat = chat_model(ctx.runtime)
     for code, other in sorted(((target, source), (source, target)), key=lambda p: p[0] == "en"):
-        offered = options(code, ctx.runtime.tier)
+        offered = options(code, ctx.runtime.tier, chat)
         if code not in already and any(o.entry.translate.covers(other) for o in offered):
             return code
     return None

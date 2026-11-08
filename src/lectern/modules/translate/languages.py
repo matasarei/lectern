@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
+from importlib import resources
 
+import yaml
 from sqlalchemy.orm import Session, sessionmaker
 
 from lectern.catalog import catalog
@@ -17,6 +20,8 @@ from lectern.catalog.catalog import TRANSLATE_ROLE, CatalogEntry
 from lectern.catalog.languages import name
 from lectern.core import settings
 from lectern.hardware.tiers import Tier
+from lectern.runtime.supervisor import NotAvailable
+from lectern.runtime.wiring import pick
 
 Added = tuple[str, str, str | None]  # (code, model, previous), as ToolEnv carries them
 
@@ -84,12 +89,44 @@ def choose(
 
 # --- what a language can be given ---------------------------------------------------------
 
+SCORES_FILE = (
+    "translation_scores.yaml"  # in lectern.catalog, written by `lectern dev translate-check`
+)
+
+
+@cache
+def scores() -> dict[str, dict[str, float]]:
+    """How well each measured model translates each language, by model id then language: the
+    mean chrF of translating it into and out of English (catalog/translation_scores.yaml).
+    Translation models and chat models alike: a chat model's is what a translation model has to
+    beat. Empty when nothing was measured."""
+    try:
+        text = resources.files("lectern.catalog").joinpath(SCORES_FILE).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    measured = (yaml.safe_load(text) or {}).get("scores") or {}
+    return {
+        model_id: {code: (pair["into"] + pair["from"]) / 2 for code, pair in languages.items()}
+        for model_id, languages in measured.items()
+    }
+
+
+def chat_model(runtime) -> CatalogEntry | None:  # noqa: ANN001
+    """The chat model this computer translates with when a language has no model of its own:
+    the one chosen for the chat, else the tier's."""
+    chosen = getattr(runtime, "chosen_models", None)
+    try:
+        return pick("main", runtime.tier, chosen() if chosen else None)[1]
+    except NotAvailable:
+        return None
+
 
 @dataclass(frozen=True)
 class Option:
     """A model a language can be given on this computer, and why one might pick it."""
 
     entry: CatalogEntry
+    score: float  # chrF, into and out of English, from the scores file
     best: bool  # the best results of the options
     open_licence: bool  # the best of the permissively licensed ones
 
@@ -104,14 +141,30 @@ def covered() -> list[str]:
     return sorted(codes)
 
 
-def options(code: str, tier: Tier) -> list[Option]:
-    """The translation models that translate `code` and suit this computer's tier, the best
-    first, each tagged: the best of them, and the best with an open licence."""
+def chat_score(code: str, chat: CatalogEntry | None) -> float | None:
+    """How well the chat model translates `code`; None when that wasn't measured."""
+    return scores().get(chat.id, {}).get(code) if chat is not None else None
+
+
+def options(code: str, tier: Tier, chat: CatalogEntry | None) -> list[Option]:
+    """The translation models that translate `code`, suit this computer's tier, and were
+    measured translating it better than the chat model: the best first, each tagged the best of
+    them, and the best with an open licence. A model nobody measured isn't offered; against a
+    chat model nobody measured, every measured one is."""
+    measured = scores()
+    baseline = chat_score(code, chat)
     found = [
-        entry
+        (entry, measured[entry.id][code])
         for entry in catalog.load().choices_for(TRANSLATE_ROLE)
-        if entry.translate.covers(code) and entry.suits(tier)
+        if entry.translate.covers(code) and entry.suits(tier) and code in measured.get(entry.id, {})
     ]
-    best = found[0].id if found else None
-    open_licence = next((e.id for e in found if e.permissive), None)
-    return [Option(e, best=e.id == best, open_licence=e.id == open_licence) for e in found]
+    better = sorted(
+        ((e, score) for e, score in found if baseline is None or score > baseline),
+        key=lambda pair: -pair[1],
+    )
+    best = better[0][0].id if better else None
+    open_licence = next((e.id for e, _ in better if e.permissive), None)
+    return [
+        Option(e, score, best=e.id == best, open_licence=e.id == open_licence)
+        for e, score in better
+    ]

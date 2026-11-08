@@ -20,6 +20,8 @@ from lectern.hardware.tiers import effective_tier
 from lectern.modules.translate.languages import (
     Option,
     added_languages,
+    chat_model,
+    chat_score,
     covered,
     language_model,
     options,
@@ -47,6 +49,7 @@ def _option(option: Option, request: Request) -> dict:
         "licence": entry.licence,
         "licence_notice": entry.licence_notice,
         "notes": entry.notes,
+        "score": round(option.score, 1),  # chrF, into and out of English
         "best": option.best,
         "open_licence": option.open_licence,
         "download": downloads.state(entry).to_dict(),
@@ -56,12 +59,14 @@ def _option(option: Option, request: Request) -> dict:
 @router.get("/languages")
 def list_languages(request: Request) -> dict:
     tier = effective_tier(probe())
+    chat = chat_model(request.app.state.runtime)
     added = {
         code: (model, previous) for code, model, previous in added_languages(_sessions(request))
     }
     languages = []
     for code in covered():
-        offered = options(code, tier)
+        offered = options(code, tier, chat)
+        measured = chat_score(code, chat)
         model, previous = added.get(code, (None, None))
         languages.append(
             {
@@ -69,16 +74,19 @@ def list_languages(request: Request) -> dict:
                 # None: not added. `previous` translates until `model` is on disk.
                 "added": {"model": model, "previous": previous} if model else None,
                 "options": [_option(o, request) for o in offered],
+                # How well the chat model translates it, which an option beats; None: not
+                # measured.
+                "chat_score": round(measured, 1) if measured is not None else None,
             }
         )
-    return {"tier": tier.value, "languages": languages}
+    return {"tier": tier.value, "chat_model": chat.title if chat else None, "languages": languages}
 
 
 @router.put("/languages/{code}", dependencies=[Depends(require_admin)])
 async def add_language(code: str, body: LanguageChoice, request: Request) -> dict:
     """Add a language with the model picked for it, or give an added one another model, and
     start that model's download. The one it had translates until the new one is on disk."""
-    entry = _offered(code, body.model_id)
+    entry = _offered(code, body.model_id, chat_model(request.app.state.runtime))
     if entry.licence_notice and not body.accept_licence:
         raise HTTPException(
             409,
@@ -106,13 +114,13 @@ def _named(code: str) -> str:
     return LANGUAGE_NAMES.get(code, code)
 
 
-def _offered(code: str, model_id: str) -> CatalogEntry:
+def _offered(code: str, model_id: str, chat: CatalogEntry | None) -> CatalogEntry:
     if code not in covered():
         raise HTTPException(404, f"No translation model translates {code!r}.")
     entry = catalog.load().get(model_id)
     if entry is None:
         raise HTTPException(404, f"No model {model_id!r} in the catalog.")
-    if entry.id not in {o.entry.id for o in options(code, effective_tier(probe()))}:
+    if entry.id not in {o.entry.id for o in options(code, effective_tier(probe()), chat)}:
         raise HTTPException(409, f"{entry.title} isn't one of the models for {_named(code)} here.")
     return entry
 
