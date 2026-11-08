@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Fragment, useId, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -14,10 +15,13 @@ import type {
   ToolCall,
   ToolRef,
 } from "../api/types";
+import { isToolRef } from "../api/types";
 import { uploadFile } from "../api/upload";
+import { useIsAdmin } from "../api/session";
 import { ErrorNote } from "../components";
 import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
 import { formatTokens } from "../format";
+import { useLanguageName } from "../hooks/useLanguageName";
 import { useRuntime } from "../hooks/useRuntime";
 import { Markdown } from "../lazy-markdown";
 import { ExportButtons } from "./export-buttons";
@@ -486,6 +490,7 @@ function Transcript({
                       {/* The notice says where the session stood when it was written; the
                           line under the newest about it says where it stands now. */}
                       {message.refs
+                        .filter(isToolRef)
                         .filter((r) => r.kind === "session" && newest.get(r.id) === message.id)
                         .map((r) => (
                           <OcrLine
@@ -502,7 +507,7 @@ function Transcript({
                         <FinishedActions
                           projectId={projectId}
                           chatId={chatId}
-                          refs={message.refs}
+                          refs={message.refs.filter(isToolRef)}
                           followups={followups}
                           onOpen={onOpen}
                         />
@@ -658,7 +663,13 @@ function ToolLine({
   const first = result?.content.split("\n")[0] ?? t("chat.noResult");
   const script = result && name === "code.write" ? writtenScript(result.content) : null;
   // The session ocr.start began: its progress shows under the line
-  const ocr = name === "ocr.start" ? result?.refs.find((r) => r.kind === "session") : undefined;
+  const ocr =
+    name === "ocr.start"
+      ? result?.refs.filter(isToolRef).find((r) => r.kind === "session")
+      : undefined;
+  // A language worth adding, when the chat model translated: under the line, with the way there
+  const language =
+    name === "translate" ? result?.refs.find((r) => r.kind === "language") : undefined;
   return (
     <div className="grid gap-1">
       <details className="text-xs text-muted" data-testid="tool-line">
@@ -669,6 +680,7 @@ function ToolLine({
       </details>
       {!result && progress && <Progress progress={progress} onStop={onStop} />}
       {script && <ScriptCode projectId={projectId} path={script} />}
+      {language?.kind === "language" && <LanguageHint code={language.code} />}
       {ocr && newestAbout.get(ocr.id) === result?.id && (
         <OcrLine
           projectId={projectId}
@@ -680,6 +692,26 @@ function ToolLine({
         />
       )}
     </div>
+  );
+}
+
+/** Under a translation the chat model made: the language has a model made for translation on
+ * this computer. An admin gets the way to add it; anyone else, who to ask. */
+function LanguageHint({ code }: { code: string }) {
+  const { t } = useTranslation();
+  const admin = useIsAdmin();
+  const language = useLanguageName()(code);
+  return (
+    <p className="text-xs text-muted" role="note" data-testid="language-hint">
+      {t("chat.languageHint", { language })}{" "}
+      {admin ? (
+        <Link to="/settings/languages" className="text-accent underline-offset-4 hover:underline">
+          {t("chat.languageHintAdd", { language })}
+        </Link>
+      ) : (
+        t("chat.languageHintAsk", { language })
+      )}
+    </p>
   );
 }
 

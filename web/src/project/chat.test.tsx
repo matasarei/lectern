@@ -4,9 +4,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { forgetSession, setSession } from "../api/session";
 import type { Chat, ChatMessage, Tab } from "../api/types";
 import { installFakeSockets } from "../test/fake-socket";
 import { ChatTab, groupReplies, shortArgs, writtenScript } from "./chat";
+
+// The hint under a translation links to Languages; the chat is tested without a router.
+vi.mock("@tanstack/react-router", async (original) => ({
+  ...(await original<typeof import("@tanstack/react-router")>()),
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
+}));
 
 const message = (id: number, over: Partial<ChatMessage>): ChatMessage => ({
   id, role: "user", content: "", tool_calls: null, tool_call_id: null, tool_name: null,
@@ -1040,3 +1047,58 @@ describe("The chat's message when an OCR session finishes", () => {
     expect(screen.queryByTestId("finished")).toBeNull();
   });
 });
+
+describe("The hint under a translation", () => {
+  const translated = (refs: ChatMessage["refs"]) => {
+    chat.messages = [
+      message(1, { content: "Переклади англійською: добрий день" }),
+      message(2, {
+        role: "assistant",
+        tool_calls: [
+          {
+            id: "c1",
+            type: "function",
+            function: { name: "translate", arguments: '{"source":"uk","target":"en","text":"добрий день"}' },
+          },
+        ],
+      }),
+      message(3, {
+        role: "tool", tool_call_id: "c1", tool_name: "translate", refs,
+        content: "Translated from Ukrainian into English by the chat model.",
+      }),
+      message(4, { role: "assistant", content: "Good afternoon" }),
+    ];
+  };
+
+  afterEach(() => forgetSession());
+
+  it("suggests adding the language, with the way there for an admin", async () => {
+    setSession({ accounts: true, user: { login: "yevhen", role: "admin" } });
+    translated([{ kind: "language", code: "uk" }]);
+    renderChat();
+    const hint = await screen.findByTestId("language-hint");
+    expect(hint.textContent).toBe(
+      "Ukrainian gets better translations from a model made for translation. Add Ukrainian in Languages.",
+    );
+    expect(within(hint).getByRole("link").getAttribute("href")).toBe("/settings/languages");
+  });
+
+  it("tells a member who can add it", async () => {
+    setSession({ accounts: true, user: { login: "olena", role: "member" } });
+    translated([{ kind: "language", code: "uk" }]);
+    renderChat();
+    const hint = await screen.findByTestId("language-hint");
+    expect(hint.textContent).toBe(
+      "Ukrainian gets better translations from a model made for translation. An admin can add Ukrainian in Languages.",
+    );
+    expect(within(hint).queryByRole("link")).toBeNull();
+  });
+
+  it("says nothing when the language's own model translated", async () => {
+    translated([]);
+    renderChat();
+    await screen.findByText("Good afternoon");
+    expect(screen.queryByTestId("language-hint")).toBeNull();
+  });
+});
+

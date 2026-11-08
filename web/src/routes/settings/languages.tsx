@@ -19,21 +19,9 @@ import {
 } from "../../components";
 import { formatBytes } from "../../format";
 import { useDownloadEvents } from "../../hooks/useDownloadEvents";
+import { useLanguageName } from "../../hooks/useLanguageName";
 
 const LIST = ["languages"];
-
-/** A language's name in the page's language: "Ukrainian", "українська". The code when the
- * browser has no name for it. */
-export function useLanguageName(): (code: string) => string {
-  const { i18n } = useTranslation();
-  let names: Intl.DisplayNames | null = null;
-  try {
-    names = new Intl.DisplayNames([i18n.language], { type: "language" });
-  } catch {
-    names = null;
-  }
-  return (code) => names?.of(code) ?? code;
-}
 
 /** The option a new row starts on: the best with an open licence, so a restricted model is
  * only ever taken with a click; the best of them when none has one. */

@@ -335,7 +335,7 @@ export interface ChatMessage {
   tool_call_id: string | null;
   tool_name: string | null;
   attachments: { id: number; name: string | null }[];
-  refs: ToolRef[]; // what a tool result pointed at (an OCR session ocr.start began)
+  refs: MessageRef[]; // what a tool result pointed at (an OCR session ocr.start began)
   created_at: string;
 }
 
@@ -360,6 +360,18 @@ export interface ToolRef {
   ref: string | null;
   hold?: boolean; // on the session of a message saying its exports wait for the Document
 }
+
+/** On a `translate` result the chat model translated: a language worth adding, which has a
+ * model made for translation on this computer. */
+export interface LanguageRef {
+  kind: "language";
+  code: string;
+}
+
+/** What a stored message or a tool result points at. */
+export type MessageRef = ToolRef | LanguageRef;
+
+export const isToolRef = (ref: MessageRef): ref is ToolRef => ref.kind !== "language";
 
 /** What the chat's event stream sends. Every event also has `seq`. */
 /** /api/projects/{id}/events: a tab one of the project's chats opened. Live only. */
@@ -394,7 +406,7 @@ export type ChatEvent = { seq: number } & (
       call_id: string;
       text: string;
       error: boolean;
-      refs: ToolRef[];
+      refs: MessageRef[];
       action: { type: "open_tab"; tab: Tab; focus?: boolean } | null; // focus false: added, not shown
     }
   | { type: "done"; ttft: number | null; tps: number | null; tokens: number }

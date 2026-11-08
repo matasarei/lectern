@@ -16,7 +16,7 @@ from lectern.agent import model_download
 from lectern.agent.tools import AgentTool, ToolContext, ToolError, ToolResult
 from lectern.catalog.catalog import CatalogEntry
 from lectern.catalog.languages import name
-from lectern.modules.translate.languages import Added, choose
+from lectern.modules.translate.languages import Added, choose, options
 from lectern.runners.base import RunnerError
 from lectern.runtime.supervisor import NotAvailable, Priority
 
@@ -160,7 +160,28 @@ async def _translate(
         + (f" ({why})" if why else "")
         + ". The person sees the translation as your answer."
     )
-    return ToolResult(text, answer=translation)
+    # Translated by the chat model: the chat suggests adding a language that has a model of its
+    # own on this computer, under the tool's line (stored with it, so it stays after a reload).
+    suggest = (
+        None
+        if entry is not None or choice.waiting
+        else _suggestion(params.source, params.target, added, ctx)
+    )
+    refs = [{"kind": "language", "code": suggest}] if suggest else []
+    return ToolResult(text, refs=refs, answer=translation)
+
+
+def _suggestion(source: str, target: str, added: tuple[Added, ...], ctx: ToolContext) -> str | None:
+    """The language worth adding for this translation: one not added yet with a model on this
+    computer that translates it, and the other language too, better than the chat model. The
+    target first, since that's the text written; English last, since every translation model
+    has it and the other language is the one asked about."""
+    already = {code for code, *_ in added}
+    for code, other in sorted(((target, source), (source, target)), key=lambda p: p[0] == "en"):
+        offered = options(code, ctx.runtime.tier)
+        if code not in already and any(o.entry.translate.covers(other) for o in offered):
+            return code
+    return None
 
 
 def translate_tool(added: tuple[Added, ...]) -> AgentTool:

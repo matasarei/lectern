@@ -428,7 +428,10 @@
     "imageToggle": "Image",
     "imageToggleHint": "Make a picture from this message, without asking first",
     "imageShape": "Picture shape",
-    "imagePlaceholder": "Describe the picture…"
+    "imagePlaceholder": "Describe the picture…",
+    "languageHint": "{{language}} gets better translations from a model made for translation.",
+    "languageHintAdd": "Add {{language}} in Languages.",
+    "languageHintAsk": "An admin can add {{language}} in Languages."
   },
   "file": {
     "details": "Details",

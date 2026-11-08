@@ -292,3 +292,42 @@ def test_the_tool_is_offered_every_turn_with_the_languages_added():
     [tool] = module.tools(ToolEnv(sandbox=False, languages=(("uk", SALAMANDRA, None),)))
     assert tool.name == "translate"
     assert tool.run.args == ((("uk", SALAMANDRA, None),),)
+
+
+# --- the suggestion ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "suggested"),
+    [
+        ("uk", "en", "uk"),  # English last: the other language is the one asked about
+        ("en", "de", "de"),
+        ("de", "uk", "uk"),  # the target first
+        ("ja", "uk", None),  # no model here translates Japanese
+        ("ja", "en", None),  # nor English to and from Japanese
+    ],
+)
+def test_the_chat_model_translating_suggests_a_language_with_a_model(
+    ctx, source, target, suggested
+):
+    result, _, _ = run(ctx, [answer("…")], source=source, target=target)
+    expected = [{"kind": "language", "code": suggested}] if suggested else []
+    assert result.refs == expected
+
+
+def test_no_suggestion_when_the_languages_own_model_translated(ctx):
+    result, _, _ = run(ctx, [answer("Hi.")], added=(("uk", SALAMANDRA, None),))
+    assert result.refs == []
+
+
+def test_no_suggestion_while_an_added_languages_model_downloads(ctx):
+    result, _, _ = run(ctx, [answer("Hi.")], added=(("uk", SALAMANDRA, None),), on_disk=())
+    assert result.refs == []
+
+
+def test_an_added_language_isnt_suggested_again_but_the_other_one_is(ctx, translator):
+    # Ukrainian's model doesn't translate Japanese; the other model, not added, does both.
+    result, _, _ = run(
+        ctx, [answer("…")], added=(("uk", SALAMANDRA, None),), source="uk", target="ja"
+    )
+    assert result.refs == [{"kind": "language", "code": "ja"}]

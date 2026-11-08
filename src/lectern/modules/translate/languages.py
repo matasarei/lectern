@@ -51,6 +51,8 @@ class Choice:
 
     entry: CatalogEntry | None
     why: str | None = None
+    # An added language's model isn't on disk yet: it will translate once it is.
+    waiting: bool = False
 
 
 def choose(
@@ -64,18 +66,20 @@ def choose(
     text it writes."""
     by_code = {item[0]: item for item in added}
     reasons: list[str] = []
+    waiting = False
     for code, other in ((target, source), (source, target)):
         item = by_code.get(code)
         if item is None:
             continue
         entry = language_model(item, on_disk)
         if entry is None:
+            waiting = True
             reasons.append(f"the {name(code)} model isn't downloaded yet")
         elif not entry.translate.covers(other):
             reasons.append(f"{entry.title} doesn't translate {name(other)}")
         else:
             return Choice(entry)
-    return Choice(None, "; ".join(reasons) or None)
+    return Choice(None, "; ".join(reasons) or None, waiting)
 
 
 # --- what a language can be given ---------------------------------------------------------
