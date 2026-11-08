@@ -204,3 +204,16 @@ def test_fill_that_cant_be_made_tells_the_model_why(make_ctx, tmp_path: Path) ->
 
     with pytest.raises(ToolError, match="“phone”: there is no such field"):
         _call("pdf.fill", ctx, name="form.pdf", fields={"phone": "1"})
+
+
+def test_the_tools_say_what_a_call_writes_and_what_it_writes_over() -> None:
+    tools = _tools()
+    edit = tools["pdf.edit"].validate({
+        "name": "a.pdf",
+        "edits": [{"find": "EUR 1,250.00", "replace": "EUR 1,480.00"},
+                  {"find": "two", "replace": "three"}],
+    })  # fmt: skip
+    fill = tools["pdf.fill"].validate({"name": "f.pdf", "fields": {"date": "08.11.2026"}})
+
+    assert tools["pdf.edit"].writes(edit) == ("EUR 1,480.00 three", "EUR 1,250.00 two")
+    assert tools["pdf.fill"].writes(fill) == ("08.11.2026", "")

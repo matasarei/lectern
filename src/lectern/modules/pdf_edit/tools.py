@@ -62,6 +62,7 @@ def pdf_tools() -> list[AgentTool]:
             params=EditParams,
             run=_edit,
             max_tokens=600,
+            writes=_edit_writes,
         ),
         AgentTool(
             name="pdf.fill",
@@ -71,8 +72,17 @@ def pdf_tools() -> list[AgentTool]:
             params=FillParams,
             run=_fill,
             max_tokens=600,
+            writes=lambda params: (" ".join(params.fields.values()), ""),
         ),
     ]
+
+
+def _edit_writes(params: EditParams) -> tuple[str, str]:
+    """The new text, and the text it replaces: a number in `find` is the PDF's own."""
+    return (
+        " ".join(e.replace for e in params.edits),
+        " ".join(e.find for e in params.edits),
+    )
 
 
 async def _edit(ctx: ToolContext, params: EditParams) -> ToolResult:
