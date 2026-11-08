@@ -194,3 +194,57 @@ def text_objects(data: bytes, index: int = 0) -> list[tuple[str, str, float, flo
         return found
     finally:
         pdf.close()
+
+
+def form_pdf(path: Path) -> Path:
+    """A one-page form written by hand: text fields "name" and "date", a checkbox "agree", a
+    radio group "size" (S, M), a list "city", a read-only "id" and a push button "print"."""
+    on = b"0 g 2 2 10 10 re f"
+    widget = b"/Type /Annot /Subtype /Widget /F 4 /P 3 0 R "
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 9 0 R >> >> "
+        b"/Annots [6 0 R 7 0 R 8 0 R 12 0 R 13 0 R 14 0 R 15 0 R 16 0 R] >>",
+        None,  # the page's content, below
+        b"<< /Fields [6 0 R 7 0 R 8 0 R 11 0 R 14 0 R 15 0 R 16 0 R] "
+        b"/DR << /Font << /Helv 9 0 R >> >> /DA (/Helv 0 Tf 0 g) >>",
+        b"<< " + widget + b"/FT /Tx /T (name) /Rect [180 710 450 730] "
+        b"/DA (/Helv 11 Tf 0 g) /V () >>",
+        b"<< " + widget + b"/FT /Tx /T (date) /Rect [180 670 300 690] "
+        b"/DA (/Helv 11 Tf 0 g) /V () >>",
+        b"<< " + widget + b"/FT /Btn /T (agree) /Rect [180 632 194 646] /V /Off /AS /Off "
+        b"/MK << >> /AP << /N << /Yes 10 0 R /Off 17 0 R >> >> >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /XObject /Subtype /Form /BBox [0 0 14 14] /Length %d >>\nstream\n" % len(on)
+        + on
+        + b"\nendstream",
+        b"<< /FT /Btn /Ff 49152 /T (size) /V /Off /Kids [12 0 R 13 0 R] >>",
+        b"<< " + widget + b"/Parent 11 0 R /Rect [180 592 194 606] /AS /Off /MK << >> "
+        b"/AP << /N << /S 10 0 R /Off 17 0 R >> >> >>",
+        b"<< " + widget + b"/Parent 11 0 R /Rect [220 592 234 606] /AS /Off /MK << >> "
+        b"/AP << /N << /M 10 0 R /Off 17 0 R >> >> >>",
+        b"<< " + widget + b"/FT /Ch /Ff 131072 /T (city) /Opt [(Kyiv) (Lviv) (Odesa)] /V () "
+        b"/Rect [180 552 300 572] /DA (/Helv 11 Tf 0 g) >>",
+        b"<< " + widget + b"/FT /Tx /Ff 1 /T (id) /V (A-17) /Rect [180 512 300 532] "
+        b"/DA (/Helv 11 Tf 0 g) >>",
+        b"<< " + widget + b"/FT /Btn /Ff 65536 /T (print) /Rect [180 472 260 492] >>",
+        b"<< /Type /XObject /Subtype /Form /BBox [0 0 14 14] /Length 0 >>\nstream\n\nendstream",
+    ]
+    content = b"BT /F1 12 Tf 72 720 Td (Full name:) Tj 0 -40 Td (Date:) Tj ET\n"
+    objects[3] = b"<< /Length %d >>\nstream\n" % len(content) + content + b"endstream"
+    out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+    offsets = []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    path.write_bytes(bytes(out))
+    return path
