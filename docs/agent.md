@@ -159,9 +159,10 @@ Two ways in:
 
   The wait comes from this computer's own last picture of that model at the nearest size (the
   `image_timings` table), scaled by the pixels, and from a first guess per tier before there
-  is one. Measured on the 4B, the model called the tool for none of 40 messages that only
-  talked about pictures, and for 16 of 20 that asked for one. It missed both requests for a
-  "cover image" ([acceptance](acceptance/image.md)).
+  is one. The tool's description tells the model to write the prompt itself rather than ask
+  for details first, since the person can change it on the card. Measured on the 4B, the model
+  called the tool for none of 40 messages that only talked about pictures, and for all 28
+  that asked for one, covers and title images included ([acceptance](acceptance/image.md)).
 - **The Image toggle** beside the message box, with a shape. The message asks for a picture
   itself: the tool runs first, with no card, but for a download. The chat's model writes only
   the prompt, from the conversation, in one llama-server call held to a JSON schema of the

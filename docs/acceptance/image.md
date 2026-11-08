@@ -62,10 +62,25 @@ Two requests never called it, in either run:
 - "Create an illustration for a book cover about the sea."
 - "Make a cover image for a report about rent."
 
-So a picture asked for as a "cover" may get an answer in words. The Image toggle doesn't
-depend on the model choosing the tool.
+#### The same, with the description that says not to ask first
 
-The tool's description was not changed for this run: no message from the first set called it.
+Run on 2026-11-08, on the same machine and model. On the "cover" requests the model had
+answered in words asking for details. Typical replies: "To create the illustration, I need a
+bit more detail…", or "Could you provide: 1. The style…". Asked again with the old
+description, two more requests for a cover or title image did the same: 1 of 8 calls in all.
+
+The description now says:
+- use the tool for a cover or title image too;
+- don't ask for details first: write a full prompt and call it at once, since the person sees
+  the prompt on the card and can change it.
+
+With that description, each message asked twice:
+
+| Set | Called `image.generate` |
+|---|---|
+| Messages that only talk about pictures (the 20 above) | 0 of 40 |
+| Requests for a picture (the 10 above) | 20 of 20 |
+| Covers and title images: the two above, plus "Design a cover for my lease summary." and "I need a title image for the presentation about the budget." | 8 of 8 |
 
 ## Part 2: time and memory per picture
 

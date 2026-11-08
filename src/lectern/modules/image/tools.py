@@ -213,11 +213,16 @@ async def _generate(ctx: ToolContext, params: GenerateParams) -> ToolResult:
 
 GENERATE = AgentTool(
     name="image.generate",
+    # Measured on the 4B (docs/acceptance/image.md): told only when to call it, it asked for
+    # details in text instead for "a cover image for…" and "a title image for…".
     description=(
         "Make a picture from a description, on this computer, and save it to the project's "
-        "images/ folder. Only when the person asks for an image, picture, drawing, photo or "
-        "illustration to be made: not to describe, find or talk about one. The person "
-        "confirms first and can change the prompt."
+        "images/ folder. Use it whenever the person asks for a picture to be made: an image, "
+        "picture, drawing, photo, illustration, logo, or a cover or title image for "
+        "something. Don't ask them for details first: write a full, detailed prompt yourself "
+        "from what they said and call this at once; they see the prompt on a card and can "
+        "change it before anything runs. Not for describing, finding or talking about a "
+        "picture."
     ),
     params=GenerateParams,
     run=_generate,
