@@ -388,7 +388,8 @@ class _Editor:
             for page, lines in texts.items()
             if sum(len(line.strip()) for line in lines) < PDF_PAGE_MIN_CHARS
         ]
-        if len(scans) == len(texts):
+        # Only said when every page was looked at: past the first NEAR_PAGES there may be text.
+        if len(scans) == len(texts) and len(pages) <= NEAR_PAGES:
             pages_said = "This page has" if len(pages) == 1 else "These pages have"
             return (
                 f"{pages_said} no text layer (a scan?), so there is no text to change in place: "
