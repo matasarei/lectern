@@ -104,3 +104,19 @@ Still failing on the final wording:
   company the agreement names as contractor.
 
 Forms filled right in every run.
+
+### The call check (2026-11-08)
+
+The exact-results check now also asks before a call writes a number nobody gave
+(`docs/agent.md`, "Exact answers"). The same pdf set on the 4B, Docker running:
+
+| Run | Call-check wording | Agreement (13) | Forms (2) | Sum turns through `code_run` | Wrong total written |
+|---|---|---|---|---|---|
+| 5–6 | "If any is an exact result…" | 11, 8 | 2, 2 | 0 of 4 (each check answered NO_CALC) | 3 |
+| 7–8 | "you worked it out yourself… call code_write now" | 9, 10 | 2, 2 | 4 of 4 | 1 ("2,580", from the script) |
+| 9–10 | the same, quoting what the call would write | 10, 10 | 2, 2 | 3 of 4 (run 9's birth certificate computed, then claimed an edit it didn't make) | 0 |
+
+Replayed directly on the 4B, each of the 11 sum turns twice: the first wording computed 1 of
+22, the second and third 22 of 22. The third computed a clause's "5" needlessly 1 time in 8.
+`calc` set after the change: 19 of 23 passed, `code.run` in 22 of 23 (one run; the second was
+still going when this was written).
