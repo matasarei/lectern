@@ -42,6 +42,7 @@ function option(
     notes: null,
     best: false,
     open_licence: false,
+    score: id === "salamandrata-2b" ? 54 : 58.5,
     download: {
       model_id: id,
       status: "none",
@@ -70,11 +71,12 @@ let refusal: [number, string] | null;
 
 beforeEach(() => {
   languages = [
-    { code: "de", added: null, options: [GEMMA(), SALAMANDRA()] },
-    { code: "ja", added: null, options: [] },
-    { code: "ko", added: null, options: [] },
+    { code: "de", added: null, options: [GEMMA(), SALAMANDRA()], chat_score: 49 },
+    { code: "ja", added: null, options: [], chat_score: 61 },
+    { code: "ko", added: null, options: [], chat_score: null },
     {
       code: "uk",
+      chat_score: 49,
       added: { model: "salamandrata-2b", previous: null },
       options: [
         GEMMA(),
@@ -104,7 +106,11 @@ beforeEach(() => {
       const method = init.method ?? "GET";
       const answer = () =>
         new Response(
-          JSON.stringify({ tier: "minimum", languages } as LanguagesResponse),
+          JSON.stringify({
+            tier: "minimum",
+            chat_model: "Qwen3.5 4B",
+            languages,
+          } as LanguagesResponse),
         );
       if (method === "GET") return answer();
       const body = init.body
@@ -174,7 +180,8 @@ describe("Languages", () => {
       "SalamandraTA 2B · 1.5 GB · open licence",
     ]);
     expect(uk.getByTestId("option-help").textContent).toBe(
-      "Open licence: use it for anything, work included.",
+      "Scores 54 for translating to and from English, where the chat model scores 49 " +
+        "(higher is better).Open licence: use it for anything, work included.",
     );
     expect(uk.getByTestId("status-uk").textContent).toBe("Downloaded");
     expect(rowOf("de")).toBeNull(); // not added
@@ -232,6 +239,8 @@ describe("Languages", () => {
 
     expect(de.getByTestId("option-help").textContent).toBe(
       "Best results on this computer." +
+        "Scores 58.5 for translating to and from English, where the chat model scores 49 " +
+        "(higher is better)." +
         "Restricted licence (Gemma Terms of Use): read it before using the model for work. " +
         "Read the Gemma terms before using it for work.",
     );
@@ -388,5 +397,13 @@ describe("Languages", () => {
         "Only an admin can add or remove languages: adding one downloads a model.",
       ),
     ).toBeTruthy();
+  });
+
+  it("says the score alone where the chat model wasn't measured", async () => {
+    languages = languages.map((l) => (l.code === "uk" ? { ...l, chat_score: null } : l));
+    renderPage();
+    expect((await row("uk")).getByTestId("option-help").textContent).toContain(
+      "Scores 54 for translating to and from English (higher is better).",
+    );
   });
 });

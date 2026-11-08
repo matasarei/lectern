@@ -214,6 +214,8 @@ export interface LanguageOption {
   licence_notice: boolean;
   /** What the licence limits, in a sentence; null for an open licence. */
   notes: string | null;
+  /** chrF into and out of English, measured (`lectern dev translate-check`): higher is better. */
+  score: number;
   /** The best results of the options. */
   best: boolean;
   /** The best of the options with an open licence. */
@@ -228,10 +230,14 @@ export interface Language {
   added: { model: string; previous: string | null } | null;
   /** Best first. None: the chat model translates it as well as anything this computer runs. */
   options: LanguageOption[];
+  /** How well the chat model translates it, which every option beats; null: not measured. */
+  chat_score: number | null;
 }
 
 export interface LanguagesResponse {
   tier: Tier;
+  /** The chat model the options were measured against. */
+  chat_model: string | null;
   languages: Language[];
 }
 

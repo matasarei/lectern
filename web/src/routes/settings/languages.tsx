@@ -254,7 +254,7 @@ function LanguageRow({
             )}
           </span>
         )}
-        {option && <Help option={option} />}
+        {option && <Help option={option} chatScore={language.chat_score} />}
         {previous && state?.status !== "done" && (
           <span className="block text-muted">
             {t("languagesPage.previousTranslates", { title: previous.title })}
@@ -370,13 +370,24 @@ function LanguageRow({
 }
 
 /** Under the dropdown: what the option picked is, and why one would pick it. */
-function Help({ option }: { option: LanguageOption }) {
+function Help({
+  option,
+  chatScore,
+}: {
+  option: LanguageOption;
+  chatScore: number | null;
+}) {
   const { t } = useTranslation();
   return (
     <span className="mt-1 block max-w-sm text-muted" data-testid="option-help">
       {option.best && (
         <span className="block">{t("languagesPage.bestWhy")}</span>
       )}
+      <span className="block">
+        {chatScore === null
+          ? t("languagesPage.score", { score: option.score })
+          : t("languagesPage.scoreVsChat", { score: option.score, chat: chatScore })}
+      </span>
       {option.licence_notice ? (
         <span className="block">
           {t("languagesPage.restrictedWhy", { licence: option.licence })}
