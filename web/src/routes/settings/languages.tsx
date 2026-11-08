@@ -69,9 +69,11 @@ export function LanguagesPage() {
   const addable = languages
     .filter((l) => !l.added && !drafts.includes(l.code) && l.options.length > 0)
     .sort(byName);
-  const chatOnly = languages
-    .filter((l) => !l.added && l.options.length === 0)
-    .sort(byName);
+  // No option: measured, and the chat model is as good; or not measured on this computer's
+  // chat model at all, which says nothing either way.
+  const nothing = languages.filter((l) => !l.added && l.options.length === 0);
+  const chatOnly = nothing.filter((l) => l.chat_score !== null).sort(byName);
+  const untested = nothing.filter((l) => l.chat_score === null).sort(byName);
   const discard = (code: string) =>
     setDrafts((d) => d.filter((c) => c !== code));
 
@@ -137,6 +139,13 @@ export function LanguagesPage() {
           <p className="text-sm text-muted" data-testid="chat-only">
             {t("languagesPage.chatOnly", {
               languages: chatOnly.map((l) => nameOf(l.code)).join(", "),
+            })}
+          </p>
+        )}
+        {untested.length > 0 && (
+          <p className="text-sm text-muted" data-testid="untested">
+            {t("languagesPage.untested", {
+              languages: untested.map((l) => nameOf(l.code)).join(", "),
             })}
           </p>
         )}

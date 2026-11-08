@@ -187,10 +187,13 @@ describe("Languages", () => {
     expect(rowOf("de")).toBeNull(); // not added
   });
 
-  it("lists the languages the chat model translates as well under the table", async () => {
+  it("lists the languages the chat model translates as well under the table, and the ones not tested", async () => {
     renderPage();
+    expect((await screen.findByTestId("untested")).textContent).toBe(
+      "Not tested on this computer yet, so no model is offered for them: Korean.",
+    );
     expect((await screen.findByTestId("chat-only")).textContent).toBe(
-      "Japanese, Korean: your chat model already translates these as well as any model this computer can run.",
+      "Japanese: your chat model already translates these as well as any model this computer can run.",
     );
   });
 

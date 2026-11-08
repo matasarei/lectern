@@ -636,6 +636,7 @@
     "keep": "Keep the current one",
     "removeLanguage": "Remove {{language}}",
     "score": "Scores {{score}} for translating to and from English (higher is better).",
-    "scoreVsChat": "Scores {{score}} for translating to and from English, where the chat model scores {{chat}} (higher is better)."
+    "scoreVsChat": "Scores {{score}} for translating to and from English, where the chat model scores {{chat}} (higher is better).",
+    "untested": "Not tested on this computer yet, so no model is offered for them: {{languages}}."
   }
 }
