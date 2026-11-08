@@ -4,6 +4,7 @@ in test_auth_seam.py covers it.)"""
 
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -13,7 +14,8 @@ from lectern.api.view import GONE, VIEW_TICKET_SECONDS
 from lectern.app import create_app
 from lectern.core.auth import LOCAL_USER
 from lectern.core.security import CONTENT_SECURITY_POLICY, VIEW_CSP
-from lectern.projects import files
+from lectern.projects import files, html_page
+from lectern.projects.tables import ArtifactRow
 
 BASE = "http://127.0.0.1:8765"
 PAGE = b"<!doctype html><style>h1{color:red}</style><h1>Hi</h1><script>alert(1)</script>"
@@ -72,13 +74,22 @@ def test_an_html_file_opens_once_sandboxed_with_its_own_bytes(api):
     assert (again.status_code, again.text) == (404, GONE)
 
 
-def test_the_sandbox_lets_styles_through_and_nothing_else():
+def test_the_sandbox_runs_the_pages_own_scripts_and_reaches_nothing():
     rules = dict(rule.strip().partition(" ")[::2] for rule in VIEW_CSP.split(";"))
-    assert rules["sandbox"] == ""  # no allow-scripts, allow-same-origin, allow-forms…
-    assert rules["default-src"] == "'none'"
+    # Scripts run, in an origin of their own: no allow-same-origin, forms, popups or modals.
+    assert rules["sandbox"] == "allow-scripts"
+    assert rules["script-src"] == "'unsafe-inline' 'unsafe-eval' data:"
     assert rules["style-src"] == "'unsafe-inline'"
-    assert rules["img-src"] == "data:"
-    assert "script-src" not in rules
+    # Nothing is fetched from any address: fetch, XHR and WebSocket fall back to 'none'.
+    assert rules["default-src"] == "'none'"
+    assert "connect-src" not in rules
+    assert rules["img-src"] == "data: blob:"
+    assert rules["font-src"] == "data:"
+    assert rules["media-src"] == "data: blob:"
+    for name in ("http", "https:", "'self'", "*", "allow-same-origin"):
+        assert name not in VIEW_CSP
+    assert (rules["base-uri"], rules["form-action"]) == ("'none'", "'none'")
+    assert rules["frame-ancestors"] == "'none'"
 
 
 def test_a_link_not_opened_within_its_minute_has_expired(api, clock):
@@ -133,3 +144,91 @@ def test_the_rest_of_lectern_keeps_its_own_policy(api):
     client, _, _, _ = api
     for path in ("/health", "/views", "/viewer/x"):
         assert client.get(path).headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+
+
+SIDE_PAGE = (
+    b'<!doctype html><head><link rel="stylesheet" href="style.css">'
+    b'<script src="app.js" defer></script></head><body><img src="logo.png"></body>'
+)
+
+
+def _project(app, pid):
+    return app.state.projects.get(LOCAL_USER, pid)
+
+
+def test_a_page_comes_with_the_files_it_links_to_inside_it(api):
+    client, headers, app, pid = api
+    _import(client, headers, pid, "style.css", b"h1{color:red}")
+    _import(client, headers, pid, "app.js", b"document.title = 'drawn';")
+    _import(client, headers, pid, "logo.png", b"\x89PNG\r\n\x1a\nlogo")
+    aid = _import(client, headers, pid, "page.html", SIDE_PAGE)
+
+    page = client.get(_link(client, headers, pid, aid).json()["url"])
+
+    assert page.status_code == 200
+    assert page.headers["content-type"] == "text/html; charset=utf-8"
+    assert page.headers["content-security-policy"] == VIEW_CSP
+    assert page.headers["cache-control"] == "no-store"
+    body = page.text
+    assert "<style>h1{color:red}</style>" in body
+    script = base64.b64encode(b"document.title = 'drawn';").decode()
+    assert f'<script src="data:text/javascript;base64,{script}" defer>' in body
+    assert "data:image/png;base64," in body
+    assert 'href="style.css"' not in body and 'src="logo.png"' not in body
+
+
+def test_only_the_owners_files_still_in_the_project_go_in(api):
+    client, headers, app, pid = api
+    project = _project(app, pid)
+    (project.root.parent / "outside.css").write_bytes(b"p{color:blue}")
+    _import(client, headers, pid, "notes.md", b"# secret")
+    trashed = _import(client, headers, pid, "trashed.css", b"p{color:green}")
+    theirs = _import(client, headers, pid, "theirs.css", b"p{color:pink}")
+    (project.root / "loose.css").write_bytes(b"p{color:gray}")  # on disk, never imported
+    with app.state.projects.db(project).begin() as session:
+        files.trash(project.root, session, trashed)
+        session.get(ArtifactRow, theirs).owner_id = LOCAL_USER.id + 1
+    other = client.post("/api/projects", json={"name": "Other"}, headers=headers).json()["id"]
+    _import(client, headers, other, "style.css", b"p{color:red}")
+    other_dir = _project(app, other).root.name
+    links = [
+        "../outside.css",
+        "notes.md",
+        "trashed.css",
+        "theirs.css",
+        "loose.css",
+        f"../{other_dir}/style.css",
+        "../../../../etc/hosts.css",
+        ".lectern/project.sqlite.css",
+    ]
+    page = "".join(f'<link rel="stylesheet" href="{href}">' for href in links)
+    aid = _import(client, headers, pid, "page.html", page.encode())
+
+    served = client.get(_link(client, headers, pid, aid).json()["url"])
+
+    assert served.status_code == 200
+    assert served.content == page.encode()  # nothing went in: the raw bytes, as before
+    assert served.headers["content-type"] == "text/html"
+
+
+def test_a_side_file_over_the_limit_stays_out(api, monkeypatch):
+    client, headers, _, pid = api
+    monkeypatch.setattr(html_page, "FILE_LIMIT", 4)
+    _import(client, headers, pid, "style.css", b"h1{color:red}")
+    aid = _import(client, headers, pid, "page.html", b'<link rel="stylesheet" href="style.css">')
+
+    served = client.get(_link(client, headers, pid, aid).json()["url"])
+
+    assert served.content == b'<link rel="stylesheet" href="style.css">'
+
+
+def test_a_page_too_big_to_parse_is_sent_as_it_is(api, monkeypatch):
+    client, headers, _, pid = api
+    _import(client, headers, pid, "style.css", b"h1{color:red}")
+    page = b'<link rel="stylesheet" href="style.css">'
+    monkeypatch.setattr(html_page, "PAGE_LIMIT", len(page) - 1)
+    aid = _import(client, headers, pid, "page.html", page)
+
+    served = client.get(_link(client, headers, pid, aid).json()["url"])
+
+    assert (served.content, served.headers["content-type"]) == (page, "text/html")

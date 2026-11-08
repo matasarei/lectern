@@ -9,24 +9,37 @@ guard like every change), and opens it in a new tab: `/view/<ticket>`.
   being made. A new tab can't send the token header, so the ticket stands in for it, and only
   here: this path is outside /api, and nothing else is served under it.
 - The file is served with its own policy instead of Lectern's (`core.security.VIEW_CSP`):
-  `sandbox` without allow-scripts or allow-same-origin, so no script runs and the page has an
-  origin of its own that can't read Lectern's storage or cookies; its inline styles and data:
-  images apply, and nothing is loaded from anywhere else.
+  `sandbox allow-scripts` without allow-same-origin, so its scripts run as they would from
+  disk, in an origin of their own that can't read Lectern's storage or cookies; nothing is
+  loaded from any address, Lectern's included. It can still send out what is in it, by
+  navigating itself away (see VIEW_CSP's comment).
+- The files the page links to beside it in the project (its stylesheets, scripts, images,
+  fonts) are put inside it before it is sent (`projects.html_page`): only the owner's, not in
+  the trash, of those kinds, so nothing else is ever served under this path.
+- The tab is opened from a rel="noopener" link (the file tab), so it starts with none of
+  Lectern's session storage, where the token is kept.
 """
 
 from __future__ import annotations
 
+import posixpath
 import secrets
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, Response
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from lectern.api.projects import owned_file
+from lectern.api.projects import open_project, owned_file, store
 from lectern.core.auth import User
+from lectern.projects import files, html_page
+from lectern.projects.html_page import Read, inline_page
+from lectern.projects.tables import ArtifactRow
 
 VIEW_TICKET_SECONDS = 60
 GONE = "This link has been used or has expired. Open the file again from Lectern."
@@ -77,11 +90,51 @@ def view(ticket: str, request: Request) -> Response:
     if held is None:
         return PlainTextResponse(GONE, status_code=404)
     try:
-        _row, path = owned_file(request, held.project_id, held.artifact_id, held.user)
+        row, path = owned_file(request, held.project_id, held.artifact_id, held.user)
     except HTTPException:  # trashed, removed or gone from the folder since the link was made
         return PlainTextResponse(GONE, status_code=404)
+    inlined = None
+    with path.open("rb") as file:  # read once, so the size checked is the size parsed
+        page = file.read(html_page.PAGE_LIMIT + 1)
+    if len(page) <= html_page.PAGE_LIMIT:
+        project = open_project(request, held.project_id, held.user)
+        with store(request).db(project)() as session:
+            folder = posixpath.dirname(row.path)
+            inlined = inline_page(page, _side_files(project.root, session, held.user, folder))
+    if inlined is not None:
+        return Response(
+            inlined, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store"}
+        )
     response = FileResponse(path, media_type="text/html", headers={"Cache-Control": "no-store"})
     # Starlette adds "; charset=utf-8" to a text type, which would override the file's own
     # <meta charset> (a header's charset wins): the browser reads it as it would a local file.
     response.headers["content-type"] = "text/html"
     return response
+
+
+def _side_files(root: Path, session: Session, user: User, folder: str) -> Read:
+    """`read` for `inline_page`: a file the page names from its folder, when it is one of the
+    page owner's files in the project, not in the trash, still on disk and within the limit."""
+
+    def read(relative: str) -> bytes | None:
+        stored = posixpath.normpath(posixpath.join(folder, relative))
+        if stored.startswith(("../", "/")) or stored in {"..", "."}:
+            return None
+        row = session.scalar(
+            select(ArtifactRow).where(
+                ArtifactRow.path == stored,
+                ArtifactRow.owner_id == user.id,
+                ArtifactRow.trashed_at.is_(None),
+            )
+        )
+        if row is None:
+            return None
+        try:
+            path = files.inside(root, stored)
+            if not path.is_file() or path.stat().st_size > html_page.FILE_LIMIT:
+                return None
+            return path.read_bytes()
+        except (files.BadName, OSError):
+            return None
+
+    return read

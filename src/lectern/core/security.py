@@ -12,8 +12,9 @@ still send requests there. This middleware makes sure only Lectern's own page ca
 - Token check: every /api request carries a token, in the X-Lectern-Token header (HTTP) or
   as the `lectern.token.<token>` subprotocol (WebSocket, where browsers can't set headers).
 - Every HTTP response gets a strict Content-Security-Policy; an HTML file opened in a tab of
-  its own (/view/<ticket>, `lectern.api.view`) gets a sandboxing one instead. That path is
-  the only one a one-use ticket opens without the token.
+  its own (/view/<ticket>, `lectern.api.view`) gets a sandboxing one instead, where its own
+  scripts run in an origin of their own and load nothing. That path is the only one a
+  one-use ticket opens without the token.
 
 Whose token: until anyone can sign in (`lectern user init`), the per-install one, which the
 link `lectern url` prints carries, and whoever has it is the local user. Once there are
@@ -69,12 +70,21 @@ SECURITY_HEADERS = (
     (b"referrer-policy", b"no-referrer"),
 )
 # An HTML file opened in a tab of its own (`lectern.api.view`) gets this policy instead of
-# Lectern's, which would block its inline styles: `sandbox` with no allowances, so no script,
-# form or popup, and an origin of its own that can't read Lectern's storage or cookies; its
-# inline styles, data: images and fonts apply, and nothing is fetched from anywhere.
+# Lectern's, which would block its inline styles and scripts: `sandbox allow-scripts` without
+# allow-same-origin, so its scripts run as they would from disk, but in an origin of their own
+# that can't read Lectern's storage or cookies, and whose requests Lectern's Origin check
+# refuses (Origin: null); no form, popup or modal. With no connect-src, default-src 'none'
+# stops fetch, XHR and WebSocket, so a page loads nothing from the network or Lectern: what
+# it links to in its project was put inside it before it was sent (`projects.html_page`; a
+# script as a data: URL, so defer and async keep their timing). What a page can still do is
+# send out what is in it: by navigating itself to another address (`location = …`, a link,
+# a meta refresh; CSP has no rule for where a page goes), or over WebRTC or a DNS lookup,
+# which CSP doesn't cover. Accepted: the token is never in it, and the same file opened from
+# disk could send anything at all.
 VIEW_PREFIX = "/view/"
 VIEW_CSP = (
-    "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; "
+    "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data:; "
+    "style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; "
     "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 )
 VIEW_HEADERS = (

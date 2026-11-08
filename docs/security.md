@@ -81,14 +81,36 @@ password, the account disabled (`api/ws.py`, `api/sse.py`).
   ODT as Markdown the server makes of it (up to 500,000 characters; a document whose XML
   parts unzip past 32 MB together isn't opened), through react-markdown like any Markdown.
 - **An HTML file as a page.** It never runs under Lectern's address, where it could read the
-  token. The page asks for a link (a POST, so the token and Origin checks apply) and opens
-  `/view/<ticket>` in a new tab: the ticket is 32 random bytes held in memory, opens that one
-  file of that one person, once, within 60 seconds, and is the only thing outside `/api`
-  that serves a project file. It is served with
-  `sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:`
-  instead of Lectern's policy: no scripts, forms or pop-ups, an origin of its own that can't
-  reach Lectern's storage or cookies, and nothing fetched from outside, so opening a file
-  makes no network request (`api/view.py`).
+  token. The file tab asks for a link (a POST, so the token and Origin checks apply) and shows
+  it as a link with `rel="noopener"`, so the new tab starts with none of Lectern's session
+  storage, where the token is kept; the link is renewed every 45 seconds, when the window
+  comes back into focus, and once it has been used. `/view/<ticket>`: the ticket is 32 random
+  bytes held in memory, opens that one file of that one person, once, within 60 seconds, and
+  is the only thing outside `/api` that serves a project file. It is served with
+  `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data:;
+  style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:`
+  (and `frame-ancestors`, `base-uri`, `form-action` all `'none'`) instead of Lectern's policy.
+  Its scripts run, but without `allow-same-origin`: in an origin of their own that can't
+  reach Lectern's storage or cookies, and whose requests Lectern's Origin check refuses. With
+  no `connect-src`, nothing is loaded from anywhere, Lectern included. No forms, pop-ups or
+  `alert`s, and `localStorage` throws (`api/view.py`).
+- **What a page can still send out.** A page's scripts can send out what is in the page: by
+  navigating the tab to another address with the data in it (`location = …`, a link, a meta
+  refresh: CSP has no rule for where a page goes), or over WebRTC or a DNS lookup, which CSP
+  doesn't cover either. Checked in Chrome: a page that named an image beside it sent that
+  image's bytes to another address that way. What is in it is the page's own text and the
+  files below; never the token, and never a project file it doesn't name. That is accepted:
+  the same file opened from disk could send anything at all. Open a page you don't trust as
+  you would an untrusted file on disk.
+- **What a page links to.** The stylesheets, scripts, images and fonts a page names beside it
+  in its project are put inside it before it is sent: a stylesheet as a `<style>` block, the
+  rest as `data:` URLs (`projects/html_page.py`). Only those kinds of file, only the page
+  owner's, not in the trash and inside the project folder; 10 MB a file and 25 MB a page, and
+  a page over 10 MB is sent as it is. A project's text, data and documents are never put in,
+  so a page can't take them and send them on; a project's images can be, by a page that names
+  them. What a script asks for while it runs
+  (`fetch('data.json')`), `@import`, and anything on the internet don't load. A page that
+  gets anything put in it is sent as UTF-8; one that doesn't is sent as its own bytes.
 - **Markdown** in the UI goes through react-markdown without raw HTML.
 
 ## Instructions hidden in documents
