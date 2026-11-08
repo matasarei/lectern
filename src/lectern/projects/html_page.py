@@ -5,7 +5,8 @@ blocks every request. So the stylesheets, scripts, images and fonts a page names
 its project are put into it before it is sent, the way they would have loaded from disk:
 a stylesheet as a <style> block, the rest as data: URLs in the attribute that named them, so
 a script keeps its defer/async/module timing. Only those kinds of file, never a project's
-text, data or documents, so a page can't take them in and send them on.
+text, data or documents, so a page can't take them in and send them on (a project's images
+it can: see `core.security.VIEW_CSP`).
 
 What can't be done this way stays as written and fails to load, as it would from a folder
 missing that file: anything a script asks for while it runs, `@import`, a file past the

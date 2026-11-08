@@ -11,7 +11,8 @@ guard like every change), and opens it in a new tab: `/view/<ticket>`.
 - The file is served with its own policy instead of Lectern's (`core.security.VIEW_CSP`):
   `sandbox allow-scripts` without allow-same-origin, so its scripts run as they would from
   disk, in an origin of their own that can't read Lectern's storage or cookies; nothing is
-  loaded from any address, Lectern's included.
+  loaded from any address, Lectern's included. It can still send out what is in it, by
+  navigating itself away (see VIEW_CSP's comment).
 - The files the page links to beside it in the project (its stylesheets, scripts, images,
   fonts) are put inside it before it is sent (`projects.html_page`): only the owner's, not in
   the trash, of those kinds, so nothing else is ever served under this path.
