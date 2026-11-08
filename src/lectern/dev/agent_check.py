@@ -17,6 +17,8 @@ from pathlib import Path
 
 import yaml
 
+from lectern.dev import pdf_files
+
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 TURN_TIMEOUT = 600.0
 TOLERANCE = 0.005
@@ -32,6 +34,11 @@ class Case:
     tools: tuple[str, ...] = ()  # must be called (any order)
     forbid: tuple[str, ...] = ()  # must not be called
     args: Mapping[str, Mapping[str, str]] = field(default_factory=dict)  # tool → what it's given
+    # The PDF set: text a PDF saved in the turn must have ("a|b" passes on either), form
+    # values it must hold, or that the turn saved no PDF at all.
+    pdf_text: tuple[str, ...] = ()
+    pdf_form: Mapping[str, str] = field(default_factory=dict)
+    pdf_none: bool = False
 
 
 @dataclass(frozen=True)
@@ -145,6 +152,9 @@ def _case(item: dict) -> Case:
             tool: {key: _spelled(str(value)) for key, value in wanted.items()}
             for tool, wanted in item.get("args", {}).items()
         },
+        pdf_text=tuple(str(t) for t in item.get("pdf_text", [])),
+        pdf_form={str(k): str(v) for k, v in item.get("pdf_form", {}).items()},
+        pdf_none=bool(item.get("pdf_none", False)),
     )
 
 
@@ -168,7 +178,8 @@ CLAUSE_3_3 = (
 
 
 def materialise(files: list[Path], into: Path) -> list[Path]:
-    """The set's files: from prompts/files/, or made here (lease-1998.docx, scan-lease.png)."""
+    """The set's files: from prompts/files/, or made here (lease-1998.docx, scan-lease.png,
+    and the pdf set's agreement.pdf and form.pdf, in lectern.dev.pdf_files)."""
     ready = []
     for path in files:
         if path.is_file():
@@ -177,6 +188,10 @@ def materialise(files: list[Path], into: Path) -> list[Path]:
             ready.append(_write_lease(into / path.name))
         elif path.name == "scan-lease.png":
             ready.append(_write_scan(into / path.name))
+        elif path.name == "agreement.pdf":
+            ready.append(pdf_files.write_agreement(into / path.name))
+        elif path.name == "form.pdf":
+            ready.append(pdf_files.write_form(into / path.name))
         else:
             raise ValueError(f"The prompt set needs {path.name}, which isn't there.")
     return ready
@@ -280,7 +295,10 @@ def run_set(client, name: str, *, allow_cards: bool, only: list[str] | None = No
     outcomes = []
     for case in cases:
         chat = client.post(f"/api/projects/{pid}/sessions", json={"title": case.id}).json()
+        pdfs_before = _pdfs(client, pid)
         outcome = _ask(client, pid, chat["id"], case, allow_cards=allow_cards)
+        if case.pdf_text or case.pdf_form or case.pdf_none:
+            outcome.checks.update(_check_pdfs(client, pid, case, pdfs_before))
         outcome.required = case.tools or tuple(REQUIRED_TOOLS.get(name, ()))
         outcome.forbidden = case.forbid
         outcomes.append(outcome)
@@ -382,6 +400,36 @@ def _ask(client, pid: int, session_id: int, case: Case, *, allow_cards: bool) ->
                 break
     outcome.seconds = round(time.monotonic() - started, 1)
     return outcome
+
+
+def _pdfs(client, pid: int) -> dict[int, str]:  # noqa: ANN001
+    items = client.get(f"/api/projects/{pid}/items").json()
+    return {a["id"]: a["name"] for a in items["artifacts"] if a["name"].lower().endswith(".pdf")}
+
+
+def _check_pdfs(client, pid: int, case: Case, before: dict[int, str]) -> dict[str, bool]:  # noqa: ANN001
+    """The PDFs this turn saved, against what the case expects of them."""
+    new = {i: n for i, n in _pdfs(client, pid).items() if i not in before}
+    if case.pdf_none:
+        return {"no PDF saved": not new}
+    if not new:
+        return {"a PDF saved": False}
+    checks: dict[str, bool] = {}
+    with tempfile.TemporaryDirectory() as folder:
+        texts, forms = [], []
+        for artifact_id in new:
+            response = client.get(f"/api/projects/{pid}/artifacts/{artifact_id}/content")
+            path = Path(folder) / f"{artifact_id}.pdf"
+            path.write_bytes(response.content)
+            texts.append(pdf_files.pdf_text(path))
+            forms.append(pdf_files.form_values(path))
+    for wanted in case.pdf_text:
+        checks[f"PDF has {wanted!r}"] = any(
+            option in text for text in texts for option in wanted.split("|")
+        )
+    for name, value in case.pdf_form.items():
+        checks[f"form {name}={value!r}"] = any(form.get(name) == value for form in forms)
+    return checks
 
 
 def _arguments(text: str) -> dict:
