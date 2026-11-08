@@ -119,6 +119,6 @@ The exact-results check now also asks before a call writes a number nobody gave
 Replayed directly on the 4B, each of the 11 sum turns twice: the first wording computed 1 of
 22, the second and third 22 of 22. The third computed a clause's "5" needlessly 1 time in 8.
 `calc` set after the change, twice: 19 and 20 of 23 passed, `code.run` used in 22 and 21 of 23.
-The set had 22 prompts at its last record in [`m1b.md`](m1b.md) (20, 20, 22 of 22 passed;
-`code.run` 22 of 22), so the two aren't the same measure; with the extra prompt the runs are
-1–3 below that record, within the ±2 between runs seen before, except the third run there.
+At its last record in [`m1b.md`](m1b.md) the set had 22 prompts (20, 20 and 22 passed;
+`code.run` in 22 of 22 each run); it has 23 now, so the counts aren't directly comparable.
+Here `code.run` was skipped in 1 and 2 prompts.
