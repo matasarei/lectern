@@ -19,7 +19,7 @@ const ITEMS: ProjectItems = {
 };
 
 let requested: string[] = [];
-let body = "# Reply\n<script>alert(1)</script>"; // what a file's content answers
+let body: BodyInit = "# Reply\n<script>alert(1)</script>"; // what a file's content answers
 
 beforeEach(() => {
   requested = [];
@@ -80,6 +80,18 @@ describe("File tab", () => {
     body = '{"rent": 1200}';
     renderFile(artifact({ name: "terms.json", mime: "application/json", preview: "text" }));
     expect((await screen.findByText('{"rent": 1200}')).tagName).toBe("PRE");
+  });
+
+  it("reads a text file that isn't UTF-8 as windows-1251, as the chat does", async () => {
+    body = new Uint8Array([196, 238, 227, 238, 226, 179, 240, 32, 238, 240, 229, 237, 228, 232]);
+    renderFile(artifact({ name: "lease.txt", mime: "text/plain", preview: "text" }));
+    expect((await screen.findByText("Договір оренди")).tagName).toBe("PRE");
+  });
+
+  it("reads UTF-8 as UTF-8, without its byte-order mark", async () => {
+    body = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("Договір оренди")]);
+    renderFile(artifact({ name: "lease.txt", mime: "text/plain", preview: "text" }));
+    expect((await screen.findByText(/Договір оренди/)).textContent).toBe("Договір оренди");
   });
 
   it("shows an HTML file's source as text, never as HTML", async () => {
