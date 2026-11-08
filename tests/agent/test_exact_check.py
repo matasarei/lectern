@@ -6,13 +6,14 @@ and code_run, and the draft is never shown; if not (NO_CALC), the draft is the a
 from __future__ import annotations
 
 import asyncio
+import json
 
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS
-from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK
+from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_NOTE
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
 from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
@@ -441,7 +442,9 @@ def test_a_call_writing_a_total_nobody_gave_is_checked_and_computed_first(store)
     check = handle.requests[1]["messages"]
     assert check[-1] == {
         "role": "user",
-        "content": CALL_CHECK.format(tool="doc_write", numbers="4172.03", written="Total: 4172.03"),
+        "content": CALL_CHECK.format(
+            tool="doc_write", numbers="4172.03", arguments='{"text": "Total: 4172.03"}'
+        ),
     }
     assert all(m.get("content") != "Total: 4172.03" for m in check)  # the draft isn't shown
     assert _tool_rows(store, project) == ["code.write", "code.run", "doc.write"]
@@ -524,9 +527,9 @@ def test_the_call_check_quotes_a_long_written_text_cut_short(store):
     _run(manager, project, ADD_AND_SAVE)
 
     asked = handle.requests[1]["messages"][-1]["content"]
-    quoted = asked.split("“", 1)[1].split("”", 1)[0]
-    assert quoted.startswith("Total: 4172.03.") and quoted.endswith("…")
-    assert len(quoted) == loop.CALL_QUOTE_CHARS + 1
+    arguments = json.dumps({"text": long}, ensure_ascii=False)
+    assert f"{arguments[: loop.CALL_QUOTE_CHARS]}…" in asked
+    assert arguments[: loop.CALL_QUOTE_CHARS + 1] not in asked
 
 
 def test_a_number_in_a_file_attached_to_the_chat_is_given(store):
@@ -543,3 +546,110 @@ def test_a_number_in_a_file_attached_to_the_chat_is_given(store):
 
     assert asyncio.run(scenario()) == "done"
     assert RAN == ["doc.write"] and len(handle.requests) == 2  # no check
+
+
+# --- the held call: kept while its number is computed ---------------------------------------
+
+
+class _Pair(BaseModel):
+    find: str
+    replace: str
+    page: int | None = None
+
+
+class _Edits(BaseModel):
+    edits: list[_Pair]
+
+
+# A stand-in for pdf.edit: several find → replace pairs in one call.
+EDIT = AgentTool(name="doc.edit", description="Change text in the person's file.", params=_Edits,
+                 run=_ran("doc.edit", "Saved."),
+                 writes=lambda p: (" ".join(e.replace for e in p.edits),
+                                   " ".join(e.find for e in p.edits)))  # fmt: skip
+
+
+def _editor(store, replies, *, sandbox=True):  # noqa: ANN001, ANN202
+    RAN.clear()
+    handle = FakeHandle(replies)
+    tools = [*CORE_TOOLS, *CODE, EDIT] if sandbox else [*CORE_TOOLS, EDIT]
+    manager = TurnManager(make_runtime(handle), store, Registry(tools))
+    return manager, store.create(LOCAL_USER, "Invoice"), handle
+
+
+PRICE_AND_TOTAL = (
+    "Change the price to 225.00 and put the total of 1284.50, 377.25, 99.99 and 2410.30 in."
+)
+BOTH = {"edits": [{"find": "Price 200.00", "replace": "Price 225.00"},
+                  {"find": "Total 4000.00", "replace": "Total 4172.03"}]}  # fmt: skip
+BOTH_COMPUTED = {"edits": [{"find": "Price 200.00", "replace": "Price 225.00"},
+                           {"find": "Total 4000.00", "replace": "Total 4172.04"}]}  # fmt: skip
+HELD_ARGUMENTS = (
+    '{"edits": [{"find": "Price 200.00", "replace": "Price 225.00"}, '
+    '{"find": "Total 4000.00", "replace": "Total 4172.03"}]}'
+)
+NOTE = {
+    "role": "user",
+    "content": HELD_NOTE.format(tool="doc_edit", numbers="4172.03", arguments=HELD_ARGUMENTS),
+}
+COMPUTE = [
+    tool_reply("code_write", {"brief": "Add 1284.50, 377.25, 99.99 and 2410.30."}),
+    tool_reply("code_run", {}, call_id="call_2"),
+]
+
+
+def _noted(handle) -> list[bool]:  # noqa: ANN001
+    """For each model call: whether it carried the held note."""
+    return [
+        any("Lectern note" in str(m.get("content")) for m in r["messages"]) for r in handle.requests
+    ]
+
+
+def test_a_held_call_is_quoted_with_every_edit_on_each_model_call_until_made(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),  # the total summed in its head
+        *COMPUTE,
+        tool_reply("doc_edit", BOTH_COMPUTED, call_id="call_3"),
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run", "doc.edit"]
+    check = handle.requests[1]["messages"][-1]["content"]
+    assert check == CALL_CHECK.format(tool="doc_edit", numbers="4172.03", arguments=HELD_ARGUMENTS)
+    assert _noted(handle) == [False, False, True, True, False]  # code_write, code_run: noted
+    assert handle.requests[2]["messages"][-1] == NOTE
+    assert handle.requests[3]["messages"][-1] == NOTE
+    assert "Price 200.00" in NOTE["content"] and "Total 4000.00" in NOTE["content"]
+    assert "Lectern note" not in str(transcript(store, project))  # never stored
+    assert _shown(seen) == "Saved."
+
+
+def test_the_note_stops_once_the_tool_is_called_again_with_any_arguments(store):
+    total_only = {"edits": [{"find": "Total 4000.00", "replace": "Total 4172.04"}]}
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        tool_reply("doc_edit", total_only, call_id="call_3"),  # the price edit dropped
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, _ = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run", "doc.edit"]
+    assert _noted(handle) == [False, False, True, True, False]
+    assert len(handle.requests) == 5  # and no guard: the call was made
+
+
+def test_no_held_call_no_note(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        text_reply("NO_CALC"),  # copied, it says: the call runs as it was
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["doc.edit"]
+    assert _noted(handle) == [False, False, False]
+    assert _shown(seen) == "Saved."
