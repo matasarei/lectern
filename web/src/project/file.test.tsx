@@ -206,6 +206,18 @@ describe("File tab", () => {
     await waitFor(() => expect(asked()).toBe(before + 1));
   });
 
+  it.each([
+    ["a middle-click", (a: HTMLElement) => fireEvent(a, new MouseEvent("auxclick", { bubbles: true, button: 1 }))],
+    ["its menu (open in a new tab)", (a: HTMLElement) => fireEvent.contextMenu(a)],
+  ])("asks for a new link once one may have been used by %s", async (_, use) => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    const asked = () => requested.filter((u) => u.endsWith("/4/view")).length;
+    const before = asked();
+    use(link);
+    await waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
   it("keeps the link it has when renewing it fails, and says why", async () => {
     renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
     const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });

@@ -165,7 +165,10 @@ function OpenHtml({ base }: { base: string }) {
         href={link.data.url}
         target="_blank"
         rel="noopener noreferrer"
+        // Any way of opening it may spend it: a click, a middle-click, its menu's "open in new tab".
         onClick={() => void link.refetch()}
+        onAuxClick={() => void link.refetch()}
+        onContextMenu={() => void link.refetch()}
       >
         {t("file.openInTab")}
       </a>
