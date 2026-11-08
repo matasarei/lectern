@@ -61,8 +61,10 @@ session's Document, an export, a web page saved by the chat.
   as text; Markdown as Markdown; images; a PDF in the browser's own PDF viewer (up to
   100 MB); a DOCX or ODT as Markdown, its headings, tables and lists kept (the first
   500,000 characters of a long one). An HTML file shows its source, and *Open as a page in a
-  new tab* opens it on its own, with its styles but without its scripts or anything from the
-  internet. Word 97–2003 (`.doc`) and RTF files can't be shown: save them as DOCX, or
+  new tab* opens it on its own, as it would from disk: its scripts run, and the stylesheets,
+  scripts, images and fonts it links to in the project are put inside it. Nothing loads
+  from the internet, nor what a script fetches while it runs; the chat is told to write
+  pages that need neither (a chart in SVG or a canvas, not a library from a CDN). Word 97–2003 (`.doc`) and RTF files can't be shown: save them as DOCX, or
   download them.
 - **Search.** Every text file and Document is indexed for full-text search (SQLite FTS5),
   in pieces the chat can cite: `notes.md #c3` for a file, `#b3.2` for a Document's block.
