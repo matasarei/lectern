@@ -66,11 +66,14 @@ NO_CALC"""
 # Asked once by the loop, never stored, before running a call that would write into the
 # person's files a number that no message or tool result gave (lectern.agent.loop): the 4B
 # added totals up in its head and wrote them through pdf.edit, 6 times in 8
-# (docs/acceptance/pdf-edit.md). Measured wording, not argued.
-CALL_CHECK = """Lectern check: your {tool} call would write {numbers}, which no message or tool \
-result gave. If any is an exact result — a sum, a difference, a total, a date, a percentage — \
-don't write it yet: call code_write, then code_run, then {tool} again with the output. If \
-they are not (the person's own, copied from a file), reply with only: NO_CALC"""
+# (docs/acceptance/pdf-edit.md). Measured on the 4B, replaying the 11 sum turns of the pdf
+# set twice each (2026-11-08): "If any is an exact result … call code_write" computed 1 of 22;
+# this wording 22 of 22, and still answered NO_CALC to a clause's "5" 6 times in 6.
+CALL_CHECK = """Lectern check: you were about to write {numbers} with {tool}, a number you \
+worked out yourself: no message or tool result has it. Sums, differences and totals must come \
+from a script. Call code_write now with a brief that has the numbers to add up, then \
+code_run, then {tool} with its output. Only if {numbers} was copied from the person or a \
+file, reply with only: NO_CALC"""
 
 
 def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
