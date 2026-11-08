@@ -426,3 +426,37 @@ def test_a_long_pdf_is_searched_whole_but_near_matches_only_on_its_first_pages(
 
     with pytest.raises(EditFailed, match="page 34 has “Page 34 says hello to all of you”"):
         apply_edits(pdf, [Edit("Page 34 sayz hello to all of you", "x", page=34)], fonts=fonts)
+
+
+def test_installed_fonts_are_indexed_before_pdfium_is_locked(
+    contract: Path, font_files: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Indexing opens every installed font file; OCR and text extraction wait on the lock."""
+    from lectern.projects.text import PDFIUM_LOCK
+
+    fonts = InstalledFonts([font_files])
+    held: list[bool] = []
+    load = fonts.load
+
+    def watched() -> dict:
+        held.append(PDFIUM_LOCK.locked())
+        return load()
+
+    monkeypatch.setattr(fonts, "load", watched)
+
+    apply_edits(contract, [Edit("12 March", "5 April")], fonts=fonts)
+
+    assert held and held[0] is False
+
+
+def test_a_long_pdf_whose_first_pages_are_blank_isnt_called_a_scan(
+    tmp_path: Path, font_files: Path
+) -> None:
+    pages = [[] for _ in range(31)] + [[[Run("The fee is payable within ten days.")]]]
+    pdf = make_pdf(tmp_path / "late.pdf", font_files, pages)
+
+    with pytest.raises(EditFailed) as failed:
+        apply_edits(pdf, [Edit("fee is payable in", "x")], fonts=InstalledFonts([font_files]))
+
+    assert "no text layer" not in str(failed.value)
+    assert "of the first 30 pages; give `page` for others" in str(failed.value)
