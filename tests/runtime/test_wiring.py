@@ -309,10 +309,12 @@ def card(paths, monkeypatch):
 def test_every_role_can_have_a_chosen_model():
     from typing import get_args
 
-    from lectern.catalog.catalog import Role
+    from lectern.catalog.catalog import TRANSLATE_ROLE, Role
 
-    # And cleanup of scanned pages, which isn't a catalog role: a chat model does it.
-    assert set(settings.MODEL_DEFAULTS) == {*get_args(Role), settings.CLEANUP}
+    # And cleanup of scanned pages, which isn't a catalog role: a chat model does it. Not
+    # translation: its model is picked per language, on the Languages page.
+    roles = set(get_args(Role)) - {TRANSLATE_ROLE}
+    assert set(settings.MODEL_DEFAULTS) == {*roles, settings.CLEANUP}
     assert set(settings.MODEL_DEFAULTS.values()) == {None}  # nothing chosen: the recommended
 
 
