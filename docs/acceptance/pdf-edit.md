@@ -69,10 +69,10 @@ the chat, with `pdf.edit` and `pdf.fill`, it has to find and read the PDF itself
 residents: `qwen3.5-4b`), `LECTERN_TIER=minimum` (context 8,192), llama.cpp b11236, Docker
 running (so `code_run` was there), cards answered Allow.
 
-| Run | Tool wording | Agreement edits (13) | Forms (2) | Sum written from memory |
+| Run | Tool wording | Agreement edits (13) | Forms (2) | Wrong total written (of 2) |
 |---|---|---|---|---|
-| 1 | first | 5 | 2 | 1 (1,250 + 75 → "1,475") |
-| 2 | first | 8 | 2 | 1 |
+| 1 | first | 5 | 2 | 2 ("1,330", 1,250 + 75 → "1,475") |
+| 2 | first | 8 | 2 | 2 |
 | 3 | read first, totals from `code_run`; slips answered, not applied | 9 | 2 | 2 ("1,580", "1,275") |
 | 4 | the same | 10 | 2 | 0 |
 
@@ -95,7 +95,7 @@ What changed between runs 2 and 3, each from a turn seen failing:
 Still failing on the final wording:
 
 - **Sums.** The description asks for a new total from `code_run`; the 4B called it in none of
-  the four runs and wrote a wrong total in three of eight sum turns. The system prompt's
+  the four runs and wrote a wrong total in six of the eight turns that needed one. The system prompt's
   exact-results rule covers sums, and the loop's check for a sum from memory looks only at
   replies made without a tool, so it never sees a total inside `pdf.edit`'s arguments.
 - **"Payment is in three equal instalments instead of two"**: searched for, never edited, in
