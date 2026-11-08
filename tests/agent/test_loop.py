@@ -666,3 +666,54 @@ def test_a_reply_of_one_token_claims_no_speed(setup, monkeypatch):
     manager, project, _, _ = setup([text_reply("Yes.")])
     assert asyncio.run(turn(manager, project, "Is it signed?")) == "done"
     assert _done(manager, project)["tps"] is None  # nothing to time between tokens
+
+
+class _SayParams(BaseModel):
+    text: str
+
+
+ANSWER_TOOL = AgentTool(
+    name="demo.say",
+    description="Answer with the text as it stands.",
+    params=_SayParams,
+    run=lambda ctx, params: ToolResult("Shown to the person.", answer=params.text.upper()),
+)
+
+
+def test_a_tools_answer_is_the_reply_with_no_model_call_after_it(store):
+    handle = FakeHandle([tool_reply("demo_say", {"text": "добрий день"})])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, ANSWER_TOOL]))
+    project = store.create(LOCAL_USER, "Answers")
+
+    status, seen = asyncio.run(recorded(manager, project, "say it"))
+
+    assert status == "done"
+    assert len(handle.requests) == 1  # the model was asked once: for the call
+    assert transcript(store, project)[1:] == [
+        ("assistant", "", None),
+        ("tool", "Shown to the person.", "demo.say"),
+        ("assistant", "ДОБРИЙ ДЕНЬ", None),
+    ]
+    kinds = [e["type"] for e in seen]
+    assert kinds[kinds.index("tool_result") :] == [
+        "tool_result", "delta", "assistant", "done", "turn",
+    ]  # fmt: skip
+    assert next(e for e in seen if e["type"] == "delta")["text"] == "ДОБРИЙ ДЕНЬ"
+
+
+def test_two_calls_with_answers_make_one_reply(store):
+    calls = sse(
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "call_1", "type": "function",
+             "function": {"name": "demo_say", "arguments": '{"text": "one"}'}},
+            {"index": 1, "id": "call_2", "type": "function",
+             "function": {"name": "demo_say", "arguments": '{"text": "two"}'}}]}}]},
+        {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+    )  # fmt: skip
+    handle = FakeHandle([calls])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, ANSWER_TOOL]))
+    project = store.create(LOCAL_USER, "Answers")
+
+    assert asyncio.run(turn(manager, project, "say both")) == "done"
+    assert transcript(store, project)[-1] == ("assistant", "ONE\n\nTWO", None)
+    assert len(handle.requests) == 1

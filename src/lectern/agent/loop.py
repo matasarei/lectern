@@ -561,7 +561,10 @@ async def run_turn(run: TurnRun) -> str:
     checked = False
     try:
         if run.force is not None:
-            await _forced_call(run, failures, failed)
+            forced = await _forced_call(run, failures, failed)
+            if forced.answer:
+                await _answer(run, forced.answer)
+                return await _finish(run, started, time.perf_counter(), tps, tokens)
         while calls_left:
             calls_left -= 1
             history = await run_in_threadpool(load_history, run)
@@ -592,24 +595,8 @@ async def run_turn(run: TurnRun) -> str:
             run.stats["partial"] = ""  # stored
             run.emit({"type": "assistant", "message_id": message_id, "tool_calls": reply.calls})
             if not reply.calls:
-                run.emit(
-                    {
-                        "type": "done",
-                        "ttft": round(first_token - started, 3) if first_token else None,
-                        "tps": round(tps, 1) if tps else None,
-                        "tokens": tokens,
-                    }
-                )
-                try:
-                    await maybe_compact(run)
-                except asyncio.CancelledError:
-                    # Stop while old turns were being folded: the answer is stored and stands,
-                    # and the summary is made after a later turn. The task is no longer being
-                    # cancelled, and says so (a timeout or task group around it reads that).
-                    if (task := asyncio.current_task()) is not None:
-                        task.uncancel()
-                    run.emit({"type": "compaction_failed", "detail": "stopped"})
-                return "done"
+                return await _finish(run, started, first_token, tps, tokens)
+            answers: list[str] = []
             for call in reply.calls:
                 try:
                     result = await run_tool(run, call, failures, failed)
@@ -621,6 +608,12 @@ async def run_turn(run: TurnRun) -> str:
                     await _record(run, call, ToolResult(f"Error: {_unexpected(exc)}"))
                     raise
                 await _record(run, call, result)
+                if result.answer:
+                    answers.append(result.answer)
+            if answers:  # a tool gave the answer itself: it is the reply, as it stands
+                await _answer(run, "\n\n".join(answers))
+                first_token = first_token or time.perf_counter()
+                return await _finish(run, started, first_token, tps, tokens)
         raise TurnFailed(
             f"Stopped after {MAX_MODEL_CALLS} model calls without an answer. Ask again, "
             "or split the request."
@@ -655,6 +648,37 @@ async def run_turn(run: TurnRun) -> str:
         return "stopped"
 
 
+async def _finish(
+    run: TurnRun, started: float, first_token: float | None, tps: float | None, tokens: int
+) -> str:
+    """The turn has its answer: say so, and fold old turns into the summary if it's time."""
+    run.emit(
+        {
+            "type": "done",
+            "ttft": round(first_token - started, 3) if first_token else None,
+            "tps": round(tps, 1) if tps else None,
+            "tokens": tokens,
+        }
+    )
+    try:
+        await maybe_compact(run)
+    except asyncio.CancelledError:
+        # Stop while old turns were being folded: the answer is stored and stands, and the
+        # summary is made after a later turn. The task is no longer being cancelled, and says
+        # so (a timeout or task group around it reads that).
+        if (task := asyncio.current_task()) is not None:
+            task.uncancel()
+        run.emit({"type": "compaction_failed", "detail": "stopped"})
+    return "done"
+
+
+async def _answer(run: TurnRun, text: str) -> None:
+    """A tool's answer as the turn's reply: shown all at once and stored, as a held reply is."""
+    run.emit({"type": "delta", "text": text})
+    message_id = await run_in_threadpool(lambda: store_message(run, role="assistant", content=text))
+    run.emit({"type": "assistant", "message_id": message_id, "tool_calls": None})
+
+
 # --- a tool the person asked for directly ------------------------------------------------------
 
 FORCED_ARGUMENTS_TOKENS = 600
@@ -662,7 +686,7 @@ FORCED_ARGUMENTS_TOKENS = 600
 
 async def _forced_call(
     run: TurnRun, failures: dict[str, int], failed: dict[tuple[str, str], str]
-) -> None:
+) -> ToolResult:
     """The tool the person asked for with their message (`run.force`), run before the model
     answers: the model writes the arguments the person didn't give, held to the tool's schema;
     the call and its result go into the transcript like any other. `tool_choice` can't do this:
@@ -688,6 +712,7 @@ async def _forced_call(
     run.emit({"type": "assistant", "message_id": message_id, "tool_calls": [call]})
     result = await run_tool(run, call, failures, failed, forced=True)
     await _record(run, call, result)
+    return result
 
 
 async def _write_arguments(run: TurnRun, history: History, tool: AgentTool, given: dict) -> dict:

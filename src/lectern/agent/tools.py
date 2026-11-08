@@ -72,6 +72,10 @@ class ToolResult:
     cursor: str | None = None
     # Something for the page to do, such as {"type": "open_tab", "tab": {...}}.
     action: dict | None = None
+    # The turn's answer, word for word: shown and stored as the reply, and the turn ends with
+    # no further model call (a translation: the chat model would only copy it, after loading
+    # again on a small GPU, and might reword it).
+    answer: str | None = None
 
 
 @dataclass(frozen=True)

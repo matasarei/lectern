@@ -48,6 +48,7 @@ export-docx = "lectern.modules.export_docx:module"
 export-odt = "lectern.modules.export_odt:module"
 web = "lectern.modules.web:module"
 image = "lectern.modules.image:module"
+translate = "lectern.modules.translate:module"
 
 [dependency-groups]
 dev = [
