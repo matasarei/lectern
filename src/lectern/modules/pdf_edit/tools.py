@@ -53,10 +53,12 @@ def pdf_tools() -> list[AgentTool]:
         AgentTool(
             name="pdf.edit",
             description="Change words, numbers, dates or names in a PDF that has a text layer, "
-            "keeping its fonts, sizes and layout. Each edit replaces `find`, copied exactly "
-            "from one line of the PDF, with `replace`. Writes a new file "
-            '"<name> (edited).pdf"; the original stays. Only text within a line: not new '
-            "paragraphs, colours or fonts, and not a scan (OCR reads those).",
+            "keeping its fonts, sizes and layout. Read the PDF first (document_read) and copy "
+            "`find` from its text: the words there now, not the new ones. Each edit replaces "
+            "`find` with `replace`. A number the person didn't give, such as a new total, "
+            'comes from code_run first. Writes a new file "<name> (edited).pdf"; the '
+            "original stays. Only text within a line: not new paragraphs, colours or fonts, "
+            "and not a scan (OCR reads those).",
             params=EditParams,
             run=_edit,
             max_tokens=600,

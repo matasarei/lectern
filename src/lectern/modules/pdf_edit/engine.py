@@ -3,7 +3,8 @@
 
 A PDF has no words, only text objects: runs of glyphs, often a word or a few letters each,
 in a font that is usually a subset holding only the letters the document uses. An edit is
-found in PDFium's text page, where each character knows the object that draws it. The objects
+found in PDFium's text page, where each character knows the object that draws it (a `find`
+a letter or two off is answered with the exact text, not changed). The objects
 under it are replaced by one new object, at the first one's position and in its font, size,
 colour and render mode. When that font lacks a new letter, the installed copy of the same font
 (same PostScript name) is embedded, cut down to the letters needed; with neither, the edit is
@@ -33,7 +34,7 @@ import pypdfium2.raw as pdfium_c
 from lectern.modules.pdf_edit import fonts as font_index
 from lectern.projects.text import PDF_PAGE_MIN_CHARS, PDFIUM_LOCK
 
-CLOSE_ENOUGH = 0.9  # how alike a `find` and the PDF's text must be to count as a slip
+CLOSE_ENOUGH = 0.9  # how alike a `find` and the PDF's text must be to be named as meant
 COLUMN_GAP_EMS = 1.5  # a gap this wide (in the edited text's size) ends the text that moves
 MARGIN_SLACK_PT = 0.5
 ZERO_WIDTH_PT = 0.05  # a letter this narrow has no width in its font
@@ -180,7 +181,7 @@ class _Spot:
     line: int
     start: int
     end: int
-    found: str  # the text there, which may differ from `find` by a slip
+    found: str  # the text there
 
 
 def _quote(text: str) -> str:
@@ -238,6 +239,16 @@ class _Editor:
     def apply(self, edit: Edit) -> list[Change]:
         if not edit.find:
             raise EditFailed("`find` is empty.")
+        if edit.find == edit.replace:
+            raise EditFailed(
+                "`find` and `replace` are the same. `find` is the text the PDF has now; "
+                "`replace` is the new text."
+            )
+        if "\n" in edit.replace or "\r" in edit.replace:
+            raise EditFailed(
+                "`replace` has a line break. Text is changed within its line; a new line, "
+                "paragraph or clause can't be added to a PDF here."
+            )
         spots, notes = self._locate(edit)
         # The last place first, so an earlier place on the same line keeps its position.
         spots.sort(key=lambda s: (s.page, s.line, s.start), reverse=True)
@@ -285,7 +296,12 @@ class _Editor:
         if not edit.all:
             close = self._close_match(pages, edit.find)
             if close is not None:
-                return [close], [f"changed “{close.found}”, the closest text to “{edit.find}”"]
+                # Not applied: the model's `replace` is written from its own slip ("місто
+                # Львів" for "місті Київ"), and would put that slip into the document.
+                raise EditFailed(
+                    f"It isn't in the PDF exactly; page {close.page + 1} has “{close.found}”. "
+                    "Copy `find` exactly from there, and write `replace` to match it."
+                )
         raise EditFailed(self._not_found(pages, edit.find))
 
     def _several(self, spots: list[_Spot], find: str) -> str:

@@ -62,7 +62,45 @@ no processes (checked with grep, 16,067 lines).
 
 ## The language model
 
-Measured earlier in the plan (`.tasks/pdf-edit-in-place.md`): Qwen3.5-4B turned 13 requests
-into exact edits 10 times out of 13. Its misses were a `find` one letter off, a wrong sum, and a
-name transliterated. The tools' result for the chat loop is in the section below, once step 6
-has run.
+Before the tools existed, Qwen3.5-4B turned 13 requests into exact edits 10 times out of 13,
+given the agreement's lines numbered in its prompt (`.tasks/pdf-edit-in-place.md`). Through
+the chat, with `pdf.edit` and `pdf.fill`, it has to find and read the PDF itself:
+`lectern dev agent-check --set pdf`, on 2026-11-08, Qwen3.5-4B Q4_K_M (`/api/runtime`
+residents: `qwen3.5-4b`), `LECTERN_TIER=minimum` (context 8,192), llama.cpp b11236, Docker
+running (so `code_run` was there), cards answered Allow.
+
+| Run | Tool wording | Agreement edits (13) | Forms (2) | Sum written from memory |
+|---|---|---|---|---|
+| 1 | first | 5 | 2 | 1 (1,250 + 75 → "1,475") |
+| 2 | first | 8 | 2 | 1 |
+| 3 | read first, totals from `code_run`; slips answered, not applied | 9 | 2 | 2 ("1,580", "1,275") |
+| 4 | the same | 10 | 2 | 0 |
+
+**Target: at least 10 of 13, and no sum written unchecked. Met in one run of the two on the
+final wording.**
+
+What changed between runs 2 and 3, each from a turn seen failing:
+
+- **Blind guesses.** In runs 1–2 the model often called `pdf.edit` without reading the PDF,
+  guessing `find`: "Client" became "Petro Bondarenko" ("the Petro Bondarenko"), "Contractor"
+  was replaced everywhere, the new name was sent as `find`. The description now says to read
+  the PDF first and copy the words that are there now; most turns of runs 3–4 start with
+  `document_read`.
+- **A slip applied.** "місто Київ" → "місто Львів" matched "місті Київ" and wrote "у місто
+  Львів" into the document. A near match is now answered with the exact text instead.
+- **A clause as one line.** "Add a confidentiality clause" became a `replace` with line breaks
+  and 300 characters, 1,783 pt past the margin, saved because the card was answered Allow. A
+  `replace` with a line break is now refused; run 4's model then gave up without saving.
+
+Still failing on the final wording:
+
+- **Sums.** The description asks for a new total from `code_run`; the 4B called it in none of
+  the four runs and wrote a wrong total in three of eight sum turns. The system prompt's
+  exact-results rule covers sums, and the loop's check for a sum from memory looks only at
+  replies made without a tool, so it never sees a total inside `pdf.edit`'s arguments.
+- **"Payment is in three equal instalments instead of two"**: searched for, never edited, in
+  all four runs (twice it hit the 8-call limit).
+- **"Rename the contractor"** sometimes renames the word "Contractor" rather than the
+  company the agreement names as contractor.
+
+Forms filled right in every run.

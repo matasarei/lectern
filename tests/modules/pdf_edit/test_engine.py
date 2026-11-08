@@ -291,15 +291,16 @@ def _encrypted_pdf() -> bytes:
 # --- Matching `find` -------------------------------------------------------------------------
 
 
-def test_find_a_letter_off_changes_the_closest_text_and_says_which(
+def test_find_a_letter_off_is_answered_with_the_exact_text_and_not_changed(
     contract: Path, no_fonts: InstalledFonts
 ) -> None:
-    """The 4B wrote "місто Київ" for "місті Київ" (measured in the plan)."""
-    result = apply_edits(contract, [Edit("місто Київ", "місті Ківі")], fonts=no_fonts)
+    """The 4B wrote "місто Київ" → "місто Львів" for "місті Київ": applied, its slip went
+    into the document (agent-check, docs/acceptance/pdf-edit.md)."""
+    with pytest.raises(EditFailed) as failed:
+        apply_edits(contract, [Edit("місто Київ", "місто Ківі")], fonts=no_fonts)
 
-    [change] = result.changes
-    assert change.notes == ["changed “місті Київ”, the closest text to “місто Київ”"]
-    assert "у місті Ківі." in page_text(result.data)
+    assert "It isn't in the PDF exactly; page 1 has “місті Київ”." in str(failed.value)
+    assert "write `replace` to match it" in str(failed.value)
 
 
 def test_find_on_the_wrong_page_is_taken_from_the_page_it_is_on(
@@ -374,7 +375,11 @@ def test_find_across_two_lines_asks_for_one_edit_per_line(
     [
         (Edit("x", "y", page=9), "There is no page 9: the PDF has 1."),
         (Edit("", "y"), "`find` is empty."),
+        (Edit("Maria", "Maria"), "`find` and `replace` are the same."),
+        (Edit("Director", "Director\n\nConfidentiality: …"), "`replace` has a line break."),
+        (Edit("two", "two\r\nthree"), "`replace` has a line break."),
     ],
+    ids=["no such page", "empty find", "same", "a clause", "crlf"],
 )
 def test_impossible_edits_say_why(
     contract: Path, no_fonts: InstalledFonts, edit: Edit, message: str

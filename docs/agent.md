@@ -167,13 +167,16 @@ use these tools.
 `pdf.edit` changes text in a PDF that has a text layer and keeps its look (`modules/pdf_edit/`;
 why it's built on PDFium: [the engine trial](acceptance/pdf-edit.md)). The model gives edits,
 each a `find` copied from the PDF's text and its `replace`, with the page and whether to
-change every place:
+change every place. Its description asks it to read the PDF first and to take a new total
+from `code_run` (the system prompt has no room for a line of its own):
 
 - **Finding.** `find` is matched in PDFium's text page, where each character knows the text
   object that draws it, so a word split into pieces (kerning, one object per glyph) is found
-  whole. Exactly as given; else on another page if it's only there; else the one stretch of a
-  line within a letter or two, and the result says which text was changed. In several places
-  it needs `all`; not found, the error quotes the nearest lines. Text across a line break,
+  whole. Exactly as given, else on another page if it's only there. A `find` a letter or two
+  off is not changed but answered with the exact text, so the model writes `replace` from it
+  (applied, the model's slip went into the document: "у місто Львів"). In several places it
+  needs `all`; not found, the error quotes the nearest lines. Text across a line break, a
+  `replace` with a line break (a "clause" the 4B tried to add), `find` equal to `replace`,
   rotated text and scans are refused.
 - **Drawing.** The objects under the edit are replaced by one, at the first one's position, in
   its font, size, colour and render mode. A letter the PDF's subset font doesn't have (or has
