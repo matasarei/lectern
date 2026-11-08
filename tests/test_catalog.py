@@ -394,3 +394,91 @@ def test_the_shipped_image_models_are_permissive_and_pin_every_piece():
         assert entry.permissive and entry.format == "sd"
         assert entry.files.text_encoder.revision and entry.files.vae.revision
         assert entry.pin != entry.revision  # a newer pin of a piece is an update
+
+
+# --- translation models ----------------------------------------------------------------------
+
+
+def _translate_entry(**changes):
+    entry = {
+        "id": "test-translate",
+        "title": "Test translator",
+        "quant": "Q4_K_M",
+        "roles": ["translate"],
+        "format": "gguf",
+        "repo": "someone/test-translate-GGUF",
+        "revision": _REV,
+        "licence": "Apache-2.0",
+        "permissive": True,
+        "ctx": {"minimum": 4096},
+        "files": {"model": [{"path": "t.gguf", "size": 10, "sha256": _SHA}]},
+        "translate": {
+            "languages": ["en", "uk", "de"],
+            "prompt": "From {source} into {target}: {text}",
+        },
+    }
+    entry.update(changes)
+    return entry
+
+
+def test_a_translation_model_loads_with_its_languages_and_prompt():
+    entry = _with(_translate_entry()).get("test-translate")
+    assert entry.translate.covers("uk", "de")
+    assert not entry.translate.covers("uk", "ja")
+    assert entry.suits(Tier.MINIMUM)
+
+
+def test_every_shipped_translation_model_says_what_it_translates_and_is_no_default():
+    translators = catalog.load().choices_for("translate")
+    assert translators, "the catalog ships at least one translation model"
+    for entry in catalog.load().models:
+        assert (entry.translate is not None) == (entry in translators)
+    for entry in translators:
+        assert entry.defaults == {}
+        assert entry.translate.covers("en", "uk")
+
+
+def test_a_translation_model_needs_its_translate_block():
+    with pytest.raises(ValidationError, match="needs a `translate:` block"):
+        _with(_translate_entry(translate=None))
+
+
+def test_a_translate_block_on_a_chat_model_is_rejected():
+    raw = _raw()
+    chat = next(m for m in raw["models"] if m["id"] == "qwen3.5-4b")
+    chat["translate"] = _translate_entry()["translate"]
+    with pytest.raises(ValidationError, match="only a translation model has"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_a_translation_model_is_never_a_default_even_a_permissive_one():
+    with pytest.raises(ValidationError, match="picked per language"):
+        _with(_translate_entry(defaults={"translate": ["minimum"]}))
+
+
+def test_a_translation_model_has_only_its_role():
+    with pytest.raises(ValidationError, match="translate role only"):
+        _with(_translate_entry(roles=["translate", "main"]))
+
+
+def test_a_translation_model_is_a_gguf_model():
+    with pytest.raises(ValidationError, match="a GGUF model"):
+        _with(_translate_entry(format="mlx", replaces="qwen3.5-4b"))
+
+
+@pytest.mark.parametrize(
+    ("languages", "why"),
+    [(["en", "xx"], "without a name"), (["en", "uk", "en"], "listed twice"), (["en"], "at least")],
+)
+def test_a_translation_models_languages_are_named_and_listed_once(languages, why):
+    entry = _translate_entry()
+    entry["translate"] = {**entry["translate"], "languages": languages}
+    with pytest.raises(ValidationError, match=why):
+        _with(entry)
+
+
+def test_a_translation_prompt_needs_the_languages_and_the_text():
+    entry = _translate_entry()
+    entry["translate"] = {**entry["translate"], "prompt": "Translate into {target}"}
+    with pytest.raises(ValidationError, match=r"\{source\}, \{text\}"):
+        _with(entry)

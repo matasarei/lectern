@@ -366,3 +366,25 @@ models:
         recommended: {default: 1024, max_pixels: 1572864}
         comfortable: {default: 1024, max_pixels: 2097152}
     notes: "Stronger than FLUX.2 klein on photographs of people and on lettering, at twice the steps."
+
+  # Translation models: a language's own, picked by an admin on the Languages page for each
+  # language added there; never a default (catalog.py). Offered for a language only where
+  # catalog/translation_scores.yaml says it translates it better than this computer's chat model.
+  - id: salamandrata-2b
+    title: SalamandraTA 2B Instruct
+    quant: Q4_K_M
+    roles: [translate]
+    format: gguf
+    repo: BSC-LT/salamandraTA-2B-instruct-GGUF
+    revision: f8dd48ca1de2f65ec494a6d03f1005f8d509a738
+    licence: Apache-2.0
+    permissive: true
+    ctx: {below_minimum: 4096, minimum: 4096, recommended: 4096, comfortable: 4096}
+    files:
+      model:
+        - {path: salamandrata_2b_inst_q4.gguf, size: 1517617504, sha256: 15238732917ba7151857dbce6f8c547a0d1bbd77663508522ae2d6a788cee3a5}
+      mmproj: null
+    translate:
+      languages: [an, ast, bg, ca, cs, cy, da, de, el, en, es, et, eu, fi, fr, ga, gl, hr, hu, it, lt, lv, mt, nb, nl, nn, "no", oc, pl, pt, ro, ru, sk, sl, sr, sv, uk]
+      # The prompt from its model card. It translates only: no chat.
+      prompt: "Translate the following text from {source} into {target}.\n{source}: {text} \n{target}:"
