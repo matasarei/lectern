@@ -9,9 +9,11 @@ guard like every change), and opens it in a new tab: `/view/<ticket>`.
   being made. A new tab can't send the token header, so the ticket stands in for it, and only
   here: this path is outside /api, and nothing else is served under it.
 - The file is served with its own policy instead of Lectern's (`core.security.VIEW_CSP`):
-  `sandbox` without allow-scripts or allow-same-origin, so no script runs and the page has an
-  origin of its own that can't read Lectern's storage or cookies; its inline styles and data:
-  images apply, and nothing is loaded from anywhere else.
+  `sandbox allow-scripts` without allow-same-origin, so its scripts run as they would from
+  disk, in an origin of their own that can't read Lectern's storage or cookies; nothing is
+  loaded from any address, Lectern's included.
+- The tab is opened from a rel="noopener" link (the file tab), so it starts with none of
+  Lectern's session storage, where the token is kept.
 """
 
 from __future__ import annotations

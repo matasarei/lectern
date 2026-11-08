@@ -72,13 +72,22 @@ def test_an_html_file_opens_once_sandboxed_with_its_own_bytes(api):
     assert (again.status_code, again.text) == (404, GONE)
 
 
-def test_the_sandbox_lets_styles_through_and_nothing_else():
+def test_the_sandbox_runs_the_pages_own_scripts_and_reaches_nothing():
     rules = dict(rule.strip().partition(" ")[::2] for rule in VIEW_CSP.split(";"))
-    assert rules["sandbox"] == ""  # no allow-scripts, allow-same-origin, allow-forms…
-    assert rules["default-src"] == "'none'"
+    # Scripts run, in an origin of their own: no allow-same-origin, forms, popups or modals.
+    assert rules["sandbox"] == "allow-scripts"
+    assert rules["script-src"] == "'unsafe-inline' 'unsafe-eval'"
     assert rules["style-src"] == "'unsafe-inline'"
-    assert rules["img-src"] == "data:"
-    assert "script-src" not in rules
+    # Nothing is fetched from any address: fetch, XHR and WebSocket fall back to 'none'.
+    assert rules["default-src"] == "'none'"
+    assert "connect-src" not in rules
+    assert rules["img-src"] == "data: blob:"
+    assert rules["font-src"] == "data:"
+    assert rules["media-src"] == "data: blob:"
+    for name in ("http", "https:", "'self'", "*", "allow-same-origin"):
+        assert name not in VIEW_CSP
+    assert (rules["base-uri"], rules["form-action"]) == ("'none'", "'none'")
+    assert rules["frame-ancestors"] == "'none'"
 
 
 def test_a_link_not_opened_within_its_minute_has_expired(api, clock):
