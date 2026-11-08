@@ -58,7 +58,7 @@ session's Document, an export, a web page saved by the chat.
 - **Imports** go in by upload, up to 2 GB a file. Which files open in the browser and which
   download is in [Security](security.md#files-and-paths).
 - **Preview.** A file's tab shows it beside its details: text, code, JSON, XML and the like
-  as text; Markdown as Markdown; images; a PDF in the browser's own PDF viewer (up to
+  as text (UTF-8, or windows-1251 when it isn't UTF-8, as the chat reads it); Markdown as Markdown; images; a PDF in the browser's own PDF viewer (up to
   100 MB); a DOCX or ODT as Markdown, its headings, tables and lists kept (the first
   500,000 characters of a long one). An HTML file shows its source, and *Open as a page in a
   new tab* opens it on its own, as it would from disk: its scripts run, and the stylesheets,
