@@ -76,7 +76,7 @@ def test_the_sandbox_runs_the_pages_own_scripts_and_reaches_nothing():
     rules = dict(rule.strip().partition(" ")[::2] for rule in VIEW_CSP.split(";"))
     # Scripts run, in an origin of their own: no allow-same-origin, forms, popups or modals.
     assert rules["sandbox"] == "allow-scripts"
-    assert rules["script-src"] == "'unsafe-inline' 'unsafe-eval'"
+    assert rules["script-src"] == "'unsafe-inline' 'unsafe-eval' data:"
     assert rules["style-src"] == "'unsafe-inline'"
     # Nothing is fetched from any address: fetch, XHR and WebSocket fall back to 'none'.
     assert rules["default-src"] == "'none'"

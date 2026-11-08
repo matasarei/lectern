@@ -75,10 +75,11 @@ SECURITY_HEADERS = (
 # that can't read Lectern's storage or cookies, and whose requests Lectern's Origin check
 # refuses (Origin: null); no form, popup or modal. With no connect-src, default-src 'none'
 # stops fetch, XHR and WebSocket, so a page reaches neither the network nor Lectern's files:
-# what it links to in its project was put inside it before it was sent.
+# what it links to in its project was put inside it before it was sent (`projects.html_page`;
+# a script as a data: URL, so defer and async keep their timing).
 VIEW_PREFIX = "/view/"
 VIEW_CSP = (
-    "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; "
+    "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data:; "
     "style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; "
     "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 )
