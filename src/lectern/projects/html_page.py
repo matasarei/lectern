@@ -29,6 +29,7 @@ from urllib.parse import unquote, urlsplit
 
 FILE_LIMIT = 10 * 1024**2
 TOTAL_LIMIT = 25 * 1024**2
+PAGE_LIMIT = 10 * 1024**2  # a bigger page is sent as it is, not read into memory to parse
 
 STYLE = {".css": "text/css"}
 SCRIPT = {".js": "text/javascript", ".mjs": "text/javascript"}
