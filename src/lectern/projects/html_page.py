@@ -266,6 +266,8 @@ def _declared_encoding(head: bytes) -> str | None:
         return None
     try:
         name = codecs.lookup(match.group(1).decode("ascii")).name
+        # base64, zlib and the like are codecs but not text encodings (b"" isn't checked)
+        b"a".decode(name, errors="ignore")
     except (LookupError, UnicodeDecodeError):
         return None
     # As browsers do: Latin-1 and ASCII mean windows-1252, and a page that says UTF-16 in

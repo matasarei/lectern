@@ -205,3 +205,10 @@ def test_a_charset_given_as_http_equiv_is_replaced_too():
 def test_a_page_without_a_charset_is_read_as_a_browser_would(raw, text):
     out = inline_page(raw + b'<img src="logo.png">', Reader())
     assert out.decode("utf-8") == f'{text}<img src="{data("image/png", PNG)}">'
+
+
+@pytest.mark.parametrize("codec", ["base64", "hex", "zlib", "rot13", "uu"])
+def test_a_charset_that_isnt_a_text_encoding_is_read_as_no_charset(codec):
+    page = f'<meta charset="{codec}"><img src="logo.png"><p>Ї</p>'
+    out = inline_page(page.encode(), Reader()).decode("utf-8")
+    assert out == f'<meta charset="utf-8"><img src="{data("image/png", PNG)}"><p>Ї</p>'
