@@ -71,8 +71,8 @@ calls a tool, the held draft is dropped and the turn goes on from there. Measure
 The same goes for what a tool writes into the person's files. `artifact.write`, `pdf.edit` and
 `pdf.fill` declare what a call writes (`AgentTool.writes`). Before such a call runs, while the
 sandbox is offered, its text is read for numbers that no message of the person's, no tool
-result, no pin and no summary gave, nor the text it writes over (`pdf.edit`'s `find`); a
-numbered list's markers don't count. If there are any, the model is asked once a turn whether
+result, no pin, no summary and no file attached to the chat gave, nor the text it writes over
+(`pdf.edit`'s `find`); a numbered list's markers don't count. If there are any, the model is asked once a turn whether
 one is an exact result. If it then calls a tool, the draft call is dropped, never run or
 stored, and the model computes first; a total that came out of `code_run` is given, so its
 next call goes through. Otherwise the call runs as it was. Measurements:
