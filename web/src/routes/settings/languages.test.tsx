@@ -42,6 +42,7 @@ function option(
     notes: null,
     best: false,
     open_licence: false,
+    offered: true,
     score: id === "salamandrata-2b" ? 54 : 58.5,
     download: {
       model_id: id,
@@ -407,6 +408,38 @@ describe("Languages", () => {
     renderPage();
     expect((await row("uk")).getByTestId("option-help").textContent).toContain(
       "Scores 54 for translating to and from English (higher is better).",
+    );
+  });
+
+  it("keeps showing a language's model that is no longer offered, and lets it download again", async () => {
+    languages = languages.map((l) =>
+      l.code === "uk"
+        ? {
+            ...l,
+            options: [
+              option("salamandrata-2b", {
+                offered: false,
+                score: null,
+                download: {
+                  model_id: "salamandrata-2b",
+                  status: "failed",
+                  bytes_done: 0,
+                  bytes_total: GB,
+                  rate: 0,
+                  error: "Not enough disk space.",
+                },
+              }),
+            ],
+          }
+        : l,
+    );
+    renderPage();
+    const uk = await row("uk");
+    expect(uk.getByTestId("option-help").textContent).toContain("No longer offered on this computer");
+    expect(uk.getByTestId("option-help").textContent).not.toContain("Scores");
+    fireEvent.click(uk.getByRole("button", { name: "Download SalamandraTA 2B" }));
+    await waitFor(() =>
+      expect(sent[0]?.body).toEqual({ model_id: "salamandrata-2b", accept_licence: false }),
     );
   });
 });

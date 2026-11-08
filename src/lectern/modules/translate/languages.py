@@ -116,7 +116,8 @@ def scores() -> dict[str, dict[str, float]]:
 
 def chat_model(runtime) -> CatalogEntry | None:  # noqa: ANN001
     """The chat model this computer translates with when a language has no model of its own:
-    the one chosen for the chat, else the tier's."""
+    the one chosen for the chat, else the tier's. Its GGUF entry even where the chat runs on
+    its MLX build: the same weights in another format, measured as the GGUF."""
     chosen = getattr(runtime, "chosen_models", None)
     try:
         return pick("main", runtime.tier, chosen() if chosen else None)[1]
@@ -129,7 +130,7 @@ class Option:
     """A model a language can be given on this computer, and why one might pick it."""
 
     entry: CatalogEntry
-    score: float  # chrF, into and out of English, from the scores file
+    score: float | None  # chrF, into and out of English, from the scores file
     best: bool  # the best results of the options
     open_licence: bool  # the best of the permissively licensed ones
 
@@ -142,6 +143,11 @@ def covered() -> list[str]:
         for code in entry.translate.languages
     }
     return sorted(codes)
+
+
+def score_of(model_id: str, code: str) -> float | None:
+    """How well a model translates `code`; None when that wasn't measured."""
+    return scores().get(model_id, {}).get(code)
 
 
 def chat_score(code: str, chat: CatalogEntry | None) -> float | None:

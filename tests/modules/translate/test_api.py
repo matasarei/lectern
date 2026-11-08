@@ -214,3 +214,33 @@ def test_someone_not_signed_in_gets_nothing(app):
     stranger = TestClient(app, base_url=WEB, headers={"Origin": WEB})
     assert stranger.get("/api/languages").status_code == 401
     assert stranger.put("/api/languages/uk", json={"model_id": SALAMANDRA}).status_code == 401
+
+
+def test_a_languages_model_no_longer_offered_still_shows_and_can_download_again(app, monkeypatch):
+    from lectern.modules.translate import languages
+
+    client = _local(app)
+    client.put("/api/languages/uk", json={"model_id": SALAMANDRA})
+    # The chat model is measured better now: nothing is offered for Ukrainian any more.
+    measured = languages.scores()
+    better_chat = {**measured, "qwen3.5-4b": dict.fromkeys(measured["qwen3.5-4b"], 99.0)}
+    monkeypatch.setattr(languages, "scores", lambda: better_chat)
+
+    ukrainian = _language(client.get("/api/languages").json(), "uk")
+    [kept] = ukrainian["options"]
+    assert (kept["id"], kept["offered"], kept["best"], kept["score"]) == (
+        SALAMANDRA,
+        False,
+        False,
+        60.0,
+    )
+    again = client.put("/api/languages/uk", json={"model_id": SALAMANDRA})
+    assert again.status_code == 200
+    assert app.state.started == [SALAMANDRA, SALAMANDRA]
+    other = client.put("/api/languages/uk", json={"model_id": "hy-mt2-1.8b"})
+    assert other.status_code == 409  # a model it never had still has to be on offer
+
+
+def test_options_on_offer_say_so(app):
+    options = _language(_local(app).get("/api/languages").json(), "uk")["options"]
+    assert all(o["offered"] for o in options)

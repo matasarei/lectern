@@ -214,12 +214,16 @@ export interface LanguageOption {
   licence_notice: boolean;
   /** What the licence limits, in a sentence; null for an open licence. */
   notes: string | null;
-  /** chrF into and out of English, measured (`lectern dev translate-check`): higher is better. */
-  score: number;
+  /** chrF into and out of English, measured (`lectern dev translate-check`): higher is better.
+   * Null: not measured for this language (a model the language has, no longer offered). */
+  score: number | null;
   /** The best results of the options. */
   best: boolean;
   /** The best of the options with an open licence. */
   open_licence: boolean;
+  /** False: the language's own model, no longer offered on this computer (the chat model, the
+   * tier or the scores changed). It is still the language's, and can be downloaded again. */
+  offered: boolean;
   download: DownloadState;
 }
 

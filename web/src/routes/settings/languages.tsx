@@ -26,7 +26,10 @@ const LIST = ["languages"];
 /** The option a new row starts on: the best with an open licence, so a restricted model is
  * only ever taken with a click; the best of them when none has one. */
 function startingOption(language: Language): LanguageOption | undefined {
-  return language.options.find((o) => o.open_licence) ?? language.options[0];
+  return (
+    language.options.find((o) => o.open_licence) ??
+    language.options.find((o) => o.offered)
+  );
 }
 
 /** Settings › Languages: the languages added for translation, each with the model it
@@ -392,11 +395,16 @@ function Help({
       {option.best && (
         <span className="block">{t("languagesPage.bestWhy")}</span>
       )}
-      <span className="block">
-        {chatScore === null
-          ? t("languagesPage.score", { score: option.score })
-          : t("languagesPage.scoreVsChat", { score: option.score, chat: chatScore })}
-      </span>
+      {!option.offered && (
+        <span className="block">{t("languagesPage.notOffered")}</span>
+      )}
+      {option.score !== null && (
+        <span className="block">
+          {chatScore === null
+            ? t("languagesPage.score", { score: option.score })
+            : t("languagesPage.scoreVsChat", { score: option.score, chat: chatScore })}
+        </span>
+      )}
       {option.licence_notice ? (
         <span className="block">
           {t("languagesPage.restrictedWhy", { licence: option.licence })}

@@ -25,6 +25,7 @@ from lectern.modules.translate.languages import (
     covered,
     language_model,
     options,
+    score_of,
 )
 
 router = APIRouter()
@@ -39,7 +40,7 @@ class LanguageChoice(BaseModel):
     accept_licence: bool = False
 
 
-def _option(option: Option, request: Request) -> dict:
+def _option(option: Option, request: Request, *, offered: bool = True) -> dict:
     entry = option.entry
     downloads = request.app.state.downloads
     return {
@@ -49,11 +50,28 @@ def _option(option: Option, request: Request) -> dict:
         "licence": entry.licence,
         "licence_notice": entry.licence_notice,
         "notes": entry.notes,
-        "score": round(option.score, 1),  # chrF, into and out of English
+        # chrF, into and out of English; None: not measured for this language
+        "score": round(option.score, 1) if option.score is not None else None,
         "best": option.best,
         "open_licence": option.open_licence,
+        # False: the language's own model, no longer one this computer is offered (the chat
+        # model, the tier or the scores changed). It stays the language's, and can download.
+        "offered": offered,
         "download": downloads.state(entry).to_dict(),
     }
+
+
+def _kept(code: str, ids: tuple[str | None, ...], offered: list[Option]) -> list[Option]:
+    """The language's own models (its model, and the one before it) that aren't among the
+    options any more: shown with them, so the row still says how they stand."""
+    shown = {o.entry.id for o in offered}
+    models = catalog.load()
+    kept = []
+    for model_id in dict.fromkeys(i for i in ids if i and i not in shown):
+        entry = models.get(model_id)
+        if entry is not None and entry.translate is not None:
+            kept.append(Option(entry, score_of(entry.id, code), best=False, open_licence=False))
+    return kept
 
 
 @router.get("/languages")
@@ -73,7 +91,13 @@ def list_languages(request: Request) -> dict:
                 "code": code,
                 # None: not added. `previous` translates until `model` is on disk.
                 "added": {"model": model, "previous": previous} if model else None,
-                "options": [_option(o, request) for o in offered],
+                "options": [
+                    *(_option(o, request) for o in offered),
+                    *(
+                        _option(o, request, offered=False)
+                        for o in _kept(code, (model, previous), offered)
+                    ),
+                ],
                 # How well the chat model translates it, which an option beats; None: not
                 # measured.
                 "chat_score": round(measured, 1) if measured is not None else None,
@@ -86,7 +110,7 @@ def list_languages(request: Request) -> dict:
 async def add_language(code: str, body: LanguageChoice, request: Request) -> dict:
     """Add a language with the model picked for it, or give an added one another model, and
     start that model's download. The one it had translates until the new one is on disk."""
-    entry = _offered(code, body.model_id, chat_model(request.app.state.runtime))
+    entry = _offered(code, body.model_id, chat_model(request.app.state.runtime), request)
     if entry.licence_notice and not body.accept_licence:
         raise HTTPException(
             409,
@@ -114,13 +138,17 @@ def _named(code: str) -> str:
     return LANGUAGE_NAMES.get(code, code)
 
 
-def _offered(code: str, model_id: str, chat: CatalogEntry | None) -> CatalogEntry:
+def _offered(code: str, model_id: str, chat: CatalogEntry | None, request: Request) -> CatalogEntry:
+    """The model asked for, if the language can be given it: one of its options, or the model
+    it has already (or had), which can always be downloaded again."""
     if code not in covered():
         raise HTTPException(404, f"No translation model translates {code!r}.")
     entry = catalog.load().get(model_id)
     if entry is None:
         raise HTTPException(404, f"No model {model_id!r} in the catalog.")
-    if entry.id not in {o.entry.id for o in options(code, effective_tier(probe()), chat)}:
+    own = next((ids for c, *ids in added_languages(_sessions(request)) if c == code), [])
+    on_offer = {o.entry.id for o in options(code, effective_tier(probe()), chat)}
+    if entry.translate is None or (entry.id not in on_offer and entry.id not in own):
         raise HTTPException(409, f"{entry.title} isn't one of the models for {_named(code)} here.")
     return entry
 

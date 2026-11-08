@@ -637,6 +637,7 @@
     "removeLanguage": "Remove {{language}}",
     "score": "Scores {{score}} for translating to and from English (higher is better).",
     "scoreVsChat": "Scores {{score}} for translating to and from English, where the chat model scores {{chat}} (higher is better).",
-    "untested": "Not tested on this computer yet, so no model is offered for them: {{languages}}."
+    "untested": "Not tested on this computer yet, so no model is offered for them: {{languages}}.",
+    "notOffered": "No longer offered on this computer: the chat model translates this language as well now, or the model is more than this computer is meant for. It still translates for this language."
   }
 }
