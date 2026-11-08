@@ -102,3 +102,27 @@ this say in English? «…»" itself. The tool now tells Ukrainian and Russian a
 letters, its `source` field says whose language it is, and the refusal says what to give
 instead. "What does this say in English?" is still answered without the tool in every run:
 it reads like asking what a word means, which mustn't call it.
+
+## Part 3: the page and the chat in a browser
+
+Chrome on the MacBook Pro above, a scratch server on the minimum tier (2026-11-08):
+- **Settings › Languages**, opened from Models & memory's header: Czech and Spanish in "Add a
+  language"; the languages measured with no better model, and those not tested yet, each in a
+  line under it. (The first version said every language without an option was as good on the
+  chat model, the untested ones too: fixed.)
+- **Adding Spanish**: a new row on SalamandraTA 2B (its only option, so no dropdown), with
+  its help (best results, 60.2 against the chat model's 58.6, open licence). Nothing was sent
+  before **Download**; after it, the row said Downloaded (the model was on disk) with Remove.
+- **At 390 px wide**: nothing wider than the page; the dropdown capped at 192 px; the table
+  inside its card.
+- **The chat**: "Traduce al inglés: …" was translated by SalamandraTA 2B
+  (`translate@salamandrata-2b` among the runtime's residents) and its translation was the
+  reply as it stands. "Translate into Czech: …" was translated by the chat model, with
+  "Czech gets better translations from a model made for translation. Add Czech in Languages."
+  under the tool's line; after reloading the page it was still there.
+
+Not checked in the browser: a restricted model's licence acceptance and changing a model
+(no restricted option and no second option on the minimum tier with these scores; both are
+in the page's tests), download progress (the models were on disk), and a member's view
+(in the page's tests and the API's).
+
