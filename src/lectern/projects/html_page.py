@@ -56,6 +56,9 @@ CSS_URL = re.compile(r"""url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s'"]*))\s*\)""", re
 # <meta charset=x> and <meta http-equiv=content-type content="…; charset=x">
 META_CHARSET = re.compile(rb"<meta[^>]*?charset\s*=\s*[\"']?\s*([\w.:-]+)", re.IGNORECASE)
 STYLE_END = re.compile(r"</(style)", re.IGNORECASE)
+# one candidate in a srcset, as browsers split it: the URL runs to whitespace (commas and all,
+# as in a data: URL) less any commas that end it, then the descriptor runs to the next comma
+SRCSET_CANDIDATE = re.compile(r"([^\s,](?:\S*[^\s,])?)(?:,+|\s+([^,]*))?")
 # an attribute's name, as written, in a start tag after its tag name
 ATTR_NAME = re.compile(r"""[\s/]*([^\s/>"'=]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?""")
 UTF8_META = '<meta charset="utf-8">'
@@ -210,8 +213,7 @@ class _Page(HTMLParser):
 
     def _srcset(self, srcset: str) -> str | None:
         candidates, changed = [], False
-        for candidate in srcset.split(","):
-            url, _, descriptor = candidate.strip().partition(" ")
+        for url, descriptor in SRCSET_CANDIDATE.findall(srcset):
             inlined = self._files.data_url("", url, IMAGE)
             changed = changed or inlined is not None
             candidates.append(" ".join(filter(None, [inlined or url, descriptor.strip()])))

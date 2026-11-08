@@ -221,3 +221,10 @@ def test_a_tag_it_changes_keeps_its_names_as_written():
     assert inline(page) == (
         f'<svg viewBox="0 0 9 9"><linearGradient ID="g" style="fill:url({url})" /></svg>'
     )
+
+
+def test_a_srcset_is_split_as_a_browser_splits_it():
+    # A URL runs to whitespace, commas and all; a comma ends one only where it ends the URL.
+    given = "data:image/png;base64,AAAA 1x, logo.png 2x,gone.png"
+    put = f"data:image/png;base64,AAAA 1x, {data('image/png', PNG)} 2x, gone.png"
+    assert inline(f'<img srcset="{given}">') == f'<img srcset="{put}">'
