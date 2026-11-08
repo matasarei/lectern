@@ -168,35 +168,31 @@ describe("File tab", () => {
     expect(requested).toEqual([]);
   });
 
-  it("opens an HTML file as a page in a new tab, opened before the link is asked for", async () => {
-    const order: string[] = [];
-    const tab = { opener: {} as unknown, location: { assign: vi.fn((u: string) => order.push(`assign ${u}`)) }, close: vi.fn() };
-    vi.stubGlobal("open", vi.fn(() => (order.push("open"), tab)));
+  it("opens an HTML file from a link of its own, in a tab that starts with nothing of this one's", async () => {
+    vi.stubGlobal("open", vi.fn());
     renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
-    await waitFor(() => expect(tab.location.assign).toHaveBeenCalled());
-    expect(order).toEqual(["open", `assign ${window.location.origin}/view/tkt`]);
-    expect(tab.opener).toBeNull();
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    expect(link.getAttribute("href")).toBe("/view/tkt");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(requested).toContain("/api/projects/1/artifacts/4/view");
-    expect(tab.close).not.toHaveBeenCalled();
+    expect(window.open).not.toHaveBeenCalled();
   });
 
-  it("closes the new tab and says why when the link can't be had", async () => {
-    const tab = { opener: null, location: { assign: vi.fn() }, close: vi.fn() };
-    vi.stubGlobal("open", vi.fn(() => tab));
+  it("asks for a new link once one has been used", async () => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    const asked = () => requested.filter((u) => u.endsWith("/4/view")).length;
+    const before = asked();
+    link.addEventListener("click", (e) => e.preventDefault()); // jsdom doesn't open tabs
+    fireEvent.click(link);
+    await waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
+  it("says why, and offers no link, when one can't be had", async () => {
     renderFile(artifact({ id: 10, name: "page.html", mime: "text/html", preview: "html" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
     expect(await screen.findByText("No such file.")).toBeTruthy();
-    expect(tab.close).toHaveBeenCalled();
-    expect(tab.location.assign).not.toHaveBeenCalled();
-  });
-
-  it("says so when the browser blocks the new tab", async () => {
-    vi.stubGlobal("open", vi.fn(() => null));
-    renderFile(artifact({ name: "page.html", mime: "text/html", preview: "html" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
-    expect(await screen.findByText(/didn't open a new tab/)).toBeTruthy();
-    expect(requested).not.toContain("/api/projects/1/artifacts/4/view");
+    expect(screen.queryByRole("link", { name: "Open as a page in a new tab" })).toBeNull();
   });
 
   it("shows a DOCX or ODT as the Markdown the server made of it", async () => {
