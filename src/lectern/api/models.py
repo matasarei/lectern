@@ -86,7 +86,7 @@ def list_models(request: Request) -> dict:
                 "repo": m.repo,
                 "format": m.format,
                 "replaces": m.replaces,  # an MLX build: the model it stands in for
-                "suits_tier": tier in m.ctx,  # listed for this computer's tier
+                "suits_tier": m.suits(tier),  # listed for this computer's tier
                 "download": downloads.state(m).to_dict(),
                 "installed": _installed(downloads, m),  # None: nothing of it on disk
                 "used_by": used_by(m),

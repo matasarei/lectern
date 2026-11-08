@@ -6,7 +6,7 @@ of its own and talks to it over HTTP on `127.0.0.1`.
 ```mermaid
 flowchart TB
   UI["Web UI · React"] -- "REST, event streams, WebSockets" --> API["FastAPI app"]
-  API --> MODS["Modules: sandbox · ocr · export-md/docx/odt · web"]
+  API --> MODS["Modules: sandbox · ocr · export-md/docx/odt · web · image"]
   API --> AGENT["Chat agent loop"]
   AGENT --> MODS
   MODS --> OCRJOB["OCR job worker"]
@@ -15,6 +15,7 @@ flowchart TB
   RT --> LS["llama-server · CUDA / Vulkan / Metal / CPU"]
   RT -.-> MLX["mlx_lm.server · Apple Silicon"]
   MODS --> BOX["Podman or Docker · the script sandbox"]
+  MODS --> SD["sd-cli · one per picture"]
   API --> DB[("lectern.sqlite + project folders")]
 ```
 
@@ -54,7 +55,8 @@ flowchart TB
 Two kinds, each migrated in-process on start by its own Alembic tree:
 
 - **The app database**, `<data>/lectern.sqlite` (`core/tables.py`,
-  `src/lectern/migrations/`): users and logins, settings, projects, downloads.
+  `src/lectern/migrations/`): users and logins, settings, projects, downloads, and how long
+  this computer took for its last pictures (`image_timings`).
 - **Each project's database**, `<project>/.lectern/project.sqlite` (`projects/tables.py`,
   `src/lectern/project_migrations/`): sessions and their messages, confirmations, files and
   where they came from, script runs, chat state (pins, summary, follow-ups), open tabs, OCR
@@ -67,7 +69,7 @@ a database: it's `catalog/models.yaml`, shipped with the code.
 
 A module is a Python package registered under the `lectern.modules` entry point
 (`pyproject.toml`); one that fails to load is logged and skipped. The built-in ones are
-`sandbox`, `ocr`, `export-md`, `export-docx`, `export-odt` and `web`. The contract
+`sandbox`, `ocr`, `export-md`, `export-docx`, `export-odt`, `web` and `image`. The contract
 (`modules/__init__.py`):
 
 ```python
@@ -81,7 +83,8 @@ class Module(Protocol):
 `tools()` is called for every chat turn with what the install has (`ToolEnv`: whether a
 sandbox engine answers, whether web search is on and its key), so a module offers only the
 tools that can work. An `AgentTool` has a name, a description, a pydantic model for its
-arguments, whether it asks first, the text of its card, and its result's token limit
+arguments, whether it asks first, the text of its card and the fields on it, whether the
+person can ask for it directly (`forced_question`), and its result's token limit
 (`agent/tools.py`).
 
 An export module returns exporters (`documents/export.py`):

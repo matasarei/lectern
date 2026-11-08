@@ -137,7 +137,7 @@ def _keep_what_is_installed(sessions, downloads: DownloadManager, tier: Tier) ->
         if choice is not None or default is None or on_disk(default):
             continue
         installed = [
-            m for m in models.choices_for(role) if m.permissive and tier in m.ctx and on_disk(m)
+            m for m in models.choices_for(role) if m.permissive and m.suits(tier) and on_disk(m)
         ]
         if installed:
             kept[role] = max(installed, key=lambda m: m.size).id

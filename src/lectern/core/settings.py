@@ -27,6 +27,7 @@ MODEL_DEFAULTS: dict[str, Any] = {
     "ocr": None,
     "ocr.hand": None,
     "code": None,
+    "image": None,
     CLEANUP: None,
 }
 WEB_KEY = "web"

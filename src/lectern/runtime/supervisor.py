@@ -19,6 +19,11 @@ for the role's model, loading it first if needed. Rules:
 - On a GPU that shares system RAM, a model is fitted to the RAM that can be spared at that
   moment, read at each load: an idle model goes first, and one that can't fit is refused.
 
+`async with runtime.reserve("image", need, Priority.CHAT):` is room without a runner, for work
+that runs a process of its own for a moment (an image: sd-cli). It waits in the same queue by
+the same rules, unloads idle models to make room the same way, counts against the budget while
+held, and holds no process: whatever ran in it has exited when it ends.
+
 One asyncio.Condition guards all of it. Loading happens with the lock held: there is one GPU,
 so loads are serial anyway.
 """
@@ -34,7 +39,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx2
 
@@ -44,6 +49,7 @@ from lectern.runners.base import Runner, RunnerHandle, RunnerSpec
 from lectern.runtime import planner
 
 log = logging.getLogger(__name__)
+T = TypeVar("T")
 
 CHAT_IDLE_RESUME = 120.0  # seconds the chat is idle before a job may unload it (docs/models.md)
 GIB = 1024**3
@@ -100,6 +106,15 @@ class Lease:
     plan: planner.FitPlan
 
 
+@dataclass
+class Reservation:
+    """Room held for work that runs its own process (`reserve`)."""
+
+    role: str
+    model_id: str
+    bytes: int
+
+
 class ModelRuntime:
     def __init__(
         self,
@@ -132,6 +147,7 @@ class ModelRuntime:
         self.events = EventHub()
         self.swaps = 0
         self._residents: dict[str, Resident] = {}  # by role
+        self._reserved: dict[str, Reservation] = {}  # by role: room held without a runner
         self._crashed: set[str] = set()
         self._queue: list[tuple[int, int]] = []  # (priority, ticket), served in sorted order
         self._tickets = itertools.count()
@@ -172,7 +188,9 @@ class ModelRuntime:
     # --- reporting ---------------------------------------------------------------------------
 
     def resident_bytes(self, *, excluding: str | None = None) -> int:
-        return sum(r.bytes for role, r in self._residents.items() if role != excluding)
+        """What the loaded models and the room held for other work take of the budget."""
+        held = sum(r.bytes for r in self._reserved.values())
+        return held + sum(r.bytes for role, r in self._residents.items() if role != excluding)
 
     def state(self) -> dict:
         for role, resident in list(self._residents.items()):
@@ -203,12 +221,18 @@ class ModelRuntime:
                 }
                 for role, r in self._residents.items()
             ],
+            "reserved": [
+                {"role": r.role, "model_id": r.model_id, "bytes": r.bytes}
+                for r in self._reserved.values()
+            ],
         }
 
     def needs_room(self, role: str) -> bool:
         """Loading the role's model now would unload another one (a swap). False when it's
         already loaded, when nothing else is, or when it fits beside what is."""
-        if (role in self._residents and role not in self._crashed) or not self._residents:
+        if role in self._residents and role not in self._crashed:
+            return False
+        if not self._residents and not self._reserved:
             return False
         choice = self.resolve(role)
         try:
@@ -339,8 +363,18 @@ class ModelRuntime:
         """`since`: when the job asking started (by `clock`), so a page of a job that
         began before the person's last message waits for the chat, and one the chat itself
         started doesn't. Defaults to now."""
-        resident = await self._acquire(role, priority, since)
         chat = priority is Priority.CHAT
+
+        async def admit() -> Resident | None:
+            resident = await self._try_admit(role, chat=chat)
+            if resident is not None:
+                resident.leases += 1
+                if chat and self._turns:
+                    self._turn_models.add(role)
+                self._emit("lease", role=role, model_id=resident.choice.model_id)
+            return resident
+
+        resident = await self._acquire(role, priority, since, admit, lambda: self.needs_room(role))
         self._chat_leases += chat
         client = resident.handle.client()
         try:
@@ -362,7 +396,17 @@ class ModelRuntime:
                     await self._unload(role, reason="changed")
                 self._cond.notify_all()
 
-    async def _acquire(self, role: str, priority: Priority, since: float | None) -> Resident:
+    async def _acquire(
+        self,
+        role: str,
+        priority: Priority,
+        since: float | None,
+        admit: Callable[[], Awaitable[T | None]],
+        needs_room: Callable[[], bool],
+    ) -> T:
+        """Wait in the queue, chat first, then by arrival, for `admit` (called with the lock
+        held, at the head of the queue) to give something rather than None. `needs_room`: what
+        is wanted would unload another model, for a job's wait for the chat."""
         ticket = (int(priority), next(self._tickets))
         since = self.clock() if since is None else since
         async with self._cond:
@@ -372,7 +416,8 @@ class ModelRuntime:
                 waited = False
                 while True:
                     head = self._queue[0] == ticket
-                    hold = self._job_hold(role, since) if head and priority is Priority.JOB else 0
+                    job = head and priority is Priority.JOB
+                    hold = self._job_hold(since, needs_room) if job else 0
                     if hold > 0:
                         until_reply = hold == float("inf")
                         self._held = {
@@ -389,13 +434,9 @@ class ModelRuntime:
                         self._held = None
                         self._skip_hold = False
                     if head:
-                        resident = await self._try_admit(role, chat=priority is Priority.CHAT)
-                        if resident is not None:
-                            resident.leases += 1
-                            if priority is Priority.CHAT and self._turns:
-                                self._turn_models.add(role)
-                            self._emit("lease", role=role, model_id=resident.choice.model_id)
-                            return resident
+                        admitted = await admit()
+                        if admitted is not None:
+                            return admitted
                     if not waited:
                         self._emit("wait", role=role, priority=priority.name.lower())
                         waited = True
@@ -409,21 +450,88 @@ class ModelRuntime:
     def job_hold(self, role: str, since: float | None = None) -> float:
         """How long a job lease on `role` would wait for the chat now: 0, inf (until the reply
         being written ends), or seconds of the idle window. For the OCR tab's status."""
-        return self._job_hold(role, self.clock() if since is None else since)
+        since = self.clock() if since is None else since
+        return self._job_hold(since, lambda: self.needs_room(role))
 
-    def _job_hold(self, role: str, since: float) -> float:
+    def _job_hold(self, since: float, needs_room: Callable[[], bool]) -> float:
         """With the lock held. How long a job's lease on `role` must still wait for the chat,
         only when loading it would unload another model: until the reply being written ends
         (inf), and then, only if the person wrote after the job started, until the chat has
         been quiet for chat_idle_resume seconds. A chat-started job doesn't wait for its own
         chat's quiet time; a chat reply's model calls aren't split by a swap."""
-        if self.chat_idle_resume <= 0 or self._skip_hold or not self.needs_room(role):
+        if self.chat_idle_resume <= 0 or self._skip_hold or not needs_room():
             return 0.0
         if self._chat_active():
             return float("inf")
         if self._last_message_at is None or self._last_message_at <= since:
             return 0.0
         return max(0.0, self.chat_idle_resume - self.chat_idle_seconds())
+
+    # --- room without a runner ---------------------------------------------------------------
+
+    @contextlib.asynccontextmanager
+    async def reserve(
+        self,
+        role: str,
+        need_bytes: int,
+        priority: Priority = Priority.JOB,
+        *,
+        since: float | None = None,
+        model_id: str = "",
+    ) -> AsyncIterator[Reservation]:
+        """Hold `need_bytes` of the budget for work that runs a process of its own (sd-cli for
+        an image), unloading idle models to make room as a lease would, least recently used
+        first, each a swap. Waits in the same queue; a model in use is never unloaded. Raises
+        NotAvailable when even an empty GPU couldn't hold it. The room is given back however
+        the work ends; what ran in it must have exited by then."""
+        if need_bytes > self.budget:
+            raise NotAvailable(
+                f"This needs about {need_bytes / GIB:.1f} GB of GPU memory, and Lectern has "
+                f"{self.budget / GIB:.1f} GB to use."
+            )
+
+        async def admit() -> Reservation | None:
+            return await self._try_reserve(role, need_bytes, model_id)
+
+        held = await self._acquire(
+            role, priority, since, admit, lambda: not self._fits_beside(need_bytes)
+        )
+        try:
+            yield held
+        finally:
+            async with self._cond:
+                if self._reserved.get(role) is held:
+                    del self._reserved[role]
+                self._emit("release", role=role, model_id=model_id)
+                self._cond.notify_all()
+
+    def _fits_beside(self, need: int) -> bool:
+        """`need` more bytes fit beside what is loaded and held: within the budget, and on a
+        GPU sharing system RAM within what can be spared."""
+        used = self.resident_bytes()
+        spare = self._spare_ram()
+        return used + need <= self.budget and (spare is None or used + need <= spare)
+
+    async def _try_reserve(self, role: str, need: int, model_id: str) -> Reservation | None:
+        """With the lock held. The room, made by unloading idle models if need be, or None to
+        wait for a model in use, or for room another reservation holds."""
+        if role in self._reserved:
+            return None  # one at a time per role: the second waits for the first to end
+        while not self._fits_beside(need):
+            victim = self._least_recently_used_idle()
+            if victim is None:
+                if not self._residents and not self._reserved:
+                    raise NotAvailable(
+                        f"This needs about {need / GIB:.1f} GB, more than this computer can "
+                        "spare now. Closing some apps may help."
+                    )
+                return None
+            await self._unload(victim, reason="make room")
+            self.swaps += 1
+        held = Reservation(role, model_id, need)
+        self._reserved[role] = held
+        self._emit("reserved", role=role, model_id=model_id, bytes=need)
+        return held
 
     async def _try_admit(self, role: str, *, chat: bool) -> Resident | None:
         """With the lock held. The role's resident, or a newly loaded one, or None to wait."""
@@ -458,7 +566,9 @@ class ModelRuntime:
             except planner.DoesNotFit as exc:
                 raise NotAvailable(str(exc)) from exc
             short = self._commit_short(plan) if plan.coresident else None
-            if (plan.coresident and short is None) or not self._residents:
+            # Alone on the GPU it loads however it fits; beside room held for other work, it
+            # waits for that room as it would for a model in use.
+            if (plan.coresident and short is None) or not (self._residents or self._reserved):
                 return await self._load(role, choice, plan)
             victim = self._least_recently_used_idle()
             if victim is None and short is not None:

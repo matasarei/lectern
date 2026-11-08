@@ -1,9 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useId, useRef, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
-import type { Artifact, Chat, ChatMessage, ProjectItems, Tab, ToolCall, ToolRef } from "../api/types";
+import type {
+  Artifact,
+  CardField,
+  Chat,
+  ChatMessage,
+  ProjectItems,
+  Tab,
+  ToolCall,
+  ToolRef,
+} from "../api/types";
 import { uploadFile } from "../api/upload";
 import { ErrorNote } from "../components";
 import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
@@ -16,6 +26,8 @@ import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
 
 const ARGS_SHOWN = 80;
+// The Image toggle's shapes (image.generate's `shape`).
+const IMAGE_SHAPES = ["square", "portrait", "landscape", "large"] as const;
 const RESULT_SHOWN = 120;
 
 /** A chat: the transcript, the reply streaming in, tool calls as grey lines, cards that ask
@@ -40,6 +52,9 @@ export function ChatTab({
 
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Artifact[]>([]);
+  // The Image toggle: the next message asks for a picture, in this shape. It goes off once
+  // the message is sent, so a picture is always a choice made for that message.
+  const [image, setImage] = useState<(typeof IMAGE_SHAPES)[number] | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   // Choosing a file already in the project: from the button, or "@name" in the box (`start`:
   // where the "@" is, so the "@name" text goes when a file is chosen).
@@ -57,10 +72,12 @@ export function ChatTab({
       apiPost<{ message_id: number }>(`${base}/messages`, {
         text,
         attachments: attached.map((a) => a.id),
+        ...(image ? { tool: { name: "image.generate", arguments: { shape: image } } } : {}),
       }),
     onSuccess: () => {
       setText("");
       setAttached([]);
+      setImage(null);
       setPick(null); // a list left open belongs to the text that just went
       void queryClient.invalidateQueries({ queryKey: ["chat", projectId, sessionId] });
     },
@@ -71,8 +88,12 @@ export function ChatTab({
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["chat", projectId, sessionId] }),
   });
   const decide = useMutation({
-    mutationFn: ({ id, approve }: { id: number; approve: boolean }) =>
-      apiPost(`${base}/confirmations/${id}`, { approve }),
+    mutationFn: ({ id, approve, values }: { id: number; approve: boolean; values?: CardValues }) =>
+      apiPost(`${base}/confirmations/${id}`, { approve, values }),
+  });
+  // Stops one tool at work (an image being made); the turn goes on.
+  const stopTool = useMutation({
+    mutationFn: (callId: string) => apiPost(`${base}/tools/${encodeURIComponent(callId)}/stop`),
   });
   const attach = useMutation({
     mutationFn: async (files: File[]) => {
@@ -120,7 +141,8 @@ export function ChatTab({
   const steps = chat.data.followups.filter((f) => f.tool !== "");
   const busy = live.running || chat.data.state !== "idle";
   const canSend = !busy && text.trim().length > 0 && !send.isPending && !attach.isPending;
-  const error = send.error ?? stop.error ?? decide.error ?? attach.error ?? cancel.error;
+  const error =
+    send.error ?? stop.error ?? decide.error ?? stopTool.error ?? attach.error ?? cancel.error;
 
   return (
     <div className="mx-auto grid h-full max-h-full max-w-3xl grid-rows-[minmax(0,1fr)_auto] gap-3 p-4">
@@ -136,13 +158,14 @@ export function ChatTab({
           live={live}
           followups={chat.data.followups}
           onOpen={onOpen}
-          onDecide={(id, approve) => decide.mutate({ id, approve })}
+          onDecide={(id, approve, values) => decide.mutate({ id, approve, values })}
+          onStopTool={(callId) => stopTool.mutate(callId)}
           liveReply={
             hasLiveReply(live) && (
               <LiveReply
                 live={live}
                 placed={new Set(chat.data.messages.flatMap((m) => m.tool_calls?.map((c) => c.id) ?? []))}
-                onDecide={(id, approve) => decide.mutate({ id, approve })}
+                onDecide={(id, approve, values) => decide.mutate({ id, approve, values })}
               />
             )
           }
@@ -199,7 +222,7 @@ export function ChatTab({
         )}
         <textarea
           aria-label={t("chat.inputLabel")}
-          placeholder={t("chat.placeholder")}
+          placeholder={image ? t("chat.imagePlaceholder") : t("chat.placeholder")}
           rows={2}
           className="w-full resize-none bg-transparent text-sm outline-none"
           value={text}
@@ -270,6 +293,29 @@ export function ChatTab({
           >
             @
           </button>
+          <button
+            type="button"
+            className={image ? "btn-primary" : "btn-secondary"}
+            aria-pressed={image !== null}
+            title={t("chat.imageToggleHint")}
+            onClick={() => setImage(image ? null : "square")}
+          >
+            {t("chat.imageToggle")}
+          </button>
+          {image && (
+            <select
+              aria-label={t("chat.imageShape")}
+              className="rounded-md border border-line bg-paper px-2 py-1 text-sm"
+              value={image}
+              onChange={(e) => setImage(e.target.value as (typeof IMAGE_SHAPES)[number])}
+            >
+              {IMAGE_SHAPES.map((shape) => (
+                <option key={shape} value={shape}>
+                  {t(`chat.choice.shape.${shape}`)}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             ref={picker}
             type="file"
@@ -366,6 +412,7 @@ function Transcript({
   followups,
   onOpen,
   onDecide,
+  onStopTool,
 }: {
   projectId: number;
   chatId: number;
@@ -375,7 +422,8 @@ function Transcript({
   liveReply: React.ReactNode; // the reply as it streams in; it joins the last reply's card
   followups: Chat["followups"];
   onOpen: (tab: Tab) => void;
-  onDecide: (confirmationId: number, approve: boolean) => void;
+  onDecide: Decide;
+  onStopTool: (callId: string) => void;
 }) {
   const { t } = useTranslation();
   const results = new Map(
@@ -429,6 +477,7 @@ function Transcript({
                             followups={followups}
                             newestAbout={newest}
                             onOpen={onOpen}
+                            onStop={() => onStopTool(call.id)}
                           />
                           {cards.has(call.id) && <ConfirmCard card={cards.get(call.id)!} onDecide={onDecide} />}
                         </Fragment>
@@ -592,6 +641,7 @@ function ToolLine({
   followups,
   newestAbout,
   onOpen,
+  onStop,
 }: {
   projectId: number;
   call: ToolCall;
@@ -600,6 +650,7 @@ function ToolLine({
   followups: Chat["followups"];
   newestAbout: Map<number, number>;
   onOpen: (tab: Tab) => void;
+  onStop: () => void;
 }) {
   const { t } = useTranslation();
   const name = result?.tool_name ?? call.function.name;
@@ -616,7 +667,7 @@ function ToolLine({
         </summary>
         {result && <pre className="mt-1 whitespace-pre-wrap rounded bg-paper p-2">{result.content}</pre>}
       </details>
-      {!result && progress && <Progress progress={progress} />}
+      {!result && progress && <Progress progress={progress} onStop={onStop} />}
       {script && <ScriptCode projectId={projectId} path={script} />}
       {ocr && newestAbout.get(ocr.id) === result?.id && (
         <OcrLine
@@ -632,23 +683,35 @@ function ToolLine({
   );
 }
 
-function Progress({ progress }: { progress: LiveTurn["progress"][string] }) {
+function Progress({ progress, onStop }: { progress: LiveTurn["progress"][string]; onStop: () => void }) {
   const { t } = useTranslation();
-  const { label, done, total, line, seconds } = progress;
+  const { label, done, total, line, seconds, stoppable } = progress;
+  // A tool that can be stopped on its own (an image being made) has its own Stop.
+  const stop = stoppable ? (
+    <button type="button" className="btn-secondary px-2 py-0.5 text-xs" onClick={onStop}>
+      {t("chat.stopTool")}
+    </button>
+  ) : null;
   if (done !== undefined && total) {
     const pct = Math.min(100, Math.floor((done / total) * 100));
     return (
       <div className="grid gap-1 text-xs text-muted" data-testid="progress">
-        <span>{t("chat.progressBar", { label, pct })}</span>
+        <span className="flex items-center justify-between gap-2">
+          {t("chat.progressBar", { label, pct })}
+          {stop}
+        </span>
         <progress className="h-1.5 w-full" max={100} value={pct} />
       </div>
     );
   }
   return (
-    <p className="text-xs text-muted" data-testid="progress">
-      {seconds !== undefined ? t("chat.progressSeconds", { label, seconds }) : label}
-      {line ? <span className="block truncate font-mono">{line}</span> : null}
-    </p>
+    <div className="flex items-start justify-between gap-2 text-xs text-muted" data-testid="progress">
+      <p>
+        {seconds !== undefined ? t("chat.progressSeconds", { label, seconds }) : label}
+        {line ? <span className="block truncate font-mono">{line}</span> : null}
+      </p>
+      {stop}
+    </div>
   );
 }
 
@@ -704,15 +767,80 @@ function hasLiveReply(live: LiveTurn): boolean {
   return live.running || live.cards.length > 0 || live.text !== "" || Boolean(live.stats?.tps);
 }
 
-/** A card that asks before a tool runs: Allow or Don't allow, then which it was. */
-function ConfirmCard({
-  card,
-  onDecide,
+/** What the person left in a card's fields, by field name. */
+type CardValues = Record<string, string>;
+type Decide = (confirmationId: number, approve: boolean, values?: CardValues) => void;
+
+/** "about 40 s", "about 3 min": an estimate, said as one. */
+export function waitText(t: TFunction, seconds: number): string {
+  return seconds < 60
+    ? t("chat.aboutSeconds", { seconds: Math.max(5, Math.round(seconds / 5) * 5) })
+    : t("chat.aboutMinutes", { minutes: Math.round(seconds / 60) });
+}
+
+/** The fields of a card the person can change before allowing it: a text, or a choice. */
+function CardFields({
+  fields,
+  values,
+  onChange,
 }: {
-  card: LiveTurn["cards"][number];
-  onDecide: (confirmationId: number, approve: boolean) => void;
+  fields: CardField[];
+  values: CardValues;
+  onChange: (name: string, value: string) => void;
 }) {
   const { t } = useTranslation();
+  return (
+    <div className="grid gap-2">
+      {fields.map((field) =>
+        field.kind === "text" ? (
+          <label key={field.name} className="grid gap-1">
+            <span className="text-xs text-muted">{t(`chat.field.${field.name}`)}</span>
+            <textarea
+              className="input min-h-16 font-normal"
+              rows={3}
+              value={values[field.name] ?? ""}
+              onChange={(e) => onChange(field.name, e.target.value)}
+            />
+          </label>
+        ) : (
+          <fieldset key={field.name} className="grid gap-1">
+            <legend className="text-xs text-muted">{t(`chat.field.${field.name}`)}</legend>
+            {(field.choices ?? []).map((choice) => (
+              <label key={choice.value} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name={field.name}
+                  value={choice.value}
+                  checked={values[field.name] === choice.value}
+                  onChange={() => onChange(field.name, choice.value)}
+                />
+                <span>{t(`chat.choice.${field.name}.${choice.value}`)}</span>
+                {choice.width && choice.height && choice.seconds !== undefined && (
+                  <span className="text-xs text-muted">
+                    {t("chat.choiceSize", {
+                      width: choice.width,
+                      height: choice.height,
+                      wait: waitText(t, choice.seconds),
+                    })}
+                  </span>
+                )}
+              </label>
+            ))}
+          </fieldset>
+        ),
+      )}
+    </div>
+  );
+}
+
+/** A card that asks before a tool runs: Allow or Don't allow, then which it was. A card with
+ * fields lets the person change them first; the tool runs with what they leave there. */
+function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDecide: Decide }) {
+  const { t } = useTranslation();
+  const [values, setValues] = useState<CardValues>(() =>
+    Object.fromEntries(card.fields.map((f) => [f.name, f.value])),
+  );
+  const editable = card.fields.length > 0;
   // A card's kind names its buttons; the first means yes either way.
   const [title, yes, no, said, unsaid] =
     card.kind === "retry"
@@ -725,9 +853,20 @@ function ConfirmCard({
       aria-label={t(title)}
     >
       <p className="font-semibold">{card.text}</p>
+      {editable && card.approved === null && (
+        <CardFields
+          fields={card.fields}
+          values={values}
+          onChange={(name, value) => setValues((prev) => ({ ...prev, [name]: value }))}
+        />
+      )}
       {card.approved === null ? (
         <div className="flex gap-2">
-          <button className="btn-primary" onClick={() => onDecide(card.confirmation_id, true)}>
+          <button
+            className="btn-primary"
+            disabled={editable && card.fields.some((f) => f.kind === "text" && !values[f.name]?.trim())}
+            onClick={() => onDecide(card.confirmation_id, true, editable ? values : undefined)}
+          >
             {t(yes)}
           </button>
           <button className="btn-secondary" onClick={() => onDecide(card.confirmation_id, false)}>
@@ -748,7 +887,7 @@ function LiveReply({
 }: {
   live: LiveTurn;
   placed: Set<string>; // the calls already in the transcript: their cards show under them
-  onDecide: (confirmationId: number, approve: boolean) => void;
+  onDecide: Decide;
 }) {
   const { t } = useTranslation();
   return (

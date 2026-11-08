@@ -285,3 +285,84 @@ models:
       model:
         - {path: qwen2.5-coder-14b-instruct-q4_k_m.gguf, size: 8988110272, sha256: c1e659736d89ac1065fb495330fb824d94001974a4bfa78e7270e43476a8d940}
       mmproj: null
+
+  # Image models, run by stable-diffusion.cpp (runners/sdcpp.py). Each is three pieces: the
+  # diffusion model, the text encoder and the VAE, pinned from the HF API on 2026-11-07. The
+  # same model on every tier; a bigger GPU gets the 8-bit build and larger pictures. The sizes
+  # are starting values until they are measured on 4 GB and 8 GB machines
+  # (docs/acceptance/image.md).
+  - id: flux2-klein-4b
+    title: FLUX.2 klein 4B
+    quant: Q4_0
+    roles: [image]
+    format: sd
+    repo: leejet/FLUX.2-klein-4B-GGUF
+    revision: 3b1f5a9dc3abb32238b053aeb3d823c30afdacbd
+    licence: Apache-2.0
+    permissive: true
+    defaults:
+      image: [below_minimum, minimum]
+    files:
+      model:
+        - {path: flux-2-klein-4b-Q4_0.gguf, size: 2460378560, sha256: d1023499ef3f2f82ff7c50e6778495195c1b6cc34835741778868428111f9ff4}
+      text_encoder: {path: Qwen3-4B-Q4_K_M.gguf, size: 2497281312, sha256: f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a, repo: unsloth/Qwen3-4B-GGUF, revision: 22c9fc8a8c7700b76a1789366280a6a5a1ad1120}
+      vae: {path: full_encoder_small_decoder.safetensors, size: 249519092, sha256: ea4273f02d1fafbf8e1d1c2cf6018ed8748652eb0bf34f2dd91171f16f15ab62, repo: black-forest-labs/FLUX.2-small-decoder, revision: a3efc24f613ef42d9428af62fdbd6f5fd8856c4a}
+    image:
+      steps: 4
+      cfg: 1.0
+      sampler: euler
+      sizes:
+        below_minimum: {default: 512, max_pixels: 589824}  # 768 x 768
+        minimum: {default: 768, max_pixels: 1048576}  # 1024 x 1024
+        recommended: {default: 1024, max_pixels: 1572864}  # 1536 x 1024
+        comfortable: {default: 1024, max_pixels: 2097152}  # about 2 MP
+
+  - id: flux2-klein-4b-q8
+    title: FLUX.2 klein 4B
+    quant: Q8_0
+    roles: [image]
+    format: sd
+    repo: leejet/FLUX.2-klein-4B-GGUF
+    revision: 3b1f5a9dc3abb32238b053aeb3d823c30afdacbd
+    licence: Apache-2.0
+    permissive: true
+    defaults:
+      image: [recommended, comfortable]
+    files:
+      model:
+        - {path: flux-2-klein-4b-Q8_0.gguf, size: 4300629440, sha256: 0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28}
+      text_encoder: {path: Qwen3-4B-Q4_K_M.gguf, size: 2497281312, sha256: f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a, repo: unsloth/Qwen3-4B-GGUF, revision: 22c9fc8a8c7700b76a1789366280a6a5a1ad1120}
+      vae: {path: full_encoder_small_decoder.safetensors, size: 249519092, sha256: ea4273f02d1fafbf8e1d1c2cf6018ed8748652eb0bf34f2dd91171f16f15ab62, repo: black-forest-labs/FLUX.2-small-decoder, revision: a3efc24f613ef42d9428af62fdbd6f5fd8856c4a}
+    image:
+      steps: 4
+      cfg: 1.0
+      sampler: euler
+      sizes:
+        recommended: {default: 1024, max_pixels: 1572864}
+        comfortable: {default: 1024, max_pixels: 2097152}
+
+  - id: z-image-turbo
+    title: Z-Image-Turbo
+    quant: Q4_K
+    roles: [image]
+    format: sd
+    repo: leejet/Z-Image-Turbo-GGUF
+    revision: c61c0e422dc8b541b7548cf33a4ef8302b0f8085
+    licence: Apache-2.0
+    permissive: true
+    files:
+      model:
+        - {path: z_image_turbo-Q4_K.gguf, size: 3864250304, sha256: 14b375ab4f226bc5378f68f37e899ef3c2242b8541e61e2bc1aff40976086fbd}
+      text_encoder: {path: Qwen3-4B-Instruct-2507-Q4_K_M.gguf, size: 2497281120, sha256: 3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597, repo: unsloth/Qwen3-4B-Instruct-2507-GGUF, revision: a06e946bb6b655725eafa393f4a9745d460374c9}
+      # FLUX.1's VAE: the same file as black-forest-labs/FLUX.1-schnell's ae.safetensors (same
+      # sha256), from a copy that downloads without a Hugging Face login.
+      vae: {path: split_files/vae/ae.safetensors, size: 335304388, sha256: afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38, repo: Comfy-Org/Z-Image-Turbo, revision: 6fc90a3b1b653e935a0d175e260736de25b84df5}
+    image:
+      steps: 8
+      cfg: 1.0
+      sampler: euler
+      sizes:
+        minimum: {default: 768, max_pixels: 1048576}
+        recommended: {default: 1024, max_pixels: 1572864}
+        comfortable: {default: 1024, max_pixels: 2097152}
+    notes: "Stronger than FLUX.2 klein on photographs of people and on lettering, at twice the steps."

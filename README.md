@@ -31,6 +31,10 @@ switches it on.
 - **Scanned pages to text.** An OCR session reads a PDF or a page image page by page, printed
   or handwritten, asks you about the words it isn't sure of, and builds a Document you can
   export as Markdown, DOCX or ODT.
+- **Pictures from a description.** Ask the chat for a picture, or switch on **Image** beside
+  the message box, and it is made on your own GPU and saved to the project. The card shows
+  the prompt for you to change and how long it should take; a bigger GPU makes larger
+  pictures. On a Mac this needs macOS 26 or later.
 - **Models chosen for your hardware,** one for each job, each downloaded at a fixed version and
   checked against its checksum.
 - **Accounts for a household.** Each person signs in to a workspace of their own, at home or,
@@ -448,9 +452,9 @@ model runner it started end with it.
 ## Models
 
 Lectern uses a model for each job: one for the chat, two for reading scanned pages (print and
-handwriting), one for writing scripts. It picks them from the computer it finds itself on. The
-first run lets you pick the chat model; everything else about them is on the **Models &
-memory** page.
+handwriting), one for writing scripts, one for making pictures. It picks them from the
+computer it finds itself on. The first run lets you pick the chat model; everything else about
+them is on the **Models & memory** page.
 
 - **Choosing.** Under "Models by role" each role has a list of the models it can use. The one
   marked *recommended* is the default for this computer's hardware. A model marked as more
