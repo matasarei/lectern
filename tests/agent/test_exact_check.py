@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS
-from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_NOTE
+from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_GUARD, HELD_NOTE
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
 from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
@@ -653,3 +653,103 @@ def test_no_held_call_no_note(store):
     assert status == "done" and RAN == ["doc.edit"]
     assert _noted(handle) == [False, False, False]
     assert _shown(seen) == "Saved."
+
+
+GUARD = HELD_GUARD.format(tool="doc_edit", arguments=HELD_ARGUMENTS)
+
+
+def test_a_turn_ending_with_the_call_still_held_is_asked_once_and_makes_it(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        text_reply("I have updated the file."),  # it says so, and made no call
+        tool_reply("doc_edit", BOTH_COMPUTED, call_id="call_3"),
+        text_reply("Saved: the price and the total."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run", "doc.edit"]
+    guard = handle.requests[4]["messages"]
+    assert guard[-2:] == [
+        {"role": "assistant", "content": "I have updated the file."},
+        {"role": "user", "content": GUARD},
+    ]
+    assert _shown(seen) == "Saved: the price and the total."
+    assert "I have updated" not in str(seen) and "I have updated" not in str(
+        transcript(store, project)
+    )
+    assert "Lectern check" not in str(transcript(store, project))
+    assert len(handle.requests) == 6
+
+
+def test_a_text_reply_to_the_guard_leaves_the_reply_it_asked_about(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        text_reply("The total is 4172.04."),
+        text_reply("The person only asked for the total."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run"]
+    assert len(handle.requests) == 5  # asked once
+    assert _shown(seen) == "The total is 4172.04."
+    assert "only asked" not in str(seen) and "only asked" not in str(transcript(store, project))
+
+
+def test_the_guard_asks_once_a_turn(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        text_reply("Let me look at the file first."),
+        tool_reply("document_read", {"name": "invoice.pdf"}, call_id="call_3"),
+        text_reply("Done."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and len(handle.requests) == 6
+    assert sum(m.get("content") == GUARD for r in handle.requests for m in r["messages"]) == 1
+    assert _shown(seen).endswith("Done.")
+
+
+def test_no_held_call_no_guard(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH), text_reply("NO_CALC"), text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, _ = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and len(handle.requests) == 3
+    assert not any(m.get("content") == GUARD for r in handle.requests for m in r["messages"])
+
+
+def test_the_guard_counts_towards_the_turns_model_calls(store, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_MODEL_CALLS", 4)
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        tool_reply("code_run", {}),  # the check's answer
+        text_reply("I have updated the file."),
+        tool_reply("doc_edit", BOTH_COMPUTED, call_id="call_3"),  # the guard's answer
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "error" and RAN == ["code.run", "doc.edit"] and len(handle.requests) == 4
+    assert any("Stopped after" in str(e.get("detail")) for e in seen if e["type"] == "error")
+
+
+def test_no_guard_when_no_model_call_is_left(store, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_MODEL_CALLS", 3)
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        tool_reply("code_run", {}),
+        text_reply("The total is 4172.04."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and len(handle.requests) == 3
+    assert _shown(seen) == "The total is 4172.04."

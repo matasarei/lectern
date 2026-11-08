@@ -34,7 +34,7 @@ from lectern.agent.context import (
     split_turns,
 )
 from lectern.agent.numbers import numbers_in, written_numbers
-from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_NOTE, system_prompt
+from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_GUARD, HELD_NOTE, system_prompt
 from lectern.agent.state import ChatState
 from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
 from lectern.core.auth import User
@@ -493,6 +493,14 @@ async def run_turn(run: TurnRun) -> str:
                 tps = check.tps or tps
                 if check.calls:  # it was an exact result: computed now, the draft dropped
                     reply = check
+            if held and not held.guarded and not reply.calls and calls_left:
+                held.guarded = True  # the turn would end without the held call: asked once
+                calls_left -= 1
+                guard = await _call(run, _with_guard(history, reply.content, held), hold=True)
+                tokens += guard.tokens
+                tps = guard.tps or tps
+                if guard.calls:  # it goes on: the text reply is dropped, never shown
+                    reply = guard
             unchecked = [] if calls_checked or not calls_left else _unchecked(run, history, reply)
             if unchecked:
                 calls_checked = True
@@ -701,6 +709,7 @@ class _Held:
     tool: str  # its wire name
     params: BaseModel  # what it would have sent, validated
     numbers: list[str]  # the numbers no message gave
+    guarded: bool = False  # the end-of-turn guard has asked about it
 
     @property
     def arguments(self) -> str:
@@ -768,6 +777,20 @@ def _with_held(history: History, held: _Held | None) -> History:
     )
     noted = {"id": None, "role": "user", "content": text}
     return History([*history.messages, noted], history.attachments, history.state)
+
+
+def _with_guard(history: History, draft: str, held: _Held) -> History:
+    """The turn so far, the reply that would end it, and the question why the held call wasn't
+    made. Neither is stored: the reply stands unless the answer makes a call."""
+    asked = [
+        {"id": None, "role": "assistant", "content": draft},
+        {
+            "id": None,
+            "role": "user",
+            "content": HELD_GUARD.format(tool=held.tool, arguments=held.arguments),
+        },
+    ]
+    return History([*history.messages, *asked], history.attachments, history.state)
 
 
 def _show(run: TurnRun, text: str) -> bool:

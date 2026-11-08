@@ -87,6 +87,11 @@ HELD_NOTE = """Lectern note: a {tool} call is waiting for the number {numbers}. 
 it, call {tool} again with all of this, the computed number in place of {numbers}: \
 {arguments}"""
 
+# Asked once, never stored, when the turn would end while a call is still held: once, the 4B
+# computed the total and then said "I have updated the text" without making the call.
+HELD_GUARD = """Lectern check: you haven't made the {tool} call yet: {arguments}. Make it \
+now with the computed number, or say why not."""
+
 
 def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
     return SYSTEM.format(
