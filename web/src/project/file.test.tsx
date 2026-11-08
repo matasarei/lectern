@@ -20,10 +20,12 @@ const ITEMS: ProjectItems = {
 
 let requested: string[] = [];
 let body = "# Reply\n<script>alert(1)</script>"; // what a file's content answers
+let viewFails = false; // an HTML file's link can't be had (a failed renewal)
 
 beforeEach(() => {
   requested = [];
   body = "# Reply\n<script>alert(1)</script>";
+  viewFails = false;
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
@@ -37,6 +39,9 @@ beforeEach(() => {
                             { status: 400 });  // prettier-ignore
       }
       if (url.endsWith("/10/view")) return new Response(JSON.stringify({ detail: "No such file." }), { status: 404 });
+      if (url.endsWith("/view") && viewFails) {
+        return new Response(JSON.stringify({ detail: "Lectern stopped." }), { status: 503 });
+      }
       if (url.endsWith("/view")) return new Response(JSON.stringify({ url: "/view/tkt" }));
       if (url.endsWith("/9/markdown")) return new Response(JSON.stringify({ markdown: "# Long", cut: true }));
       if (url.endsWith("/markdown")) {
@@ -187,6 +192,16 @@ describe("File tab", () => {
     link.addEventListener("click", (e) => e.preventDefault()); // jsdom doesn't open tabs
     fireEvent.click(link);
     await waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
+  it("keeps the link it has when renewing it fails, and says why", async () => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    viewFails = true;
+    link.addEventListener("click", (e) => e.preventDefault()); // jsdom doesn't open tabs
+    fireEvent.click(link);
+    expect(await screen.findByText("Lectern stopped.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open as a page in a new tab" })).toBeTruthy();
   });
 
   it("says why, and offers no link, when one can't be had", async () => {

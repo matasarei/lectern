@@ -143,20 +143,24 @@ function OpenHtml({ base }: { base: string }) {
     refetchInterval: VIEW_LINK_RENEW_MS,
     refetchOnWindowFocus: "always",
   });
-  if (link.isError) {
-    return <ErrorNote message={link.error instanceof ApiError ? link.error.detail : t("common.loadFailed")} />;
-  }
-  if (link.data === undefined) return <p className="text-muted">{t("common.loading")}</p>;
+  // A failed renewal keeps the link it had (it may still be unused) and says why beside it.
+  const error = link.isError && (
+    <ErrorNote message={link.error instanceof ApiError ? link.error.detail : t("common.loadFailed")} />
+  );
+  if (link.data === undefined) return error || <p className="text-muted">{t("common.loading")}</p>;
   return (
-    <a
-      className="btn-secondary w-fit"
-      href={link.data.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={() => void link.refetch()}
-    >
-      {t("file.openInTab")}
-    </a>
+    <div className="grid gap-1">
+      <a
+        className="btn-secondary w-fit"
+        href={link.data.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={() => void link.refetch()}
+      >
+        {t("file.openInTab")}
+      </a>
+      {error}
+    </div>
   );
 }
 
