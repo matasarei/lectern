@@ -21,11 +21,15 @@ const ITEMS: ProjectItems = {
 let requested: string[] = [];
 let body: BodyInit = "# Reply\n<script>alert(1)</script>"; // what a file's content answers
 let viewFails = false; // an HTML file's link can't be had (a failed renewal)
+let viewLinks = 0; // links handed out: each new one is different, as the server's are
+let viewHeld: Promise<void> | null = null; // while set, a link isn't answered until it settles
 
 beforeEach(() => {
   requested = [];
   body = "# Reply\n<script>alert(1)</script>";
   viewFails = false;
+  viewLinks = 0;
+  viewHeld = null;
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
@@ -42,7 +46,11 @@ beforeEach(() => {
       if (url.endsWith("/view") && viewFails) {
         return new Response(JSON.stringify({ detail: "Lectern stopped." }), { status: 503 });
       }
-      if (url.endsWith("/view")) return new Response(JSON.stringify({ url: "/view/tkt" }));
+      if (url.endsWith("/view")) {
+        await viewHeld;
+        viewLinks += 1;
+        return new Response(JSON.stringify({ url: viewLinks === 1 ? "/view/tkt" : `/view/tkt${viewLinks}` }));
+      }
       if (url.endsWith("/9/markdown")) return new Response(JSON.stringify({ markdown: "# Long", cut: true }));
       if (url.endsWith("/markdown")) {
         return new Response(JSON.stringify({ markdown: "# Lease\n\n| a | b |\n|---|---|\n| 1 | 2 |", cut: false }));
@@ -204,6 +212,31 @@ describe("File tab", () => {
     link.addEventListener("click", (e) => e.preventDefault()); // jsdom doesn't open tabs
     fireEvent.click(link);
     await waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
+  it("doesn't open a used link again before the new one has come", async () => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    const prevented: boolean[] = [];
+    const record = (e: Event) => {
+      prevented.push(e.defaultPrevented); // after the link's own handler has run
+      e.preventDefault(); // jsdom doesn't open tabs
+    };
+    window.addEventListener("click", record);
+    let release = () => {};
+    viewHeld = new Promise((done) => (release = done));
+
+    fireEvent.click(link);
+    fireEvent.click(link); // the renewal hasn't come: this one would open the used link
+    expect(prevented).toEqual([false, true]);
+    expect(link.getAttribute("aria-disabled")).toBe("true");
+
+    release();
+    await waitFor(() => expect(link.getAttribute("href")).toBe("/view/tkt2"));
+    expect(link.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(link);
+    expect(prevented).toEqual([false, true, false]);
+    window.removeEventListener("click", record);
   });
 
   it.each([
