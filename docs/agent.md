@@ -31,6 +31,7 @@ on.
 | `code.write`, `code.run` | sandbox | Have the coding model write and test a script; run it | no (building the image and downloading the model ask) |
 | `ocr.start`, `ocr.note` | OCR | Start an OCR session, optionally exporting when it's done; set a page note | start: yes |
 | `web.search`, `wiki.lookup`, `web.fetch` | web | Search the web, look a subject up on Wikipedia, save a page into the project | yes, each time |
+| `pdf.edit`, `pdf.fill` | PDF editing | Change text in a PDF in place, keeping its fonts, sizes and layout; list or fill its form. Each writes `<name> (edited).pdf` | edit: when the page would look different |
 
 A card is answered with **Allow** or **Don't allow**. Only `artifact.trash` deletes anything,
 and nothing overwrites a file. A tool's result is capped (800 tokens unless the tool says
@@ -160,6 +161,41 @@ names the words or address and the host they go to (`modules/web/`):
 
 Results come back marked as data from outside, with their addresses. A queued follow-up can't
 use these tools.
+
+## PDF editing
+
+`pdf.edit` changes text in a PDF that has a text layer and keeps its look (`modules/pdf_edit/`;
+why it's built on PDFium: [the engine trial](acceptance/pdf-edit.md)). The model gives edits,
+each a `find` copied from the PDF's text and its `replace`, with the page and whether to
+change every place:
+
+- **Finding.** `find` is matched in PDFium's text page, where each character knows the text
+  object that draws it, so a word split into pieces (kerning, one object per glyph) is found
+  whole. Exactly as given; else on another page if it's only there; else the one stretch of a
+  line within a letter or two, and the result says which text was changed. In several places
+  it needs `all`; not found, the error quotes the nearest lines. Text across a line break,
+  rotated text and scans are refused.
+- **Drawing.** The objects under the edit are replaced by one, at the first one's position, in
+  its font, size, colour and render mode. A letter the PDF's subset font doesn't have (or has
+  no width for) comes from the installed font of the same PostScript name, cut down to the
+  letters needed with fontTools and named with its own subset tag; an installed font whose
+  licence forbids embedding, a `.otf` with CFF outlines, or no installed copy at all refuses
+  the edit. The rest of the line moves by the change in width, up to a gap of 1.5 em (a
+  column, a table cell).
+- **Asking.** Text that would run into the next column or past the page's text margin, or an
+  edit across two fonts drawn in one, is put to the person on a card first. Anything else is
+  saved at once.
+- **All or nothing.** If one edit can't be made, none is, and the error names each that
+  failed and why.
+
+`pdf.fill` with no fields lists the form's fields (name, kind, value, options); with
+`{name: value}` it fills them through PDFium's form environment, which redraws each field's
+appearance, so the value shows in any viewer. Text, checkbox (yes or no), radio and list
+fields; buttons, signatures and read-only fields are refused. Cyrillic in a field is drawn by
+PDFium with a font it names but doesn't embed, so a viewer substitutes its own.
+
+Both write `<name> (edited).pdf` at the project's top level, made from the original, and open
+it; the original is never changed.
 
 ## Checking the chat
 
