@@ -56,6 +56,8 @@ CSS_URL = re.compile(r"""url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s'"]*))\s*\)""", re
 # <meta charset=x> and <meta http-equiv=content-type content="…; charset=x">
 META_CHARSET = re.compile(rb"<meta[^>]*?charset\s*=\s*[\"']?\s*([\w.:-]+)", re.IGNORECASE)
 STYLE_END = re.compile(r"</(style)", re.IGNORECASE)
+# an attribute's name, as written, in a start tag after its tag name
+ATTR_NAME = re.compile(r"""[\s/]*([^\s/>"'=]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?""")
 UTF8_META = '<meta charset="utf-8">'
 
 
@@ -187,7 +189,8 @@ class _Page(HTMLParser):
             changed = changed or swapped is not None
             new.append((name, value if swapped is None else swapped))
         if changed:
-            self.edits.append((start, end, _start_tag(tag, new, closed)))
+            source = self.get_starttag_text() or ""
+            self.edits.append((start, end, _start_tag(source, tag, new, closed)))
 
     def _attribute(self, tag: str, rel: list[str], name: str, value: str) -> str | None:
         """The attribute's value with its file put inside it, or None to leave it."""
@@ -235,8 +238,16 @@ def _names_charset(values: dict[str, str | None]) -> bool:
     return equiv == "content-type" and "charset" in (values.get("content") or "").lower()
 
 
-def _start_tag(tag: str, attrs: list[tuple[str, str | None]], closed: bool) -> str:
-    parts = [tag] + [n if v is None else f'{n}="{html.escape(v)}"' for n, v in attrs]
+def _start_tag(source: str, tag: str, attrs: list[tuple[str, str | None]], closed: bool) -> str:
+    """The tag rebuilt with `attrs`, its names spelled as `source` spells them: the parser
+    lowercases them, and inside inline SVG viewBox is not viewbox."""
+    written = source[1 : 1 + len(tag)]
+    tag = written if written.lower() == tag else tag
+    names = ATTR_NAME.findall(source, 1 + len(tag))
+    if [name.lower() for name in names] != [name for name, _ in attrs]:
+        names = [name for name, _ in attrs]  # read differently from the parser: keep its names
+    pairs = zip(names, (value for _, value in attrs), strict=True)
+    parts = [tag] + [n if v is None else f'{n}="{html.escape(v)}"' for n, v in pairs]
     # Closed stays closed: inside inline SVG, <rect … /> without the slash would wrap the rest.
     return f"<{' '.join(parts)}{' /' if closed else ''}>"
 

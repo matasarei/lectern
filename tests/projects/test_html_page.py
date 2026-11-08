@@ -212,3 +212,12 @@ def test_a_charset_that_isnt_a_text_encoding_is_read_as_no_charset(codec):
     page = f'<meta charset="{codec}"><img src="logo.png"><p>Ї</p>'
     out = inline_page(page.encode(), Reader()).decode("utf-8")
     assert out == f'<meta charset="utf-8"><img src="{data("image/png", PNG)}"><p>Ї</p>'
+
+
+def test_a_tag_it_changes_keeps_its_names_as_written():
+    # Inside inline SVG case matters: viewbox is not viewBox, lineargradient not linearGradient.
+    page = '<svg viewBox="0 0 9 9"><linearGradient ID=g style="fill:url(logo.png)"/></svg>'
+    url = data("image/png", PNG)
+    assert inline(page) == (
+        f'<svg viewBox="0 0 9 9"><linearGradient ID="g" style="fill:url({url})" /></svg>'
+    )
