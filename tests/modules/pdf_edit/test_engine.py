@@ -406,3 +406,23 @@ def test_one_impossible_edit_stops_all_and_names_only_that_one(
 def test_no_edits_is_an_error(contract: Path, no_fonts: InstalledFonts) -> None:
     with pytest.raises(EditFailed, match="No edits were given"):
         apply_edits(contract, [], fonts=no_fonts)
+
+
+def test_a_long_pdf_is_searched_whole_but_near_matches_only_on_its_first_pages(
+    tmp_path: Path, font_files: Path
+) -> None:
+    """Every line of every page is compared for a near match while PDFium is locked for the
+    process: past NEAR_PAGES, only an exact `find` (or one on the page given) is found."""
+    pages = [[[Run(f"Page {n} says hello to all of you")]] for n in range(1, 36)]
+    pdf = make_pdf(tmp_path / "long.pdf", font_files, pages)
+    fonts = InstalledFonts([font_files])
+
+    found = apply_edits(pdf, [Edit("Page 34 says hello", "Page 34 says bye")], fonts=fonts)
+    assert found.changes[0].page == 34
+
+    with pytest.raises(EditFailed) as failed:
+        apply_edits(pdf, [Edit("Page 34 sayz hello to all of you", "x")], fonts=fonts)
+    assert "nearest lines (of the first 30 pages; give `page` for others)" in str(failed.value)
+
+    with pytest.raises(EditFailed, match="page 34 has “Page 34 says hello to all of you”"):
+        apply_edits(pdf, [Edit("Page 34 sayz hello to all of you", "x", page=34)], fonts=fonts)

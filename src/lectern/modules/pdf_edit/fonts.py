@@ -81,10 +81,16 @@ class InstalledFonts:
         self._lock = threading.Lock()
         self._by_name: dict[str, Installed] | None = None
 
-    def find(self, ps_name: str) -> Installed | None:
+    def load(self) -> None:
+        """Build the index now if it isn't built (it opens every font file)."""
         with self._lock:
             if self._by_name is None:
                 self._by_name = self._scan()
+
+    def find(self, ps_name: str) -> Installed | None:
+        self.load()
+        with self._lock:
+            assert self._by_name is not None  # noqa: S101 — load() built it
             return self._by_name.get(ps_name)
 
     def _scan(self) -> dict[str, Installed]:

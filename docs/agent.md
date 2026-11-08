@@ -175,7 +175,9 @@ from `code_run` (the system prompt has no room for a line of its own):
   whole. Exactly as given, else on another page if it's only there. A `find` a letter or two
   off is not changed but answered with the exact text, so the model writes `replace` from it
   (applied, the model's slip went into the document: "у місто Львів"). In several places it
-  needs `all`; not found, the error quotes the nearest lines. Text across a line break, a
+  needs `all`; not found, the error quotes the nearest lines. A near match and the nearest
+  lines are looked for on the page given, or on the first 30 pages: each compares every line
+  while PDFium is locked for the whole process. Text across a line break, a
   `replace` with a line break (a "clause" the 4B tried to add), `find` equal to `replace`,
   rotated text and scans are refused.
 - **Drawing.** The objects under the edit are replaced by one, at the first one's position, in

@@ -39,6 +39,9 @@ COLUMN_GAP_EMS = 1.5  # a gap this wide (in the edited text's size) ends the tex
 MARGIN_SLACK_PT = 0.5
 ZERO_WIDTH_PT = 0.05  # a letter this narrow has no width in its font
 QUOTE_CHARS = 90  # how much of a line an error quotes
+# A near match and the nearest lines are looked for on the page given, or the first this many:
+# both compare every line, and the whole time PDFium is locked for the process.
+NEAR_PAGES = 30
 
 
 class EditFailed(ValueError):
@@ -83,9 +86,11 @@ def apply_edits(
     Raises EditFailed listing every edit that can't be made, and then makes none."""
     if not edits:
         raise EditFailed("No edits were given.")
+    fonts = fonts or font_index.installed()
+    fonts.load()  # the first time, before the lock: it opens every installed font file
     with PDFIUM_LOCK:
         pdf = _open(path)
-        editor = _Editor(pdf, fonts or font_index.installed())
+        editor = _Editor(pdf, fonts)
         try:
             changes: list[Change] = []
             problems: list[str] = []
@@ -207,7 +212,8 @@ class _Editor:
         self._pdf = pdf
         self._fonts = fonts
         self._pages: dict[int, pdfium.PdfPage] = {}
-        self._texts: dict[int, _PageText] = {}  # read once until the page changes
+        self._texts: dict[int, _PageText] = {}  # a page being changed, until it changes
+        self._line_texts: dict[int, list[str]] = {}  # every page searched, as text only
         self._keep: list[object] = []  # ctypes buffers PDFium reads until the save
         self._loaded = 0  # fonts embedded so far, for unique subset names
 
@@ -225,6 +231,28 @@ class _Editor:
             finally:
                 textpage.close()
         return self._texts[index]
+
+    def _lines(self, index: int) -> list[str]:
+        """A page's lines, for finding where an edit goes. Only a page being changed keeps its
+        characters and stays open, so a long PDF is searched a page at a time."""
+        if index in self._texts:
+            return [line.text for line in self._texts[index].lines]
+        if index not in self._line_texts:
+            page = self._pages.get(index) or self._pdf[index]
+            try:
+                textpage = page.get_textpage()
+                try:
+                    self._line_texts[index] = [line.text for line in _read(textpage).lines]
+                finally:
+                    textpage.close()
+            finally:
+                if index not in self._pages:
+                    page.close()
+        return self._line_texts[index]
+
+    def _changed(self, index: int) -> None:
+        self._texts.pop(index, None)
+        self._line_texts.pop(index, None)
 
     def save(self) -> bytes:
         out = io.BytesIO()
@@ -272,8 +300,8 @@ class _Editor:
         return [
             _Spot(page, li, at, at + len(find), find)
             for page in pages
-            for li, line in enumerate(self._text(page).lines)
-            for at in _occurrences(line.text, find)
+            for li, line in enumerate(self._lines(page))
+            for at in _occurrences(line, find)
         ]
 
     def _locate(self, edit: Edit) -> tuple[list[_Spot], list[str]]:
@@ -306,7 +334,7 @@ class _Editor:
 
     def _several(self, spots: list[_Spot], find: str) -> str:
         places = "; ".join(
-            f"page {s.page + 1}: {_quote(self._text(s.page).lines[s.line].text)}" for s in spots[:5]
+            f"page {s.page + 1}: {_quote(self._lines(s.page)[s.line])}" for s in spots[:5]
         )
         more = f" and {len(spots) - 5} more" if len(spots) > 5 else ""
         return (
@@ -320,11 +348,11 @@ class _Editor:
         best: list[tuple[float, _Spot]] = []
         size = len(find)
         matcher = difflib.SequenceMatcher(None, b=find)
-        for page in pages:
-            for li, line in enumerate(self._text(page).lines):
+        for page in pages[:NEAR_PAGES]:
+            for li, line in enumerate(self._lines(page)):
                 for width in range(max(1, size - 2), size + 3):
-                    for at in range(0, len(line.text) - width + 1):
-                        window = line.text[at : at + width]
+                    for at in range(0, len(line) - width + 1):
+                        window = line[at : at + width]
                         matcher.set_seq1(window)
                         if matcher.real_quick_ratio() < CLOSE_ENOUGH:
                             continue
@@ -348,8 +376,8 @@ class _Editor:
         return first
 
     def _not_found(self, pages: list[int], find: str) -> str:
-        texts = {page: self._text(page) for page in pages}
-        joined = {page: " ".join(line.text for line in t.lines) for page, t in texts.items()}
+        texts = {page: self._lines(page) for page in pages[:NEAR_PAGES]}
+        joined = {page: " ".join(lines) for page, lines in texts.items()}
         if any(find in " ".join(text.split()) for text in joined.values()):
             return (
                 "It runs across two lines; text can only be changed within one line, so give "
@@ -357,19 +385,27 @@ class _Editor:
             )
         scans = [
             page + 1
-            for page, t in texts.items()
-            if sum(len(line.text.strip()) for line in t.lines) < PDF_PAGE_MIN_CHARS
+            for page, lines in texts.items()
+            if sum(len(line.strip()) for line in lines) < PDF_PAGE_MIN_CHARS
         ]
-        if len(scans) == len(pages):
+        if len(scans) == len(texts):
             pages_said = "This page has" if len(pages) == 1 else "These pages have"
             return (
                 f"{pages_said} no text layer (a scan?), so there is no text to change in place: "
                 "only OCR reads it."
             )
-        lines = [(page, line) for page, t in texts.items() for line in t.lines if line.text.strip()]
-        lines.sort(key=lambda item: _shared(item[1].text, find), reverse=True)
-        nearest = "; ".join(f"page {page + 1}: {_quote(line.text)}" for page, line in lines[:3])
-        return f"It isn't in the PDF. The nearest lines: {nearest}. Copy `find` exactly from one."
+        lines = [(page, line) for page, lines in texts.items() for line in lines if line.strip()]
+        lines.sort(key=lambda item: _shared(item[1], find), reverse=True)
+        nearest = "; ".join(f"page {page + 1}: {_quote(line)}" for page, line in lines[:3])
+        among = (
+            f" (of the first {NEAR_PAGES} pages; give `page` for others)"
+            if (len(pages) > NEAR_PAGES)
+            else ""
+        )
+        return (
+            f"It isn't in the PDF. The nearest lines{among}: {nearest}. Copy `find` exactly "
+            "from one."
+        )
 
     # -- replacing
 
@@ -424,7 +460,7 @@ class _Editor:
                 notes.append(note)
         for obj in touched:
             self._remove(page, before.handles[obj])
-        self._texts.pop(spot.page, None)
+        self._changed(spot.page)
 
         after = self._text(spot.page)
         new_right = old_left
@@ -438,7 +474,7 @@ class _Editor:
             new_right = max(boxes, default=old_left)
         delta = new_right - old_right
         degraded.extend(self._shift_rest(before, line, end, old_right, delta, style.em))
-        self._texts.pop(spot.page, None)
+        self._changed(spot.page)
         pdfium_c.FPDFPage_GenerateContent(page.raw)
         return Change(
             page=spot.page + 1,
