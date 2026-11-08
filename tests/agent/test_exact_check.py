@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS
-from lectern.agent.prompts import EXACT_CHECK
+from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
 from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
@@ -395,3 +395,121 @@ def test_an_empty_reply_isnt_checked(store):
     status, _ = _run(manager, project, SUM)
 
     assert status == "done" and len(handle.requests) == 1  # nothing in it to compute
+
+
+# --- the call check: a tool writing a number nobody gave ------------------------------------
+
+
+class _Doc(BaseModel):
+    text: str
+    over: str = ""
+
+
+# A stand-in for pdf.edit / artifact.write: it writes `text` over `over`.
+DOC = AgentTool(name="doc.write", description="Write text into the person's file.", params=_Doc,
+                run=_ran("doc.write", "Written."), writes=lambda p: (p.text, p.over))  # fmt: skip
+
+
+def _writer(store, replies, *, sandbox=True):  # noqa: ANN001, ANN202
+    RAN.clear()
+    handle = FakeHandle(replies)
+    tools = [*CORE_TOOLS, *CODE, DOC] if sandbox else [*CORE_TOOLS, DOC]
+    manager = TurnManager(make_runtime(handle), store, Registry(tools))
+    return manager, store.create(LOCAL_USER, "Totals"), handle
+
+
+ADD_AND_SAVE = "Add 1284.50, 377.25, 99.99 and 2410.30 and put the total in the file."
+
+
+def _tool_rows(store, project) -> list[str]:  # noqa: ANN001
+    return [name for role, _, name in transcript(store, project) if role == "tool"]
+
+
+def test_a_call_writing_a_total_nobody_gave_is_checked_and_computed_first(store):
+    manager, project, handle = _writer(store, [
+        tool_reply("doc_write", {"text": "Total: 4172.03"}),  # summed in its head, and wrong
+        tool_reply("code_write", {"brief": "Add 1284.50, 377.25, 99.99 and 2410.30."}),
+        tool_reply("code_run", {}, call_id="call_2"),
+        tool_reply("doc_write", {"text": "Total: 4172.04"}, call_id="call_3"),
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, ADD_AND_SAVE)
+
+    assert status == "done"
+    assert RAN == ["code.write", "code.run", "doc.write"]  # the draft call never ran
+    check = handle.requests[1]["messages"]
+    assert check[-1] == {
+        "role": "user",
+        "content": CALL_CHECK.format(tool="doc_write", numbers="4172.03"),
+    }
+    assert all(m.get("content") != "Total: 4172.03" for m in check)  # the draft isn't shown
+    assert _tool_rows(store, project) == ["code.write", "code.run", "doc.write"]
+    assert "4172.03" not in str(transcript(store, project))  # neither stored
+    assert CALL_CHECK.split(":")[0] not in str(transcript(store, project))
+    assert "4172.03" not in str(seen)
+
+
+def test_no_calculation_runs_the_call_as_it_was_and_asks_no_more_that_turn(store):
+    manager, project, handle = _writer(store, [
+        tool_reply("doc_write", {"text": "Invoice 4410"}),
+        text_reply("NO_CALC"),
+        tool_reply("doc_write", {"text": "Ref 7731"}, call_id="call_2"),
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, "Put my invoice number in the file.")
+
+    assert status == "done" and RAN == ["doc.write", "doc.write"]
+    assert len(handle.requests) == 4  # one check, for the first call only
+    assert "NO_CALC" not in str(seen) and "NO_CALC" not in str(transcript(store, project))
+
+
+def test_numbers_the_person_a_tool_or_the_text_written_over_gave_arent_checked(store):
+    manager, project, handle = _writer(store, [
+        tool_reply("doc_write", {"text": "Paid 1,250.00 on 5 April 2026"}),
+        tool_reply("doc_write", {"text": "Fee EUR 1,330.00", "over": "Fee EUR 1,330.00 net"},
+                   call_id="call_2"),
+        tool_reply("doc_write", {"text": "1. Rent\n2. Water\n10) Heating"}, call_id="call_3"),
+        text_reply("Done."),
+    ])  # fmt: skip
+
+    status, _ = _run(manager, project, "Write that I paid 1250.00 on 5 April 2026.")
+
+    assert status == "done" and RAN == ["doc.write"] * 3
+    assert len(handle.requests) == 4  # no check anywhere
+
+
+def test_without_the_sandbox_no_call_is_checked(store):
+    manager, project, handle = _writer(
+        store, [tool_reply("doc_write", {"text": "Total: 4172.03"}), text_reply("Saved.")],
+        sandbox=False,
+    )  # fmt: skip
+
+    status, _ = _run(manager, project, ADD_AND_SAVE)
+
+    assert status == "done" and RAN == ["doc.write"] and len(handle.requests) == 2
+
+
+def test_a_call_whose_arguments_dont_validate_isnt_checked(store):
+    manager, project, handle = _writer(store, [
+        tool_reply("doc_write", {"words": "Total: 4172.03"}),  # no `text`: it fails to run
+        text_reply("Sorry."),
+    ])  # fmt: skip
+
+    status, _ = _run(manager, project, ADD_AND_SAVE)
+
+    assert status == "done" and RAN == [] and len(handle.requests) == 2
+
+
+def test_the_call_check_counts_towards_the_turns_model_calls(store, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_MODEL_CALLS", 2)
+    manager, project, handle = _writer(store, [
+        tool_reply("doc_write", {"text": "Total: 4172.03"}),
+        text_reply("NO_CALC"),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, ADD_AND_SAVE)
+
+    assert status == "error" and RAN == ["doc.write"] and len(handle.requests) == 2
+    assert any("Stopped after" in str(e.get("detail")) for e in seen if e["type"] == "error")

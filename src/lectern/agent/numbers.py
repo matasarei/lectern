@@ -14,7 +14,12 @@ _NUMBER = re.compile("-?\\d+(?:[.,']\\d+|[ \u00a0\u202f]\\d{3}(?!\\d))*")
 def numbers_in(text: str) -> list[float]:
     """Every number in `text`, read the ways people write them: 4,172.04 · 4 172,04 ·
     4172.04 · 62,50. A lone comma before exactly three digits is a thousands separator."""
-    found: list[float] = []
+    return [value for _, value in written_numbers(text)]
+
+
+def written_numbers(text: str) -> list[tuple[str, float]]:
+    """Each number in `text` as written, and its value (as numbers_in reads it)."""
+    found: list[tuple[str, float]] = []
     for raw in _NUMBER.findall(text):
         token = re.sub("[\u00a0\u202f ']", "", raw)
         if "," in token and "." in token:
@@ -30,7 +35,7 @@ def numbers_in(text: str) -> list[float]:
         elif token.count(".") > 1:
             token = token.replace(".", "")
         try:
-            found.append(float(token))
+            found.append((raw, float(token)))
         except ValueError:
             continue
     return found

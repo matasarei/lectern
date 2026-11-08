@@ -32,7 +32,8 @@ from lectern.agent.context import (
     build,
     split_turns,
 )
-from lectern.agent.prompts import EXACT_CHECK, system_prompt
+from lectern.agent.numbers import numbers_in, written_numbers
+from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, system_prompt
 from lectern.agent.state import ChatState
 from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
 from lectern.core.auth import User
@@ -470,6 +471,7 @@ async def run_turn(run: TurnRun) -> str:
     failed: dict[tuple[str, str], str] = {}
     calls_left = MAX_MODEL_CALLS
     checked = False
+    calls_checked = False  # a call writing a number nobody gave: asked about once a turn
     try:
         while calls_left:
             calls_left -= 1
@@ -488,6 +490,17 @@ async def run_turn(run: TurnRun) -> str:
                 tps = check.tps or tps
                 if check.calls:  # it was an exact result: computed now, the draft dropped
                     reply = check
+            unchecked = [] if calls_checked or not calls_left else _unchecked(run, history, reply)
+            if unchecked:
+                calls_checked = True
+                calls_left -= 1
+                check = await _call(run, _with_call_check(history, unchecked), hold=True)
+                tokens += check.tokens
+                tps = check.tps or tps
+                if check.calls:  # an exact result: computed first, the draft calls dropped
+                    reply = check
+                    if not hold:  # a held reply is shown below; this one's text was streamed
+                        _show(run, reply.content)
             if hold and _show(run, reply.content):
                 first_token = first_token or time.perf_counter()  # when it was seen
             message_id = await run_in_threadpool(
@@ -667,6 +680,54 @@ def _with_check(history: History, draft: str) -> History:
         {"id": None, "role": "user", "content": EXACT_CHECK},
     ]
     return History([*history.messages, *asked], history.attachments, history.state)
+
+
+# A numbered list's markers ("1. ", "2) ") at the start of a line: not numbers anyone wrote.
+_LIST_MARKER = re.compile(r"(?m)^\s*\d{1,3}[.)]\s")
+
+
+def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[tuple[str, list[str]]]:
+    """For each call in the reply to a tool that writes the person's content (`writes`): the
+    numbers it would write that no message, no tool result and no pin gave, nor the text it
+    writes over (pdf.edit's `find`). Only while the sandbox is offered: the check asks for
+    code_run. A call whose arguments don't validate isn't looked at; running it fails."""
+    if not reply.calls or run.registry.get("code_run") is None:
+        return []
+    given = {
+        n
+        for message in history.messages
+        if message["role"] in ("user", "tool")
+        for n in numbers_in(str(message.get("content") or ""))
+    }
+    given.update(n for pin in history.state.pinned for n in numbers_in(pin.text))
+    given.update(numbers_in(history.state.summary))
+    found = []
+    for call in reply.calls:
+        tool = run.registry.get(call["function"]["name"])
+        if tool is None or tool.writes is None:
+            continue
+        try:
+            written, over = tool.writes(tool.validate(call["function"]["arguments"]))
+        except ToolError:
+            continue
+        known = given | set(numbers_in(over))
+        new = [
+            raw
+            for raw, value in written_numbers(_LIST_MARKER.sub("", written))
+            if value not in known
+        ]
+        if new:
+            found.append((tool.wire_name, list(dict.fromkeys(new))))
+    return found
+
+
+def _with_call_check(history: History, unchecked: list[tuple[str, list[str]]]) -> History:
+    """The turn so far and the question. The draft call isn't shown: a call with no result in
+    front of the model made it say the work "wasn't done yet". Not stored."""
+    tool = unchecked[0][0]
+    numbers = ", ".join(n for _, ns in unchecked for n in ns)
+    asked = {"id": None, "role": "user", "content": CALL_CHECK.format(tool=tool, numbers=numbers)}
+    return History([*history.messages, asked], history.attachments, history.state)
 
 
 def _show(run: TurnRun, text: str) -> bool:

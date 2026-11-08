@@ -63,6 +63,16 @@ If it states none (a fact, a name, a year in history, an answer from a file), re
 NO_CALC"""
 
 
+# Asked once by the loop, never stored, before running a call that would write into the
+# person's files a number that no message or tool result gave (lectern.agent.loop): the 4B
+# added totals up in its head and wrote them through pdf.edit, 6 times in 8
+# (docs/acceptance/pdf-edit.md). Measured wording, not argued.
+CALL_CHECK = """Lectern check: your {tool} call would write {numbers}, which no message or tool \
+result gave. If any is an exact result — a sum, a difference, a total, a date, a percentage — \
+don't write it yet: call code_write, then code_run, then {tool} again with the output. If \
+they are not (the person's own, copied from a file), reply with only: NO_CALC"""
+
+
 def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
     return SYSTEM.format(
         project=project,
