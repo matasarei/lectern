@@ -82,8 +82,10 @@ def test_every_language_a_model_translates_is_listed_with_its_options(app):
     assert "uk" in codes and "de" in codes and codes == sorted(codes)
     ukrainian = _language(body, "uk")
     assert ukrainian["added"] is None
-    [option] = ukrainian["options"]
-    assert option["id"] == SALAMANDRA
+    option, other = ukrainian["options"]  # the best first
+    assert (option["id"], other["id"]) == (SALAMANDRA, "hy-mt2-1.8b")
+    assert (option["score"], other["score"], ukrainian["chat_score"]) == (60.0, 55.0, 50.0)
+    assert other["best"] is False and other["open_licence"] is False
     assert option["best"] is True and option["open_licence"] is True
     assert option["licence_notice"] is False
     assert option["download"]["status"] == "none"  # nothing of it on disk
@@ -92,7 +94,11 @@ def test_every_language_a_model_translates_is_listed_with_its_options(app):
 def test_the_best_and_the_open_licence_option_are_marked(app, translator):
     options = _language(_local(app).get("/api/languages").json(), "uk")["options"]
     marks = {o["id"]: (o["best"], o["open_licence"], o["licence_notice"]) for o in options}
-    assert marks == {SALAMANDRA: (True, True, False), "other-mt": (False, False, True)}
+    assert marks == {
+        SALAMANDRA: (True, True, False),
+        "hy-mt2-1.8b": (False, False, False),
+        "other-mt": (False, False, True),
+    }
 
 
 def test_adding_a_language_saves_it_and_downloads_its_model(app):
@@ -146,7 +152,8 @@ def test_the_same_model_again_only_restarts_its_download(app):
 @pytest.mark.parametrize(
     ("code", "model_id", "status"),
     [
-        ("ja", SALAMANDRA, 404),  # no model translates it
+        ("sw", SALAMANDRA, 404),  # no model translates it
+        ("ja", SALAMANDRA, 409),  # some do, not this one
         ("uk", "gone-mt", 404),  # not in the catalog
         ("uk", "qwen3.5-4b", 409),  # in the catalog, but not a translation model
     ],
@@ -166,7 +173,8 @@ def test_a_model_too_big_for_this_computer_isnt_on_offer(app, translator, monkey
     monkeypatch.setattr(catalog, "load", lambda: smaller)
     client = _local(app)
     options = _language(client.get("/api/languages").json(), "uk")["options"]
-    assert [o["id"] for o in options] == [SALAMANDRA]
+    ids = [o["id"] for o in options]
+    assert SALAMANDRA in ids and "other-mt" not in ids
     refused = client.put("/api/languages/uk", json={"model_id": "other-mt", "accept_licence": True})
     assert refused.status_code == 409
 

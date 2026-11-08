@@ -479,6 +479,12 @@ def test_a_translation_models_languages_are_named_and_listed_once(languages, why
 
 def test_a_translation_prompt_needs_the_languages_and_the_text():
     entry = _translate_entry()
-    entry["translate"] = {**entry["translate"], "prompt": "Translate into {target}"}
-    with pytest.raises(ValidationError, match=r"\{source\}, \{text\}"):
+    entry["translate"] = {**entry["translate"], "prompt": "Translate from {source}"}
+    with pytest.raises(ValidationError, match=r"\{target\}, \{text\}"):
         _with(entry)
+
+
+def test_a_translation_prompt_may_leave_out_the_source_language():
+    entry = _translate_entry()
+    entry["translate"] = {**entry["translate"], "prompt": "Translate into {target}:\n\n{text}"}
+    assert _with(entry).get("test-translate").translate.prompt.endswith("{text}")

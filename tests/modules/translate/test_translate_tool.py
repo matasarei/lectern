@@ -303,8 +303,8 @@ def test_the_tool_is_offered_every_turn_with_the_languages_added():
         ("uk", "en", "uk"),  # English last: the other language is the one asked about
         ("en", "de", "de"),
         ("de", "uk", "uk"),  # the target first
-        ("ja", "uk", None),  # no model here translates Japanese
-        ("ja", "en", None),  # nor English to and from Japanese
+        ("ga", "ja", None),  # no model on a 4 GB card translates Irish and Japanese
+        ("ja", "en", "ja"),  # Hy-MT2 does Japanese and English
     ],
 )
 def test_the_chat_model_translating_suggests_a_language_with_a_model(

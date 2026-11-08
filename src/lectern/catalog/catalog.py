@@ -33,7 +33,7 @@ Role = Literal["main", "ocr", "ocr.hand", "code", "image", "translate"]
 OCR_ROLES = frozenset({"ocr", "ocr.hand"})
 IMAGE_ROLE = "image"
 TRANSLATE_ROLE = "translate"
-PROMPT_FIELDS = ("{source}", "{target}", "{text}")
+PROMPT_FIELDS = ("{target}", "{text}")  # and `{source}` where the model's prompt names it
 
 
 class ModelFile(BaseModel):
@@ -122,8 +122,8 @@ class ImageSettings(BaseModel):
 class TranslateSettings(BaseModel):
     """What a translation model translates, and how it is asked. It translates both ways between
     any two of its `languages`. Each model family was trained on a prompt of its own, so the
-    prompt is the model's: `{source}` and `{target}` become the languages' English names, `{text}`
-    the text."""
+    prompt is the model's: `{source}` (where it names it) and `{target}` become the languages'
+    English names, `{text}` the text."""
 
     languages: list[str] = Field(min_length=2)
     prompt: str = Field(min_length=1)
