@@ -331,3 +331,106 @@ def test_an_added_language_isnt_suggested_again_but_the_other_one_is(ctx, transl
         ctx, [answer("…")], added=(("uk", SALAMANDRA, None),), source="uk", target="ja"
     )
     assert result.refs == [{"kind": "language", "code": "ja"}]
+
+
+# --- a file -----------------------------------------------------------------------------------
+
+
+def add_file(ctx, name: str, text: str | bytes, folder: str = "") -> int:  # noqa: ANN001
+    from lectern.projects import files
+
+    with ctx.sessions.begin() as session:
+        data = text.encode("utf-8") if isinstance(text, str) else text
+        row = files.write_bytes(
+            ctx.project.root, session, owner_id=ctx.user.id, name=name, data=data,
+            origin=files.Origin("import"), folder=folder,
+        )  # fmt: skip
+        return row.id
+
+
+def saved(ctx, path: str) -> tuple[str, str, int | None]:  # noqa: ANN001
+    from sqlalchemy import select
+
+    from lectern.projects.tables import ArtifactRow
+
+    with ctx.sessions() as session:
+        row = session.scalars(select(ArtifactRow).where(ArtifactRow.path == path)).one()
+        text = (ctx.project.root / row.path).read_text(encoding="utf-8")
+        return text, row.from_kind, row.from_id
+
+
+def run_file(ctx, replies, name: str, **params):  # noqa: ANN001, ANN202
+    handle = FakeHandle(replies)
+    ctx.runtime = make_runtime(handle, per_role=True)
+    ctx.downloads = OnDisk(SALAMANDRA)
+    ctx.emit = lambda _event: None
+    args = translate.TranslateParams(file=name, **{"source": "uk", "target": "en", **params})
+    return asyncio.run(translate._translate((("uk", SALAMANDRA, None),), ctx, args)), handle
+
+
+def test_a_file_is_translated_into_a_new_file_beside_it_and_opened(ctx):
+    source = add_file(ctx, "lease.md", "# Оренда\n\nСплатити до 10 числа.", folder="letters")
+    result, handle = run_file(ctx, [answer("# Lease\n\nPay by the 10th.")], "letters/lease.md")
+
+    assert saved(ctx, "letters/lease.en.md") == (
+        "# Lease\n\nPay by the 10th.",
+        "artifact",
+        source,
+    )
+    assert result.answer is None  # the chat model says it in a sentence
+    assert result.text.startswith(
+        "Translated letters/lease.md from Ukrainian into English by SalamandraTA 2B Instruct, "
+        "and saved it as letters/lease.en.md."
+    )
+    [ref] = result.refs
+    assert ref["kind"] == "artifact" and ref["name"] == "letters/lease.en.md"
+    assert result.action == {"type": "open_tab", "tab": {"kind": "artifact", "id": ref["id"]}}
+    assert (
+        "Ukrainian: # Оренда\n\nСплатити до 10 числа. \nEnglish:"
+        in (handle.requests[0]["messages"][0]["content"])
+    )
+
+
+def test_a_taken_name_gets_a_number(ctx):
+    add_file(ctx, "lease.md", "Текст.")
+    add_file(ctx, "lease.en.md", "An older translation.")
+    result, _ = run_file(ctx, [answer("Text.")], "lease.md")
+    assert saved(ctx, "lease.en.md")[0] == "An older translation."  # never replaced
+    assert result.refs[0]["name"] != "lease.en.md"
+    assert saved(ctx, result.refs[0]["name"])[0] == "Text."
+
+
+def test_an_ocr_documents_blocks_are_translated_without_their_anchors_or_front_matter(ctx):
+    add_file(
+        ctx,
+        "document.md",
+        "---\ndocument: Lease · version 1\n---\n\n{#b1.1 p=1} 1. Сторони\n\n{#b2.1 p=2} Текст.\n",
+    )
+    _, handle = run_file(ctx, [answer("1. Parties\n\nText.")], "document.md")
+    [request] = handle.requests
+    assert "Ukrainian: 1. Сторони\n\nТекст. \nEnglish:" in request["messages"][0]["content"]
+
+
+def test_a_file_too_long_to_translate_at_once_is_refused(ctx, monkeypatch):
+    monkeypatch.setattr(translate, "MAX_PARTS", 2)
+    monkeypatch.setattr(translate, "CHUNK_CHARS", 10)
+    add_file(ctx, "long.txt", "\n\n".join(["Абзац тут."] * 3))
+    with pytest.raises(ToolError, match=r"long.txt is too long to translate at once"):
+        run_file(ctx, [], "long.txt")
+
+
+def test_a_file_with_no_text_is_refused(ctx):
+    add_file(ctx, "photo.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    with pytest.raises(ToolError, match="photo.png has no text to translate"):
+        run_file(ctx, [], "photo.png")
+
+
+def test_a_file_that_isnt_there_is_refused(ctx):
+    with pytest.raises(ToolError, match="No file called 'missing.md'"):
+        run_file(ctx, [], "missing.md")
+
+
+@pytest.mark.parametrize("given", [{}, {"text": "Так.", "file": "lease.md"}])
+def test_text_or_a_file_but_not_both_nor_neither(given):
+    with pytest.raises(ValueError, match="either text or file"):
+        translate.TranslateParams(source="uk", target="en", **given)
