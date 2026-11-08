@@ -13,9 +13,10 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session, sessionmaker
 
 from lectern.catalog import catalog
-from lectern.catalog.catalog import CatalogEntry
+from lectern.catalog.catalog import TRANSLATE_ROLE, CatalogEntry
 from lectern.catalog.languages import name
 from lectern.core import settings
+from lectern.hardware.tiers import Tier
 
 Added = tuple[str, str, str | None]  # (code, model, previous), as ToolEnv carries them
 
@@ -75,3 +76,38 @@ def choose(
         else:
             return Choice(entry)
     return Choice(None, "; ".join(reasons) or None)
+
+
+# --- what a language can be given ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Option:
+    """A model a language can be given on this computer, and why one might pick it."""
+
+    entry: CatalogEntry
+    best: bool  # the best results of the options
+    open_licence: bool  # the best of the permissively licensed ones
+
+
+def covered() -> list[str]:
+    """Every language some translation model in the catalog translates, in code order."""
+    codes = {
+        code
+        for entry in catalog.load().choices_for(TRANSLATE_ROLE)
+        for code in entry.translate.languages
+    }
+    return sorted(codes)
+
+
+def options(code: str, tier: Tier) -> list[Option]:
+    """The translation models that translate `code` and suit this computer's tier, the best
+    first, each tagged: the best of them, and the best with an open licence."""
+    found = [
+        entry
+        for entry in catalog.load().choices_for(TRANSLATE_ROLE)
+        if entry.translate.covers(code) and entry.suits(tier)
+    ]
+    best = found[0].id if found else None
+    open_licence = next((e.id for e in found if e.permissive), None)
+    return [Option(e, best=e.id == best, open_licence=e.id == open_licence) for e in found]

@@ -1,5 +1,5 @@
 export type Tier = "below_minimum" | "minimum" | "recommended" | "comfortable";
-export type Role = "main" | "ocr" | "ocr.hand" | "code" | "image";
+export type Role = "main" | "ocr" | "ocr.hand" | "code" | "image" | "translate";
 /** What a model can be chosen for in Models & memory: a role, or cleanup of scanned pages
  * ("clean"), which a chat model does and which is leased as the chat role's. */
 export type ChoiceRole = Role | "clean";
