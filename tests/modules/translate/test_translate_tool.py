@@ -248,9 +248,17 @@ def test_a_model_that_cant_start_hands_the_text_to_the_chat_model(ctx, monkeypat
     )
 
 
-def test_a_cut_off_translation_is_an_error_not_half_an_answer(ctx):
-    with pytest.raises(ToolError, match="too long to translate in one go"):
+def test_a_chat_model_that_runs_on_is_an_error_not_half_an_answer(ctx):
+    with pytest.raises(ToolError, match="repeated itself"):
         run(ctx, [answer("Good aft", finish="length")])
+
+
+def test_a_translation_model_that_runs_on_hands_the_text_to_the_chat_model(ctx):
+    looping, fine = answer("la la la", finish="length"), answer("Good afternoon.")
+    result, handle, _ = run(ctx, [looping, fine], added=(("uk", SALAMANDRA, None),))
+    assert result.answer == "Good afternoon."
+    assert "by the chat model (SalamandraTA 2B Instruct repeated itself)." in result.text
+    assert handle.requests[1]["messages"][0]["role"] == "system"  # the chat model's prompt
 
 
 def test_a_failed_request_is_an_error(ctx):
@@ -274,9 +282,44 @@ def test_a_failed_request_is_an_error(ctx):
         asyncio.run(translate._translate((), ctx, args))
 
 
-def test_the_same_language_both_ways_is_refused(ctx):
-    with pytest.raises(ToolError, match="source and target are the same"):
+def test_the_same_language_both_ways_is_refused_and_says_what_the_source_is(ctx):
+    with pytest.raises(ToolError, match="the language the text is written in, not the language"):
         run(ctx, [], target="uk")
+
+
+@pytest.mark.parametrize(
+    ("source", "text", "checked"),
+    [
+        ("uk", "Встреча переносится, мы ещё ждём.", "ru"),  # ы, ё… only Russian has
+        (
+            "uk",
+            "Встреча переносится на следующую пятницу, потому что директор уехал в командировку.",
+            "ru",
+        ),
+        ("uk", "Встреча переносится на следующую пятницу.", "uk"),  # too short to tell
+        ("ru", "Зустріч переноситься на наступну п'ятницю.", "uk"),  # і, є… only Ukrainian has
+        ("uk", "Добрий день, ми їдемо.", "uk"),
+        ("ru", "Он пришёл.", "ru"),
+        ("uk", "Мама", "uk"),  # nothing to tell them apart by: as the model said
+        ("uk", "Ця об'ява ще в силі? Да, ещё.", "uk"),  # both: as the model said
+        ("de", "Встреча.", "de"),  # only Ukrainian and Russian are told apart
+    ],
+)
+def test_ukrainian_and_russian_are_told_apart_by_their_letters(source, text, checked):
+    assert translate.checked_source(source, text) == checked
+
+
+def test_russian_called_ukrainian_is_translated_as_russian(ctx):
+    result, handle, _ = run(
+        ctx, [answer("The meeting is moved.")], text="Встреча перенесена на пятницу, ещё раз."
+    )
+    assert result.text.startswith("Translated from Russian into English")
+    assert "from Russian into English" in handle.requests[0]["messages"][1]["content"]
+
+
+def test_text_already_in_the_target_language_is_refused(ctx):
+    with pytest.raises(ToolError, match="already in Russian"):
+        run(ctx, [], text="Мы ещё ждём.", target="ru")
 
 
 @pytest.mark.parametrize("code", ["UK", "ukr-x", "u", ""])

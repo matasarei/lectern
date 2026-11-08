@@ -43,7 +43,9 @@ CHAT_PROMPT = "Translate the following text from {source} into {target}.\n\n{tex
 
 class TranslateParams(BaseModel):
     source: str = Field(
-        pattern=CODE, description='The language the text is in, as an ISO 639-1 code: "uk".'
+        pattern=CODE,
+        description="The language the text or file is written in (not the person's), as an "
+        'ISO 639-1 code: "uk", "ru", "en".',
     )
     target: str = Field(
         pattern=CODE, description='The language to translate it into, as an ISO 639-1 code: "en".'
@@ -67,6 +69,32 @@ class TranslateParams(BaseModel):
         if (self.text is None) == (self.file is None):
             raise ValueError("give either text or file, not both")
         return self
+
+
+# Letters only one of the two has: a small model takes Russian for Ukrainian and back (the 4B
+# called Russian text "uk", docs/acceptance/translate.md), and the script settles it.
+UKRAINIAN_ONLY = frozenset("іїєґІЇЄҐ")
+RUSSIAN_ONLY = frozenset("ыэъёЫЭЪЁ")
+
+
+# Ukrainian text of any length has і, ї or є: some 7% of its letters. Without any in this many
+# Cyrillic letters, it is Russian (about 1 Ukrainian text in 80 that long has none).
+CYRILLIC_WITHOUT_UKRAINIAN = 60
+
+
+def checked_source(source: str, text: str) -> str:
+    """The source language, Ukrainian and Russian told apart by their letters: the one the
+    model named, unless the text has letters only the other has and none only its own, or is
+    long Cyrillic called Ukrainian without a letter only Ukrainian has."""
+    letters = set(text)
+    ukrainian, russian = bool(letters & UKRAINIAN_ONLY), bool(letters & RUSSIAN_ONLY)
+    if source == "uk" and not ukrainian:
+        cyrillic = sum(1 for c in text if "\u0400" <= c <= "\u04ff")
+        if russian or cyrillic >= CYRILLIC_WITHOUT_UKRAINIAN:
+            return "ru"
+    if source == "ru" and ukrainian and not russian:
+        return "uk"
+    return source
 
 
 def chunks(text: str, limit: int | None = None) -> list[str]:
@@ -109,6 +137,11 @@ def fill(prompt: str, source: str, target: str, text: str) -> str:
     return filled.replace("{text}", text)
 
 
+class Looped(ToolError):
+    """The model wrote until it ran out of room: a part's translation is far shorter, so it
+    was repeating itself (seen on SalamandraTA 2B with one sentence of French)."""
+
+
 async def _ask(client, messages: list[dict]) -> str:  # noqa: ANN001
     response = await client.post(
         "/v1/chat/completions",
@@ -124,7 +157,7 @@ async def _ask(client, messages: list[dict]) -> str:  # noqa: ANN001
         raise ToolError(f"The translation failed: {response.text[:300]}")
     choice = response.json()["choices"][0]
     if choice.get("finish_reason") == "length":
-        raise ToolError("A part of the text was too long to translate in one go.")
+        raise Looped("The translation ran on without ending: the model repeated itself.")
     return (choice["message"].get("content") or "").strip()
 
 
@@ -189,13 +222,21 @@ async def _translate(
     added: tuple[Added, ...], ctx: ToolContext, params: TranslateParams
 ) -> ToolResult:
     if params.source == params.target:
-        raise ToolError("The text is already in that language: source and target are the same.")
+        raise ToolError(
+            "Source and target are the same. The source is the language the "
+            + ("file is written in" if params.file is not None else "text is written in")
+            + ", not the language the person writes in: call again with that."
+        )
     if ctx.runtime is None:
         raise ToolError("Translation isn't available here.")
     source_file = None
     text = params.text or ""
     if params.file is not None:
         source_file, text = await run_in_threadpool(file_text, ctx, params.file)
+    source = checked_source(params.source, text)
+    if source == params.target:
+        raise ToolError(f"The text is already in {name(params.target)}.")
+    params = params.model_copy(update={"source": source})
     parts = chunks(text)
     if not parts:
         raise ToolError("There's no text to translate.")
@@ -215,6 +256,8 @@ async def _translate(
             # didn't): the chat model translates instead, and says why.
             reason = (str(exc).splitlines() or [""])[0] or type(exc).__name__
             entry, why = None, f"{choice.entry.title} couldn't start: {reason}"
+        except Looped:
+            entry, why = None, f"{choice.entry.title} repeated itself"
     if entry is None:
         translation = await translate_parts(ctx, None, params.source, params.target, parts)
     by = entry.title if entry is not None else "the chat model"
@@ -264,9 +307,9 @@ def translate_tool(added: tuple[Added, ...]) -> AgentTool:
         name="translate",
         description=(
             "Translate text, or a project file, into another language, on this computer. Use "
-            "it whenever the person asks for a translation; don't translate yourself. Text's "
-            "translation is shown to the person as your answer; a file's is saved as a new "
-            "file beside it."
+            "it whenever the person asks for a translation or what something says in another "
+            "language; never translate yourself. Text's translation is shown to the person as "
+            "your answer; a file's is saved as a new file beside it."
         ),
         params=TranslateParams,
         run=partial(_translate, added),

@@ -8,9 +8,12 @@ the requests the `translate` tool itself sends, and is scored with chrF (sacrebl
 the other side. Translation models are asked through their own role (`translate@<id>`), chat
 models through the chat's (`main@<id>`), with the chat model's prompt.
 
-The scores go into catalog/translation_scores.yaml, merged with what's there: a run measures
-some models and languages, and leaves the others' scores as they were. Running it again
-measures the same again: at temperature 0 the same scores come out.
+The scores go into catalog/translation_scores.yaml as each model and language is measured,
+merged with what's there: a run measures some models and languages and leaves the others'
+scores as they were, and one stopped halfway keeps what it measured. A pair already in the
+file is skipped unless asked to measure it again (at temperature 0 the same scores come out).
+A sentence a model translates without ending (it repeats itself until it runs out of room)
+counts as not translated, and the run says how many there were.
 """
 
 from __future__ import annotations
@@ -98,14 +101,20 @@ async def translate_all(
     source: str,
     target: str,
     sentences: list[str],
-) -> list[str]:
-    """Each sentence translated on its own, as the tool would translate one part."""
+) -> tuple[list[str], int]:
+    """Each sentence translated on its own, as the tool would translate one part, and how many
+    the model didn't finish (empty: they score as nothing translated)."""
     out = []
+    looped = 0
     async with runtime.lease(candidate.key, Priority.CHAT) as lease:
         for sentence in sentences:
             messages = tools._messages(candidate.translator, source, target, sentence)
-            out.append((await tools._ask(lease.client, messages)).replace("\n", " ").strip())
-    return out
+            try:
+                out.append((await tools._ask(lease.client, messages)).replace("\n", " ").strip())
+            except tools.Looped:
+                out.append("")
+                looped += 1
+    return out, looped
 
 
 def chrf(hypotheses: list[str], references: list[str]) -> float:
@@ -120,21 +129,39 @@ async def measure(
     sentences: dict[str, list[str]],
     languages: list[str] | None = None,
     echo: Callable[[str], None] = print,
+    measured: Callable[[str, str], bool] = lambda _model, _code: False,
+    record: Callable[[str, str, dict[str, float]], None] = lambda _model, _code, _pair: None,
 ) -> dict[str, dict[str, dict[str, float]]]:
     """Scores by model id, language, and direction ("into": from English into it; "from": out
-    of it into English)."""
+    of it into English). A pair `measured` says is done is skipped; each new one is handed to
+    `record` at once."""
     available = [c for c in sentences if c != ENGLISH and (not languages or c in languages)]
     english = sentences[ENGLISH]
     found: dict[str, dict[str, dict[str, float]]] = {}
     for candidate in models:
         for code in candidate.languages(available):
-            into = await translate_all(runtime, candidate, ENGLISH, code, english)
-            out_of = await translate_all(runtime, candidate, code, ENGLISH, sentences[code])
+            if measured(candidate.entry.id, code):
+                continue
+            into, looped_in = await translate_all(runtime, candidate, ENGLISH, code, english)
+            out_of, looped_out = await translate_all(
+                runtime, candidate, code, ENGLISH, sentences[code]
+            )
             pair = {"into": chrf(into, sentences[code]), "from": chrf(out_of, english)}
             found.setdefault(candidate.entry.id, {})[code] = pair
+            record(candidate.entry.id, code, pair)
+            if looped_in or looped_out:
+                echo(f"{candidate.entry.id} {code}: {looped_in + looped_out} sentences looped")
             into_score, from_score = pair["into"], pair["from"]
             echo(f"{candidate.entry.id:24} {code:4} into {into_score:5.1f}  from {from_score:5.1f}")
     return found
+
+
+def already(path: Path) -> set[tuple[str, str]]:
+    """The (model, language) pairs the scores file has."""
+    if not path.is_file():
+        return set()
+    scores = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("scores") or {}
+    return {(model_id, code) for model_id, languages in scores.items() for code in languages}
 
 
 def merge(path: Path, found: dict, count: int) -> None:

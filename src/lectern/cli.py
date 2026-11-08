@@ -587,7 +587,7 @@ app.add_typer(dev_app, name="dev")
 @dev_app.command("agent-check")
 def agent_check(
     prompt_set: str = typer.Option(
-        "calc", "--set", help="Prompt set: calc, tools, long, web or ocr."
+        "calc", "--set", help="Prompt set: calc, tools, long, web, ocr or translate."
     ),
     only: Annotated[
         list[str] | None, typer.Option("--only", help="Run only these prompt ids.")
@@ -721,6 +721,7 @@ def translate_check(
         Path | None,
         typer.Option(help="The scores file to update (default: the catalog's, in this checkout)."),
     ] = None,
+    again: bool = typer.Option(False, help="Measure pairs the scores file already has, too."),
     allow_server: bool = typer.Option(
         False, help="Run while `lectern serve` is running (it shares the GPU)."
     ),
@@ -748,18 +749,31 @@ def translate_check(
         found = check.load_sentences(folder, sentences)
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from None
-    runtime = _local_runtime()
-    scores = asyncio.run(_run_translate_check(runtime, models, found, language))
     path = out or check.SCORES_PATH
-    check.merge(path, scores, min(len(s) for s in found.values()))
+    done = set() if again else check.already(path)
+    count = min(len(s) for s in found.values())
+
+    def record(model_id: str, code: str, pair: dict[str, float]) -> None:
+        check.merge(path, {model_id: {code: pair}}, count)  # at once: a stopped run keeps it
+
+    runtime = _local_runtime()
+    asyncio.run(_run_translate_check(runtime, models, found, language, done, record))
     typer.echo(f"Saved to {path}")
 
 
-async def _run_translate_check(runtime, models, sentences, languages):  # noqa: ANN001, ANN202
+async def _run_translate_check(runtime, models, sentences, languages, done, record):  # noqa: ANN001, ANN202
     from lectern.dev.translate_check import measure
 
     try:
-        return await measure(runtime, models, sentences, languages, echo=typer.echo)
+        return await measure(
+            runtime,
+            models,
+            sentences,
+            languages,
+            echo=typer.echo,
+            measured=lambda model_id, code: (model_id, code) in done,
+            record=record,
+        )
     finally:
         await runtime.stop_all()  # also on Ctrl+C: no llama-server is left running
 

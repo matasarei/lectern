@@ -121,3 +121,45 @@ def test_new_scores_are_merged_with_the_ones_not_measured_again(tmp_path):
             "uk": {"into": 51.0, "from": 60.0},
         },
     }
+
+
+def answer_looping() -> bytes:
+    return json.dumps(
+        {"choices": [{"message": {"content": "la la"}, "finish_reason": "length"}]}
+    ).encode()
+
+
+def test_a_sentence_that_loops_counts_as_not_translated_and_the_run_goes_on():
+    sentences = {"en": ["One.", "Two."], "uk": ["Один.", "Два."]}
+    replies = [answer("Один."), answer_looping(), answer("One."), answer("Two.")]
+    runtime = make_runtime(FakeHandle(replies), per_role=True)
+    lines: list[str] = []
+    found = asyncio.run(
+        check.measure(runtime, check.candidates(["salamandrata-2b"]), sentences, echo=lines.append)
+    )
+    assert found["salamandrata-2b"]["uk"]["from"] == 100.0
+    assert found["salamandrata-2b"]["uk"]["into"] < 100.0
+    assert "salamandrata-2b uk: 1 sentences looped" in lines
+
+
+def test_a_measured_pair_is_skipped_and_each_new_one_recorded_at_once(tmp_path):
+    sentences = {"en": ["One."], "uk": ["Один."], "de": ["Eins."]}
+    handle = FakeHandle([answer("Eins."), answer("One.")])
+    runtime = make_runtime(handle, per_role=True)
+    recorded: list[tuple[str, str]] = []
+    asyncio.run(
+        check.measure(
+            runtime, check.candidates(["salamandrata-2b"]), sentences, echo=print,
+            measured=lambda model_id, code: code == "uk",
+            record=lambda model_id, code, pair: recorded.append((model_id, code)),
+        )
+    )  # fmt: skip
+    assert recorded == [("salamandrata-2b", "de")]
+    assert len(handle.requests) == 2  # Ukrainian wasn't asked again
+
+
+def test_the_pairs_a_scores_file_has(tmp_path):
+    path = tmp_path / "scores.yaml"
+    assert check.already(path) == set()
+    check.merge(path, {"salamandrata-2b": {"uk": {"into": 1.0, "from": 2.0}}}, 10)
+    assert check.already(path) == {("salamandrata-2b", "uk")}
