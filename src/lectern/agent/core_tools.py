@@ -413,7 +413,8 @@ WRITE = AgentTool(
     description=(
         "Save text you wrote as a new file in the project, only when the person asked for a "
         "file; asks them first when their message didn't. Never replaces a file: a taken name "
-        "gets a number."
+        "gets a number. An HTML page loads nothing from the internet (no CDN or library): "
+        "draw a chart with inline SVG or a canvas."
     ),
     params=WriteParams,
     run=_write,
