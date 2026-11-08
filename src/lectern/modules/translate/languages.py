@@ -89,9 +89,12 @@ def choose(
 
 # --- what a language can be given ---------------------------------------------------------
 
-SCORES_FILE = (
-    "translation_scores.yaml"  # in lectern.catalog, written by `lectern dev translate-check`
-)
+# In lectern.catalog, written by `lectern dev translate-check`.
+SCORES_FILE = "translation_scores.yaml"
+# How much better than the chat model a translation model must score to be offered: chrF on 50
+# sentences moves by about a point between models this close, and on a 4 GB card most measured
+# differences were under one (docs/acceptance/translate.md).
+MARGIN = 1.0
 
 
 @cache
@@ -148,9 +151,10 @@ def chat_score(code: str, chat: CatalogEntry | None) -> float | None:
 
 def options(code: str, tier: Tier, chat: CatalogEntry | None) -> list[Option]:
     """The translation models that translate `code`, suit this computer's tier, and were
-    measured translating it better than the chat model: the best first, each tagged the best of
-    them, and the best with an open licence. A model nobody measured isn't offered; against a
-    chat model nobody measured, every measured one is."""
+    measured translating it better than the chat model, by MARGIN at least: the best first,
+    each tagged the best of them, and the best with an open licence. A model nobody measured
+    isn't offered, and against a chat model nobody measured (the comfortable tier's, or one
+    chosen outside the defaults) none is: there's nothing to show it would help."""
     measured = scores()
     baseline = chat_score(code, chat)
     found = [
@@ -159,7 +163,7 @@ def options(code: str, tier: Tier, chat: CatalogEntry | None) -> list[Option]:
         if entry.translate.covers(code) and entry.suits(tier) and code in measured.get(entry.id, {})
     ]
     better = sorted(
-        ((e, score) for e, score in found if baseline is None or score > baseline),
+        ((e, score) for e, score in found if baseline is not None and score >= baseline + MARGIN),
         key=lambda pair: -pair[1],
     )
     best = better[0][0].id if better else None

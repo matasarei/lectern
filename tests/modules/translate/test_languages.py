@@ -29,6 +29,11 @@ def scored(monkeypatch, table: dict[str, dict[str, float]]) -> None:
     monkeypatch.setattr(languages, "scores", lambda: table)
 
 
+def test_a_model_a_point_better_than_the_chat_model_is_offered(monkeypatch, chat):
+    scored(monkeypatch, {SALAMANDRA: {"uk": 52.0}, "qwen3.5-4b": {"uk": 51.0}})
+    assert [o.entry.id for o in options("uk", Tier.MINIMUM, chat)] == [SALAMANDRA]
+
+
 def test_a_model_measured_better_than_the_chat_model_is_offered(monkeypatch, chat):
     scored(monkeypatch, {SALAMANDRA: {"uk": 58.0}, "qwen3.5-4b": {"uk": 51.0}})
     [option] = options("uk", Tier.MINIMUM, chat)
@@ -41,8 +46,8 @@ def test_a_model_measured_better_than_the_chat_model_is_offered(monkeypatch, cha
     assert chat_score("uk", chat) == 51.0
 
 
-@pytest.mark.parametrize("translator", [51.0, 49.5])
-def test_a_model_no_better_than_the_chat_model_is_not(monkeypatch, chat, translator):
+@pytest.mark.parametrize("translator", [51.0, 49.5, 51.9])
+def test_a_model_no_better_than_the_chat_model_by_a_point_is_not(monkeypatch, chat, translator):
     scored(monkeypatch, {SALAMANDRA: {"uk": translator}, "qwen3.5-4b": {"uk": 51.0}})
     assert options("uk", Tier.MINIMUM, chat) == []
 
@@ -52,11 +57,12 @@ def test_a_model_nobody_measured_is_not_offered(monkeypatch, chat):
     assert options("uk", Tier.MINIMUM, chat) == []
 
 
-def test_against_a_chat_model_nobody_measured_every_measured_model_is_offered(monkeypatch):
-    scored(monkeypatch, {SALAMANDRA: {"uk": 40.0}})
+def test_against_a_chat_model_nobody_measured_nothing_is_offered(monkeypatch):
+    scored(monkeypatch, {SALAMANDRA: {"uk": 60.0}, "qwen3.5-4b": {"uk": 40.0}})
     big = catalog.load().get("qwen3.5-35b-a3b")
-    assert [o.entry.id for o in options("uk", Tier.MINIMUM, big)] == [SALAMANDRA]
+    assert options("uk", Tier.MINIMUM, big) == []
     assert chat_score("uk", big) is None
+    assert options("uk", Tier.MINIMUM, None) == []  # no chat model at all
 
 
 def test_the_shipped_scores_file_reads_as_means_and_its_models_are_in_the_catalog():

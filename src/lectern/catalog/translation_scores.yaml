@@ -1,0 +1,37 @@
+# How well each model translates each language: chrF (sacrebleu) on FLORES-200 devtest,
+# into and out of English. Written by `lectern dev translate-check`; don't edit by hand.
+measured: '2026-11-08'
+machine: Darwin arm64
+sentences: 50
+scores:
+  hy-mt2-1.8b:
+    cs: {into: 58.5, from: 63.8}
+    de: {into: 60.1, from: 66.1}
+    es: {into: 56.4, from: 60.9}
+    fr: {into: 68.5, from: 67.2}
+    it: {into: 58.1, from: 59.6}
+    ja: {into: 43.1, from: 56.4}
+    pl: {into: 52.7, from: 59.3}
+    ru: {into: 56.4, from: 61.1}
+    uk: {into: 54.3, from: 63.9}
+    zh: {into: 39.6, from: 59.6}
+  qwen3.5-4b:
+    cs: {into: 53.7, from: 65.9}
+    de: {into: 61.6, from: 69.5}
+    es: {into: 56.5, from: 60.7}
+    fr: {into: 70.7, from: 70.8}
+    it: {into: 59.9, from: 62.2}
+    ja: {into: 40.1, from: 58.2}
+    pl: {into: 51.1, from: 61.6}
+    ru: {into: 58.9, from: 64.1}
+    uk: {into: 54.0, from: 66.1}
+    zh: {into: 39.7, from: 60.4}
+  salamandrata-2b:
+    cs: {into: 55.7, from: 65.2}
+    de: {into: 62.4, from: 67.7}
+    es: {into: 58.9, from: 61.6}
+    fr: {into: 72.0, from: 67.5}
+    it: {into: 62.6, from: 61.3}
+    pl: {into: 53.9, from: 59.6}
+    ru: {into: 58.5, from: 60.4}
+    uk: {into: 56.0, from: 63.2}
