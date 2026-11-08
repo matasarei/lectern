@@ -94,13 +94,13 @@ def view(ticket: str, request: Request) -> Response:
     except HTTPException:  # trashed, removed or gone from the folder since the link was made
         return PlainTextResponse(GONE, status_code=404)
     inlined = None
-    if path.stat().st_size <= html_page.PAGE_LIMIT:
+    with path.open("rb") as file:  # read once, so the size checked is the size parsed
+        page = file.read(html_page.PAGE_LIMIT + 1)
+    if len(page) <= html_page.PAGE_LIMIT:
         project = open_project(request, held.project_id, held.user)
         with store(request).db(project)() as session:
             folder = posixpath.dirname(row.path)
-            inlined = inline_page(
-                path.read_bytes(), _side_files(project.root, session, held.user, folder)
-            )
+            inlined = inline_page(page, _side_files(project.root, session, held.user, folder))
     if inlined is not None:
         return Response(
             inlined, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store"}
