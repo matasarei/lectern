@@ -177,7 +177,7 @@ def test_a_page_comes_with_the_files_it_links_to_inside_it(api):
     assert 'href="style.css"' not in body and 'src="logo.png"' not in body
 
 
-def test_only_the_owners_files_still_in_the_project_go_in(api, tmp_path):
+def test_only_the_owners_files_still_in_the_project_go_in(api):
     client, headers, app, pid = api
     project = _project(app, pid)
     (project.root.parent / "outside.css").write_bytes(b"p{color:blue}")
