@@ -81,7 +81,8 @@ runs as it was.
 The dropped call is held for the rest of the turn, never stored. Until the model calls that
 tool again, with any arguments, every model call carries a note quoting the held call whole
 (each of `pdf.edit`'s `find`s beside its `replace`), so the edits that needed no computing go
-back in beside the computed number. While a call is held, replies are held back too; one that
+back in beside the computed number. The note leaves out the number worked out in the head, a
+placeholder in its place: quoted, it was copied into the PDF instead of the script's. While a call is held, replies are held back too; one that
 would end the turn without the call is asked about once. If the answer calls a tool, the
 reply is dropped and the turn goes on; if not, the reply stands. Measurements:
 [`acceptance/pdf-edit.md`](acceptance/pdf-edit.md).

@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS
-from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_GUARD, HELD_NOTE
+from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_BLANK, HELD_GUARD, HELD_NOTE
 from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
 from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
@@ -587,9 +587,12 @@ HELD_ARGUMENTS = (
     '{"edits": [{"find": "Price 200.00", "replace": "Price 225.00"}, '
     '{"find": "Total 4000.00", "replace": "Total 4172.03"}]}'
 )
+# The note and the guard quote it without the number worked out in the head: copied from the
+# note, a wrong total went into the PDF (agent-check runs 11-12).
+BLANKED = HELD_ARGUMENTS.replace("4172.03", HELD_BLANK)
 NOTE = {
     "role": "user",
-    "content": HELD_NOTE.format(tool="doc_edit", numbers="4172.03", arguments=HELD_ARGUMENTS),
+    "content": HELD_NOTE.format(tool="doc_edit", blank=HELD_BLANK, arguments=BLANKED),
 }
 COMPUTE = [
     tool_reply("code_write", {"brief": "Add 1284.50, 377.25, 99.99 and 2410.30."}),
@@ -621,6 +624,7 @@ def test_a_held_call_is_quoted_with_every_edit_on_each_model_call_until_made(sto
     assert handle.requests[2]["messages"][-1] == NOTE
     assert handle.requests[3]["messages"][-1] == NOTE
     assert "Price 200.00" in NOTE["content"] and "Total 4000.00" in NOTE["content"]
+    assert "4172.03" not in NOTE["content"]
     assert "Lectern note" not in str(transcript(store, project))  # never stored
     assert _shown(seen) == "Saved."
 
@@ -655,7 +659,7 @@ def test_no_held_call_no_note(store):
     assert _shown(seen) == "Saved."
 
 
-GUARD = HELD_GUARD.format(tool="doc_edit", arguments=HELD_ARGUMENTS)
+GUARD = HELD_GUARD.format(tool="doc_edit", blank=HELD_BLANK, arguments=BLANKED)
 
 
 def test_a_turn_ending_with_the_call_still_held_is_asked_once_and_makes_it(store):
@@ -753,3 +757,19 @@ def test_no_guard_when_no_model_call_is_left(store, monkeypatch):
 
     assert status == "done" and len(handle.requests) == 3
     assert _shown(seen) == "The total is 4172.04."
+
+
+def test_only_the_unchecked_number_itself_is_blanked():
+    params = _Edits(edits=[
+        {"find": "Fee 150.00", "replace": "Fee 5", "page": 5},
+        {"find": "Item 5.50", "replace": "Item 5.50 x 5"},
+    ])  # fmt: skip
+    held = loop._Held("doc_edit", params, ["5"])
+
+    assert held.quoted(blank=True) == (
+        f'{{"edits": [{{"find": "Fee 150.00", "replace": "Fee {HELD_BLANK}", "page": 5}}, '
+        f'{{"find": "Item 5.50", "replace": "Item 5.50 x {HELD_BLANK}"}}]}}'
+    )
+    assert held.quoted(blank=False) == json.dumps(
+        params.model_dump(exclude_defaults=True), ensure_ascii=False
+    )

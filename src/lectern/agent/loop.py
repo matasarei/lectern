@@ -34,7 +34,14 @@ from lectern.agent.context import (
     split_turns,
 )
 from lectern.agent.numbers import numbers_in, written_numbers
-from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_GUARD, HELD_NOTE, system_prompt
+from lectern.agent.prompts import (
+    CALL_CHECK,
+    EXACT_CHECK,
+    HELD_BLANK,
+    HELD_GUARD,
+    HELD_NOTE,
+    system_prompt,
+)
 from lectern.agent.state import ChatState
 from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
 from lectern.core.auth import User
@@ -711,12 +718,31 @@ class _Held:
     numbers: list[str]  # the numbers no message gave
     guarded: bool = False  # the end-of-turn guard has asked about it
 
-    @property
-    def arguments(self) -> str:
+    def quoted(self, *, blank: bool) -> str:
         """The call's arguments as the model writes them (pdf.edit's `find`s beside their
-        `replace`s), cut to CALL_QUOTE_CHARS."""
-        text = json.dumps(self.params.model_dump(exclude_defaults=True), ensure_ascii=False)
+        `replace`s), cut to CALL_QUOTE_CHARS. `blank`: each unchecked number in its text is
+        HELD_BLANK instead, so the model can't copy the number it worked out in its head."""
+        arguments = self.params.model_dump(exclude_defaults=True)
+        if blank:
+            arguments = _blanked(arguments, self.numbers)
+        text = json.dumps(arguments, ensure_ascii=False)
         return text if len(text) <= CALL_QUOTE_CHARS else text[:CALL_QUOTE_CHARS] + "…"
+
+
+def _blanked(value: object, numbers: list[str]) -> object:
+    """`value` with each of `numbers` in its strings replaced by HELD_BLANK where it stands as
+    a number of its own: "5" in "Fee 5", not in "150.00" or "5.50". Not in other fields (a
+    page number)."""
+    if isinstance(value, str):
+        for number in numbers:
+            alone = rf"(?<![\d.,]){re.escape(number)}(?![.,]?\d)"
+            value = re.sub(alone, lambda _: HELD_BLANK, value)
+        return value
+    if isinstance(value, dict):
+        return {key: _blanked(item, numbers) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_blanked(item, numbers) for item in value]
+    return value
 
 
 def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[_Held]:
@@ -762,19 +788,17 @@ def _with_call_check(history: History, unchecked: list[_Held]) -> History:
     front of the model made it say the work "wasn't done yet". Not stored."""
     numbers = ", ".join(n for held in unchecked for n in held.numbers)
     first = unchecked[0]
-    text = CALL_CHECK.format(tool=first.tool, numbers=numbers, arguments=first.arguments)
+    text = CALL_CHECK.format(tool=first.tool, numbers=numbers, arguments=first.quoted(blank=False))
     asked = {"id": None, "role": "user", "content": text}
     return History([*history.messages, asked], history.attachments, history.state)
 
 
 def _with_held(history: History, held: _Held | None) -> History:
     """The turn so far and, while a call is held, a note quoting it whole, so the model makes it
-    again with every edit, not only the computed number. Not stored."""
+    again with every edit, not only the computed number (blanked). Not stored."""
     if held is None:
         return history
-    text = HELD_NOTE.format(
-        tool=held.tool, numbers=", ".join(held.numbers), arguments=held.arguments
-    )
+    text = HELD_NOTE.format(tool=held.tool, blank=HELD_BLANK, arguments=held.quoted(blank=True))
     noted = {"id": None, "role": "user", "content": text}
     return History([*history.messages, noted], history.attachments, history.state)
 
@@ -782,13 +806,12 @@ def _with_held(history: History, held: _Held | None) -> History:
 def _with_guard(history: History, draft: str, held: _Held) -> History:
     """The turn so far, the reply that would end it, and the question why the held call wasn't
     made. Neither is stored: the reply stands unless the answer makes a call."""
+    question = HELD_GUARD.format(
+        tool=held.tool, blank=HELD_BLANK, arguments=held.quoted(blank=True)
+    )
     asked = [
         {"id": None, "role": "assistant", "content": draft},
-        {
-            "id": None,
-            "role": "user",
-            "content": HELD_GUARD.format(tool=held.tool, arguments=held.arguments),
-        },
+        {"id": None, "role": "user", "content": question},
     ]
     return History([*history.messages, *asked], history.attachments, history.state)
 

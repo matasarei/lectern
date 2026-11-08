@@ -82,15 +82,18 @@ code_run, then {tool} again with everything above, the number from the output. O
 # Once the call check has dropped a call to compute its number, that call is held: every model
 # call in the turn carries this note, never stored, until the tool is called again. After
 # computing, the 4B re-sent only the total and dropped the call's other edits, 4 of 4 times in
-# the pdf set's birth-certificate case (docs/acceptance/pdf-edit.md).
-HELD_NOTE = """Lectern note: a {tool} call is waiting for the number {numbers}. Once you have \
-it, call {tool} again with all of this, the computed number in place of {numbers}: \
+# the pdf set's birth-certificate case (docs/acceptance/pdf-edit.md). The note quotes the call
+# with its worked-out number blanked: quoted as it was, the model wrote that wrong total in,
+# not the script's (agent-check runs 11-12).
+HELD_BLANK = "<number from code_run>"
+HELD_NOTE = """Lectern note: a {tool} call is waiting for a number from code_run's output. \
+Once you have it, call {tool} again with all of this, that number in place of {blank}: \
 {arguments}"""
 
 # Asked once, never stored, when the turn would end while a call is still held: once, the 4B
 # computed the total and then said "I have updated the text" without making the call.
 HELD_GUARD = """Lectern check: you haven't made the {tool} call yet: {arguments}. Make it \
-now with the computed number, or say why not."""
+now, with the number from code_run's output in place of {blank}, or say why not."""
 
 
 def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
