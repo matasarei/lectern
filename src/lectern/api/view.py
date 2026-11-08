@@ -5,14 +5,19 @@ read the token the page keeps, and Lectern's CSP blocks the file's own styles an
 page asks for a link (`POST …/artifacts/{id}/view`, which the token and the Origin check
 guard like every change), and opens it in a new tab: `/view/<ticket>`.
 
-- The ticket opens that one file of that one person, once, within VIEW_TICKET_SECONDS of
-  being made. A new tab can't send the token header, so the ticket stands in for it, and only
-  here: this path is outside /api, and nothing else is served under it.
+- That is a wrapper: a page that runs nothing, holding the file in
+  `<iframe sandbox="allow-scripts" src="/view/<frame ticket>/page">`. The frame can't navigate
+  the tab, and the wrapper's policy lets it navigate itself to Lectern's address only, so a
+  page can't send out what is in it by going somewhere else (`core.security`'s comment above
+  VIEW_CSP has the rest, and what it still can do).
+- A ticket opens that one file of that one person, once, within VIEW_TICKET_SECONDS of being
+  made, and only as what it was made for: the file tab's ticket opens the wrapper, which makes
+  the frame's. A new tab can't send the token header, so the ticket stands in for it, and
+  only here: this path is outside /api, and nothing else is served under it.
 - The file is served with its own policy instead of Lectern's (`core.security.VIEW_CSP`):
   `sandbox allow-scripts` without allow-same-origin, so its scripts run as they would from
   disk, in an origin of their own that can't read Lectern's storage or cookies; nothing is
-  loaded from any address, Lectern's included. It can still send out what is in it, by
-  navigating itself away (see VIEW_CSP's comment).
+  loaded from any address, Lectern's included; and only inside the wrapper.
 - The files the page links to beside it in the project (its stylesheets, scripts, images,
   fonts) are put inside it before it is sent (`projects.html_page`): only the owner's, not in
   the trash, of those kinds, so nothing else is ever served under this path.
@@ -22,6 +27,7 @@ guard like every change), and opens it in a new tab: `/view/<ticket>`.
 
 from __future__ import annotations
 
+import html
 import posixpath
 import secrets
 import threading
@@ -29,6 +35,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, Response
@@ -43,6 +50,15 @@ from lectern.projects.tables import ArtifactRow
 
 VIEW_TICKET_SECONDS = 60
 GONE = "This link has been used or has expired. Open the file again from Lectern."
+# The page fills the tab; the frame's own title isn't the tab's, so the file's name is.
+WRAPPER = (
+    '<!doctype html><meta charset="utf-8"><title>{title}</title>'
+    "<style>html,body{{margin:0;height:100%}}"
+    "iframe{{display:block;border:0;width:100%;height:100%}}</style>"
+    '<iframe sandbox="allow-scripts" src="{src}"></iframe>'
+)
+
+Kind = Literal["tab", "frame"]  # the file tab's link to the wrapper; the wrapper's to its frame
 
 
 @dataclass(frozen=True)
@@ -50,6 +66,7 @@ class Ticket:
     user: User
     project_id: int
     artifact_id: int
+    kind: Kind
     expires: datetime
 
 
@@ -62,21 +79,22 @@ class ViewTickets:
         self._tickets: dict[str, Ticket] = {}
         self._lock = threading.Lock()
 
-    def issue(self, user: User, project_id: int, artifact_id: int) -> str:
+    def issue(self, user: User, project_id: int, artifact_id: int, kind: Kind) -> str:
         now = self._clock()
         ticket = secrets.token_urlsafe(32)
         with self._lock:
             # Those never opened go when the next one is made, so the store stays small.
             self._tickets = {k: t for k, t in self._tickets.items() if t.expires > now}
             expires = now + timedelta(seconds=VIEW_TICKET_SECONDS)
-            self._tickets[ticket] = Ticket(user, project_id, artifact_id, expires)
+            self._tickets[ticket] = Ticket(user, project_id, artifact_id, kind, expires)
         return ticket
 
-    def take(self, ticket: str) -> Ticket | None:
-        """The ticket's file, once: asking again, or after it expired, gives None."""
+    def take(self, ticket: str, kind: Kind) -> Ticket | None:
+        """The ticket's file, once: asking again, after it expired, or for what it wasn't made
+        for gives None (and spends it, so a ticket can't be tried on each path in turn)."""
         with self._lock:
             held = self._tickets.pop(ticket, None)
-        if held is None or held.expires <= self._clock():
+        if held is None or held.kind != kind or held.expires <= self._clock():
             return None
         return held
 
@@ -86,7 +104,27 @@ router = APIRouter()
 
 @router.get("/view/{ticket}", include_in_schema=False)
 def view(ticket: str, request: Request) -> Response:
-    held = request.app.state.view_tickets.take(ticket)
+    """The wrapper: the page in a sandboxed frame of its own, by a ticket made for that."""
+    tickets: ViewTickets = request.app.state.view_tickets
+    held = tickets.take(ticket, "tab")
+    if held is None:
+        return PlainTextResponse(GONE, status_code=404)
+    try:
+        row, _ = owned_file(request, held.project_id, held.artifact_id, held.user)
+    except HTTPException:  # trashed, removed or gone from the folder since the link was made
+        return PlainTextResponse(GONE, status_code=404)
+    frame = tickets.issue(held.user, held.project_id, held.artifact_id, "frame")
+    title = html.escape(posixpath.basename(row.path))
+    page = WRAPPER.format(title=title, src=f"/view/{frame}/page")
+    return Response(
+        page, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store"}
+    )
+
+
+@router.get("/view/{ticket}/page", include_in_schema=False)
+def view_page(ticket: str, request: Request) -> Response:
+    """The page itself, with the files it links to inside it, for the wrapper's frame."""
+    held = request.app.state.view_tickets.take(ticket, "frame")
     if held is None:
         return PlainTextResponse(GONE, status_code=404)
     try:
@@ -110,6 +148,12 @@ def view(ticket: str, request: Request) -> Response:
     # <meta charset> (a header's charset wins): the browser reads it as it would a local file.
     response.headers["content-type"] = "text/html"
     return response
+
+
+@router.get("/view/{anything:path}", include_in_schema=False)
+def view_nothing(anything: str) -> Response:
+    """Nothing else is served under /view/, Lectern's own page included."""
+    return PlainTextResponse(GONE, status_code=404)
 
 
 def _side_files(root: Path, session: Session, user: User, folder: str) -> Read:

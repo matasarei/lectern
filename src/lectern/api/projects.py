@@ -228,7 +228,7 @@ def artifact_view_link(
     row, _path = owned_file(request, project_id, artifact_id, user)
     if preview_kind(row.path, row.mime) != "html":
         raise HTTPException(400, "Only HTML files open as a page.")
-    ticket = request.app.state.view_tickets.issue(user, project_id, artifact_id)
+    ticket = request.app.state.view_tickets.issue(user, project_id, artifact_id, "tab")
     return {"url": f"/view/{ticket}"}
 
 
