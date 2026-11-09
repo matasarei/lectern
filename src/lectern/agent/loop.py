@@ -34,7 +34,15 @@ from lectern.agent.context import (
     build,
     split_turns,
 )
-from lectern.agent.prompts import EXACT_CHECK, system_prompt
+from lectern.agent.numbers import numbers_in, written_numbers
+from lectern.agent.prompts import (
+    CALL_CHECK,
+    EXACT_CHECK,
+    HELD_BLANK,
+    HELD_GUARD,
+    HELD_NOTE,
+    system_prompt,
+)
 from lectern.agent.state import ChatState
 from lectern.agent.tools import (
     AgentTool,
@@ -559,6 +567,8 @@ async def run_turn(run: TurnRun) -> str:
     failed: dict[tuple[str, str], str] = {}
     calls_left = MAX_MODEL_CALLS
     checked = False
+    calls_checked = False  # a call writing a number nobody gave: asked about once a turn
+    held: _Held | None = None  # the call that check dropped, until its tool is called again
     try:
         if run.force is not None:
             await _forced_call(run, failures, failed)
@@ -566,12 +576,13 @@ async def run_turn(run: TurnRun) -> str:
             calls_left -= 1
             history = await run_in_threadpool(load_history, run)
             # A reply that could be a sum from memory isn't shown until it's known not to be
-            hold = not checked and _may_check(run, history)
-            reply = await _call(run, history, hold=hold)
+            may_check = not checked and _may_check(run, history)
+            hold = may_check or held is not None
+            reply = await _call(run, _with_held(history, held), hold=hold)
             first_token = first_token or reply.first_token_at
             tokens += reply.tokens
             tps = reply.tps or tps
-            if hold and not reply.calls and _states_a_number(reply.content) and calls_left:
+            if may_check and not reply.calls and _states_a_number(reply.content) and calls_left:
                 checked = True
                 calls_left -= 1
                 check = await _call(run, _with_check(history, reply.content), hold=True)
@@ -579,6 +590,28 @@ async def run_turn(run: TurnRun) -> str:
                 tps = check.tps or tps
                 if check.calls:  # it was an exact result: computed now, the draft dropped
                     reply = check
+            if held and not held.guarded and not reply.calls and calls_left:
+                held.guarded = True  # the turn would end without the held call: asked once
+                calls_left -= 1
+                guard = await _call(run, _with_guard(history, reply.content, held), hold=True)
+                tokens += guard.tokens
+                tps = guard.tps or tps
+                if guard.calls:  # it goes on: the text reply is dropped, never shown
+                    reply = guard
+            unchecked = [] if calls_checked or not calls_left else _unchecked(run, history, reply)
+            if unchecked:
+                calls_checked = True
+                calls_left -= 1
+                check = await _call(run, _with_call_check(history, unchecked), hold=True)
+                tokens += check.tokens
+                tps = check.tps or tps
+                if check.calls:  # an exact result: computed first, the draft calls dropped
+                    reply = check
+                    held = unchecked[0]
+                    if not hold:  # a held reply is shown below; this one's text was streamed
+                        _show(run, reply.content)
+            if held and any(c["function"]["name"] == held.tool for c in reply.calls):
+                held = None  # made again, as it was or changed: the model's call now
             if hold and _show(run, reply.content):
                 first_token = first_token or time.perf_counter()  # when it was seen
             message_id = await run_in_threadpool(
@@ -848,6 +881,119 @@ def _with_check(history: History, draft: str) -> History:
     asked = [
         {"id": None, "role": "assistant", "content": draft},
         {"id": None, "role": "user", "content": EXACT_CHECK},
+    ]
+    return History([*history.messages, *asked], history.attachments, history.state)
+
+
+CALL_QUOTE_CHARS = 600  # how much of a held call's arguments the check, note and guard quote
+# A numbered list's markers ("1. ", "2) ") at the start of a line: not numbers anyone wrote.
+_LIST_MARKER = re.compile(r"(?m)^\s*\d{1,3}[.)]\s")
+
+
+@dataclass
+class _Held:
+    """A call the call check dropped so its number is computed first: kept for the rest of the
+    turn, never stored, until the model calls its tool again."""
+
+    tool: str  # its wire name
+    params: BaseModel  # what it would have sent, validated
+    numbers: list[str]  # the numbers no message gave
+    guarded: bool = False  # the end-of-turn guard has asked about it
+
+    def quoted(self, *, blank: bool) -> str:
+        """The call's arguments as the model writes them (pdf.edit's `find`s beside their
+        `replace`s), cut to CALL_QUOTE_CHARS. `blank`: each unchecked number in its text is
+        HELD_BLANK instead, so the model can't copy the number it worked out in its head."""
+        arguments = self.params.model_dump(exclude_defaults=True)
+        if blank:
+            arguments = _blanked(arguments, self.numbers)
+        text = json.dumps(arguments, ensure_ascii=False)
+        return text if len(text) <= CALL_QUOTE_CHARS else text[:CALL_QUOTE_CHARS] + "…"
+
+
+def _blanked(value: object, numbers: list[str]) -> object:
+    """`value` with each of `numbers` in its strings replaced by HELD_BLANK where it stands as
+    a number of its own: "5" in "Fee 5", not in "150.00" or "5.50". Not in other fields (a
+    page number)."""
+    if isinstance(value, str):
+        for number in numbers:
+            alone = rf"(?<![\d.,]){re.escape(number)}(?![.,]?\d)"
+            value = re.sub(alone, lambda _: HELD_BLANK, value)
+        return value
+    if isinstance(value, dict):
+        return {key: _blanked(item, numbers) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_blanked(item, numbers) for item in value]
+    return value
+
+
+def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[_Held]:
+    """Each call in the reply to a tool that writes the person's content (`writes`) that would
+    write numbers no message, tool result, pin, summary or attached file gave, nor the text it
+    writes over (pdf.edit's `find`). Only while the sandbox is offered: the check asks for
+    code_run. A call whose arguments don't validate isn't looked at; running it fails."""
+    if not reply.calls or run.registry.get("code_run") is None:
+        return []
+    given = {
+        n
+        for message in history.messages
+        if message["role"] in ("user", "tool")
+        for n in numbers_in(str(message.get("content") or ""))
+    }
+    given.update(n for pin in history.state.pinned for n in numbers_in(pin.text))
+    given.update(numbers_in(history.state.summary))
+    given.update(n for attached in history.attachments for n in numbers_in(attached.text))
+    found = []
+    for call in reply.calls:
+        tool = run.registry.get(call["function"]["name"])
+        if tool is None or tool.writes is None:
+            continue
+        try:
+            params = tool.validate(call["function"]["arguments"])
+            written, over = tool.writes(params)
+        except ToolError:
+            continue
+        known = given | set(numbers_in(over))
+        new = [
+            raw
+            for raw, value in written_numbers(_LIST_MARKER.sub("", written))
+            if value not in known
+        ]
+        if new:
+            found.append(_Held(tool.wire_name, params, list(dict.fromkeys(new))))
+    return found
+
+
+def _with_call_check(history: History, unchecked: list[_Held]) -> History:
+    """The turn so far and the question, which quotes the call's arguments, so the model redoes
+    all of it, not only the total. The draft call itself isn't shown: a call with no result in
+    front of the model made it say the work "wasn't done yet". Not stored."""
+    numbers = ", ".join(n for held in unchecked for n in held.numbers)
+    first = unchecked[0]
+    text = CALL_CHECK.format(tool=first.tool, numbers=numbers, arguments=first.quoted(blank=False))
+    asked = {"id": None, "role": "user", "content": text}
+    return History([*history.messages, asked], history.attachments, history.state)
+
+
+def _with_held(history: History, held: _Held | None) -> History:
+    """The turn so far and, while a call is held, a note quoting it whole, so the model makes it
+    again with every edit, not only the computed number (blanked). Not stored."""
+    if held is None:
+        return history
+    text = HELD_NOTE.format(tool=held.tool, blank=HELD_BLANK, arguments=held.quoted(blank=True))
+    noted = {"id": None, "role": "user", "content": text}
+    return History([*history.messages, noted], history.attachments, history.state)
+
+
+def _with_guard(history: History, draft: str, held: _Held) -> History:
+    """The turn so far, the reply that would end it, and the question why the held call wasn't
+    made. Neither is stored: the reply stands unless the answer makes a call."""
+    question = HELD_GUARD.format(
+        tool=held.tool, blank=HELD_BLANK, arguments=held.quoted(blank=True)
+    )
+    asked = [
+        {"id": None, "role": "assistant", "content": draft},
+        {"id": None, "role": "user", "content": question},
     ]
     return History([*history.messages, *asked], history.attachments, history.state)
 

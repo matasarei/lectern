@@ -419,6 +419,7 @@ WRITE = AgentTool(
     params=WriteParams,
     run=_write,
     max_tokens=200,
+    writes=lambda params: (params.text, ""),
 )
 
 

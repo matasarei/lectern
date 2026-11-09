@@ -46,12 +46,12 @@ tab a chat opens, such as a new OCR session, opens without taking focus.
 
 Every file in the project is a project file (in the code, an artifact): something you
 imported, or something Lectern made: a file the chat wrote, a script and its output, an OCR
-session's Document, an export, a web page saved by the chat.
+session's Document, an export, a web page saved by the chat, an edited copy of a PDF.
 
 - **From.** Each file records where it came from: imported, made by a session, or made from
-  another file (an export from its Document, a script's output from the script). Overview's
-  From column and the file preview's *Where it came from* show it, with a link to the source;
-  a saved web page shows its address.
+  another file (an export from its Document, a script's output from the script, an edited PDF
+  from the PDF). Overview's From column and the file preview's *Where it came from* show it,
+  with a link to the source; a saved web page shows its address.
 - **Never overwritten.** Lectern always writes a new file; a taken name gets ` (2)`, ` (3)`.
 - **Deleting** moves a file to `.lectern/trash/` for 30 days. In the chat it always asks
   first.

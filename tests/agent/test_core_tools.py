@@ -458,3 +458,18 @@ def test_an_ocr_document_is_searched_and_read_by_its_block_ids(ctx):
 def test_an_ordinary_markdown_file_keeps_its_c_refs(ctx):
     add_file(ctx, "notes.md", "# A\nплата {не блок}\n\n# B\nпеня")
     assert run(core_tools.SEARCH, ctx, query="пеня").refs[0]["ref"] == "#c2"
+
+
+def test_only_the_tools_that_write_the_persons_content_declare_what_they_write():
+    """The loop checks a call's written numbers before it runs (docs/agent.md, "Exact
+    answers"): the tools that write into the person's files say what they write."""
+    from lectern.modules import ToolEnv, load_modules
+
+    env = ToolEnv(sandbox=True, web=True)
+    tools = list(CORE_TOOLS) + [t for m in load_modules() for t in m.tools(env)]
+    declared = sorted(t.name for t in tools if t.writes is not None)
+    assert declared == ["artifact.write", "pdf.edit", "pdf.fill"]
+
+    (write,) = [t for t in tools if t.name == "artifact.write"]
+    params = write.validate({"name": "sum.md", "text": "Total: 1,480.00"})
+    assert write.writes(params) == ("Total: 1,480.00", "")

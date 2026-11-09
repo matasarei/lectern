@@ -63,6 +63,39 @@ If it states none (a fact, a name, a year in history, an answer from a file), re
 NO_CALC"""
 
 
+# Asked once by the loop, never stored, before running a call that would write into the
+# person's files a number that no message or tool result gave (lectern.agent.loop): the 4B
+# added totals up in its head and wrote them through pdf.edit, 6 times in 8
+# (docs/acceptance/pdf-edit.md). Measured on the 4B, replaying the 11 sum turns of the pdf
+# set twice each (2026-11-08): "If any is an exact result … call code_write" computed 1 of 22;
+# "you worked it out yourself … call code_write now" 22 of 22. Without the call quoted, the
+# model redid only the total and dropped the call's other edits (2 of 4 sum turns); quoted,
+# 22 of 22 still computed, and it computed a clause's "5" needlessly 1 time in 8.
+# The quote is the call's arguments, since 2026-11-08: quoting only the new text ("EUR 225.00 …
+# 1,375.00"), the model re-sent only the total, or a price edit's new text as its `find`.
+CALL_CHECK = """Lectern check: your {tool} call would send {arguments}. {numbers} is in no \
+message or tool result: you worked it out yourself. Sums, differences and totals must come \
+from a script. Call code_write now with a brief that has the numbers to add up, then \
+code_run, then {tool} again with everything above, the number from the output. Only if \
+{numbers} was copied from the person or a file, reply with only: NO_CALC"""
+
+# Once the call check has dropped a call to compute its number, that call is held: every model
+# call in the turn carries this note, never stored, until the tool is called again. After
+# computing, the 4B re-sent only the total and dropped the call's other edits, 4 of 4 times in
+# the pdf set's birth-certificate case (docs/acceptance/pdf-edit.md). The note quotes the call
+# with its worked-out number blanked: quoted as it was, the model wrote that wrong total in,
+# not the script's (agent-check runs 11-12).
+HELD_BLANK = "<number from code_run>"
+HELD_NOTE = """Lectern note: a {tool} call is waiting for a number from code_run's output. \
+Once you have it, call {tool} again with all of this, that number in place of {blank}: \
+{arguments}"""
+
+# Asked once, never stored, when the turn would end while a call is still held: once, the 4B
+# computed the total and then said "I have updated the text" without making the call.
+HELD_GUARD = """Lectern check: you haven't made the {tool} call yet: {arguments}. Make it \
+now, with the number from code_run's output in place of {blank}, or say why not."""
+
+
 def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
     return SYSTEM.format(
         project=project,

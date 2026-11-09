@@ -70,7 +70,7 @@ def test_the_calc_set_has_23_prompts_and_its_files():
 
 
 def test_an_unknown_set_names_the_ones_there_are():
-    with pytest.raises(ValueError, match="No prompt set 'nope'. Sets: calc, long, ocr, tools"):
+    with pytest.raises(ValueError, match="No prompt set 'nope'. Sets: calc, long, ocr, pdf, tools"):
         load_set("nope")
 
 
@@ -288,7 +288,7 @@ def test_a_conversation_run_checks_compaction_and_the_transcript():
     assert outcome.passed
 
 
-@pytest.mark.parametrize("name", ["calc", "tools", "long", "web", "ocr"])
+@pytest.mark.parametrize("name", ["calc", "tools", "long", "web", "ocr", "pdf"])
 def test_every_set_loads_and_every_prompt_checks_something(name):
     from lectern.dev.agent_check import load
 
@@ -297,9 +297,20 @@ def test_every_set_loads_and_every_prompt_checks_something(name):
     if prompt_set.conversation:
         cases.append(prompt_set.conversation.final)
     assert len({c.id for c in cases}) == len(cases)
-    assert all(c.numbers or c.text or c.tools or c.forbid or c.args for c in cases)
+    assert all(
+        c.numbers
+        or c.text
+        or c.tools
+        or c.forbid
+        or c.args
+        or c.pdf_text
+        or c.pdf_form
+        or c.pdf_none
+        for c in cases
+    )
     for path in prompt_set.files:
-        assert path.is_file() or path.name in ("lease-1998.docx", "scan-lease.png")
+        made_at_run_time = ("lease-1998.docx", "scan-lease.png", "agreement.pdf", "form.pdf")
+        assert path.is_file() or path.name in made_at_run_time
 
 
 def test_the_tools_set_has_about_30_prompts_and_ends_with_the_trash():
@@ -371,3 +382,21 @@ def test_a_conversation_fails_when_a_filler_turn_saves_a_file():
     assert clean.passed and clean.checks["no forbidden tools in filler"]
     assert not saved.passed and not saved.checks["no forbidden tools in filler"]
     assert "  turn 2: called artifact.write" in said
+
+
+def test_the_pdf_sets_files_are_made_and_read_back(tmp_path):
+    from lectern.dev.agent_check import PROMPTS_DIR, materialise
+    from lectern.dev.pdf_files import FONT_CANDIDATES, form_values, pdf_text
+    from lectern.modules.pdf_edit.fonts import installed
+
+    if not any(installed().find(name) for name in FONT_CANDIDATES):
+        pytest.skip("none of the agreement's fonts is installed here")
+
+    agreement, form = materialise(
+        [PROMPTS_DIR / "files" / "agreement.pdf", PROMPTS_DIR / "files" / "form.pdf"], tmp_path
+    )
+
+    text = pdf_text(agreement)
+    assert "made on 12 March 2026 between Acme Translation Ltd. (the" in text
+    assert "у місті Київ." in text
+    assert form_values(form)["agree"] == "no"
