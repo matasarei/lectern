@@ -166,7 +166,7 @@ All `/api/*` routes except `/api/login` require `current_user` (`src/lectern/api
 
 | Method & path | Auth | Handler (`file:line`) |
 |---|---|---|
-| `GET /health` | host check | `src/lectern/app.py:166 (health)` |
+| `GET /health` | host check | `src/lectern/app.py:180 (health)` |
 | `GET /view/{ticket}` | 1-use ticket | `src/lectern/api/view.py:106 (view)` |
 | `GET /view/{ticket}/page` | frame ticket | `src/lectern/api/view.py:125 (view_page)` |
 | `GET /api/login` | `open_router` | `src/lectern/api/accounts.py:116 (whoami)` |
