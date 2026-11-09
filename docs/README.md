@@ -13,6 +13,8 @@ How Lectern works, as built. To install and use it, start with the
   image models, fitting a model, leases and swapping.
 - [Architecture](architecture.md): the processes, the code map, the stack, the databases,
   the module contract, the CLI and settings, installing.
+- [Code map](code-map.md): lookup tables of modules, large-file landmarks, HTTP/WebSocket
+  routes, agent tools, database tables and frontend screens.
 - [Security design](security.md): each threat and its defence. Reporting a vulnerability:
   [SECURITY.md](../SECURITY.md).
 - [Acceptance runs](acceptance/): what was tested on which machine, milestone by milestone.

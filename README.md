@@ -8,7 +8,7 @@
   <a href="https://github.com/matasarei/lectern/actions/workflows/ci.yml"><img src="https://github.com/matasarei/lectern/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Licence: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/runs%20on-llama.cpp%20%7C%20MLX-2C6A58" alt="Runs on: llama.cpp, MLX">
-  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS-555" alt="Platforms: Linux, macOS">
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555" alt="Platforms: Linux, macOS, Windows">
   <img src="https://img.shields.io/badge/status-MVP-2C6A58" alt="Status: MVP">
 </p>
 
@@ -138,7 +138,8 @@ data, never as instructions.
 
 **Working on Lectern itself:** `make` installs the Python and web dependencies and builds the
 web UI; `uv run lectern serve` then runs it from the checkout on `http://127.0.0.1:8765`. How
-the code is laid out and checked is in [`CLAUDE.md`](CLAUDE.md).
+the code is laid out and checked is in [`AGENTS.md`](AGENTS.md) and
+[`docs/code-map.md`](docs/code-map.md).
 
 ## Install on a Linux server
 
