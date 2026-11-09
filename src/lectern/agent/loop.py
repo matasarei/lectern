@@ -768,9 +768,9 @@ def _unchecked(run: TurnRun, history: History, reply: Reply) -> list[_Held]:
             continue
         try:
             params = tool.validate(call["function"]["arguments"])
+            written, over = tool.writes(params)
         except ToolError:
             continue
-        written, over = tool.writes(params)
         known = given | set(numbers_in(over))
         new = [
             raw

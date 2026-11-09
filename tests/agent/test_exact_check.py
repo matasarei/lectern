@@ -14,7 +14,7 @@ from sqlalchemy import select
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS
 from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_BLANK, HELD_GUARD, HELD_NOTE
-from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
+from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult
 from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
 from lectern.projects.tables import MessageRow
@@ -503,6 +503,24 @@ def test_a_call_whose_arguments_dont_validate_isnt_checked(store):
     status, _ = _run(manager, project, ADD_AND_SAVE)
 
     assert status == "done" and RAN == [] and len(handle.requests) == 2
+
+
+def test_a_call_whose_writes_cant_say_what_it_writes_isnt_checked(store):
+    def cannot_say(params: _Doc) -> tuple[str, str]:
+        raise ToolError("no text to write")
+
+    unsure = AgentTool(
+        name="doc.write", description="Write text into the person's file.", params=_Doc,
+        run=_ran("doc.write", "Written."), writes=cannot_say,
+    )  # fmt: skip
+    RAN.clear()
+    handle = FakeHandle([tool_reply("doc_write", {"text": "Total: 4172.03"}), text_reply("Saved.")])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, *CODE, unsure]))
+    project = store.create(LOCAL_USER, "Totals")
+
+    status, _ = _run(manager, project, ADD_AND_SAVE)
+
+    assert status == "done" and RAN == ["doc.write"] and len(handle.requests) == 2
 
 
 def test_the_call_check_counts_towards_the_turns_model_calls(store, monkeypatch):
