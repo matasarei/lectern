@@ -68,6 +68,25 @@ it contains a number, the model is asked once whether it stated an exact result;
 calls a tool, the held draft is dropped and the turn goes on from there. Measurements:
 [`acceptance/m1b.md`](acceptance/m1b.md).
 
+The same goes for what a tool writes into the person's files. `artifact.write`, `pdf.edit` and
+`pdf.fill` declare what a call writes (`AgentTool.writes`). Before such a call runs, while the
+sandbox is offered, its text is read for numbers that no message of the person's, no tool
+result, no pin, no summary and no file attached to the chat gave, nor the text it writes over
+(`pdf.edit`'s `find`); a numbered list's markers don't count. If there are any, the model is
+asked once a turn whether one is an exact result, quoting the call's arguments. If it then
+calls a tool, the draft call is dropped, never run or stored, and the model computes first; a
+total that came out of `code_run` is given, so its next call goes through. Otherwise the call
+runs as it was.
+
+The dropped call is held for the rest of the turn, never stored. Until the model calls that
+tool again, with any arguments, every model call carries a note quoting the held call whole
+(each of `pdf.edit`'s `find`s beside its `replace`), so the edits that needed no computing go
+back in beside the computed number. The note leaves out the number worked out in the head, a
+placeholder in its place: quoted, it was copied into the PDF instead of the script's. While a call is held, replies are held back too; one that
+would end the turn without the call is asked about once. If the answer calls a tool, the
+reply is dropped and the turn goes on; if not, the reply stands. Measurements:
+[`acceptance/pdf-edit.md`](acceptance/pdf-edit.md).
+
 ## The script sandbox
 
 Scripts run in a container through the Podman or Docker command line, whichever answers first,
@@ -168,7 +187,8 @@ use these tools.
 why it's built on PDFium: [the engine trial](acceptance/pdf-edit.md)). The model gives edits,
 each a `find` copied from the PDF's text and its `replace`, with the page and whether to
 change every place. Its description asks it to read the PDF first and to take a new total
-from `code_run` (the system prompt has no room for a line of its own):
+from `code_run` (the system prompt has no room for a line of its own), and a total nobody gave
+is asked about before the call runs ("Exact answers", above):
 
 - **Finding.** `find` is matched in PDFium's text page, where each character knows the text
   object that draws it, so a word split into pieces (kerning, one object per glyph) is found

@@ -104,3 +104,49 @@ Still failing on the final wording:
   company the agreement names as contractor.
 
 Forms filled right in every run.
+
+### The call check (2026-11-08)
+
+The exact-results check now also asks before a call writes a number nobody gave
+(`docs/agent.md`, "Exact answers"). The same pdf set on the 4B, Docker running:
+
+| Run | Call-check wording | Agreement (13) | Forms (2) | Sum turns through `code_run` | Wrong total written |
+|---|---|---|---|---|---|
+| 5–6 | "If any is an exact result…" | 11, 8 | 2, 2 | 0 of 4 (each check answered NO_CALC) | 3 |
+| 7–8 | "you worked it out yourself… call code_write now" | 9, 10 | 2, 2 | 4 of 4 | 1 ("2,580", from the script) |
+| 9–10 | the same, quoting what the call would write | 10, 10 | 2, 2 | 3 of 4 (run 9's birth certificate computed, then claimed an edit it didn't make) | 0 |
+| 11–12 | the same, quoting the call's arguments; the dropped call held, a note quoting it on each later model call, a guard before the turn ends without it | 11, 9 | 2, 2 | 3 of 4 (run 12's birth certificate wrote the script, never ran it) | 2 (birth certificate: 1,350.00 after the script printed 1325.00; 1,275.00) |
+| 13–14 | the same, the note and the guard with the worked-out number blanked | 9, 11 | 2, 2 | 4 of 4 | 1 (run 13's price and total: 1,380.00, below) |
+
+Replayed directly on the 4B, each of the 11 sum turns twice: the first wording computed 1 of
+22, the second and third 22 of 22. The third computed a clause's "5" needlessly 1 time in 8.
+`calc` set after the change, twice: 19 and 20 of 23 passed, `code.run` used in 22 and 21 of 23.
+At its last record in [`m1b.md`](m1b.md) the set had 22 prompts (20, 20 and 22 passed;
+`code.run` in 22 of 22 each run); it has 23 now, so the counts aren't directly comparable.
+Here `code.run` was skipped in 1 and 2 prompts.
+
+#### The held call (2026-11-08)
+
+After computing, the model re-sent the dropped call with only the total: the birth certificate
+lost its price edit in all 4 turns of runs 7–10, and in run 9 it said "I have updated the
+text" with no call. So the dropped call is now held for the rest of the turn
+(`docs/agent.md`, "Exact answers"). The first note named the draft's number and quoted the
+call with it in. In runs 11–12 the birth certificate still lost its price edit, and its total
+was wrong twice, once with the script's 1325.00 just above. The draft isn't stored, so it's
+unconfirmed that the model copied the number from the note, but blanking that number fixed
+it:
+
+- **Replayed directly** (6 birth-certificate turns, the model's own draft, the recorded
+  `code_write`/`code_run`, twice each): with the blanked note, the call kept both edits with
+  the script's 1,325.00 10 times in 12. The other 2 called `code_run`, which that turn still
+  needed. Without the note: the total only 8 times, both edits 2 times. The first note was
+  replayed only on runs 7–10's 4 turns, twice each: where the model's draft had both edits,
+  it kept both 4 times in 4. In the other two turns the draft itself had only the total.
+- **Runs 13–14:** the birth certificate kept both edits with 1,325.00 in both runs. No turn in
+  runs 11–14 claimed an edit it didn't make.
+- **Price and total, run 13:** the one wrong total was this turn's. It computed from a
+  document it hadn't read ("Diploma price: EUR 1,200.00"), its edit failed, and it read the
+  PDF and wrote 1,380.00, worked out in its head. The call check had already asked that turn,
+  and it asks only once.
+- **Other cases:** the failures (instalments in every run, a Ukrainian city edit stopped after
+  8 calls, contractor or client failing on `find`) were in turns where no call was held.

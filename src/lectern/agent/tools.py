@@ -77,6 +77,10 @@ class AgentTool:
     # The question on the confirmation card. It runs before the card is shown, so it can
     # resolve what the tool will act on (and name it) or raise ToolError instead of asking.
     confirm_text: Callable[[ToolContext, Any], str] | None = None
+    # For a tool that writes the person's content: (the text a call writes, the text it
+    # writes over), from its parameters. The loop asks once before running a call that would
+    # write a number no message or tool result gave (docs/agent.md, "Exact answers").
+    writes: Callable[[Any], tuple[str, str]] | None = None
 
     @property
     def wire_name(self) -> str:
