@@ -143,9 +143,11 @@ function TextPreview({ url, markdown, keepLines }: { url: string; markdown: bool
  * files it links to inline (`lectern.api.view`). A real link with rel="noopener": a tab opened
  * that way starts with empty session storage, where `window.open` would copy this tab's, token
  * and all. The one-use link is asked for before the click, renewed before it expires, when the
- * window comes back into focus, and as soon as it has been used. */
+ * window comes back into focus, and as soon as it has been used; until the new one has come,
+ * clicking it again does nothing (the used one would open the "link used" page). */
 function OpenHtml({ base }: { base: string }) {
   const { t } = useTranslation();
+  const [used, setUsed] = useState<string | null>(null);
   const link = useQuery({
     queryKey: ["file-view", base],
     queryFn: () => apiPost<{ url: string }>(`${base}/view`),
@@ -153,22 +155,30 @@ function OpenHtml({ base }: { base: string }) {
     refetchInterval: VIEW_LINK_RENEW_MS,
     refetchOnWindowFocus: "always",
   });
-  // A failed renewal keeps the link it had (it may still be unused) and says why beside it.
+  // A failed renewal keeps the link it had (unused, it still opens) and says why beside it.
   const error = link.isError && (
     <ErrorNote message={link.error instanceof ApiError ? link.error.detail : t("common.loadFailed")} />
   );
   if (link.data === undefined) return error || <p className="text-muted">{t("common.loading")}</p>;
+  const url = link.data.url;
+  const spent = url === used;
+  // Any way of opening it may spend it: a click, a middle-click, its menu's "open in new tab".
+  const opened = () => {
+    setUsed(url);
+    void link.refetch();
+  };
+  const open = (event: React.MouseEvent) => (spent ? event.preventDefault() : opened());
   return (
     <div className="grid gap-1">
       <a
-        className="btn-secondary w-fit"
-        href={link.data.url}
+        className="btn-secondary w-fit aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+        href={url}
         target="_blank"
         rel="noopener noreferrer"
-        // Any way of opening it may spend it: a click, a middle-click, its menu's "open in new tab".
-        onClick={() => void link.refetch()}
-        onAuxClick={() => void link.refetch()}
-        onContextMenu={() => void link.refetch()}
+        aria-disabled={spent || undefined}
+        onClick={open}
+        onAuxClick={open}
+        onContextMenu={opened}
       >
         {t("file.openInTab")}
       </a>

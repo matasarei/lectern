@@ -25,7 +25,7 @@ The checks sit in one place, not route by route: the `LocalGuard` middleware
   no inline scripts or styles, `frame-ancestors 'none'`; frames only from Lectern itself and
   from `blob:`, for the PDF preview), `X-Content-Type-Options: nosniff` and
   `Referrer-Policy: no-referrer`. The one exception is an HTML file opened as a page, which
-  gets a sandboxing policy instead (see [Files and paths](#files-and-paths)). The OpenAPI
+  gets sandboxing policies instead (see [Files and paths](#files-and-paths)). The OpenAPI
   pages are off.
 
 ## Accounts
@@ -84,24 +84,32 @@ password, the account disabled (`api/ws.py`, `api/sse.py`).
   token. The file tab asks for a link (a POST, so the token and Origin checks apply) and shows
   it as a link with `rel="noopener"`, so the new tab starts with none of Lectern's session
   storage, where the token is kept; the link is renewed every 45 seconds, when the window
-  comes back into focus, and once it has been used. `/view/<ticket>`: the ticket is 32 random
-  bytes held in memory, opens that one file of that one person, once, within 60 seconds, and
-  is the only thing outside `/api` that serves a project file. It is served with
-  `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data:;
-  style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:`
-  (and `frame-ancestors`, `base-uri`, `form-action` all `'none'`) instead of Lectern's policy.
-  Its scripts run, but without `allow-same-origin`: in an origin of their own that can't
-  reach Lectern's storage or cookies, and whose requests Lectern's Origin check refuses. With
-  no `connect-src`, nothing is loaded from anywhere, Lectern included. No forms, pop-ups or
-  `alert`s, and `localStorage` throws (`api/view.py`).
-- **What a page can still send out.** A page's scripts can send out what is in the page: by
-  navigating the tab to another address with the data in it (`location = …`, a link, a meta
-  refresh: CSP has no rule for where a page goes), or over WebRTC or a DNS lookup, which CSP
-  doesn't cover either. Checked in Chrome: a page that named an image beside it sent that
-  image's bytes to another address that way. What is in it is the page's own text and the
-  files below; never the token, and never a project file it doesn't name. That is accepted:
-  the same file opened from disk could send anything at all. Open a page you don't trust as
-  you would an untrusted file on disk.
+  comes back into focus, and once it has been used. A ticket is 32 random bytes held in
+  memory, opens that one file of that one person, once, within 60 seconds, and only as what
+  it was made for; `/view/` is the only thing outside `/api` that serves a project file.
+  - `/view/<ticket>`, the link's, is a wrapper that runs nothing (`default-src 'none';
+    style-src 'unsafe-inline'; frame-src 'self'`, and `frame-ancestors`, `base-uri`,
+    `form-action` all `'none'`). It makes a second ticket and holds the page in
+    `<iframe sandbox="allow-scripts" src="/view/<that ticket>/page">`.
+  - `/view/<ticket>/page` is the file, served with `sandbox allow-scripts; default-src
+    'none'; script-src 'unsafe-inline' 'unsafe-eval' data:; style-src 'unsafe-inline';
+    img-src data: blob:; font-src data:; media-src data: blob:; frame-ancestors 'self'` (and
+    `base-uri`, `form-action` `'none'`) instead of Lectern's policy. Its scripts run, `eval`
+    included, but without `allow-same-origin`: in an origin of their own that can't reach
+    Lectern's storage or cookies, and whose requests Lectern's Origin check refuses. With no
+    `connect-src`, nothing is loaded from anywhere, Lectern included. No forms, pop-ups or
+    `alert`s, and `localStorage` throws. It opens only in the wrapper's frame (`api/view.py`).
+- **What a page can't send out, and what it still can.** The frame can't navigate the tab
+  (no `allow-top-navigation`) or open another (no `allow-popups`), and the browser checks
+  every navigation of the frame itself against the wrapper's `frame-src 'self'` before making
+  a request: a page can't send what is in it away by going to another address (`location =
+  …`, a link, a meta refresh), only to Lectern's own, where `/api` needs the token and
+  Lectern's pages refuse to be framed. Checked in Chrome: a page that tried each of those,
+  and `top.location`, reached nothing; Safari and Firefox not yet. What a page can still do
+  is send what is in it over WebRTC or a DNS lookup, which CSP doesn't cover. What is in it
+  is the page's own text and the files below; never the token, and never a project file it
+  doesn't name. That is accepted: the same file opened from disk could send anything at all.
+  Open a page you don't trust as you would an untrusted file on disk.
 - **What a page links to.** The stylesheets, scripts, images and fonts a page names beside it
   in its project are put inside it before it is sent: a stylesheet as a `<style>` block, the
   rest as `data:` URLs (`projects/html_page.py`). Only those kinds of file, only the page

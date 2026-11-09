@@ -62,7 +62,8 @@ session's Document, an export, a web page saved by the chat.
   100 MB); a DOCX or ODT as Markdown, its headings, tables and lists kept (the first
   500,000 characters of a long one). An HTML file shows its source, and *Open as a page in a
   new tab* opens it on its own, as it would from disk: its scripts run, and the stylesheets,
-  scripts, images and fonts it links to in the project are put inside it. Nothing loads
+  scripts, images and fonts it links to in the project are put inside it. It is held in a
+  frame of a page that bears the file's name, and it can't go to another address. Nothing loads
   from the internet, nor what a script fetches while it runs; the chat is told to write
   pages that need neither (a chart in SVG or a canvas, not a library from a CDN). Word 97–2003 (`.doc`) and RTF files can't be shown: save them as DOCX, or
   download them.
