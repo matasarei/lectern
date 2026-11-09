@@ -6,14 +6,15 @@ and code_run, and the draft is never shown; if not (NO_CALC), the draft is the a
 from __future__ import annotations
 
 import asyncio
+import json
 
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from lectern.agent import loop
 from lectern.agent.core_tools import CORE_TOOLS
-from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK
-from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolResult
+from lectern.agent.prompts import CALL_CHECK, EXACT_CHECK, HELD_BLANK, HELD_GUARD, HELD_NOTE
+from lectern.agent.tools import AgentTool, Registry, ToolContext, ToolError, ToolResult
 from lectern.agent.turns import TurnManager
 from lectern.core.auth import LOCAL_USER
 from lectern.projects.tables import MessageRow
@@ -441,7 +442,9 @@ def test_a_call_writing_a_total_nobody_gave_is_checked_and_computed_first(store)
     check = handle.requests[1]["messages"]
     assert check[-1] == {
         "role": "user",
-        "content": CALL_CHECK.format(tool="doc_write", numbers="4172.03", written="Total: 4172.03"),
+        "content": CALL_CHECK.format(
+            tool="doc_write", numbers="4172.03", arguments='{"text": "Total: 4172.03"}'
+        ),
     }
     assert all(m.get("content") != "Total: 4172.03" for m in check)  # the draft isn't shown
     assert _tool_rows(store, project) == ["code.write", "code.run", "doc.write"]
@@ -502,6 +505,24 @@ def test_a_call_whose_arguments_dont_validate_isnt_checked(store):
     assert status == "done" and RAN == [] and len(handle.requests) == 2
 
 
+def test_a_call_whose_writes_cant_say_what_it_writes_isnt_checked(store):
+    def cannot_say(params: _Doc) -> tuple[str, str]:
+        raise ToolError("no text to write")
+
+    unsure = AgentTool(
+        name="doc.write", description="Write text into the person's file.", params=_Doc,
+        run=_ran("doc.write", "Written."), writes=cannot_say,
+    )  # fmt: skip
+    RAN.clear()
+    handle = FakeHandle([tool_reply("doc_write", {"text": "Total: 4172.03"}), text_reply("Saved.")])
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, *CODE, unsure]))
+    project = store.create(LOCAL_USER, "Totals")
+
+    status, _ = _run(manager, project, ADD_AND_SAVE)
+
+    assert status == "done" and RAN == ["doc.write"] and len(handle.requests) == 2
+
+
 def test_the_call_check_counts_towards_the_turns_model_calls(store, monkeypatch):
     monkeypatch.setattr(loop, "MAX_MODEL_CALLS", 2)
     manager, project, handle = _writer(store, [
@@ -524,9 +545,9 @@ def test_the_call_check_quotes_a_long_written_text_cut_short(store):
     _run(manager, project, ADD_AND_SAVE)
 
     asked = handle.requests[1]["messages"][-1]["content"]
-    quoted = asked.split("“", 1)[1].split("”", 1)[0]
-    assert quoted.startswith("Total: 4172.03.") and quoted.endswith("…")
-    assert len(quoted) == loop.CALL_QUOTE_CHARS + 1
+    arguments = json.dumps({"text": long}, ensure_ascii=False)
+    assert f"{arguments[: loop.CALL_QUOTE_CHARS]}…" in asked
+    assert arguments[: loop.CALL_QUOTE_CHARS + 1] not in asked
 
 
 def test_a_number_in_a_file_attached_to_the_chat_is_given(store):
@@ -543,3 +564,230 @@ def test_a_number_in_a_file_attached_to_the_chat_is_given(store):
 
     assert asyncio.run(scenario()) == "done"
     assert RAN == ["doc.write"] and len(handle.requests) == 2  # no check
+
+
+# --- the held call: kept while its number is computed ---------------------------------------
+
+
+class _Pair(BaseModel):
+    find: str
+    replace: str
+    page: int | None = None
+
+
+class _Edits(BaseModel):
+    edits: list[_Pair]
+
+
+# A stand-in for pdf.edit: several find → replace pairs in one call.
+EDIT = AgentTool(name="doc.edit", description="Change text in the person's file.", params=_Edits,
+                 run=_ran("doc.edit", "Saved."),
+                 writes=lambda p: (" ".join(e.replace for e in p.edits),
+                                   " ".join(e.find for e in p.edits)))  # fmt: skip
+
+
+def _editor(store, replies, *, sandbox=True):  # noqa: ANN001, ANN202
+    RAN.clear()
+    handle = FakeHandle(replies)
+    tools = [*CORE_TOOLS, *CODE, EDIT] if sandbox else [*CORE_TOOLS, EDIT]
+    manager = TurnManager(make_runtime(handle), store, Registry(tools))
+    return manager, store.create(LOCAL_USER, "Invoice"), handle
+
+
+PRICE_AND_TOTAL = (
+    "Change the price to 225.00 and put the total of 1284.50, 377.25, 99.99 and 2410.30 in."
+)
+BOTH = {"edits": [{"find": "Price 200.00", "replace": "Price 225.00"},
+                  {"find": "Total 4000.00", "replace": "Total 4172.03"}]}  # fmt: skip
+BOTH_COMPUTED = {"edits": [{"find": "Price 200.00", "replace": "Price 225.00"},
+                           {"find": "Total 4000.00", "replace": "Total 4172.04"}]}  # fmt: skip
+HELD_ARGUMENTS = (
+    '{"edits": [{"find": "Price 200.00", "replace": "Price 225.00"}, '
+    '{"find": "Total 4000.00", "replace": "Total 4172.03"}]}'
+)
+# The note and the guard quote it without the number worked out in the head: copied from the
+# note, a wrong total went into the PDF (agent-check runs 11-12).
+BLANKED = HELD_ARGUMENTS.replace("4172.03", HELD_BLANK)
+NOTE = {
+    "role": "user",
+    "content": HELD_NOTE.format(tool="doc_edit", blank=HELD_BLANK, arguments=BLANKED),
+}
+COMPUTE = [
+    tool_reply("code_write", {"brief": "Add 1284.50, 377.25, 99.99 and 2410.30."}),
+    tool_reply("code_run", {}, call_id="call_2"),
+]
+
+
+def _noted(handle) -> list[bool]:  # noqa: ANN001
+    """For each model call: whether it carried the held note."""
+    return [
+        any("Lectern note" in str(m.get("content")) for m in r["messages"]) for r in handle.requests
+    ]
+
+
+def test_a_held_call_is_quoted_with_every_edit_on_each_model_call_until_made(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),  # the total summed in its head
+        *COMPUTE,
+        tool_reply("doc_edit", BOTH_COMPUTED, call_id="call_3"),
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run", "doc.edit"]
+    check = handle.requests[1]["messages"][-1]["content"]
+    assert check == CALL_CHECK.format(tool="doc_edit", numbers="4172.03", arguments=HELD_ARGUMENTS)
+    assert _noted(handle) == [False, False, True, True, False]  # code_write, code_run: noted
+    assert handle.requests[2]["messages"][-1] == NOTE
+    assert handle.requests[3]["messages"][-1] == NOTE
+    assert "Price 200.00" in NOTE["content"] and "Total 4000.00" in NOTE["content"]
+    assert "4172.03" not in NOTE["content"]
+    assert "Lectern note" not in str(transcript(store, project))  # never stored
+    assert _shown(seen) == "Saved."
+
+
+def test_the_note_stops_once_the_tool_is_called_again_with_any_arguments(store):
+    total_only = {"edits": [{"find": "Total 4000.00", "replace": "Total 4172.04"}]}
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        tool_reply("doc_edit", total_only, call_id="call_3"),  # the price edit dropped
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, _ = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run", "doc.edit"]
+    assert _noted(handle) == [False, False, True, True, False]
+    assert len(handle.requests) == 5  # and no guard: the call was made
+
+
+def test_no_held_call_no_note(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        text_reply("NO_CALC"),  # copied, it says: the call runs as it was
+        text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["doc.edit"]
+    assert _noted(handle) == [False, False, False]
+    assert _shown(seen) == "Saved."
+
+
+GUARD = HELD_GUARD.format(tool="doc_edit", blank=HELD_BLANK, arguments=BLANKED)
+
+
+def test_a_turn_ending_with_the_call_still_held_is_asked_once_and_makes_it(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        text_reply("I have updated the file."),  # it says so, and made no call
+        tool_reply("doc_edit", BOTH_COMPUTED, call_id="call_3"),
+        text_reply("Saved: the price and the total."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run", "doc.edit"]
+    guard = handle.requests[4]["messages"]
+    assert guard[-2:] == [
+        {"role": "assistant", "content": "I have updated the file."},
+        {"role": "user", "content": GUARD},
+    ]
+    assert _shown(seen) == "Saved: the price and the total."
+    assert "I have updated" not in str(seen) and "I have updated" not in str(
+        transcript(store, project)
+    )
+    assert "Lectern check" not in str(transcript(store, project))
+    assert len(handle.requests) == 6
+
+
+def test_a_text_reply_to_the_guard_leaves_the_reply_it_asked_about(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        text_reply("The total is 4172.04."),
+        text_reply("The person only asked for the total."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and RAN == ["code.write", "code.run"]
+    assert len(handle.requests) == 5  # asked once
+    assert _shown(seen) == "The total is 4172.04."
+    assert "only asked" not in str(seen) and "only asked" not in str(transcript(store, project))
+
+
+def test_the_guard_asks_once_a_turn(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        *COMPUTE,
+        text_reply("Let me look at the file first."),
+        tool_reply("document_read", {"name": "invoice.pdf"}, call_id="call_3"),
+        text_reply("Done."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and len(handle.requests) == 6
+    assert sum(m.get("content") == GUARD for r in handle.requests for m in r["messages"]) == 1
+    assert _shown(seen).endswith("Done.")
+
+
+def test_no_held_call_no_guard(store):
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH), text_reply("NO_CALC"), text_reply("Saved."),
+    ])  # fmt: skip
+
+    status, _ = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and len(handle.requests) == 3
+    assert not any(m.get("content") == GUARD for r in handle.requests for m in r["messages"])
+
+
+def test_the_guard_counts_towards_the_turns_model_calls(store, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_MODEL_CALLS", 4)
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        tool_reply("code_run", {}),  # the check's answer
+        text_reply("I have updated the file."),
+        tool_reply("doc_edit", BOTH_COMPUTED, call_id="call_3"),  # the guard's answer
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "error" and RAN == ["code.run", "doc.edit"] and len(handle.requests) == 4
+    assert any("Stopped after" in str(e.get("detail")) for e in seen if e["type"] == "error")
+
+
+def test_no_guard_when_no_model_call_is_left(store, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_MODEL_CALLS", 3)
+    manager, project, handle = _editor(store, [
+        tool_reply("doc_edit", BOTH),
+        tool_reply("code_run", {}),
+        text_reply("The total is 4172.04."),
+    ])  # fmt: skip
+
+    status, seen = _run(manager, project, PRICE_AND_TOTAL)
+
+    assert status == "done" and len(handle.requests) == 3
+    assert _shown(seen) == "The total is 4172.04."
+
+
+def test_only_the_unchecked_number_itself_is_blanked():
+    params = _Edits(edits=[
+        {"find": "Fee 150.00", "replace": "Fee 5", "page": 5},
+        {"find": "Item 5.50", "replace": "Item 5.50 x 5"},
+    ])  # fmt: skip
+    held = loop._Held("doc_edit", params, ["5"])
+
+    assert held.quoted(blank=True) == (
+        f'{{"edits": [{{"find": "Fee 150.00", "replace": "Fee {HELD_BLANK}", "page": 5}}, '
+        f'{{"find": "Item 5.50", "replace": "Item 5.50 x {HELD_BLANK}"}}]}}'
+    )
+    assert held.quoted(blank=False) == json.dumps(
+        params.model_dump(exclude_defaults=True), ensure_ascii=False
+    )
