@@ -102,7 +102,7 @@ Podman tried first (`modules/sandbox/container.py`):
   --mount type=bind,source=<script>,target=/job/main.py,readonly \
   --mount type=bind,source=<input>,target=/in/<name>,readonly … \
   --mount type=bind,source=<job>/out,target=/out \
-  lectern-sandbox:2 python /job/main.py
+  lectern-sandbox:3 python /job/main.py
 ```
 
 - **The image** is built on the machine the first time, after asking (about 250 MB), from

@@ -11,6 +11,6 @@ UV_MACOS_ARM64_SHA256="50487ae565ccd96e499056b4674d438f4c53170202617b4c759defe0c
 UV_MACOS_ARM64_URL="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-aarch64-apple-darwin.tar.gz"
 # The Python base image of both Dockerfiles (packaging/docker, and the sandbox's in
 # src/lectern/modules/sandbox/image), pinned by the digest of its multi-arch index:
-# python:3.12-slim = 3.12.15-slim-trixie (docker buildx imagetools inspect, 2026-10-09).
+# python:3.12-slim = 3.12.16-slim-trixie (docker buildx imagetools inspect, 2026-11-01).
 # A Dockerfile can't read this file, so tests/test_packaging.py checks both FROM lines match it.
-PYTHON_IMAGE="python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f"
+PYTHON_IMAGE="python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159"
