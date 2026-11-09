@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -108,6 +109,23 @@ class DownloadRow(Base):
     # The catalog revision a finished download fetched: the model's version on disk. None
     # until it finishes, and for files that were put there by hand.
     revision: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
+class ImageTimingRow(Base):
+    """How long this computer took for its last image of a model at a size: what the
+    confirmation card's expected wait is worked out from (modules/image/generate.py)."""
+
+    __tablename__ = "image_timings"
+
+    model_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    width: Mapped[int] = mapped_column(Integer, primary_key=True)
+    height: Mapped[int] = mapped_column(Integer, primary_key=True)
+    load_seconds: Mapped[float] = mapped_column(Float)  # start to the first step
+    step_seconds: Mapped[float] = mapped_column(Float)  # each sampling step
+    decode_seconds: Mapped[float] = mapped_column(Float)  # the last step to the picture
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )

@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useReducer, useRef } from "react";
 
 import { followEvents } from "../api/client";
-import type { CardKind, ChatEvent, Tab } from "../api/types";
+import type { CardField, CardKind, ChatEvent, Tab } from "../api/types";
 
 /** What the chat shows about the turn in progress, on top of the stored transcript. */
 export interface LiveTurn {
@@ -17,10 +17,14 @@ export interface LiveTurn {
     name: string;
     text: string;
     kind: CardKind;
+    fields: CardField[];
     approved: boolean | null;
   }[];
   // The latest progress of each tool at work, by tool call.
-  progress: Record<string, { label: string; done?: number; total?: number; line?: string; seconds?: number }>;
+  progress: Record<
+    string,
+    { label: string; done?: number; total?: number; line?: string; seconds?: number; stoppable?: boolean }
+  >;
   stats: { ttft: number | null; tps: number | null } | null;
   usage: { parts: Record<string, number>; budget: number } | null;
   compaction: "working" | { summarised: number } | { failed: string } | null;
@@ -87,6 +91,7 @@ export function reduce(state: LiveTurn, event: ChatEvent | typeof CONNECTED): Li
             name: event.name,
             text: event.text,
             kind: event.kind ?? "allow",
+            fields: event.fields ?? [],
             approved: null,
           },
         ],
@@ -99,8 +104,11 @@ export function reduce(state: LiveTurn, event: ChatEvent | typeof CONNECTED): Li
         ),
       };
     case "progress": {
-      const { label, done, total, line, seconds } = event;
-      return { ...next, progress: { ...state.progress, [event.call_id]: { label, done, total, line, seconds } } };
+      const { label, done, total, line, seconds, stoppable } = event;
+      return {
+        ...next,
+        progress: { ...state.progress, [event.call_id]: { label, done, total, line, seconds, stoppable } },
+      };
     }
     case "tool_result": {
       // The tool is finished: its result line replaces its progress.

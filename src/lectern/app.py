@@ -21,6 +21,8 @@ from lectern.agent.export_tools import export_tools
 from lectern.agent.turns import TurnManager
 from lectern.api import api_router, open_api_router
 from lectern.api.accounts import SignInGate
+from lectern.api.view import ViewTickets
+from lectern.api.view import router as view_router
 from lectern.api.ws import LOGIN_CHECK_SECONDS
 from lectern.catalog import catalog
 from lectern.config import DEFAULT_PORT, Paths, get_paths
@@ -44,9 +46,12 @@ from lectern.modules import (
     module_routers,
     tool_registry,
 )
+from lectern.modules.image.generate import Images
 from lectern.modules.ocr.jobs import OcrJobs
 from lectern.modules.sandbox.container import Sandbox
 from lectern.projects.store import ProjectStore
+from lectern.runners import sdcpp
+from lectern.runners.sdcpp import SdCppInstaller
 from lectern.runtime.supervisor import ModelRuntime
 from lectern.runtime.wiring import build_runtime
 from lectern.web import WEB_DIST, mount_web
@@ -140,6 +145,14 @@ def create_app(
     app.state.tool_env = EnvProbe()
     app.state.exporters = module_exporters(modules)  # export.run and the Export buttons
     app.state.ocr_jobs = OcrJobs(app.state.runtime, app.state.projects)
+    app.state.images = Images(
+        runtime=app.state.runtime,
+        downloads=app.state.downloads,
+        installer=SdCppInstaller(paths.runners),
+        variant=lambda: sdcpp.select_variant(probe()),  # asked at the first picture
+        sessions=app.state.sessions,
+        run_dir=paths.home / "run",
+    )
 
     def turn_env() -> ToolEnv:
         """What the machine offers, and what an admin has switched on. The switch is read for
@@ -158,6 +171,7 @@ def create_app(
         downloads=app.state.downloads,
         sandbox=Sandbox(),
         ocr_jobs=app.state.ocr_jobs,
+        images=app.state.images,
     )
     # When an OCR session finishes, the chats waiting on it run their follow-ups.
     app.state.ocr_jobs.on_status = app.state.turns.after_session
@@ -166,8 +180,10 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    app.state.view_tickets = ViewTickets(clock)  # an HTML file opened in a tab of its own
     app.include_router(open_api_router())
     app.include_router(api_router(module_routers(modules), dev=dev))
+    app.include_router(view_router)  # /view/<ticket>, outside /api
     mount_web(app, web_dist)  # last: it answers every path the API didn't
     app.add_middleware(
         LocalGuard,

@@ -81,13 +81,24 @@ class Retitle(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class ForcedTool(BaseModel):
+    """A tool the person asks for with their message (the Image toggle). Only a tool that
+    allows it (AgentTool.forced_question) runs this way; the turn says so otherwise."""
+
+    name: str = Field(min_length=1, max_length=64)
+    arguments: dict[str, str] = Field(default_factory=dict, max_length=8)
+
+
 class Send(BaseModel):
     text: str = Field(min_length=1, max_length=MESSAGE_LIMIT)
     attachments: list[int] = Field(default_factory=list, max_length=ATTACH_LIMIT)
+    tool: ForcedTool | None = None
 
 
 class Decision(BaseModel):
     approve: bool
+    # On a card with fields: what the person left in them (field name → value).
+    values: dict[str, str] | None = None
 
 
 @router.post("/projects/{project_id}/sessions", status_code=201)
@@ -187,8 +198,9 @@ async def send(
     project = await open_chat(request, project_id, session_id, user)
     try:
         message_id = await turns(request).send(
-            project, user, session_id, body.text, body.attachments
-        )
+            project, user, session_id, body.text, body.attachments,
+            body.tool.model_dump() if body.tool else None,
+        )  # fmt: skip
     except Busy:
         raise HTTPException(409, "This chat is still answering. Wait, or press Stop.") from None
     return {"message_id": message_id}
@@ -268,7 +280,8 @@ def decide(
 ) -> dict:
     project = open_project(request, project_id, user)
     open_session(request, project, session_id, user)
-    if not turns(request).decide((project.id, session_id), confirmation_id, body.approve):
+    key = (project.id, session_id)
+    if not turns(request).decide(key, confirmation_id, body.approve, body.values):
         raise HTTPException(404, "Nothing is waiting for that answer.")
     return {"approved": body.approve}
 
@@ -277,6 +290,17 @@ def decide(
 async def stop(project_id: int, session_id: int, request: Request, user: CurrentUser) -> dict:
     project = await open_chat(request, project_id, session_id, user)
     return {"stopped": await turns(request).stop((project.id, session_id))}
+
+
+@router.post("/projects/{project_id}/sessions/{session_id}/tools/{call_id}/stop")
+async def stop_tool(
+    project_id: int, session_id: int, call_id: str, request: Request, user: CurrentUser
+) -> dict:
+    """Stop one tool at work (an image being made): the turn goes on without it."""
+    project = await open_chat(request, project_id, session_id, user)
+    if not turns(request).stop_tool((project.id, session_id), call_id):
+        raise HTTPException(404, "That tool isn't running.")
+    return {"stopped": True}
 
 
 @router.post("/projects/{project_id}/sessions/{session_id}/followups/{followup_id}/run",

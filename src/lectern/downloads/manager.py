@@ -350,7 +350,7 @@ class DownloadManager:
             row is not None
             and row.status == "done"
             and row.revision is not None
-            and row.revision != entry.revision
+            and row.revision != entry.pin
             and folder.is_dir()
             and not folder.is_symlink()
         )
@@ -422,7 +422,7 @@ class DownloadManager:
 
     def _staged_for(self, entry: CatalogEntry) -> bool:
         marker = self._staging(entry) / UPDATE_MARKER
-        return marker.is_file() and marker.read_text(encoding="utf-8").strip() == entry.revision
+        return marker.is_file() and marker.read_text(encoding="utf-8").strip() == entry.pin
 
     def _claim_staging(self, entry: CatalogEntry) -> None:
         """The update's folder, noted as being built for this revision. One begun for
@@ -432,7 +432,7 @@ class DownloadManager:
         if staging.is_dir() and not self._staged_for(entry):
             shutil.rmtree(staging)
         staging.mkdir(parents=True, exist_ok=True)
-        (staging / UPDATE_MARKER).write_text(entry.revision, encoding="utf-8")
+        (staging / UPDATE_MARKER).write_text(entry.pin, encoding="utf-8")
 
     async def _carry_over(self, entry: CatalogEntry, file: ModelFile, progress: _Progress) -> bool:
         """True when the file is in the update's folder without fetching it: it's there from
@@ -471,7 +471,7 @@ class DownloadManager:
 
         await fetch_verified(
             client,
-            f"{self.base_url}/{entry.repo}/resolve/{entry.revision}/{file.path}",
+            f"{self.base_url}/{entry.source(file)}",
             self._staging(entry) / file.path,
             size=file.size,
             sha256=file.sha256,
@@ -518,7 +518,7 @@ class DownloadManager:
         except OSError:
             old.rename(current)  # not left renamed away until the next start
             raise
-        self._record_swapped(entry, entry.revision)
+        self._record_swapped(entry, entry.pin)
         _discard(old)
 
     def _record_swapped(self, entry: CatalogEntry, revision: str) -> None:
@@ -586,9 +586,7 @@ class DownloadManager:
             )
             self._publish(self.state(entry))
             return
-        self._save(
-            entry.id, status="done", bytes_done=entry.size, error=None, revision=entry.revision
-        )
+        self._save(entry.id, status="done", bytes_done=entry.size, error=None, revision=entry.pin)
         self._publish(self.state(entry))
 
     async def _fetch(
@@ -601,7 +599,7 @@ class DownloadManager:
 
         await fetch_verified(
             client,
-            f"{self.base_url}/{entry.repo}/resolve/{entry.revision}/{file.path}",
+            f"{self.base_url}/{entry.source(file)}",
             self.file_path(entry, file),
             size=file.size,
             sha256=file.sha256,

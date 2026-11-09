@@ -425,3 +425,35 @@ def test_removing_a_project_stops_its_chat_first(paths):
         assert not any(key[0] == pid for key in app.state.turns._turns)
         assert not any(key[0] == pid for key in app.state.turns._token_counts)
         assert pid not in app.state.projects._dbs  # its database closed, not reopened
+
+
+def test_stopping_a_tool_that_isnt_running_or_isnt_yours_is_not_found(api):
+    client, headers, app, pid, _ = api([])
+    with app.state.sessions.begin() as session:
+        session.add(UserRow(id=2, name="other"))
+    theirs = app.state.projects.create(User(id=2, name="other"), "Theirs")
+    for project in (pid, theirs.id):
+        url = f"/api/projects/{project}/sessions/1/tools/call_1/stop"
+        assert client.post(url, headers=headers).status_code == 404
+    assert client.post(f"/api/projects/{pid}/sessions/1/tools/call_1/stop").status_code in (
+        401,
+        403,
+    )  # no token: refused before anything else
+
+
+def test_a_cards_values_must_be_text(api):
+    client, headers, _, pid, _ = api([])
+    url = f"/api/projects/{pid}/sessions/1/confirmations/1"
+    bad = client.post(url, json={"approve": True, "values": {"prompt": ["x"]}}, headers=headers)
+    assert bad.status_code == 422
+    none = client.post(url, json={"approve": True, "values": {"prompt": "x"}}, headers=headers)
+    assert none.status_code == 404  # well formed; nothing is waiting for it
+
+
+def test_a_tool_asked_for_with_a_message_is_validated(api):
+    client, headers, _, pid, _ = api([])
+    url = f"/api/projects/{pid}/sessions/1/messages"
+    bad = {"text": "x", "tool": {"name": "image.generate", "arguments": {"shape": ["square"]}}}
+    assert client.post(url, json=bad, headers=headers).status_code == 422
+    nameless = {"text": "x", "tool": {"name": "", "arguments": {}}}
+    assert client.post(url, json=nameless, headers=headers).status_code == 422

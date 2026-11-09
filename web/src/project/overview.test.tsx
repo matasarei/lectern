@@ -9,7 +9,7 @@ import { Overview } from "./overview";
 
 const artifact = (id: number, name: string, over: Partial<Artifact> = {}): Artifact => ({
   id, name, kind: "imported", mime: "application/pdf", size: 14_200_000, text: "none",
-  text_note: "no text layer (a scan: open it as an OCR session)",
+  text_note: "no text layer (a scan: open it as an OCR session)", preview: "pdf",
   from: { kind: "import", id: null, note: null, title: null },
   created_at: "2026-09-28T10:00:00Z", modified_at: "2026-09-28T10:00:00Z", ...over,
 });
@@ -22,7 +22,7 @@ const ITEMS: ProjectItems = {
     artifact(3, "lease-1998-scan.pdf"),
     artifact(4, "reply-letter.md", {
       kind: "generated", mime: "text/markdown", size: 3000, text: "indexed", text_note: null,
-      from: { kind: "session", id: 1, note: null, title: "Payment terms" },
+      preview: "markdown", from: { kind: "session", id: 1, note: null, title: "Payment terms" },
       modified_at: "2026-09-29T11:00:00Z",
     }),
   ],

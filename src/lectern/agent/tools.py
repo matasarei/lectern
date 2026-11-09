@@ -31,6 +31,15 @@ class ToolError(Exception):
     """A failure the model should see and can react to (unknown file, bad range…)."""
 
 
+@dataclass(frozen=True)
+class Decision:
+    """The person's answer to a card: yes or no, and on a card with fields, the values they
+    left there (field name → value), which the tool runs with instead of the model's."""
+
+    approved: bool
+    values: dict[str, str] | None = None
+
+
 @dataclass
 class ToolContext:
     project: Project
@@ -50,6 +59,7 @@ class ToolContext:
     downloads: Any = None  # lectern.downloads.manager.DownloadManager
     sandbox: Any = None  # lectern.modules.sandbox.container.Sandbox
     ocr_jobs: Any = None  # lectern.modules.ocr.jobs.OcrJobs
+    images: Any = None  # lectern.modules.image.generate.Images
     registry: Any = None  # this turn's Registry, for tools that name other tools
 
 
@@ -81,6 +91,14 @@ class AgentTool:
     # writes over), from its parameters. The loop asks once before running a call that would
     # write a number no message or tool result gave (docs/agent.md, "Exact answers").
     writes: Callable[[Any], tuple[str, str]] | None = None
+    # Fields the person can change on that card, each a parameter of the tool:
+    # {"name": "prompt", "kind": "text" | "choice", "value": "…", "choices": [{"value": …}]}.
+    # Runs after confirm_text. The tool then runs with the values the card sends back.
+    confirm_fields: Callable[[ToolContext, Any], list[dict]] | None = None
+    # A tool the person can ask for directly (the chat's Image toggle): the model writes only
+    # the arguments the person didn't give, and no card asks first, but for this question
+    # when it has one (something to download first). None: the tool can't be asked for so.
+    forced_question: Callable[[ToolContext, Any], str | None] | None = None
 
     @property
     def wire_name(self) -> str:

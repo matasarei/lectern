@@ -30,10 +30,13 @@ on.
 | `export.formats`, `export.run` | export modules | List the installed formats; export a Document or a text file as a new file | export: when the format would lose something |
 | `code.write`, `code.run` | sandbox | Have the coding model write and test a script; run it | no (building the image and downloading the model ask) |
 | `ocr.start`, `ocr.note` | OCR | Start an OCR session, optionally exporting when it's done; set a page note | start: yes |
+| `image.generate` | image | Make a picture from a description and save it to `images/` ([below](#making-pictures)) | always, on a card the person can edit; not with the Image toggle |
 | `web.search`, `wiki.lookup`, `web.fetch` | web | Search the web, look a subject up on Wikipedia, save a page into the project | yes, each time |
 | `pdf.edit`, `pdf.fill` | PDF editing | Change text in a PDF in place, keeping its fonts, sizes and layout; list or fill its form. Each writes `<name> (edited).pdf` | edit: when the page would look different |
 
-A card is answered with **Allow** or **Don't allow**. Only `artifact.trash` deletes anything,
+A card is answered with **Allow** or **Don't allow**. A card can have fields the person
+changes before allowing it (`AgentTool.confirm_fields`); the tool then runs with what they
+left there, checked like the model's arguments, and only those fields can change. Only `artifact.trash` deletes anything,
 and nothing overwrites a file. A tool's result is capped (800 tokens unless the tool says
 otherwise); `project.list`, `document.read` and `code.run` hand out the rest a page at a time
 with a cursor.
@@ -157,6 +160,48 @@ the model and its context, the speed, and a note when context was released or su
 
 OCR cleanup and exports never go through the chat's context: cleanup is a fresh call per page,
 and exporters read `document.json`.
+
+## Making pictures
+
+`image.generate` (`modules/image/tools.py`) makes a picture with the `image` role's model
+([Image models](models.md#image-models)). It takes a prompt and a shape: square, portrait,
+landscape, or large, a bigger square. It saves the picture to `images/<name>.png`, with the
+chat as its From and the seed and prompt as its note, and opens it in a tab.
+
+Two ways in:
+
+- **From the message.** The model decides to call the tool and writes the prompt. A card
+  always asks first: on a 4 GB card a picture takes minutes and unloads the chat's model.
+  The card shows:
+  - the model, and what downloads first;
+  - the prompt, which the person can change;
+  - the shapes, each with its size and expected wait.
+
+  The wait comes from this computer's own last picture of that model at the nearest size (the
+  `image_timings` table), scaled by the pixels, and from a first guess per tier before there
+  is one. The tool's description tells the model to write the prompt itself rather than ask
+  for details first, since the person can change it on the card. Measured on the 4B, the model
+  called the tool for none of 40 messages that only talked about pictures, and for all 28
+  that asked for one, covers and title images included ([acceptance](acceptance/image.md)).
+- **The Image toggle** beside the message box, with a shape. The message asks for a picture
+  itself: the tool runs first, with no card, but for a download. The chat's model writes only
+  the prompt, from the conversation, in one llama-server call held to a JSON schema of the
+  missing arguments. `tool_choice` isn't enforced by llama-server, and the 4B answers in text
+  instead. On MLX, which can't hold an answer to a schema, the typed text is the prompt. The
+  call and its result go into the transcript like any other, then the model replies. The
+  toggle goes off once the message is sent. Only a tool that declares `forced_question` can be
+  asked for this way; any other ends the turn with a reason.
+
+While a picture is made, its line shows the phases and the steps:
+- getting the engine ready;
+- waiting for room;
+- loading;
+- step k of n;
+- finishing.
+
+Its **Stop** ends only the picture: `sd-cli` is killed, the room given back, nothing saved,
+and the turn goes on with the tool's result saying it was stopped
+(`POST …/tools/{call_id}/stop`).
 
 ## Follow-ups
 

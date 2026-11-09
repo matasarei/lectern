@@ -293,6 +293,99 @@ describe("Chat", () => {
     expect(posts[0].url).toBe("/api/projects/1/sessions/1/confirmations/8");
   });
 
+  it("lets the person change an image's prompt and shape on its card, and sends what they left", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "draw", attachments: [] },
+      {
+        type: "confirm", confirmation_id: 9, call_id: "i1", name: "image.generate",
+        text: "Make a 768×768 picture with FLUX.2 klein 4B? It should take about 2 min.",
+        fields: [
+          { name: "prompt", kind: "text", value: "a lighthouse" },
+          {
+            name: "shape", kind: "choice", value: "square",
+            choices: [
+              { value: "square", width: 768, height: 768, seconds: 90 },
+              { value: "landscape", width: 880, height: 656, seconds: 40 },
+            ],
+          },
+        ],
+      },
+    );
+
+    const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+    const prompt = within(card).getByLabelText("What the picture shows") as HTMLTextAreaElement;
+    expect(prompt.value).toBe("a lighthouse");
+    expect(within(card).getByText("768×768 · about 2 min")).toBeTruthy();
+    expect(within(card).getByText("880×656 · about 40 s")).toBeTruthy();
+
+    fireEvent.change(prompt, { target: { value: "a lighthouse in fog" } });
+    fireEvent.click(within(card).getByLabelText(/Landscape/));
+    fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toEqual({
+      url: "/api/projects/1/sessions/1/confirmations/9",
+      body: { approve: true, values: { prompt: "a lighthouse in fog", shape: "landscape" } },
+    });
+  });
+
+  it("won't allow an image card whose prompt was emptied", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "draw", attachments: [] },
+      {
+        type: "confirm", confirmation_id: 9, call_id: "i1", name: "image.generate", text: "Make a picture?",
+        fields: [{ name: "prompt", kind: "text", value: "a lighthouse" }],
+      },
+    );
+    const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+    fireEvent.change(within(card).getByLabelText("What the picture shows"), { target: { value: "  " } });
+    expect((within(card).getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(card).getByRole("button", { name: "Don't allow" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body).toEqual({ approve: false });
+  });
+
+  it("shows an image's steps with a Stop that stops only that tool", async () => {
+    chat.messages.push(
+      message(5, { content: "Draw a lighthouse" }),
+      message(6, {
+        role: "assistant",
+        tool_calls: [{ id: "i1", type: "function", function: { name: "image_generate", arguments: '{"prompt":"x"}' } }],
+      }),
+    );
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "x", attachments: [] },
+      { type: "progress", call_id: "i1", label: "Making the picture", done: 2, total: 4, stoppable: true },
+    );
+    const progress = screen.getByTestId("progress");
+    expect(within(progress).getByText(/Making the picture: 50%/)).toBeTruthy();
+    fireEvent.click(within(progress).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].url).toBe("/api/projects/1/sessions/1/tools/i1/stop");
+  });
+
+  it("offers no Stop under a tool that can't be stopped on its own", async () => {
+    chat.messages.push(
+      message(5, { content: "x" }),
+      message(6, {
+        role: "assistant",
+        tool_calls: [{ id: "w1", type: "function", function: { name: "code_write", arguments: "{}" } }],
+      }),
+    );
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "x", attachments: [] },
+      { type: "progress", call_id: "w1", label: "Downloading", done: 1, total: 2 },
+    );
+    expect(within(screen.getByTestId("progress")).queryByRole("button")).toBeNull();
+  });
+
   it("puts a card under the line of the call it asks about, not below the reply's text", async () => {
     chat.messages.push(
       message(5, { content: "delete old.md" }),
@@ -358,6 +451,44 @@ describe("Chat", () => {
       url: "/api/projects/1/sessions/1/messages",
       body: { text: "Summarise it", attachments: [9] },
     });
+  });
+
+  it("asks for a picture with the Image toggle, in the shape chosen, and turns it off once sent", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const toggle = screen.getByRole("button", { name: "Image" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByLabelText("Picture shape")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).placeholder).toBe("Describe the picture…");
+    fireEvent.change(screen.getByLabelText("Picture shape"), { target: { value: "portrait" } });
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "a lighthouse in fog" } });
+    fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toEqual({
+      url: "/api/projects/1/sessions/1/messages",
+      body: {
+        text: "a lighthouse in fog",
+        attachments: [],
+        tool: { name: "image.generate", arguments: { shape: "portrait" } },
+      },
+    });
+    await waitFor(() => expect(toggle.getAttribute("aria-pressed")).toBe("false"));
+  });
+
+  it("sends a plain message once the Image toggle is switched off again", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const toggle = screen.getByRole("button", { name: "Image" });
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "hello" } });
+    fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body).toEqual({ text: "hello", attachments: [] });
   });
 
   it("opens a tab when a tool asks for it, but not again when the turn is replayed", async () => {

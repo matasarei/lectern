@@ -15,6 +15,7 @@ A module asks for a **role**, not a model:
 | `ocr` | reads printed pages |
 | `ocr.hand` | reads pages marked handwritten |
 | `code` | writes the scripts the chat runs in the [sandbox](agent.md#the-script-sandbox) |
+| `image` | makes pictures for the chat's [`image.generate`](agent.md#making-pictures) |
 
 Cleaning up OCR pages has a choice of its own, `clean`: the chat's model unless another is
 picked. When the chat runs on MLX, cleanup uses the minimum tier's GGUF chat model, since it
@@ -54,12 +55,20 @@ context per tier and which tiers it is the default for. Defaults:
 | `ocr` | PaddleOCR-VL-1.6 F16 (1.8 GB) | same | same, 8k context |
 | `ocr.hand` | Qwen3-VL-4B Q4_K_M (3.0 GB) | Qwen3-VL-8B Q4_K_M (5.8 GB) | same, 8k context |
 | `code` | Qwen2.5-Coder-1.5B Q4_K_M (1.1 GB) | Qwen2.5-Coder-7B (4.7 GB) | Qwen2.5-Coder-14B (9.0 GB) |
+| `image` | FLUX.2 klein 4B Q4_0 (5.2 GB) | FLUX.2 klein 4B Q8_0 (7.0 GB) | same |
 
-Sizes include the vision models' projector files. Every default has a permissive licence
+Sizes include the vision models' projector files, and an image model's text encoder and VAE. Every default has a permissive licence
 (Apache-2.0); the catalog refuses to load otherwise. Two models with restricted licences can
 be chosen but are never a default: Chandra OCR 2 for handwriting and Qwen2.5-Coder-3B. The
 licence is shown, and has to be accepted, before any download. The catalog also has MLX
-builds of the three Qwen3.5 chat models (see [MLX](#mlx)).
+builds of the three Qwen3.5 chat models (see [MLX](#mlx)), and Z-Image-Turbo (Q4_K, 6.7 GB) as
+a second image model to choose.
+
+An image model is three pieces, often from three repositories, so each of its files can name
+its own repository and pinned revision: the diffusion model, the text encoder (Qwen3-4B) and
+the VAE. Its version on disk is a digest of all three revisions, so a newer pin of any piece
+shows as an update. Its `image:` block gives the steps, the guidance and the sampler, and for
+each tier the default square and the most pixels a picture may have.
 
 ## Downloads
 
@@ -88,6 +97,7 @@ certain to come back, and a crashed runner is started again on the next request.
   on a Mac. It is started with `--jinja`; OCR uses its log-probabilities and cleanup its
   JSON-schema output.
 - **mlx_lm.server** runs the chat model on Apple Silicon (see below).
+- **sd-cli** (stable-diffusion.cpp) makes pictures: see [Image models](#image-models).
 
 ### MLX
 
@@ -95,6 +105,39 @@ On a Mac with Apple Silicon and mlx-lm installed (the Mac installer adds it), an
 turn MLX on under Models & memory. The chat model then runs from its MLX build once that's
 downloaded; until then the GGUF build keeps running. MLX covers the `main` role only: OCR,
 handwriting, cleanup and code stay on llama-server.
+
+### Image models
+
+An image model doesn't stay loaded. stable-diffusion.cpp's `sd-cli` runs once per picture and
+exits (`modules/image/generate.py`). It has no port, so there's no key to keep, and its memory
+comes back when it ends. The release also has a server, `sd-server`, but it has no API key and
+isn't used.
+
+The build is pinned apart from llama.cpp's (`runners/sdcpp.py`, with each asset's size and
+SHA-256) and downloads the first time a picture is made. It is chosen from the machine:
+- Metal on a Mac;
+- CUDA 12 for NVIDIA on Windows;
+- Vulkan where a loader is present, which includes NVIDIA on Linux, since there's no Linux CUDA
+  build;
+- else CPU.
+
+The Mac build needs macOS 26 or later.
+
+Every tier gets the same pipeline; a bigger GPU gets the 8-bit build and larger pictures:
+
+| Tier | Default picture | Largest | How it runs |
+|---|---|---|---|
+| Below minimum | 512² | 768² | on the CPU |
+| Minimum | 768² | 1024² | weights wait in RAM and come to the GPU part by part; the VAE decodes in tiles |
+| Recommended | 1024² | about 1.5 MP | weights wait in RAM and come to the GPU part by part |
+| Comfortable | 1024² | about 2 MP | everything on the GPU |
+
+These are starting values until measured on 4 GB and 8 GB machines
+([acceptance](acceptance/image.md)). The room a picture needs is estimated as:
+- the largest piece when the weights wait in RAM, or all three pieces when they don't;
+- plus 1 GiB per megapixel and 300 MiB.
+
+On the minimum and recommended tiers `sd-cli` is told the same figure (`--max-vram`).
 
 ## Fitting a model
 
@@ -150,6 +193,18 @@ loaded in use it loads anyway, as before. On an 8 GB card that is the OCR reader
 when cleanup's model loads on a PC already short of commit. On such a PC a chat during the
 reading also swaps the reader and the chat model, which stay loaded side by side elsewhere; the
 two-minute wait above keeps that to a swap there and back per chat, not per message.
+
+A picture holds room without a runner (`reserve` in `runtime/supervisor.py`). It waits in the
+same queue as a lease, by the same rules:
+- idle models are unloaded to make room, least recently used first, each counted as a swap;
+- a model in use is never unloaded;
+- the room is given back however the picture ends.
+
+The picture is part of the chat's reply, so it reserves at the chat's priority, as the coding
+model leases. It is never held for the chat's quiet time, and the chat's model, idle while
+the tool runs, can be unloaded for it. A chat model that doesn't fit beside a picture being
+made waits for it to finish, or for Stop. On a 4 GB or 8 GB card a reply that makes a picture
+runs main → image → main. The runtime's state lists the room held under `reserved`.
 
 The Models & memory page shows the budget, what's loaded, the number of swaps and what's
 waiting, and can unload everything. Runtime events stream to the UI over

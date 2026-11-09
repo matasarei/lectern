@@ -15,7 +15,8 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
+import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 import httpx2
@@ -43,7 +44,15 @@ from lectern.agent.prompts import (
     system_prompt,
 )
 from lectern.agent.state import ChatState
-from lectern.agent.tools import Registry, ToolContext, ToolError, ToolResult
+from lectern.agent.tools import (
+    AgentTool,
+    Decision,
+    Registry,
+    ToolContext,
+    ToolError,
+    ToolResult,
+)
+from lectern.catalog import catalog
 from lectern.core.auth import User
 from lectern.downloads.fetch import DownloadError
 from lectern.projects import search
@@ -71,11 +80,19 @@ class TurnRun:
     runtime: ModelRuntime
     registry: Registry
     emit: Callable[[dict], None]
-    decide: Callable[[int], asyncio.Future[bool]]
+    decide: Callable[[int], asyncio.Future[Decision]]
     turn_state: Callable[[int], str] = lambda _sid: "idle"
     downloads: object = None  # passed on to tools (the coding model's download)
     sandbox: object = None  # passed on to tools (the Sandbox module)
     ocr_jobs: object = None  # passed on to tools (the OCR module)
+    images: object = None  # passed on to tools (the image module)
+    # A tool the person asked for directly with their message (the Image toggle):
+    # {"name": "image.generate", "arguments": {"shape": "square"}}. It runs first, without a
+    # card; the model writes the arguments the person didn't give, then the reply.
+    force: dict | None = None
+    # The async tools at work, by tool call: the person can stop one (its Stop button) and the
+    # turn goes on without it.
+    running_tools: dict[str, asyncio.Task] = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
     # The chat's token counts, by model: kept from call to call and turn to turn
     token_counts: dict[str, dict[str, int]] = field(default_factory=dict)
@@ -346,6 +363,8 @@ async def run_tool(
     call: dict,
     failures: dict[str, int],
     failed: dict[tuple[str, str], str] | None = None,
+    *,
+    forced: bool = False,
 ) -> ToolResult:
     """Validate, confirm when the tool asks first, run. Raises TurnFailed on a second
     invalid call in this turn. `failed` holds this turn's calls that failed, by tool and
@@ -391,26 +410,79 @@ async def run_tool(
         downloads=run.downloads,
         sandbox=run.sandbox,
         ocr_jobs=run.ocr_jobs,
+        images=run.images,
         registry=run.registry,
     )
-    if tool.confirm:
+    if forced and tool.forced_question is not None:
+        # The person asked for it themselves: a card only for what they couldn't have known
+        try:
+            question = await run_in_threadpool(tool.forced_question, context, params)
+        except ToolError as exc:
+            return _failure(failed, key, exc)
+        if question is not None and not await _confirm(
+            run, call, tool.name, question, function["arguments"]
+        ):
+            return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
+    elif tool.confirm:
         try:
             question = (
                 await run_in_threadpool(tool.confirm_text, context, params)
                 if tool.confirm_text
                 else f"Run {tool.name}?"
             )
+            fields = (
+                await run_in_threadpool(tool.confirm_fields, context, params)
+                if tool.confirm_fields
+                else None
+            )
         except ToolError as exc:
             return _failure(failed, key, exc)
-        approved = await _confirm(run, call, tool.name, question, function["arguments"])
-        if not approved:
+        decision = await _ask(run, call, tool.name, question, function["arguments"], fields=fields)
+        if not decision.approved:
             return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
+        if fields and decision.values:
+            try:
+                params = _with_card_values(tool, params, fields, decision.values)
+            except ToolError as exc:
+                return ToolResult(f"Error: {exc}")
     try:
         if inspect.iscoroutinefunction(tool.run):
-            return await tool.run(context, params)
+            return await _run_stoppable(run, call["id"], tool, tool.run(context, params))
         return await run_in_threadpool(tool.run, context, params)
     except ToolError as exc:
         return _failure(failed, key, exc)
+
+
+def _with_card_values(
+    tool: AgentTool, params: BaseModel, fields: list[dict], values: dict[str, str]
+) -> BaseModel:
+    """The tool's parameters with what the person left on the card: only the card's fields,
+    validated as the model's arguments are."""
+    names = {f["name"] for f in fields}
+    changed = {name: value for name, value in values.items() if name in names}
+    return tool.validate({**params.model_dump(), **changed})
+
+
+async def _run_stoppable(
+    run: TurnRun, call_id: str, tool: AgentTool, work: Awaitable[ToolResult]
+) -> ToolResult:
+    """Run an async tool as a task the person can stop on its own (`TurnManager.stop_tool`):
+    stopped, it ends with a result saying so and the turn goes on. Stopping the whole turn
+    still stops the turn."""
+    task = asyncio.ensure_future(work)
+    run.running_tools[call_id] = task
+    try:
+        return await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if task.cancelled() and not (current is not None and current.cancelling()):
+            return ToolResult(
+                f"The person stopped {tool.name} before it finished: nothing was made. Don't "
+                "run it again unless they ask."
+            )
+        raise
+    finally:
+        run.running_tools.pop(call_id, None)
 
 
 def _failure(
@@ -424,6 +496,19 @@ def _failure(
 async def _confirm(
     run: TurnRun, call: dict, name: str, text: str, arguments: str, kind: str = "allow"
 ) -> bool:
+    return (await _ask(run, call, name, text, arguments, kind)).approved
+
+
+async def _ask(
+    run: TurnRun,
+    call: dict,
+    name: str,
+    text: str,
+    arguments: str,
+    kind: str = "allow",
+    *,
+    fields: list[dict] | None = None,
+) -> Decision:
     def create() -> int:
         with run.sessions.begin() as session:
             row = ConfirmationRow(
@@ -443,18 +528,21 @@ async def _confirm(
             "name": name,
             "text": text,
             "kind": kind,  # which buttons the page shows
+            **({"fields": fields} if fields else {}),  # what the person can change on it
         }
     )
     try:
         # The model is idle while the person reads the card: a job held for the chat may go
         async with run.runtime.waiting_for_person():
-            approved = await future
+            decision = await future
     except asyncio.CancelledError:
         await run_in_threadpool(_record_decision, run, confirmation_id, False)
         raise
-    await run_in_threadpool(_record_decision, run, confirmation_id, approved)
-    run.emit({"type": "confirmed", "confirmation_id": confirmation_id, "approved": approved})
-    return approved
+    await run_in_threadpool(_record_decision, run, confirmation_id, decision.approved)
+    run.emit(
+        {"type": "confirmed", "confirmation_id": confirmation_id, "approved": decision.approved}
+    )
+    return decision
 
 
 def _record_decision(run: TurnRun, confirmation_id: int, approved: bool) -> None:
@@ -482,6 +570,8 @@ async def run_turn(run: TurnRun) -> str:
     calls_checked = False  # a call writing a number nobody gave: asked about once a turn
     held: _Held | None = None  # the call that check dropped, until its tool is called again
     try:
+        if run.force is not None:
+            await _forced_call(run, failures, failed)
         while calls_left:
             calls_left -= 1
             history = await run_in_threadpool(load_history, run)
@@ -596,6 +686,98 @@ async def run_turn(run: TurnRun) -> str:
             )
         run.emit({"type": "stopped"})
         return "stopped"
+
+
+# --- a tool the person asked for directly ------------------------------------------------------
+
+FORCED_ARGUMENTS_TOKENS = 600
+
+
+async def _forced_call(
+    run: TurnRun, failures: dict[str, int], failed: dict[tuple[str, str], str]
+) -> None:
+    """The tool the person asked for with their message (`run.force`), run before the model
+    answers: the model writes the arguments the person didn't give, held to the tool's schema;
+    the call and its result go into the transcript like any other. `tool_choice` can't do this:
+    llama-server doesn't enforce it, and the 4B answers in text instead."""
+    force = run.force or {}
+    tool = next((t for t in run.registry.all() if t.name == force.get("name")), None)
+    if tool is None or tool.forced_question is None:
+        raise TurnFailed(f"{force.get('name')} can't be asked for directly here.")
+    given = dict(force.get("arguments") or {})
+    history = await run_in_threadpool(load_history, run)
+    arguments = {**await _write_arguments(run, history, tool, given), **given}
+    call = {
+        "id": f"call_{uuid.uuid4().hex[:12]}",
+        "type": "function",
+        "function": {
+            "name": tool.wire_name,
+            "arguments": json.dumps(arguments, ensure_ascii=False),
+        },
+    }
+    message_id = await run_in_threadpool(
+        lambda: store_message(run, role="assistant", content="", tool_calls=json.dumps([call]))
+    )
+    run.emit({"type": "assistant", "message_id": message_id, "tool_calls": [call]})
+    result = await run_tool(run, call, failures, failed, forced=True)
+    await _record(run, call, result)
+
+
+async def _write_arguments(run: TurnRun, history: History, tool: AgentTool, given: dict) -> dict:
+    """The required arguments the person didn't give, written by the chat's model from the
+    conversation, its answer held to a JSON schema of just those. An MLX server can't hold an
+    answer to a schema: there, each is the person's message as they typed it."""
+    schema = tool.params.model_json_schema()
+    wanted = [k for k in schema.get("required", []) if k not in given]
+    if not wanted:
+        return {}
+    properties = {k: _plain(schema["properties"][k]) for k in wanted}
+    async with run.runtime.lease("main", Priority.CHAT) as lease:
+        entry = catalog.load().get(lease.model_id)
+        if entry is not None and entry.format == "mlx":
+            text = _last_user_text(history)
+            if any(p.get("type") != "string" for p in properties.values()):
+                raise TurnFailed(f"{tool.name} can't be asked for directly with this model.")
+            return dict.fromkeys(wanted, text)
+        built = await build_context(run, history, lease.plan.ctx, _counter(run, lease))
+        ask = (
+            f"Write the arguments for {tool.name} from what I just asked: {tool.description} "
+            "Answer with the JSON only."
+        )
+        body = {
+            "messages": [*built.messages, {"role": "user", "content": ask}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": tool.wire_name,
+                    "schema": {"type": "object", "properties": properties, "required": wanted},
+                },
+            },
+            "max_tokens": FORCED_ARGUMENTS_TOKENS,
+            "temperature": TEMPERATURE,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        response = await lease.client.post("/v1/chat/completions", json=body)
+        response.raise_for_status()
+    try:
+        written = json.loads(response.json()["choices"][0]["message"]["content"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise TurnFailed(f"The model didn't write the arguments for {tool.name}.") from None
+    if not isinstance(written, dict):
+        raise TurnFailed(f"The model didn't write the arguments for {tool.name}.")
+    return {k: written[k] for k in wanted if k in written}
+
+
+def _plain(prop: dict) -> dict:
+    """A property's schema without what a JSON-schema grammar doesn't need (titles)."""
+    return {k: v for k, v in prop.items() if k not in ("title", "default")}
+
+
+def _last_user_text(history: History) -> str:
+    for message in reversed(history.messages):
+        if message.get("role") == "user" and isinstance(message.get("content"), str):
+            return message["content"]
+    return ""
 
 
 async def _record(run: TurnRun, call: dict, result: ToolResult) -> None:

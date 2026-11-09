@@ -1,5 +1,5 @@
 export type Tier = "below_minimum" | "minimum" | "recommended" | "comfortable";
-export type Role = "main" | "ocr" | "ocr.hand" | "code";
+export type Role = "main" | "ocr" | "ocr.hand" | "code" | "image";
 /** What a model can be chosen for in Models & memory: a role, or cleanup of scanned pages
  * ("clean"), which a chat model does and which is leased as the chat role's. */
 export type ChoiceRole = Role | "clean";
@@ -249,6 +249,8 @@ export interface Artifact {
   size: number;
   text: "none" | "indexed" | "failed";
   text_note: string | null;
+  /** How the file tab shows it (`lectern.projects.preview`); null: it can't. */
+  preview: "markdown" | "text" | "html" | "image" | "pdf" | "document" | "legacy" | null;
   from: {
     kind: "import" | "session" | "artifact";
     id: number | null;
@@ -350,6 +352,8 @@ export type ChatEvent = { seq: number } & (
       text: string;
       /** Which buttons: Allow / Don't allow, or Try again / Stop. Older servers send none. */
       kind?: CardKind;
+      /** What the person can change before allowing it (image.generate: prompt, shape). */
+      fields?: CardField[];
     }
   | { type: "confirmed"; confirmation_id: number; approved: boolean }
   | {
@@ -376,8 +380,19 @@ export type ChatEvent = { seq: number } & (
       total?: number;
       line?: string;
       seconds?: number;
+      /** The tool can be stopped on its own (an image being made): the turn goes on. */
+      stoppable?: boolean;
     }
 );
+
+/** A field on a confirmation card: the tool runs with the value the person leaves in it. */
+export interface CardField {
+  name: string; // the tool's parameter
+  kind: "text" | "choice";
+  value: string;
+  // For a choice: each option, with what it means here (an image shape's size and wait).
+  choices?: { value: string; width?: number; height?: number; seconds?: number }[];
+}
 
 // --- OCR sessions ---------------------------------------------------------------------
 

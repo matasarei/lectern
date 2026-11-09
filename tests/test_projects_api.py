@@ -14,6 +14,8 @@ from lectern.projects import files
 from lectern.projects.files import Origin
 from lectern.projects.tables import MessageRow
 
+from .projects.conftest import write_docx
+
 BASE = "http://127.0.0.1:8765"
 
 
@@ -87,6 +89,7 @@ def test_import_a_file_and_read_it_back(api):
     assert (body["name"], body["kind"], body["text"], body["from"]["kind"]) == (
         "notes.md", "imported", "indexed", "import"
     )  # fmt: skip
+    assert body["preview"] == "markdown"
 
     content = client.get(f"/api/projects/{pid}/artifacts/{body['id']}/content", headers=headers)
     assert content.content == b"# Hi\nthere"
@@ -109,6 +112,68 @@ def test_files_that_could_run_as_pages_are_downloaded_not_shown(api, name):
     assert content.headers["content-type"] == "application/octet-stream"
     assert content.headers["content-disposition"].startswith("attachment")
     assert content.headers["x-content-type-options"] == "nosniff"
+
+
+def _import(client, headers, pid, name, content) -> int:
+    return client.put(
+        f"/api/projects/{pid}/files", params={"name": name}, content=content, headers=headers
+    ).json()["id"]
+
+
+def test_a_docx_is_shown_as_markdown(api, tmp_path):
+    client, headers, _ = api
+    pid = _project(client, headers)
+    aid = _import(client, headers, pid, "lease.docx", write_docx(tmp_path / "l.docx").read_bytes())
+
+    answer = client.get(f"/api/projects/{pid}/artifacts/{aid}/markdown", headers=headers)
+
+    assert answer.status_code == 200
+    assert "# Договір оренди" in answer.json()["markdown"]
+    assert answer.json()["cut"] is False
+
+
+def test_a_broken_document_or_another_kind_of_file_isnt_shown_as_markdown(api):
+    client, headers, _ = api
+    pid = _project(client, headers)
+    broken = _import(client, headers, pid, "lease.odt", b"not a zip at all")
+    notes = _import(client, headers, pid, "notes.txt", b"hello")
+
+    refused = client.get(f"/api/projects/{pid}/artifacts/{broken}/markdown", headers=headers)
+    assert refused.status_code == 400
+    assert refused.json()["detail"].startswith("lease.odt couldn't be read as a document")
+    other = client.get(f"/api/projects/{pid}/artifacts/{notes}/markdown", headers=headers)
+    assert (other.status_code, other.json()["detail"]) == (
+        400, "Only DOCX and ODT files are shown as Markdown."
+    )  # fmt: skip
+
+
+def test_a_document_too_large_to_show_says_so(api, tmp_path, monkeypatch):
+    client, headers, _ = api
+    pid = _project(client, headers)
+    aid = _import(client, headers, pid, "lease.docx", write_docx(tmp_path / "l.docx").read_bytes())
+    monkeypatch.setattr("lectern.projects.preview.DOCUMENT_XML_LIMIT", 100)
+
+    answer = client.get(f"/api/projects/{pid}/artifacts/{aid}/markdown", headers=headers)
+
+    assert (answer.status_code, answer.json()["detail"]) == (
+        413, "lease.docx has too much text to show here. Download it to open it."
+    )  # fmt: skip
+
+
+def test_a_trashed_or_missing_document_isnt_shown(api, tmp_path):
+    client, headers, app = api
+    pid = _project(client, headers)
+    data = write_docx(tmp_path / "l.docx").read_bytes()
+    trashed = _import(client, headers, pid, "a.docx", data)
+    gone = _import(client, headers, pid, "b.docx", data)
+    project = app.state.projects.get(LOCAL_USER, pid)
+    with app.state.projects.db(project).begin() as session:
+        files.trash(project.root, session, trashed)
+    (project.root / "b.docx").unlink()
+
+    for aid in (trashed, gone, 999):
+        url = f"/api/projects/{pid}/artifacts/{aid}/markdown"
+        assert client.get(url, headers=headers).status_code == 404
 
 
 def test_import_refuses_hidden_names_and_needs_a_name(api):

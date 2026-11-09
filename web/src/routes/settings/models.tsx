@@ -33,12 +33,13 @@ import { UPDATE_POLL_MS } from "./polling";
 
 // The rows of "Models by role": the roles, and cleanup of scanned pages after the chat,
 // whose models it shares.
-const CHOICES: ChoiceRole[] = ["main", "clean", "ocr", "ocr.hand", "code"];
+const CHOICES: ChoiceRole[] = ["main", "clean", "ocr", "ocr.hand", "code", "image"];
 const ROLE_COLOURS: Record<Role, string> = {
   main: "bg-accent",
   ocr: "bg-amber-600",
   "ocr.hand": "bg-violet-600",
   code: "bg-slate-500",
+  image: "bg-rose-600",
 };
 
 /** The role a loaded model serves. The runtime also loads a model by name

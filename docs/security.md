@@ -22,8 +22,11 @@ The checks sit in one place, not route by route: the `LocalGuard` middleware
   browser gets it from the access link's `#token=` fragment (`lectern url` prints the link)
   and keeps it in the tab's session storage. This token check is the CSRF protection.
 - **Headers.** Every response carries a strict Content-Security-Policy (`default-src 'self'`,
-  no inline scripts or styles, `frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`
-  and `Referrer-Policy: no-referrer`. The OpenAPI pages are off.
+  no inline scripts or styles, `frame-ancestors 'none'`; frames only from Lectern itself and
+  from `blob:`, for the PDF preview), `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: no-referrer`. The one exception is an HTML file opened as a page, which
+  gets sandboxing policies instead (see [Files and paths](#files-and-paths)). The OpenAPI
+  pages are off.
 
 ## Accounts
 
@@ -69,9 +72,53 @@ password, the account disabled (`api/ws.py`, `api/sse.py`).
   Windows can't store are refused, names are at most 180 characters, and a file at most
   2 GB. A taken name gets ` (2)`, ` (3)`.
 - **Serving.** Files are typed by extension. Only plain text, Markdown, CSV and PNG, JPEG,
-  GIF and WebP images are shown in the browser; everything else downloads as
+  GIF and WebP images are served inline; everything else downloads as
   `application/octet-stream`. With `nosniff` and the CSP, an imported HTML or SVG file can't
   run in Lectern's origin (`api/projects.py`).
+- **Previews.** The file tab reads a file through that same route, with the token, and shows
+  it by its kind (`projects/preview.py`): text and code as text, never as HTML; a PDF from a
+  `blob:` URL the page makes itself, typed as a PDF, in the browser's own viewer; a DOCX or
+  ODT as Markdown the server makes of it (up to 500,000 characters; a document whose XML
+  parts unzip past 32 MB together isn't opened), through react-markdown like any Markdown.
+- **An HTML file as a page.** It never runs under Lectern's address, where it could read the
+  token. The file tab asks for a link (a POST, so the token and Origin checks apply) and shows
+  it as a link with `rel="noopener"`, so the new tab starts with none of Lectern's session
+  storage, where the token is kept; the link is renewed every 45 seconds, when the window
+  comes back into focus, and once it has been used. A ticket is 32 random bytes held in
+  memory, opens that one file of that one person, once, within 60 seconds, and only as what
+  it was made for; `/view/` is the only thing outside `/api` that serves a project file.
+  - `/view/<ticket>`, the link's, is a wrapper that runs nothing (`default-src 'none';
+    style-src 'unsafe-inline'; frame-src 'self'`, and `frame-ancestors`, `base-uri`,
+    `form-action` all `'none'`). It makes a second ticket and holds the page in
+    `<iframe sandbox="allow-scripts" src="/view/<that ticket>/page">`.
+  - `/view/<ticket>/page` is the file, served with `sandbox allow-scripts; default-src
+    'none'; script-src 'unsafe-inline' 'unsafe-eval' data:; style-src 'unsafe-inline';
+    img-src data: blob:; font-src data:; media-src data: blob:; frame-ancestors 'self'` (and
+    `base-uri`, `form-action` `'none'`) instead of Lectern's policy. Its scripts run, `eval`
+    included, but without `allow-same-origin`: in an origin of their own that can't reach
+    Lectern's storage or cookies, and whose requests Lectern's Origin check refuses. With no
+    `connect-src`, nothing is loaded from anywhere, Lectern included. No forms, pop-ups or
+    `alert`s, and `localStorage` throws. It opens only in the wrapper's frame (`api/view.py`).
+- **What a page can't send out, and what it still can.** The frame can't navigate the tab
+  (no `allow-top-navigation`) or open another (no `allow-popups`), and the browser checks
+  every navigation of the frame itself against the wrapper's `frame-src 'self'` before making
+  a request: a page can't send what is in it away by going to another address (`location =
+  …`, a link, a meta refresh), only to Lectern's own, where `/api` needs the token and
+  Lectern's pages refuse to be framed. Checked in Chrome: a page that tried each of those,
+  and `top.location`, reached nothing; Safari and Firefox not yet. What a page can still do
+  is send what is in it over WebRTC or a DNS lookup, which CSP doesn't cover. What is in it
+  is the page's own text and the files below; never the token, and never a project file it
+  doesn't name. That is accepted: the same file opened from disk could send anything at all.
+  Open a page you don't trust as you would an untrusted file on disk.
+- **What a page links to.** The stylesheets, scripts, images and fonts a page names beside it
+  in its project are put inside it before it is sent: a stylesheet as a `<style>` block, the
+  rest as `data:` URLs (`projects/html_page.py`). Only those kinds of file, only the page
+  owner's, not in the trash and inside the project folder; 10 MB a file and 25 MB a page, and
+  a page over 10 MB is sent as it is. A project's text, data and documents are never put in,
+  so a page can't take them and send them on; a project's images can be, by a page that names
+  them. What a script asks for while it runs
+  (`fetch('data.json')`), `@import`, and anything on the internet don't load. A page that
+  gets anything put in it is sent as UTF-8; one that doesn't is sent as its own bytes.
 - **Markdown** in the UI goes through react-markdown without raw HTML.
 
 ## Instructions hidden in documents
@@ -90,6 +137,13 @@ Lectern runs that it didn't ship is the scripts its coding model writes, and tho
 the [sandbox](agent.md#the-script-sandbox): no network, a read-only filesystem, no
 capabilities, an unprivileged user, limits on processes, memory and CPU, the inputs read-only,
 killed after 60 seconds.
+
+Pictures are made by stable-diffusion.cpp's `sd-cli`, a pinned build checked against its
+SHA-256 like llama.cpp's. It runs once per picture with an argument list, never through a
+shell. The prompt is one argument, which sd-cli takes whole whatever it starts with. No LoRA or
+embeddings folder is ever passed, so a name in a prompt can't make it load a file. It listens
+on no port. What it writes must read as a PNG of the size asked; it is written again without
+the metadata sd-cli embeds before it becomes a project file.
 
 ## Data leaving the machine
 

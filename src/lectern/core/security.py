@@ -11,7 +11,11 @@ still send requests there. This middleware makes sure only Lectern's own page ca
   the Origin header is required, not just checked when present.
 - Token check: every /api request carries a token, in the X-Lectern-Token header (HTTP) or
   as the `lectern.token.<token>` subprotocol (WebSocket, where browsers can't set headers).
-- Every HTTP response gets a strict Content-Security-Policy.
+- Every HTTP response gets a strict Content-Security-Policy; an HTML file opened in a tab of
+  its own (/view/<ticket>, `lectern.api.view`) gets sandboxing ones instead: a wrapper that
+  runs nothing, holding the page in a frame where its own scripts run in an origin of their
+  own, load nothing and can't navigate away. That path is the only one a one-use ticket opens
+  without the token.
 
 Whose token: until anyone can sign in (`lectern user init`), the per-install one, which the
 link `lectern url` prints carries, and whoever has it is the local user. Once there are
@@ -54,15 +58,70 @@ HOST_BOUND = "__Host-"
 SIGNING_IN = "/api/login"
 THIS_COMPUTER = frozenset({"127.0.0.1", "::1"})
 
+# frame-src blob: is for the file tab's PDF preview: the page fetches the PDF with its token
+# and shows it from a blob URL it made itself, typed application/pdf, in the browser's viewer.
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
-    "style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+    "style-src 'self'; script-src 'self'; frame-src 'self' blob:; frame-ancestors 'none'; "
+    "base-uri 'none'"
 )
 SECURITY_HEADERS = (
     (b"content-security-policy", CONTENT_SECURITY_POLICY.encode()),
     (b"x-content-type-options", b"nosniff"),
     (b"referrer-policy", b"no-referrer"),
 )
+# An HTML file opened in a tab of its own (`lectern.api.view`) is two pages, each with its own
+# policy instead of Lectern's.
+#
+# The page itself, at /view/<ticket>/page, gets VIEW_CSP. Lectern's policy would block its
+# inline styles and scripts; this one runs them as they would from disk, `eval` and
+# `new Function` included (template engines and chart code use them, and they fetch nothing),
+# but `sandbox allow-scripts` without allow-same-origin puts them in an origin of their own
+# that can't read Lectern's storage or cookies, and whose requests Lectern's Origin check
+# refuses (Origin: null); no form, popup or modal. With no connect-src, default-src 'none'
+# stops fetch, XHR and WebSocket, so a page loads nothing from the network or Lectern: what
+# it links to in its project was put inside it before it was sent (`projects.html_page`; a
+# script as a data: URL, so defer and async keep their timing). It loads only in a frame of
+# Lectern's (frame-ancestors 'self'): the wrapper below.
+#
+# The wrapper, at /view/<ticket>, gets VIEW_WRAPPER_CSP: no scripts at all, and a frame of
+# Lectern's address only. It holds the page in <iframe sandbox="allow-scripts">, which can't
+# navigate the tab (no allow-top-navigation) or open another (no allow-popups), and whose own
+# navigations the browser checks against this frame-src before making a request: a page can't
+# send what is in it away by going to another address (`location = …`, a link, a meta
+# refresh). What it can still do is send it over WebRTC or a DNS lookup, which CSP doesn't
+# cover. Accepted: the token is never in it, and the same file opened from disk could send
+# anything at all.
+VIEW_PREFIX = "/view/"
+VIEW_PAGE_SUFFIX = "/page"
+VIEW_CSP = (
+    "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data:; "
+    "style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; "
+    "frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+)
+VIEW_HEADERS = (
+    (b"content-security-policy", VIEW_CSP.encode()),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+)
+VIEW_WRAPPER_CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; frame-src 'self'; frame-ancestors 'none'; "
+    "base-uri 'none'; form-action 'none'"
+)
+VIEW_WRAPPER_HEADERS = (
+    (b"content-security-policy", VIEW_WRAPPER_CSP.encode()),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+)
+
+
+def response_headers(path: str) -> tuple[tuple[bytes, bytes], ...]:
+    """The security headers for a response to `path`: an opened HTML page's own, its wrapper's
+    (anything else under /view/, so a made-up path gets the policy that runs nothing), or
+    Lectern's."""
+    if not path.startswith(VIEW_PREFIX):
+        return SECURITY_HEADERS
+    return VIEW_HEADERS if path.endswith(VIEW_PAGE_SUFFIX) else VIEW_WRAPPER_HEADERS
 
 
 def read_secret(path: Path) -> str | None:
@@ -244,9 +303,11 @@ class LocalGuard:
             await self.app(scope, receive, send)
 
     async def _http(self, scope: Scope, receive: Receive, send: Send) -> None:
+        headers = response_headers(scope["path"])
+
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
-                message["headers"] = [*message.get("headers", []), *SECURITY_HEADERS]
+                message["headers"] = [*message.get("headers", []), *headers]
             await send(message)
 
         if _host(scope) not in self.hosts:
