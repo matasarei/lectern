@@ -61,6 +61,9 @@ class ToolContext:
     ocr_jobs: Any = None  # lectern.modules.ocr.jobs.OcrJobs
     images: Any = None  # lectern.modules.image.generate.Images
     registry: Any = None  # this turn's Registry, for tools that name other tools
+    # The person already allowed this call, on task.after's card: a tool that asks only
+    # sometimes (artifact.write, when the message asked for no file) doesn't ask again.
+    allowed: bool = False
 
 
 @dataclass

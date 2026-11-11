@@ -365,6 +365,7 @@ async def run_tool(
     failed: dict[tuple[str, str], str] | None = None,
     *,
     forced: bool = False,
+    allowed: bool = False,
 ) -> ToolResult:
     """Validate, confirm when the tool asks first, run. Raises TurnFailed on a second
     invalid call in this turn. `failed` holds this turn's calls that failed, by tool and
@@ -412,6 +413,7 @@ async def run_tool(
         ocr_jobs=run.ocr_jobs,
         images=run.images,
         registry=run.registry,
+        allowed=allowed,
     )
     if forced and tool.forced_question is not None:
         # The person asked for it themselves: a card only for what they couldn't have known

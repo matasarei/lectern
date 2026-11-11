@@ -79,6 +79,7 @@ from lectern.agent.core_tools import CORE_TOOLS  # noqa: E402
 from lectern.agent.followups import TASK_AFTER  # noqa: E402
 from lectern.agent.tools import (  # noqa: E402
     AgentTool,
+    Decision,
     Registry,
     ToolContext,
     ToolError,
@@ -715,3 +716,59 @@ def test_the_runtime_hears_of_turns_and_only_a_persons_message_counts_as_one(fol
     (after_follow_up, after_message) = seen
     assert after_follow_up == (0, None)  # ran and ended; not a message
     assert after_message[0] == 0 and after_message[1] is not None
+
+
+@pytest.fixture
+def cards(monkeypatch) -> list[str]:
+    """Every card a turn shows, each answered Don't allow at once."""
+    from lectern.agent import loop
+
+    shown: list[str] = []
+
+    async def ask(run, call, name, text, arguments, kind="allow", *, fields=None):  # noqa: ANN001, ANN202, ARG001
+        shown.append(text)
+        return Decision(False)
+
+    monkeypatch.setattr(loop, "_ask", ask)
+    return shown
+
+
+def _say(db, text: str, chat: int = 1) -> None:  # noqa: ANN001
+    with db.begin() as session:
+        session.add(MessageRow(session_id=chat, role="user", content=text))
+
+
+WRITE_NOTES = {"name": "lease-notes.md", "text": "Rent: 1,250.00"}
+
+
+def test_a_queued_save_runs_without_a_second_card(follow, cards):
+    """Allowed on task.after's card, it used to ask again when it ran, because the latest
+    message by then ("Read the scan, please.") asks for no file."""
+    manager, project, db, ocr_id, _ = follow([text_reply("Saved lease-notes.md.")])
+    _say(db, "Read the scan, please.")
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="artifact.write", arguments=WRITE_NOTES,
+                  label="after OCR · lease-scan.pdf: save the notes")  # fmt: skip
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert cards == []
+    assert (project.root / "lease-notes.md").read_text(encoding="utf-8") == "Rent: 1,250.00"
+
+
+def test_a_save_allowed_after_its_session_finished_runs_without_a_second_card(follow, cards):
+    manager, project, db, ocr_id, _ = follow([])
+    _say(db, "Read the scan, please.")
+    ctx = ToolContext(project=project, sessions=db, user=LOCAL_USER, session_id=1,
+                      registry=Registry(CORE_TOOLS),
+                      confirm=lambda *_a, **_k: pytest.fail("asked again"))  # fmt: skip
+    params = TASK_AFTER.validate({"session": "lease-scan", "tool": "artifact_write",
+                                  "arguments": WRITE_NOTES, "label": "save the notes"})  # fmt: skip
+    _set_status(db, ocr_id, "done")  # it finished before the person allowed the card
+
+    result = asyncio.run(TASK_AFTER.run(ctx, params))
+
+    assert "lease-notes.md" in result.text
+    assert (project.root / "lease-notes.md").is_file()

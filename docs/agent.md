@@ -237,7 +237,9 @@ room hands the text to the chat model, as one that can't start does.
 `task.after`, and `ocr.start` with `then_export`, queue a tool call to run when an OCR session
 finishes (at most five per chat), shown in a Waiting strip with Cancel. An export waits while
 the Document has open questions or a page that failed, and the chat says so, with *Export now,
-as it is*. When the follow-up runs, the chat reports on it in a turn of its own.
+as it is*. When the follow-up runs, the chat reports on it in a turn of its own. A tool that
+always asks first can't be queued; one that asks only sometimes (`artifact.write`) doesn't ask
+again when it runs, since the person allowed it on `task.after`'s card.
 
 ## Web search
 

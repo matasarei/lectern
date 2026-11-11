@@ -381,7 +381,7 @@ async def _write(ctx: ToolContext, params: WriteParams) -> ToolResult:
         raise ToolError(str(exc)) from None
     # Seen: 1 in 20 times it couldn't read hours.xlsx, the 4B saved a note nobody asked for
     # ("Analyzing hours.xlsx to calculate total hours."), however the prompt put the rule.
-    asked = await run_in_threadpool(asked_for_file, ctx, name)
+    asked = ctx.allowed or await run_in_threadpool(asked_for_file, ctx, name)
     question = f"Save {name} as a new file in the project? Your message didn't ask for a file."
     if not asked and not await ctx.confirm(question):
         raise ToolError(
