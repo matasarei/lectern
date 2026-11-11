@@ -11,7 +11,8 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/cli.py` | 753 | `lectern` CLI (`serve`, `url`, `user *`, `doctor`, `chat`, `bench`, `dev *`) | `serve`, `url`, `user_init`, `user_add`, `LecternServer`, `doctor`, `bench` |
 | `src/lectern/config.py` | 64 | `LECTERN_HOME` and data/model/runner paths | `Paths`, `lectern_home`, `get_paths` |
 | `src/lectern/web.py` | 31 | Serves built SPA (`src/lectern/web_dist/`) | `mount_web` |
-| `src/lectern/core/security.py` | 414 | Host, Origin, `X-Lectern-Token`/WS subprotocol guard, CSP headers | `LocalGuard`, `load_or_create_token`, `parse_public_urls`, `login_cookie` |
+| `src/lectern/core/security.py` | 392 | Host, Origin, `X-Lectern-Token`/WS subprotocol guard, CSP headers | `LocalGuard`, `load_or_create_token`, `parse_public_urls`, `login_cookie` |
+| `src/lectern/core/secret_files.py` | 30 | Secrets in files of their own (the Brave Search key), owner-readable | `read_secret`, `write_secret` |
 | `src/lectern/core/auth.py` | 49 | Route dependencies for signed-in and admin users | `User`, `LOCAL_USER`, `current_user`, `require_admin` |
 | `src/lectern/core/accounts.py` | 345 | Users, sign-in rate-limit/backoff, login cookies (`logins` table) | `init_admin`, `add_user`, `sign_in`, `open_login`, `end_login`, `Logins` |
 | `src/lectern/core/passwords.py` | 65 | Argon2id password hashing and 15-char policy | `hash_password`, `verify`, `verify_nobody`, `check_new`, `WeakPassword` |

@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.core import settings
 from lectern.core.auth import require_admin
-from lectern.core.security import read_secret, write_secret
+from lectern.core.secret_files import read_secret, write_secret
 from lectern.modules.web import tools
 
 router = APIRouter()
