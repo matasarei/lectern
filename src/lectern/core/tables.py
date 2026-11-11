@@ -81,7 +81,8 @@ class ProjectRow(Base):
     __table_args__ = (CheckConstraint("root_kind IN ('managed', 'linked')", name="root_kind"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Set once, never changed; a new managed project's folder is named after it.
+    # Set once, never changed; a new managed project's folder is named after it. Nullable in
+    # the database (migration 0006 adds it without a table rebuild); the app always sets it.
     uuid: Mapped[str] = mapped_column(
         String(36), unique=True, index=True, default=lambda: str(uuid4())
     )
