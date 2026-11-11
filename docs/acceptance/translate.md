@@ -68,8 +68,31 @@ What it means:
 - SalamandraTA 2B didn't stop on 2 of the 1,000 sentences (one French, one Russian): it
   repeated itself until it ran out of room. The tool then hands the text to the chat model.
 
-**Recommended tier (8 GB):** Hy-MT2 7B and SalamandraTA 7B against Qwen3.5-9B. See below
-when the run is done.
+**Recommended tier (8 GB):** the two 7B translation models against Qwen3.5-9B, the chat model.
+The small ones (above) suit this tier too, and are compared against the 9B here.
+
+| Language | SalamandraTA 7B | Hy-MT2 7B | SalamandraTA 2B | Hy-MT2 1.8B | Qwen3.5-9B |
+|---|---|---|---|---|---|
+| uk | 60.2 / 68.6 (64.4) | 57.5 / 66.0 (61.8) | 56.0 / 63.2 (59.6) | 54.3 / 63.9 (59.1) | 56.3 / 68.7 (62.5) |
+| ru | 62.8 / 64.6 (63.7) | 60.5 / 64.0 (62.2) | 58.5 / 60.4 (59.5) | 56.4 / 61.1 (58.8) | 58.9 / 64.7 (61.8) |
+| pl | 57.2 / 64.1 (60.6) | 56.1 / 62.2 (59.2) | 53.9 / 59.6 (56.8) | 52.7 / 59.3 (56.0) | 54.4 / 62.4 (58.4) |
+| cs | 60.2 / 69.2 (64.7) | 61.7 / 67.8 (64.8) | 55.7 / 65.2 (60.5) | 58.5 / 63.8 (61.1) | 57.9 / 67.4 (62.7) |
+| de | 66.1 / 70.2 (68.2) | 66.2 / 70.2 (68.2) | 62.4 / 67.7 (65.0) | 60.1 / 66.1 (63.1) | 63.7 / 68.8 (66.2) |
+| fr | 75.2 / 72.5 (73.8) | 71.9 / 69.8 (70.8) | 72.0 / 67.5 (69.8) | 68.5 / 67.2 (67.8) | 72.8 / 70.6 (71.7) |
+| es | 59.3 / 64.8 (62.0) | 57.5 / 61.8 (59.6) | 58.9 / 61.6 (60.2) | 56.4 / 60.9 (58.6) | 57.6 / 62.5 (60.0) |
+| it | 61.9 / 65.7 (63.8) | 60.4 / 64.0 (62.2) | 62.6 / 61.3 (62.0) | 58.1 / 59.6 (58.9) | 60.7 / 64.7 (62.7) |
+| ja | 41.8 / 60.5 (51.1) | 46.2 / 59.6 (52.9) | — | 43.1 / 56.4 (49.8) | 43.1 / 59.9 (51.5) |
+| zh | 42.7 / 62.2 (52.5) | 44.3 / 60.9 (52.6) | — | 39.6 / 59.6 (49.6) | 44.0 / 60.9 (52.5) |
+
+What it means:
+- On an 8 GB card a translation model does help. SalamandraTA 7B beats the 9B by 1.1 to 2.3
+  points in nine languages, all but Chinese; it is GPL-3.0, so it is offered as restricted.
+  Hy-MT2 7B (Apache-2.0) beats it in Czech, German and Japanese, so those three languages have
+  an open-licence option too. Chinese gets nothing: no model is a point ahead.
+- The small models lose to the 9B everywhere, so they aren't offered on this tier.
+- The direction shows again: SalamandraTA 7B leads most into the language (Ukrainian 60.2
+  against 56.3, Russian 62.8 against 58.9), and about level out of it (Ukrainian 68.6 against
+  68.7).
 
 **Comfortable tier:** not measured. Its chat model (Qwen3.5-35B-A3B) has no scores, so a
 comfortable computer is offered nothing until it is.

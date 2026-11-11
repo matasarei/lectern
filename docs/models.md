@@ -88,7 +88,9 @@ results in [`acceptance/translate.md`](acceptance/translate.md)). A model nobody
 offered, nor is anything against a chat model nobody measured. The page lists the languages
 where none beats the chat model, and the ones not measured yet. On a 4 GB card the chat model
 is about as good as the small translation models: two languages are offered there, Czech and
-Spanish. Each option is marked as the best results, the best with an open licence, or with a
+Spanish. On an 8 GB card SalamandraTA 7B (restricted licence) beats the 9B in nine of the ten
+measured languages, all but Chinese; with an open licence, Hy-MT2 7B beats it in Czech, German
+and Japanese. Each option is marked as the best results, the best with an open licence, or with a
 restricted licence, and its help says what that means and how it scored. A new language starts
 on the open-licence option, so a restricted one is only ever taken with a click, and its
 licence is accepted before the download, as on Models & memory.
