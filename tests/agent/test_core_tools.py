@@ -246,7 +246,7 @@ def answering(ctx, approve):
     "message",
     ["Write a two-line summary of the lease and save it as lease-summary.md.",
      "Put that in notes.md", "Збережи це у файл", "Запиши підсумок, будь ласка",
-     "Сохрани ответ", "Can you store this for later?"],
+     "Сохрани ответ"],
 )  # fmt: skip
 def test_a_file_the_persons_message_asks_for_is_saved_without_a_card(ctx, message):
     say(ctx, message)
@@ -260,7 +260,11 @@ def test_a_file_the_persons_message_asks_for_is_saved_without_a_card(ctx, messag
 @pytest.mark.parametrize(
     "message",
     ["How many hours in total are listed in hours.xlsx?", "Is there a lease file here?",
-     "Що в файлі hours.md?", "Open the lease, please"],
+     "Що в файлі hours.md?", "Open the lease, please",
+     # "store" and "saving" are in too many questions to count as asking for a file; someone
+     # who does mean "store this" gets the card.
+     "Which store had the lowest price in hours.xlsx?", "Any money-saving tips in the lease?",
+     "Can you store this for later?"],
 )  # fmt: skip
 def test_a_file_nobody_asked_for_waits_for_the_persons_allow(ctx, message):
     """Seen in 4 of 82 xlsx-sum runs: the 4B, unable to read hours.xlsx, saved notes nobody

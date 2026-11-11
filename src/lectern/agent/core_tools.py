@@ -356,8 +356,9 @@ class WriteParams(BaseModel):
 
 # Words that ask for a file to be saved: the request and the infinitive, not "file", which a
 # question about one has ("Is there a lease file here?").
+# Not "store" or "saving": "which store…" and "money-saving tips" ask nothing of the kind.
 SAVE_WORDS = frozenset({
-    "save", "saving", "store",
+    "save",
     "збережи", "збережіть", "зберегти", "зберігай", "запиши", "запишіть", "записати",
     "сохрани", "сохраните", "сохранить", "сохраняй", "запишите", "записать",
 })  # fmt: skip
