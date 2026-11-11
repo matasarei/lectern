@@ -356,8 +356,9 @@ class WriteParams(BaseModel):
 
 # Words that ask for a file to be saved: the request and the infinitive, not "file", which a
 # question about one has ("Is there a lease file here?").
+# Not "store" or "saving": "which store…" and "money-saving tips" ask nothing of the kind.
 SAVE_WORDS = frozenset({
-    "save", "saving", "store",
+    "save",
     "збережи", "збережіть", "зберегти", "зберігай", "запиши", "запишіть", "записати",
     "сохрани", "сохраните", "сохранить", "сохраняй", "запишите", "записать",
 })  # fmt: skip
@@ -380,7 +381,7 @@ async def _write(ctx: ToolContext, params: WriteParams) -> ToolResult:
         raise ToolError(str(exc)) from None
     # Seen: 1 in 20 times it couldn't read hours.xlsx, the 4B saved a note nobody asked for
     # ("Analyzing hours.xlsx to calculate total hours."), however the prompt put the rule.
-    asked = await run_in_threadpool(asked_for_file, ctx, name)
+    asked = ctx.allowed or await run_in_threadpool(asked_for_file, ctx, name)
     question = f"Save {name} as a new file in the project? Your message didn't ask for a file."
     if not asked and not await ctx.confirm(question):
         raise ToolError(
@@ -610,7 +611,7 @@ def said_by_person(ctx: ToolContext, text: str) -> bool:
 async def _pin(ctx: ToolContext, params: PinParams) -> ToolResult:
     # In the person's own words: pinned at once. Anything else (a translation, a paraphrase,
     # or text the model read in a file) is pinned only if the person allows it on a card.
-    own_words = await run_in_threadpool(said_by_person, ctx, params.text)
+    own_words = ctx.allowed or await run_in_threadpool(said_by_person, ctx, params.text)
     question = f"Pin this for the rest of the chat? “{params.text}”"
     if not own_words and not await ctx.confirm(question):
         raise ToolError("The person didn't allow pinning that. Don't pin it again.")

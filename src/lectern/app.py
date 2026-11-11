@@ -30,12 +30,8 @@ from lectern.core import settings
 from lectern.core.accounts import Logins
 from lectern.core.auth import LOCAL_USER
 from lectern.core.db import make_engine, make_sessionmaker, migrate
-from lectern.core.security import (
-    LocalGuard,
-    load_or_create_token,
-    parse_public_urls,
-    read_secret,
-)
+from lectern.core.secret_files import read_secret
+from lectern.core.security import LocalGuard, load_or_create_token, parse_public_urls
 from lectern.downloads.manager import DownloadManager
 from lectern.hardware.probe import probe
 from lectern.modules import (

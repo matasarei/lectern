@@ -329,6 +329,15 @@ def test_plain_text_is_saved_as_text(ctx, web):
     assert (ctx.project.root / row.path).read_text() == "User-agent: *"
 
 
+def test_a_page_from_an_ipv6_address_is_saved_under_a_name_windows_can_use(ctx, web):
+    web.pages["[2606:4700::1111]/advanced/streaming/"] = html(DOCS)
+
+    run(FETCH, ctx, url="http://[2606:4700::1111]/advanced/streaming/")
+
+    (row,) = saved(ctx)
+    assert row.path == "2606-4700--1111-streaming-httpx.md"
+
+
 def test_a_page_with_no_readable_text_saves_nothing(ctx, web):
     web.pages["app.example.com/"] = html("<html><body><script>render()</script></body></html>")
     with pytest.raises(ToolError, match="no text Lectern can read"):

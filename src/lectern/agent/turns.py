@@ -597,7 +597,7 @@ async def _run_follow_up(run: TurnRun, follow: followups.FollowUp, notice: str) 
         lambda: store_message(run, role="assistant", content=notice, tool_calls=json.dumps([call]))
     )
     run.emit({"type": "assistant", "message_id": message_id, "tool_calls": [call]})
-    result = await run_tool(run, call, {})
+    result = await run_tool(run, call, {}, allowed=True)  # allowed on task.after's card
     tool = run.registry.get(call["function"]["name"])
     await run_in_threadpool(
         lambda: store_message(run, role="tool", content=result.text, tool_call_id=call["id"],

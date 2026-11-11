@@ -4,13 +4,13 @@ whole install what may leave it. The key itself is never sent back: only whether
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field, field_validator
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from lectern.core import settings
 from lectern.core.auth import require_admin
-from lectern.core.security import read_secret, write_secret
+from lectern.core.secret_files import read_secret, write_secret
 from lectern.modules.web import tools
 
 router = APIRouter()
@@ -21,15 +21,16 @@ class WebSettings(BaseModel):
 
 
 class WebKey(BaseModel):
-    key: str = Field(min_length=8, max_length=200)
+    key: str
 
-    @field_validator("key")
-    @classmethod
-    def _one_word(cls, value: str) -> str:
-        value = value.strip()
-        if not value.isprintable() or any(c.isspace() for c in value):
-            raise ValueError("a key is one word, with no spaces")
-        return value
+
+def _checked(key: str) -> str:
+    """The key as it's stored, or a 422 that doesn't repeat it: a validation error from the
+    model would send the refused value back in its `input` field."""
+    key = key.strip()
+    if not 8 <= len(key) <= 200 or not key.isprintable() or any(c.isspace() for c in key):
+        raise HTTPException(422, "A key is one word of 8 to 200 characters, with no spaces.")
+    return key
 
 
 def _key(request: Request) -> str | None:
@@ -56,7 +57,7 @@ async def put_settings(body: WebSettings, request: Request) -> dict:
 @router.put("/web/key", dependencies=[Depends(require_admin)])
 async def put_key(body: WebKey, request: Request) -> dict:
     path = request.app.state.paths.web_search_key_file
-    await run_in_threadpool(write_secret, path, body.key)
+    await run_in_threadpool(write_secret, path, _checked(body.key))
     return await run_in_threadpool(get_settings, request)
 
 

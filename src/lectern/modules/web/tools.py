@@ -216,7 +216,7 @@ def _file_for(got: fetch.Fetched) -> tuple[str, bytes, str | None]:
     """The saved file's name, its bytes, and its text for the model (None for a PDF, which
     the project's own extraction reads)."""
     url = fetch.check_url(got.final_url)
-    host = url.host.removeprefix("www.")
+    host = url.host.removeprefix("www.").replace(":", "-")  # an IPv6 address: no ":" on Windows
     last = _slug(unquote(url.path.rstrip("/").rsplit("/", 1)[-1]).rsplit(".", 1)[0])
     if got.content_type == "application/pdf":
         if not got.data.startswith(b"%PDF-"):

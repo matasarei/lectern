@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -126,9 +127,12 @@ def test_a_new_key_replaces_the_old_and_removing_it_goes_back_to_the_free_engine
 
 
 @pytest.mark.parametrize("key", ["", "short", "two words here", "tab\tinside", "x" * 201])
-def test_a_key_that_cant_be_one_is_refused(app, paths, key):
-    assert _local(app).put("/api/web/key", json={"key": key}).status_code == 422
+def test_a_key_that_cant_be_one_is_refused_and_isnt_sent_back(app, paths, key):
+    answer = _local(app).put("/api/web/key", json={"key": key})
+    assert answer.status_code == 422
     assert not paths.web_search_key_file.exists()
+    if key:  # what was typed, even refused, is someone's key
+        assert json.dumps(key)[1:-1] not in answer.text
 
 
 def test_only_an_admin_sets_or_removes_the_key(app, paths):

@@ -265,10 +265,11 @@ async def _after(ctx: ToolContext, params: AfterParams) -> ToolResult:
         # Asked while the session ran, answered after it finished: what the person allowed
         # for then runs now (seen: the tool refused, and the 4B had to find export_run itself).
         validated = tool.validate(arguments)
+        allowed = replace(ctx, allowed=True)  # on this card: no second one
         if inspect.iscoroutinefunction(tool.run):
-            result = await tool.run(ctx, validated)
+            result = await tool.run(allowed, validated)
         else:
-            result = await run_in_threadpool(tool.run, ctx, validated)
+            result = await run_in_threadpool(tool.run, allowed, validated)
         return replace(
             result, text=f"{chat.title} had already finished, so it ran now: {result.text}"
         )
