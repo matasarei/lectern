@@ -50,11 +50,13 @@ export-odt = "lectern.modules.export_odt:module"
 web = "lectern.modules.web:module"
 pdf-edit = "lectern.modules.pdf_edit:module"
 image = "lectern.modules.image:module"
+translate = "lectern.modules.translate:module"
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "ruff>=0.9",
+    "sacrebleu>=2.6.0",
 ]
 
 [build-system]

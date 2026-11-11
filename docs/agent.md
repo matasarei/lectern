@@ -33,6 +33,7 @@ on.
 | `image.generate` | image | Make a picture from a description and save it to `images/` ([below](#making-pictures)) | always, on a card the person can edit; not with the Image toggle |
 | `web.search`, `wiki.lookup`, `web.fetch` | web | Search the web, look a subject up on Wikipedia, save a page into the project | yes, each time |
 | `pdf.edit`, `pdf.fill` | PDF editing | Change text in a PDF in place, keeping its fonts, sizes and layout; list or fill its form. Each writes `<name> (edited).pdf` | edit: when the page would look different |
+| `translate` | translate | Translate text (the translation is the reply) or a file (into a new file beside it) ([below](#translating)) | no |
 
 A card is answered with **Allow** or **Don't allow**. A card can have fields the person
 changes before allowing it (`AgentTool.confirm_fields`); the tool then runs with what they
@@ -203,6 +204,34 @@ Its **Stop** ends only the picture: `sd-cli` is killed, the room given back, not
 and the turn goes on with the tool's result saying it was stopped
 (`POST …/tools/{call_id}/stop`).
 
+## Translating
+
+`translate` (`modules/translate/tools.py`) takes the two languages as ISO codes and either the
+text or a project file's name. It translates with the model of an added language
+([Languages](models.md#languages)), or else with the chat model, which is told to give the
+translation only. The text goes in parts of up to 3,000 characters, cut between paragraphs, at
+temperature 0, with the progress in the chat.
+
+A text's translation is the turn's answer as it stands (`ToolResult.answer`): it is shown and
+stored as the reply, and the turn ends without another model call, so the chat model neither
+loads again on a small GPU nor rewords it. A file's is saved as `<name>.<target>.md` beside it,
+from the source file, and opened in a tab; a text file is read as it is on disk, anything else
+(a PDF, a DOCX, an OCR Document) as the project indexed it, without block anchors or front
+matter. Up to 40 parts, about 120,000 characters.
+
+When the chat model translated and a language not added has a model on this computer that
+translates both languages better (the target first, English last), the tool's line says so:
+an admin gets a link to Languages, anyone else is told an admin can add it. Not while an added
+language's model is still downloading. The note is a ref on the tool's message, so it stays
+after a reload.
+
+When to call it is in the tool's description, not the system prompt, which is at its budget:
+the 4B called it for 9 of 10 translation requests in each of two runs, and for none of the
+questions that weren't one ([`acceptance/translate.md`](acceptance/translate.md)). The source
+language the model gives is checked: Ukrainian and Russian are told apart by their letters
+(the 4B called Russian `uk`). A translation model that repeats itself until it runs out of
+room hands the text to the chat model, as one that can't start does.
+
 ## Follow-ups
 
 `task.after`, and `ocr.start` with `then_export`, queue a tool call to run when an OCR session
@@ -269,12 +298,14 @@ it; the original is never changed.
 
 ## Checking the chat
 
-`lectern dev agent-check --set calc|tools|long|web|ocr|pdf` runs a prompt set against the chat
-and scores it (`src/lectern/dev/prompts/`): calculations that must go through `code.run`, tool
-choice, a 100-turn chat on a small context that must still quote a block exactly, web search,
-whether asking for a DOCX of a scan gives `ocr.start` its `then_export` (run with
-`--no-allow-cards`: only the call is judged, nothing is read), and PDF edits and forms, judged
-by the text and field values of the PDF the turn saved (its agreement and form are made at run
-time, `dev/pdf_files.py`, the agreement in an installed font). Results:
+`lectern dev agent-check --set calc|tools|long|web|ocr|pdf|translate` runs a prompt set
+against the chat and scores it (`src/lectern/dev/prompts/`): calculations that must go
+through `code.run`, tool choice, a 100-turn chat on a small context that must still quote a
+block exactly, web search, whether asking for a DOCX of a scan gives `ocr.start` its
+`then_export` (run with `--no-allow-cards`: only the call is judged, nothing is read), PDF
+edits and forms, judged by the text and field values of the PDF the turn saved (its
+agreement and form are made at run time, `dev/pdf_files.py`, the agreement in an installed
+font), and whether asking for a translation calls `translate` with the right languages while
+asking what a word means doesn't. Results:
 [`acceptance/m1b.md`](acceptance/m1b.md), [`m1c.md`](acceptance/m1c.md),
 [`m4.md`](acceptance/m4.md), [`pdf-edit.md`](acceptance/pdf-edit.md).

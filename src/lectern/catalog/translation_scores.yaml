@@ -1,0 +1,70 @@
+# How well each model translates each language: chrF (sacrebleu) on FLORES-200 devtest,
+# into and out of English. Written by `lectern dev translate-check`; don't edit by hand.
+measured: '2026-11-08'
+machine: Darwin arm64
+sentences: 50
+scores:
+  hy-mt2-1.8b:
+    cs: {into: 58.5, from: 63.8}
+    de: {into: 60.1, from: 66.1}
+    es: {into: 56.4, from: 60.9}
+    fr: {into: 68.5, from: 67.2}
+    it: {into: 58.1, from: 59.6}
+    ja: {into: 43.1, from: 56.4}
+    pl: {into: 52.7, from: 59.3}
+    ru: {into: 56.4, from: 61.1}
+    uk: {into: 54.3, from: 63.9}
+    zh: {into: 39.6, from: 59.6}
+  hy-mt2-7b:
+    cs: {into: 61.7, from: 67.8}
+    de: {into: 66.2, from: 70.2}
+    es: {into: 57.5, from: 61.8}
+    fr: {into: 71.9, from: 69.8}
+    it: {into: 60.4, from: 64.0}
+    ja: {into: 46.2, from: 59.6}
+    pl: {into: 56.1, from: 62.2}
+    ru: {into: 60.5, from: 64.0}
+    uk: {into: 57.5, from: 66.0}
+    zh: {into: 44.3, from: 60.9}
+  qwen3.5-4b:
+    cs: {into: 53.7, from: 65.9}
+    de: {into: 61.6, from: 69.5}
+    es: {into: 56.5, from: 60.7}
+    fr: {into: 70.7, from: 70.8}
+    it: {into: 59.9, from: 62.2}
+    ja: {into: 40.1, from: 58.2}
+    pl: {into: 51.1, from: 61.6}
+    ru: {into: 58.9, from: 64.1}
+    uk: {into: 54.0, from: 66.1}
+    zh: {into: 39.7, from: 60.4}
+  qwen3.5-9b:
+    cs: {into: 57.9, from: 67.4}
+    de: {into: 63.7, from: 68.8}
+    es: {into: 57.6, from: 62.5}
+    fr: {into: 72.8, from: 70.6}
+    it: {into: 60.7, from: 64.7}
+    ja: {into: 43.1, from: 59.9}
+    pl: {into: 54.4, from: 62.4}
+    ru: {into: 58.9, from: 64.7}
+    uk: {into: 56.3, from: 68.7}
+    zh: {into: 44.0, from: 60.9}
+  salamandrata-2b:
+    cs: {into: 55.7, from: 65.2}
+    de: {into: 62.4, from: 67.7}
+    es: {into: 58.9, from: 61.6}
+    fr: {into: 72.0, from: 67.5}
+    it: {into: 62.6, from: 61.3}
+    pl: {into: 53.9, from: 59.6}
+    ru: {into: 58.5, from: 60.4}
+    uk: {into: 56.0, from: 63.2}
+  salamandrata-7b:
+    cs: {into: 60.2, from: 69.2}
+    de: {into: 66.1, from: 70.2}
+    es: {into: 59.3, from: 64.8}
+    fr: {into: 75.2, from: 72.5}
+    it: {into: 61.9, from: 65.7}
+    ja: {into: 41.8, from: 60.5}
+    pl: {into: 57.2, from: 64.1}
+    ru: {into: 62.8, from: 64.6}
+    uk: {into: 60.2, from: 68.6}
+    zh: {into: 42.7, from: 62.2}

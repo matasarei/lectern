@@ -10,6 +10,10 @@ and the build is downloaded (runtime/wiring.py). A build is never a default itse
 An image model (`format: sd`, the `image` role) is run by stable-diffusion.cpp, not llama.cpp.
 It has three pieces, often from three repositories: the diffusion model, the text encoder and
 the VAE, so each of those files may name its own `repo` and `revision`.
+
+A translation model (the `translate` role) is a language's own: an admin adds a language and picks
+its model on the Languages page (lectern.modules.translate). So it is never a default, whatever its
+licence: nothing picks one unasked.
 """
 
 from __future__ import annotations
@@ -22,11 +26,14 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from lectern.catalog.languages import LANGUAGE_NAMES
 from lectern.hardware.tiers import Tier
 
-Role = Literal["main", "ocr", "ocr.hand", "code", "image"]
+Role = Literal["main", "ocr", "ocr.hand", "code", "image", "translate"]
 OCR_ROLES = frozenset({"ocr", "ocr.hand"})
 IMAGE_ROLE = "image"
+TRANSLATE_ROLE = "translate"
+PROMPT_FIELDS = ("{target}", "{text}")  # and `{source}` where the model's prompt names it
 
 
 class ModelFile(BaseModel):
@@ -112,6 +119,37 @@ class ImageSettings(BaseModel):
         return self
 
 
+class TranslateSettings(BaseModel):
+    """What a translation model translates, and how it is asked. It translates both ways between
+    any two of its `languages`. Each model family was trained on a prompt of its own, so the
+    prompt is the model's: `{source}` (where it names it) and `{target}` become the languages'
+    English names, `{text}` the text."""
+
+    languages: list[str] = Field(min_length=2)
+    prompt: str = Field(min_length=1)
+
+    @field_validator("languages")
+    @classmethod
+    def _known_and_once(cls, languages: list[str]) -> list[str]:
+        unknown = [code for code in languages if code not in LANGUAGE_NAMES]
+        if unknown:
+            raise ValueError(f"languages without a name in catalog/languages.py: {unknown}")
+        if len(languages) != len(set(languages)):
+            raise ValueError("a language listed twice")
+        return languages
+
+    @field_validator("prompt")
+    @classmethod
+    def _has_its_fields(cls, prompt: str) -> str:
+        missing = [field for field in PROMPT_FIELDS if field not in prompt]
+        if missing:
+            raise ValueError(f"the prompt needs {', '.join(missing)}")
+        return prompt
+
+    def covers(self, *codes: str) -> bool:
+        return all(code in self.languages for code in codes)
+
+
 class CatalogEntry(BaseModel):
     id: str
     title: str
@@ -127,6 +165,7 @@ class CatalogEntry(BaseModel):
     files: ModelFiles
     ocr: OcrSettings | None = None  # for models with an OCR role
     image: ImageSettings | None = None  # for an image model
+    translate: TranslateSettings | None = None  # for a translation model
     replaces: str | None = None  # an MLX build: the id of the GGUF model it stands in for
     notes: str | None = None
 
@@ -192,6 +231,23 @@ class CatalogEntry(BaseModel):
         stray = {t for ts in self.defaults.values() for t in ts} - set(self.image.sizes)
         if stray:
             raise ValueError(f"{self.id}: a default for tiers it has no size for")
+        return self
+
+    @model_validator(mode="after")
+    def _a_translation_model_says_what_it_translates(self) -> CatalogEntry:
+        translates = TRANSLATE_ROLE in self.roles
+        if not translates:
+            if self.translate is not None:
+                raise ValueError(f"{self.id}: only a translation model has a `translate:` block")
+            return self
+        if self.roles != [TRANSLATE_ROLE]:
+            raise ValueError(f"{self.id}: a translation model has the translate role only")
+        if self.format != "gguf":
+            raise ValueError(f"{self.id}: a translation model is a GGUF model")
+        if self.translate is None:
+            raise ValueError(f"{self.id}: a translation model needs a `translate:` block")
+        if self.defaults:
+            raise ValueError(f"{self.id}: picked per language, a translation model is no default")
         return self
 
     @model_validator(mode="after")

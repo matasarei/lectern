@@ -587,7 +587,7 @@ app.add_typer(dev_app, name="dev")
 @dev_app.command("agent-check")
 def agent_check(
     prompt_set: str = typer.Option(
-        "calc", "--set", help="Prompt set: calc, tools, long, web, ocr or pdf."
+        "calc", "--set", help="Prompt set: calc, tools, long, web, ocr, pdf or translate."
     ),
     only: Annotated[
         list[str] | None, typer.Option("--only", help="Run only these prompt ids.")
@@ -702,6 +702,80 @@ def ocr_check(
             )
     if all(run.skipped for run in runs):
         raise typer.Exit(1)
+
+
+@dev_app.command("translate-check")
+def translate_check(
+    folder: Annotated[
+        Path,
+        typer.Argument(help="A folder of aligned sentence files: en.txt and <code>.txt each."),
+    ],
+    model: Annotated[
+        list[str] | None, typer.Option("--model", help="Measure only these catalog models.")
+    ] = None,
+    language: Annotated[
+        list[str] | None, typer.Option("--language", help="Measure only these languages.")
+    ] = None,
+    sentences: int = typer.Option(100, min=1, help="Sentences per language and direction."),
+    out: Annotated[
+        Path | None,
+        typer.Option(help="The scores file to update (default: the catalog's, in this checkout)."),
+    ] = None,
+    again: bool = typer.Option(False, help="Measure pairs the scores file already has, too."),
+    allow_server: bool = typer.Option(
+        False, help="Run while `lectern serve` is running (it shares the GPU)."
+    ),
+    port: int = typer.Option(DEFAULT_PORT, help="The port a running `lectern serve` would use."),
+) -> None:
+    """Measure how well models translate each language (chrF into and out of English), for
+    the Languages page to offer a translation model only where it beats the chat model.
+    Updates catalog/translation_scores.yaml, keeping the scores this run didn't measure."""
+    from lectern.dev import translate_check as check
+
+    folder = folder.expanduser()
+    if not folder.is_dir():
+        raise typer.BadParameter(f"{folder} isn't a folder.")
+    running = sorted({*_serving_ports(), *([port] if _listening(port) else [])})
+    if not allow_server and running:
+        ports = ", ".join(str(p) for p in running)
+        typer.echo(
+            f"A Lectern server is running (port {ports}). It shares the GPU, and two sets of "
+            "models may not fit. Stop it, or pass --allow-server.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    try:
+        models = check.candidates(model)
+        found = check.load_sentences(folder, sentences)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+    path = out or check.SCORES_PATH
+    done = set() if again else check.already(path)
+    count = min(len(s) for s in found.values())
+
+    def record(model_id: str, code: str, pair: dict[str, float]) -> None:
+        check.merge(path, {model_id: {code: pair}}, count)  # at once: a stopped run keeps it
+
+    runtime = _local_runtime()
+    asyncio.run(_run_translate_check(runtime, models, found, language, done, record))
+    typer.echo(f"Saved to {path}")
+
+
+async def _run_translate_check(runtime, models, sentences, languages, done, record):  # noqa: ANN001, ANN202
+    from lectern.dev.translate_check import measure
+
+    try:
+        return await measure(
+            runtime,
+            models,
+            sentences,
+            languages,
+            echo=typer.echo,
+            measured=lambda model_id, code: (model_id, code) in done,
+            record=record,
+        )
+    finally:
+        await runtime.stop_all()  # also on Ctrl+C: no llama-server is left running
 
 
 async def _run_ocr_check(runtime, folder: Path, pages, models):  # noqa: ANN001, ANN202

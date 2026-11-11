@@ -12,6 +12,7 @@ from starlette.requests import HTTPConnection
 from lectern.api.sse import hub_stream
 from lectern.api.ws import hub_socket
 from lectern.catalog import catalog
+from lectern.catalog.catalog import TRANSLATE_ROLE
 from lectern.core import settings
 from lectern.core.auth import require_admin
 from lectern.downloads.manager import (
@@ -22,6 +23,7 @@ from lectern.downloads.manager import (
 )
 from lectern.hardware.probe import probe
 from lectern.hardware.tiers import effective_tier
+from lectern.modules.translate.languages import added_languages
 from lectern.projects.tables import iso
 from lectern.runners import mlx
 from lectern.runtime.supervisor import ModelInUse
@@ -54,16 +56,26 @@ def list_models(request: Request) -> dict:
     )
     mlx_on = bool(runtime_settings["mlx_enabled"]) and mlx.mlx_available()
 
+    # The translation models the languages added use: each language's own, and the one it had
+    # while that downloads.
+    translating = {
+        model_id
+        for _code, *ids in added_languages(request.app.state.sessions)
+        for model_id in ids
+        if model_id
+    }
+
     def used_by(m: catalog.CatalogEntry) -> list[str]:
         """The roles that use the model now, cleanup of scanned pages among them. An MLX
         build is used by the roles of the model it stands in for, while MLX is on; never by
         cleanup, which it can't do."""
         stands_for = m.replaces if mlx_on else None
-        return [
+        roles = [
             role
             for role, model_id in uses.items()
             if model_id == m.id or (model_id == stands_for and role != settings.CLEANUP)
         ]
+        return [*roles, TRANSLATE_ROLE] if m.id in translating else roles
 
     return {
         "tier": tier.value,

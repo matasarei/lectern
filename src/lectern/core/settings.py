@@ -33,6 +33,12 @@ MODEL_DEFAULTS: dict[str, Any] = {
 WEB_KEY = "web"
 # Web search (lectern.modules.web): off until an admin switches it on, for the whole install.
 WEB_DEFAULTS: dict[str, Any] = {"enabled": False}
+LANGUAGES_KEY = "languages"
+# The languages an admin added on the Languages page (lectern.modules.translate), by code:
+# {"uk": {"model": "<catalog id>", "previous": "<catalog id>" | None}}. Translating to or from
+# one uses its model; `previous` is the one it had before its last change, used until the new
+# one is on disk.
+LANGUAGE_DEFAULTS: dict[str, Any] = {"added": {}}
 HARDWARE_KEY = "hardware"
 # The tier this computer had at the last start, to notice that its hardware changed. Never
 # used to decide anything else: the tier itself is worked out from the hardware at each start.

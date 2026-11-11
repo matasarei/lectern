@@ -5,7 +5,8 @@ import { followEvents } from "../api/client";
 import type { DownloadState } from "../api/types";
 
 /** Live download progress from /api/models/events, by model id. Also refreshes the
- * model and first-run queries when a download ends, so the rest of the page catches up. */
+ * model, first-run and languages queries when a download ends, so the rest of the page
+ * catches up. */
 export function useDownloadEvents(): Record<string, DownloadState> {
   const queryClient = useQueryClient();
   const [live, setLive] = useState<Record<string, DownloadState>>({});
@@ -20,6 +21,7 @@ export function useDownloadEvents(): Record<string, DownloadState> {
         if (event.status !== "downloading") {
           void queryClient.invalidateQueries({ queryKey: ["models"] });
           void queryClient.invalidateQueries({ queryKey: ["first-run"] });
+          void queryClient.invalidateQueries({ queryKey: ["languages"] });
         }
       },
       controller.signal,
@@ -28,6 +30,7 @@ export function useDownloadEvents(): Record<string, DownloadState> {
         if (!again) return;
         void queryClient.invalidateQueries({ queryKey: ["models"] });
         void queryClient.invalidateQueries({ queryKey: ["first-run"] });
+        void queryClient.invalidateQueries({ queryKey: ["languages"] });
       },
     ).catch(() => {
       // aborted on unmount, or refused; the queries still show the last state

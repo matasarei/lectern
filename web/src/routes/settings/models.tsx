@@ -40,6 +40,7 @@ const ROLE_COLOURS: Record<Role, string> = {
   "ocr.hand": "bg-violet-600",
   code: "bg-slate-500",
   image: "bg-rose-600",
+  translate: "bg-emerald-600",
 };
 
 /** The role a loaded model serves. The runtime also loads a model by name
@@ -105,9 +106,14 @@ export function ModelsPage() {
     <Page>
       <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">{t("modelsPage.title")}</h1>
-        <Link to="/projects" className="link-back">
-          {t("project.back")}
-        </Link>
+        <span className="flex flex-wrap items-center gap-3">
+          <Link to="/settings/languages" className="btn-secondary py-1">
+            {t("languagesPage.title")}
+          </Link>
+          <Link to="/projects" className="link-back">
+            {t("project.back")}
+          </Link>
+        </span>
       </header>
       <Card title={t("modelsPage.machine")}>
         <TierBadge tier={system.data.tier} />

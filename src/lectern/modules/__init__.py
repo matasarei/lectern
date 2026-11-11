@@ -39,6 +39,9 @@ class ToolEnv:
     sandbox: bool  # a container engine is running
     web: bool = False  # an admin switched web search on (the `web` setting)
     web_key: str | None = field(default=None, repr=False)  # an admin's Brave Search API key
+    # The languages an admin added (the `languages` setting), as (code, model, previous):
+    # a tuple, so the frozen dataclass stays hashable.
+    languages: tuple[tuple[str, str, str | None], ...] = ()
 
 
 @runtime_checkable

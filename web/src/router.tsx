@@ -55,6 +55,11 @@ const modelsRoute = createRoute({
   component: lazyRouteComponent(() => import("./routes/settings/models"), "ModelsPage"),
 });
 
+const languagesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/languages",
+  component: lazyRouteComponent(() => import("./routes/settings/languages"), "LanguagesPage"),
+});
 const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/users",
@@ -91,6 +96,7 @@ export const routeTree = rootRoute.addChildren([
   homeRoute,
   firstRunRoute,
   modelsRoute,
+  languagesRoute,
   passwordRoute,
   usersRoute,
   projectsRoute,

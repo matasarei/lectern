@@ -49,6 +49,7 @@ from lectern.modules import (
 from lectern.modules.image.generate import Images
 from lectern.modules.ocr.jobs import OcrJobs
 from lectern.modules.sandbox.container import Sandbox
+from lectern.modules.translate.languages import added_languages
 from lectern.projects.store import ProjectStore
 from lectern.runners import sdcpp
 from lectern.runners.sdcpp import SdCppInstaller
@@ -161,7 +162,8 @@ def create_app(
         enabled = web["enabled"] is True
         # The key is read for each turn too, so a new one is used from the next turn.
         key = read_secret(paths.web_search_key_file) if enabled else None
-        return replace(app.state.tool_env(), web=enabled, web_key=key)
+        languages = added_languages(app.state.sessions)
+        return replace(app.state.tool_env(), web=enabled, web_key=key, languages=languages)
 
     app.state.turns = TurnManager(
         app.state.runtime,

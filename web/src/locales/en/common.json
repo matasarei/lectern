@@ -428,7 +428,10 @@
     "imageToggle": "Image",
     "imageToggleHint": "Make a picture from this message, without asking first",
     "imageShape": "Picture shape",
-    "imagePlaceholder": "Describe the picture…"
+    "imagePlaceholder": "Describe the picture…",
+    "languageHint": "{{language}} gets better translations from a model made for translation.",
+    "languageHintAdd": "Add {{language}} in Languages.",
+    "languageHintAsk": "An admin can add {{language}} in Languages."
   },
   "file": {
     "details": "Details",
@@ -607,5 +610,33 @@
     "paused": "paused",
     "pausedBecause": "paused · {{reason}}",
     "failed": "stopped · {{reason}}"
+  },
+  "languagesPage": {
+    "title": "Languages",
+    "back": "Models & memory",
+    "added": "Languages for translation",
+    "what": "Translating to or from a language below uses a model made for translation. Other languages are translated by the chat model.",
+    "adminOnly": "Only an admin can add or remove languages: adding one downloads a model.",
+    "none": "No languages added yet.",
+    "language": "Language",
+    "add": "Add a language:",
+    "choose": "Choose…",
+    "chatOnly": "{{languages}}: your chat model already translates these as well as any model this computer can run.",
+    "modelFor": "Model for {{language}}",
+    "optionBest": "{{title}} · {{size}} · best results",
+    "optionOpen": "{{title}} · {{size}} · open licence",
+    "bestWhy": "Best results on this computer.",
+    "openWhy": "Open licence: use it for anything, work included.",
+    "restrictedWhy": "Restricted licence ({{licence}}): read it before using the model for work.",
+    "previousTranslates": "{{title}} translates until this one is downloaded.",
+    "downloaded": "Downloaded",
+    "tryAgain": "Try again",
+    "cancel": "Cancel",
+    "keep": "Keep the current one",
+    "removeLanguage": "Remove {{language}}",
+    "score": "Scores {{score}} for translating to and from English (higher is better).",
+    "scoreVsChat": "Scores {{score}} for translating to and from English, where the chat model scores {{chat}} (higher is better).",
+    "untested": "Not tested on this computer yet, so no model is offered for them: {{languages}}.",
+    "notOffered": "No longer offered on this computer: the chat model translates this language as well now, or the model is more than this computer is meant for. It still translates for this language."
   }
 }

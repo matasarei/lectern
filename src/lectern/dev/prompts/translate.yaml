@@ -1,0 +1,65 @@
+# The translation set: when the chat reaches for `translate`, and when it must not. A request to
+# translate, asked in the person's own words and language, must call it (the chat model must not
+# translate by itself: a language added on the Languages page has a model made for it). Asking
+# what a word means, or asking in another language, must not.
+#
+# `tools`: must be called (any order). `forbid`: must not be called. `args`: what the call is
+# given. `text`: must appear in the answer.
+
+files:
+  - notes.md
+
+prompts:
+  # --- asked for a translation: the tool ---
+  - id: uk-to-en
+    prompt: "Переклади англійською: Орендар сплачує орендну плату до 10 числа кожного місяця."
+    tools: [translate]
+    args: {translate: {source: uk, target: en}}
+  - id: en-to-uk
+    prompt: "Translate into Ukrainian: The tenant pays the rent by the 10th of every month."
+    tools: [translate]
+    args: {translate: {source: en, target: uk}}
+  - id: en-to-de
+    prompt: "Please translate this to German: We will send the signed contract on Monday."
+    tools: [translate]
+    args: {translate: {source: en, target: de}}
+  - id: ru-to-en
+    prompt: "Переведи на английский: Встреча переносится на следующую пятницу."
+    tools: [translate]
+    # Not the source: the 4B calls Russian "uk", and the tool tells them apart by their letters.
+    args: {translate: {target: en}}
+  - id: uk-to-pl
+    prompt: "Як буде польською «Дякую за швидку відповідь, документи в додатку»?"
+    tools: [translate]
+    args: {translate: {source: uk, target: pl}}
+  - id: fr-to-en
+    prompt: "What does this say in English? «Le loyer est payable d'avance le premier du mois.»"
+    tools: [translate]
+    args: {translate: {source: fr, target: en}}
+  - id: en-to-ja
+    prompt: "Translate to Japanese: Thank you for your patience."
+    tools: [translate]
+    args: {translate: {source: en, target: ja}}
+  - id: uk-two-lines
+    prompt: "Переклади німецькою цей лист:\n\nШановний пане Шмідт,\nдякуємо за пропозицію. Ми розглянемо її до кінця тижня."
+    tools: [translate]
+    args: {translate: {source: uk, target: de}}
+  - id: file-to-uk
+    prompt: "Translate notes.md into Ukrainian."
+    tools: [translate]
+    args: {translate: {file: notes.md, target: uk}}
+  - id: file-uk-asked
+    prompt: "Переклади файл notes.md українською."
+    tools: [translate]
+    args: {translate: {file: notes.md, source: en, target: uk}}
+
+  # --- not a translation: no tool ---
+  - id: word-meaning
+    prompt: "What does the German word 'Gemütlichkeit' mean?"
+    forbid: [translate]
+  - id: answer-in-uk
+    prompt: "Що таке пеня в договорі оренди? Коротко."
+    forbid: [translate]
+  - id: which-language
+    prompt: "Which language is 'Dziękuję bardzo' in?"
+    forbid: [translate]

@@ -366,3 +366,81 @@ models:
         recommended: {default: 1024, max_pixels: 1572864}
         comfortable: {default: 1024, max_pixels: 2097152}
     notes: "Stronger than FLUX.2 klein on photographs of people and on lettering, at twice the steps."
+
+  # Translation models: a language's own, picked by an admin on the Languages page for each
+  # language added there; never a default (catalog.py). Offered for a language only where
+  # catalog/translation_scores.yaml says it translates it better than this computer's chat model.
+  - id: salamandrata-2b
+    title: SalamandraTA 2B Instruct
+    quant: Q4_K_M
+    roles: [translate]
+    format: gguf
+    repo: BSC-LT/salamandraTA-2B-instruct-GGUF
+    revision: f8dd48ca1de2f65ec494a6d03f1005f8d509a738
+    licence: Apache-2.0
+    permissive: true
+    ctx: {below_minimum: 4096, minimum: 4096, recommended: 4096, comfortable: 4096}
+    files:
+      model:
+        - {path: salamandrata_2b_inst_q4.gguf, size: 1517617504, sha256: 15238732917ba7151857dbce6f8c547a0d1bbd77663508522ae2d6a788cee3a5}
+      mmproj: null
+    translate:
+      languages: [an, ast, bg, ca, cs, cy, da, de, el, en, es, et, eu, fi, fr, ga, gl, hr, hu, it, lt, lv, mt, nb, nl, nn, "no", oc, pl, pt, ro, ru, sk, sl, sr, sv, uk]
+      # The prompt from its model card. It translates only: no chat.
+      prompt: "Translate the following text from {source} into {target}.\n{source}: {text} \n{target}:"
+
+  - id: hy-mt2-1.8b
+    title: Hy-MT2 1.8B
+    quant: Q4_K_M
+    roles: [translate]
+    format: gguf
+    repo: tencent/Hy-MT2-1.8B-GGUF
+    revision: a0c709d9fac510f2c807aa3af52872340dc37a4a
+    licence: Apache-2.0
+    permissive: true
+    ctx: {below_minimum: 4096, minimum: 4096, recommended: 4096, comfortable: 4096}
+    files:
+      model:
+        - {path: Hy-MT2-1.8B-Q4_K_M.gguf, size: 1133080448, sha256: dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699}
+      mmproj: null
+    translate:
+      languages: [ar, bn, bo, cs, de, en, es, fa, fr, gu, he, hi, id, it, ja, kk, km, ko, mn, mr, ms, my, nl, pl, pt, ru, ta, te, th, tl, tr, ug, uk, ur, vi, yue, zh]
+      # The English default prompt from its model card; it names only the target language.
+      prompt: "Translate the following text into {target}. Note that you should only output the translated result without any additional explanation:\n\n{text}"
+
+  - id: hy-mt2-7b
+    title: Hy-MT2 7B
+    quant: Q4_K_M
+    roles: [translate]
+    format: gguf
+    repo: tencent/Hy-MT2-7B-GGUF
+    revision: ab8472660ac61fac25f1af43fac2599d52a8a775
+    licence: Apache-2.0
+    permissive: true
+    ctx: {recommended: 4096, comfortable: 4096}
+    files:
+      model:
+        - {path: Hy-MT2-7B-Q4_K_M.gguf, size: 4624648896, sha256: 9f96256500f3fc1ab4d64336b58f52a949a95ad7516b0c229476eef782f9f77b}
+      mmproj: null
+    translate:
+      languages: [ar, bn, bo, cs, de, en, es, fa, fr, gu, he, hi, id, it, ja, kk, km, ko, mn, mr, ms, my, nl, pl, pt, ru, ta, te, th, tl, tr, ug, uk, ur, vi, yue, zh]
+      prompt: "Translate the following text into {target}. Note that you should only output the translated result without any additional explanation:\n\n{text}"
+
+  - id: salamandrata-7b
+    title: SalamandraTA 7B Instruct
+    quant: Q4_K_M
+    roles: [translate]
+    format: gguf
+    repo: BSC-LT/salamandraTA-7B-instruct-GGUF
+    revision: 3f521849282c8ec23e5b2b1567e21606850de8cf
+    licence: GPL-3.0
+    permissive: false
+    ctx: {recommended: 4096, comfortable: 4096}
+    files:
+      model:
+        - {path: salamandraTA_7B_v3_q4_k_m.gguf, size: 4850334784, sha256: 765c606cce9eab94358e1f334900bfd7e3b85ab96c6eb9bb841316740a855d51}
+      mmproj: null
+    translate:
+      languages: [an, ar, ast, bg, ca, cs, cy, da, de, el, en, es, et, eu, fi, fr, ga, gl, hi, hr, hu, is, it, ja, ko, lt, lv, mt, nb, nl, "no", oc, pl, pt, ro, ru, sk, sl, sr, sv, uk, zh]
+      prompt: "Translate the following text from {source} into {target}.\n{source}: {text} \n{target}:"
+    notes: "GPL-3.0, because its training data is: fine to use, but a model built from it must stay under the GPL."

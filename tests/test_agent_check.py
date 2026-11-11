@@ -288,7 +288,7 @@ def test_a_conversation_run_checks_compaction_and_the_transcript():
     assert outcome.passed
 
 
-@pytest.mark.parametrize("name", ["calc", "tools", "long", "web", "ocr", "pdf"])
+@pytest.mark.parametrize("name", ["calc", "tools", "long", "web", "ocr", "pdf", "translate"])
 def test_every_set_loads_and_every_prompt_checks_something(name):
     from lectern.dev.agent_check import load
 

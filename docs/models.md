@@ -16,12 +16,14 @@ A module asks for a **role**, not a model:
 | `ocr.hand` | reads pages marked handwritten |
 | `code` | writes the scripts the chat runs in the [sandbox](agent.md#the-script-sandbox) |
 | `image` | makes pictures for the chat's [`image.generate`](agent.md#making-pictures) |
+| `translate` | translates to and from the languages added on the Languages page ([below](#languages)) |
 
 Cleaning up OCR pages has a choice of its own, `clean`: the chat's model unless another is
 picked. When the chat runs on MLX, cleanup uses the minimum tier's GGUF chat model, since it
 needs llama-server's JSON-schema output.
 
-An admin picks a model for each role on the **Models & memory** page. Any model the catalog
+An admin picks a model for each role on the **Models & memory** page, except `translate`,
+whose model is picked per language. Any model the catalog
 lists for that role can be chosen; one meant for a bigger tier is marked as more than this
 computer is meant for. A change applies from the next reply.
 
@@ -69,6 +71,38 @@ its own repository and pinned revision: the diffusion model, the text encoder (Q
 the VAE. Its version on disk is a digest of all three revisions, so a newer pin of any piece
 shows as an update. Its `image:` block gives the steps, the guidance and the sampler, and for
 each tier the default square and the most pixels a picture may have.
+
+## Languages
+
+A translation model is a language's own. On **Settings › Languages** (linked from Models &
+memory) an admin adds a language and picks its model; the download starts then. Translating
+to or from an added language uses its model when that model translates the other language
+too, the target's first; anything else is translated by the chat model
+(`modules/translate/languages.py`, `choose`). Members see the page and change nothing.
+
+A language is offered only the models that suit this computer's tier and were measured
+translating it better than the chat model this computer runs, by a point at least: chrF,
+into and out of English, on 50 sentences of FLORES-200 devtest, in
+`src/lectern/catalog/translation_scores.yaml` (written by `lectern dev translate-check`,
+results in [`acceptance/translate.md`](acceptance/translate.md)). A model nobody measured isn't
+offered, nor is anything against a chat model nobody measured. The page lists the languages
+where none beats the chat model, and the ones not measured yet. On a 4 GB card the chat model
+is about as good as the small translation models: two languages are offered there, Czech and
+Spanish. On an 8 GB card SalamandraTA 7B (restricted licence) beats the 9B in nine of the ten
+measured languages, all but Chinese; with an open licence, Hy-MT2 7B beats it in Czech, German
+and Japanese. Each option is marked as the best results, the best with an open licence, or with a
+restricted licence, and its help says what that means and how it scored. A new language starts
+on the open-licence option, so a restricted one is only ever taken with a click, and its
+licence is accepted before the download, as on Models & memory.
+
+A translation model is never a default, whatever its licence (the catalog refuses one). Its
+`translate:` block lists its languages and the prompt it was trained on (`{source}`,
+`{target}`, `{text}`). The catalog has SalamandraTA 2B (Apache-2.0, 35 European languages),
+Hy-MT2 1.8B and 7B (Apache-2.0, 33 languages from Arabic to Ukrainian), and SalamandraTA 7B v3
+(GPL-3.0, 40 languages). The 1.8B and the 2B suit every tier, the 7B models the recommended and
+comfortable ones. Changing a language's model keeps the one it had translating until the new
+one is on disk; removing a language leaves its model on disk, for Models & memory to remove.
+Translation models run on llama-server, MLX or not.
 
 ## Downloads
 

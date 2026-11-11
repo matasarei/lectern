@@ -1,5 +1,5 @@
 export type Tier = "below_minimum" | "minimum" | "recommended" | "comfortable";
-export type Role = "main" | "ocr" | "ocr.hand" | "code" | "image";
+export type Role = "main" | "ocr" | "ocr.hand" | "code" | "image" | "translate";
 /** What a model can be chosen for in Models & memory: a role, or cleanup of scanned pages
  * ("clean"), which a chat model does and which is leased as the chat role's. */
 export type ChoiceRole = Role | "clean";
@@ -202,6 +202,49 @@ export interface RuntimeSettings {
 
 export type CardKind = "allow" | "retry";
 
+// --- languages (the translate module) ---------------------------------------------------
+
+/** A model a language can be given on this computer (GET /api/languages). */
+export interface LanguageOption {
+  id: string;
+  title: string;
+  size: number;
+  licence: string;
+  /** A restricted licence: it has to be read and accepted before the download. */
+  licence_notice: boolean;
+  /** What the licence limits, in a sentence; null for an open licence. */
+  notes: string | null;
+  /** chrF into and out of English, measured (`lectern dev translate-check`): higher is better.
+   * Null: not measured for this language (a model the language has, no longer offered). */
+  score: number | null;
+  /** The best results of the options. */
+  best: boolean;
+  /** The best of the options with an open licence. */
+  open_licence: boolean;
+  /** False: the language's own model, no longer offered on this computer (the chat model, the
+   * tier or the scores changed). It is still the language's, and can be downloaded again. */
+  offered: boolean;
+  download: DownloadState;
+}
+
+export interface Language {
+  /** ISO 639-1 (or 639-3 where there's no two-letter code); the page names it. */
+  code: string;
+  /** Null: not added. `previous` translates until `model` is on disk. */
+  added: { model: string; previous: string | null } | null;
+  /** Best first. None: the chat model translates it as well as anything this computer runs. */
+  options: LanguageOption[];
+  /** How well the chat model translates it, which every option beats; null: not measured. */
+  chat_score: number | null;
+}
+
+export interface LanguagesResponse {
+  tier: Tier;
+  /** The chat model the options were measured against. */
+  chat_model: string | null;
+  languages: Language[];
+}
+
 export interface WebSettings {
   values: { enabled: boolean };
   /** Whether an admin set a Brave Search API key. The key itself is never sent. */
@@ -302,7 +345,7 @@ export interface ChatMessage {
   tool_call_id: string | null;
   tool_name: string | null;
   attachments: { id: number; name: string | null }[];
-  refs: ToolRef[]; // what a tool result pointed at (an OCR session ocr.start began)
+  refs: MessageRef[]; // what a tool result pointed at (an OCR session ocr.start began)
   created_at: string;
 }
 
@@ -327,6 +370,18 @@ export interface ToolRef {
   ref: string | null;
   hold?: boolean; // on the session of a message saying its exports wait for the Document
 }
+
+/** On a `translate` result the chat model translated: a language worth adding, which has a
+ * model made for translation on this computer. */
+export interface LanguageRef {
+  kind: "language";
+  code: string;
+}
+
+/** What a stored message or a tool result points at. */
+export type MessageRef = ToolRef | LanguageRef;
+
+export const isToolRef = (ref: MessageRef): ref is ToolRef => ref.kind !== "language";
 
 /** What the chat's event stream sends. Every event also has `seq`. */
 /** /api/projects/{id}/events: a tab one of the project's chats opened. Live only. */
@@ -361,7 +416,7 @@ export type ChatEvent = { seq: number } & (
       call_id: string;
       text: string;
       error: boolean;
-      refs: ToolRef[];
+      refs: MessageRef[];
       action: { type: "open_tab"; tab: Tab; focus?: boolean } | null; // focus false: added, not shown
     }
   | { type: "done"; ttft: number | null; tps: number | null; tokens: number }

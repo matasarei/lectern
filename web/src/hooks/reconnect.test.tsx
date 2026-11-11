@@ -56,14 +56,14 @@ describe("Catching up when a stream opens again", () => {
     expect(after).toEqual([["runtime"]]);
   });
 
-  it("reads the models and first run again: a download may have ended meanwhile", async () => {
+  it("reads the models, first run and languages again: a download may have ended meanwhile", async () => {
     function Downloads() {
       useDownloadEvents();
       return null;
     }
     const { before, after } = await caughtUp("/api/models/events", Downloads);
     expect(before).toEqual([]);
-    expect(after).toEqual([["models"], ["first-run"]]);
+    expect(after).toEqual([["models"], ["first-run"], ["languages"]]);
   });
 
   it("reads the OCR session again: pages may have been read, or the job paused", async () => {
