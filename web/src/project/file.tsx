@@ -13,6 +13,8 @@ import { startOcr } from "./ocr-api";
 export const TEXT_PREVIEW_LIMIT = 2 * 1024 * 1024;
 /** A PDF is fetched whole into the page to be shown, so only up to this size. */
 export const PDF_PREVIEW_LIMIT = 100 * 1024 * 1024;
+/** An HTML file's one-use link lives 60 s on the server (`VIEW_TICKET_SECONDS`): renewed before. */
+const VIEW_LINK_RENEW_MS = 45_000;
 /** What an OCR session can read (the server decides by the name's extension too). */
 const PAGE_SOURCES = [".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"];
 
@@ -103,11 +105,21 @@ function Preview({ base, artifact, keepLines }: { base: string; artifact: Artifa
   }
 }
 
+/** A text file's bytes as the chat reads them (`lectern.projects.text._read_text`): UTF-8,
+ * its byte-order mark dropped, else windows-1251, the usual encoding of older Ukrainian files. */
+function decodeText(bytes: ArrayBuffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1251").decode(bytes);
+  }
+}
+
 function TextPreview({ url, markdown, keepLines }: { url: string; markdown: boolean; keepLines: boolean }) {
   const { t } = useTranslation();
   const text = useQuery({
     queryKey: ["file-text", url],
-    queryFn: async () => (await apiRaw(url)).text(),
+    queryFn: async () => decodeText(await (await apiRaw(url)).arrayBuffer()),
   });
   if (text.isError) {
     return <ErrorNote message={text.error instanceof ApiError ? text.error.detail : t("common.loadFailed")} />;
@@ -127,37 +139,50 @@ function TextPreview({ url, markdown, keepLines }: { url: string; markdown: bool
   );
 }
 
-/** Opens an HTML file as a page in a new tab, where the server serves it sandboxed: its styles
- * apply, its scripts don't run, and it can't reach Lectern (`lectern.api.view`). The tab is
- * opened in the click itself, before the one-use link is asked for: a browser blocks a tab
- * opened after waiting on a request. */
+/** Opens an HTML file as a page in a new tab, where the server serves it sandboxed, with the
+ * files it links to inline (`lectern.api.view`). A real link with rel="noopener": a tab opened
+ * that way starts with empty session storage, where `window.open` would copy this tab's, token
+ * and all. The one-use link is asked for before the click, renewed before it expires, when the
+ * window comes back into focus, and as soon as it has been used; until the new one has come,
+ * clicking it again does nothing (the used one would open the "link used" page). */
 function OpenHtml({ base }: { base: string }) {
   const { t } = useTranslation();
-  const [error, setError] = useState<string | null>(null);
+  const [used, setUsed] = useState<string | null>(null);
+  const link = useQuery({
+    queryKey: ["file-view", base],
+    queryFn: () => apiPost<{ url: string }>(`${base}/view`),
+    gcTime: 0, // a used link is no good to the next one to show this file
+    refetchInterval: VIEW_LINK_RENEW_MS,
+    refetchOnWindowFocus: "always",
+  });
+  // A failed renewal keeps the link it had (unused, it still opens) and says why beside it.
+  const error = link.isError && (
+    <ErrorNote message={link.error instanceof ApiError ? link.error.detail : t("common.loadFailed")} />
+  );
+  if (link.data === undefined) return error || <p className="text-muted">{t("common.loading")}</p>;
+  const url = link.data.url;
+  const spent = url === used;
+  // Any way of opening it may spend it: a click, a middle-click, its menu's "open in new tab".
+  const opened = () => {
+    setUsed(url);
+    void link.refetch();
+  };
+  const open = (event: React.MouseEvent) => (spent ? event.preventDefault() : opened());
   return (
     <div className="grid gap-1">
-      <button
-        className="btn-secondary w-fit"
-        onClick={async () => {
-          const tab = window.open("", "_blank");
-          if (!tab) {
-            setError(t("file.tabBlocked"));
-            return;
-          }
-          tab.opener = null; // the page it shows has no business with this one
-          try {
-            const { url } = await apiPost<{ url: string }>(`${base}/view`);
-            tab.location.assign(new URL(url, window.location.origin).href);
-            setError(null);
-          } catch (e) {
-            tab.close();
-            setError(e instanceof ApiError ? e.detail : t("common.loadFailed"));
-          }
-        }}
+      <a
+        className="btn-secondary w-fit aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-disabled={spent || undefined}
+        onClick={open}
+        onAuxClick={open}
+        onContextMenu={opened}
       >
         {t("file.openInTab")}
-      </button>
-      {error && <ErrorNote message={error} />}
+      </a>
+      {error}
     </div>
   );
 }

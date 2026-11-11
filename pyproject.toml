@@ -25,6 +25,7 @@ dependencies = [
     "argon2-cffi>=25.1",
     "ddgs>=9.16,<9.17",
     "primp>=2.0,<3",
+    "fonttools>=4.60,<5",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +48,7 @@ export-md = "lectern.modules.export_md:module"
 export-docx = "lectern.modules.export_docx:module"
 export-odt = "lectern.modules.export_odt:module"
 web = "lectern.modules.web:module"
+pdf-edit = "lectern.modules.pdf_edit:module"
 image = "lectern.modules.image:module"
 translate = "lectern.modules.translate:module"
 

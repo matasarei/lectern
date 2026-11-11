@@ -19,11 +19,17 @@ const ITEMS: ProjectItems = {
 };
 
 let requested: string[] = [];
-let body = "# Reply\n<script>alert(1)</script>"; // what a file's content answers
+let body: BodyInit = "# Reply\n<script>alert(1)</script>"; // what a file's content answers
+let viewFails = false; // an HTML file's link can't be had (a failed renewal)
+let viewLinks = 0; // links handed out: each new one is different, as the server's are
+let viewHeld: Promise<void> | null = null; // while set, a link isn't answered until it settles
 
 beforeEach(() => {
   requested = [];
   body = "# Reply\n<script>alert(1)</script>";
+  viewFails = false;
+  viewLinks = 0;
+  viewHeld = null;
   window.sessionStorage.setItem("lectern.token", "t");
   vi.stubGlobal(
     "fetch",
@@ -37,7 +43,14 @@ beforeEach(() => {
                             { status: 400 });  // prettier-ignore
       }
       if (url.endsWith("/10/view")) return new Response(JSON.stringify({ detail: "No such file." }), { status: 404 });
-      if (url.endsWith("/view")) return new Response(JSON.stringify({ url: "/view/tkt" }));
+      if (url.endsWith("/view") && viewFails) {
+        return new Response(JSON.stringify({ detail: "Lectern stopped." }), { status: 503 });
+      }
+      if (url.endsWith("/view")) {
+        await viewHeld;
+        viewLinks += 1;
+        return new Response(JSON.stringify({ url: viewLinks === 1 ? "/view/tkt" : `/view/tkt${viewLinks}` }));
+      }
       if (url.endsWith("/9/markdown")) return new Response(JSON.stringify({ markdown: "# Long", cut: true }));
       if (url.endsWith("/markdown")) {
         return new Response(JSON.stringify({ markdown: "# Lease\n\n| a | b |\n|---|---|\n| 1 | 2 |", cut: false }));
@@ -80,6 +93,18 @@ describe("File tab", () => {
     body = '{"rent": 1200}';
     renderFile(artifact({ name: "terms.json", mime: "application/json", preview: "text" }));
     expect((await screen.findByText('{"rent": 1200}')).tagName).toBe("PRE");
+  });
+
+  it("reads a text file that isn't UTF-8 as windows-1251, as the chat does", async () => {
+    body = new Uint8Array([196, 238, 227, 238, 226, 179, 240, 32, 238, 240, 229, 237, 228, 232]);
+    renderFile(artifact({ name: "lease.txt", mime: "text/plain", preview: "text" }));
+    expect((await screen.findByText("Договір оренди")).tagName).toBe("PRE");
+  });
+
+  it("reads UTF-8 as UTF-8, without its byte-order mark", async () => {
+    body = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("Договір оренди")]);
+    renderFile(artifact({ name: "lease.txt", mime: "text/plain", preview: "text" }));
+    expect((await screen.findByText(/Договір оренди/)).textContent).toBe("Договір оренди");
   });
 
   it("shows an HTML file's source as text, never as HTML", async () => {
@@ -168,35 +193,78 @@ describe("File tab", () => {
     expect(requested).toEqual([]);
   });
 
-  it("opens an HTML file as a page in a new tab, opened before the link is asked for", async () => {
-    const order: string[] = [];
-    const tab = { opener: {} as unknown, location: { assign: vi.fn((u: string) => order.push(`assign ${u}`)) }, close: vi.fn() };
-    vi.stubGlobal("open", vi.fn(() => (order.push("open"), tab)));
+  it("opens an HTML file from a link of its own, in a tab that starts with nothing of this one's", async () => {
+    vi.stubGlobal("open", vi.fn());
     renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
-    await waitFor(() => expect(tab.location.assign).toHaveBeenCalled());
-    expect(order).toEqual(["open", `assign ${window.location.origin}/view/tkt`]);
-    expect(tab.opener).toBeNull();
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    expect(link.getAttribute("href")).toBe("/view/tkt");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(requested).toContain("/api/projects/1/artifacts/4/view");
-    expect(tab.close).not.toHaveBeenCalled();
+    expect(window.open).not.toHaveBeenCalled();
   });
 
-  it("closes the new tab and says why when the link can't be had", async () => {
-    const tab = { opener: null, location: { assign: vi.fn() }, close: vi.fn() };
-    vi.stubGlobal("open", vi.fn(() => tab));
+  it("asks for a new link once one has been used", async () => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    const asked = () => requested.filter((u) => u.endsWith("/4/view")).length;
+    const before = asked();
+    link.addEventListener("click", (e) => e.preventDefault()); // jsdom doesn't open tabs
+    fireEvent.click(link);
+    await waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
+  it("doesn't open a used link again before the new one has come", async () => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    const prevented: boolean[] = [];
+    const record = (e: Event) => {
+      prevented.push(e.defaultPrevented); // after the link's own handler has run
+      e.preventDefault(); // jsdom doesn't open tabs
+    };
+    window.addEventListener("click", record);
+    let release = () => {};
+    viewHeld = new Promise((done) => (release = done));
+
+    fireEvent.click(link);
+    fireEvent.click(link); // the renewal hasn't come: this one would open the used link
+    expect(prevented).toEqual([false, true]);
+    expect(link.getAttribute("aria-disabled")).toBe("true");
+
+    release();
+    await waitFor(() => expect(link.getAttribute("href")).toBe("/view/tkt2"));
+    expect(link.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(link);
+    expect(prevented).toEqual([false, true, false]);
+    window.removeEventListener("click", record);
+  });
+
+  it.each([
+    ["a middle-click", (a: HTMLElement) => fireEvent(a, new MouseEvent("auxclick", { bubbles: true, button: 1 }))],
+    ["its menu (open in a new tab)", (a: HTMLElement) => fireEvent.contextMenu(a)],
+  ])("asks for a new link once one may have been used by %s", async (_, use) => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    const asked = () => requested.filter((u) => u.endsWith("/4/view")).length;
+    const before = asked();
+    use(link);
+    await waitFor(() => expect(asked()).toBe(before + 1));
+  });
+
+  it("keeps the link it has when renewing it fails, and says why", async () => {
+    renderFile(artifact({ id: 4, name: "page.html", mime: "text/html", preview: "html" }));
+    const link = await screen.findByRole("link", { name: "Open as a page in a new tab" });
+    viewFails = true;
+    link.addEventListener("click", (e) => e.preventDefault()); // jsdom doesn't open tabs
+    fireEvent.click(link);
+    expect(await screen.findByText("Lectern stopped.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open as a page in a new tab" })).toBeTruthy();
+  });
+
+  it("says why, and offers no link, when one can't be had", async () => {
     renderFile(artifact({ id: 10, name: "page.html", mime: "text/html", preview: "html" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
     expect(await screen.findByText("No such file.")).toBeTruthy();
-    expect(tab.close).toHaveBeenCalled();
-    expect(tab.location.assign).not.toHaveBeenCalled();
-  });
-
-  it("says so when the browser blocks the new tab", async () => {
-    vi.stubGlobal("open", vi.fn(() => null));
-    renderFile(artifact({ name: "page.html", mime: "text/html", preview: "html" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open as a page in a new tab" }));
-    expect(await screen.findByText(/didn't open a new tab/)).toBeTruthy();
-    expect(requested).not.toContain("/api/projects/1/artifacts/4/view");
+    expect(screen.queryByRole("link", { name: "Open as a page in a new tab" })).toBeNull();
   });
 
   it("shows a DOCX or ODT as the Markdown the server made of it", async () => {

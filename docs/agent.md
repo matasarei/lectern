@@ -32,6 +32,7 @@ on.
 | `ocr.start`, `ocr.note` | OCR | Start an OCR session, optionally exporting when it's done; set a page note | start: yes |
 | `image.generate` | image | Make a picture from a description and save it to `images/` ([below](#making-pictures)) | always, on a card the person can edit; not with the Image toggle |
 | `web.search`, `wiki.lookup`, `web.fetch` | web | Search the web, look a subject up on Wikipedia, save a page into the project | yes, each time |
+| `pdf.edit`, `pdf.fill` | PDF editing | Change text in a PDF in place, keeping its fonts, sizes and layout; list or fill its form. Each writes `<name> (edited).pdf` | edit: when the page would look different |
 | `translate` | translate | Translate text (the translation is the reply) or a file (into a new file beside it) ([below](#translating)) | no |
 
 A card is answered with **Allow** or **Don't allow**. A card can have fields the person
@@ -70,6 +71,25 @@ A reply written without a tool is held back, not streamed, while the sandbox is 
 it contains a number, the model is asked once whether it stated an exact result; if it then
 calls a tool, the held draft is dropped and the turn goes on from there. Measurements:
 [`acceptance/m1b.md`](acceptance/m1b.md).
+
+The same goes for what a tool writes into the person's files. `artifact.write`, `pdf.edit` and
+`pdf.fill` declare what a call writes (`AgentTool.writes`). Before such a call runs, while the
+sandbox is offered, its text is read for numbers that no message of the person's, no tool
+result, no pin, no summary and no file attached to the chat gave, nor the text it writes over
+(`pdf.edit`'s `find`); a numbered list's markers don't count. If there are any, the model is
+asked once a turn whether one is an exact result, quoting the call's arguments. If it then
+calls a tool, the draft call is dropped, never run or stored, and the model computes first; a
+total that came out of `code_run` is given, so its next call goes through. Otherwise the call
+runs as it was.
+
+The dropped call is held for the rest of the turn, never stored. Until the model calls that
+tool again, with any arguments, every model call carries a note quoting the held call whole
+(each of `pdf.edit`'s `find`s beside its `replace`), so the edits that needed no computing go
+back in beside the computed number. The note leaves out the number worked out in the head, a
+placeholder in its place: quoted, it was copied into the PDF instead of the script's. While a call is held, replies are held back too; one that
+would end the turn without the call is asked about once. If the answer calls a tool, the
+reply is dropped and the turn goes on; if not, the reply stands. Measurements:
+[`acceptance/pdf-edit.md`](acceptance/pdf-edit.md).
 
 ## The script sandbox
 
@@ -235,13 +255,57 @@ names the words or address and the host they go to (`modules/web/`):
 Results come back marked as data from outside, with their addresses. A queued follow-up can't
 use these tools.
 
+## PDF editing
+
+`pdf.edit` changes text in a PDF that has a text layer and keeps its look (`modules/pdf_edit/`;
+why it's built on PDFium: [the engine trial](acceptance/pdf-edit.md)). The model gives edits,
+each a `find` copied from the PDF's text and its `replace`, with the page and whether to
+change every place. Its description asks it to read the PDF first and to take a new total
+from `code_run` (the system prompt has no room for a line of its own), and a total nobody gave
+is asked about before the call runs ("Exact answers", above):
+
+- **Finding.** `find` is matched in PDFium's text page, where each character knows the text
+  object that draws it, so a word split into pieces (kerning, one object per glyph) is found
+  whole. Exactly as given, else on another page if it's only there. A `find` a letter or two
+  off is not changed but answered with the exact text, so the model writes `replace` from it
+  (applied, the model's slip went into the document: "у місто Львів"). In several places it
+  needs `all`; not found, the error quotes the nearest lines. A near match and the nearest
+  lines are looked for on the page given, or on the first 30 pages: each compares every line
+  while PDFium is locked for the whole process. Text across a line break, a
+  `replace` with a line break (a "clause" the 4B tried to add), `find` equal to `replace`,
+  rotated text and scans are refused.
+- **Drawing.** The objects under the edit are replaced by one, at the first one's position, in
+  its font, size, colour and render mode. A letter the PDF's subset font doesn't have (or has
+  no width for) comes from the installed font of the same PostScript name, cut down to the
+  letters needed with fontTools and named with its own subset tag; an installed font whose
+  licence forbids embedding, a `.otf` with CFF outlines, or no installed copy at all refuses
+  the edit. The rest of the line moves by the change in width, up to a gap of 1.5 em (a
+  column, a table cell).
+- **Asking.** Text that would run into the next column or past the page's text margin, or an
+  edit across two fonts drawn in one, is put to the person on a card first. Anything else is
+  saved at once.
+- **All or nothing.** If one edit can't be made, none is, and the error names each that
+  failed and why.
+
+`pdf.fill` with no fields lists the form's fields (name, kind, value, options); with
+`{name: value}` it fills them through PDFium's form environment, which redraws each field's
+appearance, so the value shows in any viewer. Text, checkbox (yes or no), radio and list
+fields; buttons, signatures and read-only fields are refused. Cyrillic in a field is drawn by
+PDFium with a font it names but doesn't embed, so a viewer substitutes its own.
+
+Both write `<name> (edited).pdf` at the project's top level, made from the original, and open
+it; the original is never changed.
+
 ## Checking the chat
 
-`lectern dev agent-check --set calc|tools|long|web|ocr|translate` runs a prompt set against
-the chat and scores it (`src/lectern/dev/prompts/`): calculations that must go through
-`code.run`, tool choice, a 100-turn chat on a small context that must still quote a block
-exactly, web search, whether asking for a DOCX of a scan gives `ocr.start` its `then_export`
-(run with `--no-allow-cards`: only the call is judged, nothing is read), and whether asking for
-a translation calls `translate` with the right languages while asking what a word means doesn't. Results:
+`lectern dev agent-check --set calc|tools|long|web|ocr|pdf|translate` runs a prompt set
+against the chat and scores it (`src/lectern/dev/prompts/`): calculations that must go
+through `code.run`, tool choice, a 100-turn chat on a small context that must still quote a
+block exactly, web search, whether asking for a DOCX of a scan gives `ocr.start` its
+`then_export` (run with `--no-allow-cards`: only the call is judged, nothing is read), PDF
+edits and forms, judged by the text and field values of the PDF the turn saved (its
+agreement and form are made at run time, `dev/pdf_files.py`, the agreement in an installed
+font), and whether asking for a translation calls `translate` with the right languages while
+asking what a word means doesn't. Results:
 [`acceptance/m1b.md`](acceptance/m1b.md), [`m1c.md`](acceptance/m1c.md),
-[`m4.md`](acceptance/m4.md).
+[`m4.md`](acceptance/m4.md), [`pdf-edit.md`](acceptance/pdf-edit.md).

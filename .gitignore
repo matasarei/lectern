@@ -40,3 +40,4 @@ src/lectern/web_dist/
 
 # gku skills: the per-machine repo profile (shell commands the skills run; never shared)
 .claude/repo-profile.json
+.gemini/repo-profile.json

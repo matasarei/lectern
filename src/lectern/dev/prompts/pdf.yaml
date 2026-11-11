@@ -1,0 +1,81 @@
+# The PDF set: requests to change a PDF's text or fill its form (docs/agent.md, "PDF
+# editing"). The thirteen agreement requests are the ones measured on the 4B when the
+# feature was planned: 10 of 13 right as edits from a schema, before the tools existed.
+#
+# `pdf_text`: text the PDF saved in that turn must have ("a|b" passes on either).
+# `pdf_form`: values the saved form must hold. `pdf_none`: the turn must save no PDF.
+# agreement.pdf and form.pdf are made at run time (lectern.dev.pdf_files). Each prompt runs
+# in a fresh chat; the edited copies pile up beside them, the originals never change.
+
+files:
+  - agreement.pdf
+  - form.pdf
+
+prompts:
+  - id: date
+    prompt: "Change the date of the agreement in agreement.pdf to 5 April 2026."
+    tools: [pdf.edit]
+    pdf_text: ["made on 5 April 2026 between"]
+  - id: client
+    prompt: "The client in agreement.pdf is now Petro Bondarenko. Change it in the PDF."
+    tools: [pdf.edit]
+    pdf_text: ["and Petro Bondarenko (the Client)"]
+  - id: price-and-total
+    prompt: >-
+      In agreement.pdf, raise the diploma price to EUR 1,330.00 and update the total fee
+      to match.
+    tools: [pdf.edit]
+    pdf_text: ["EUR 1,330.00", "fee is EUR 1,480.00"]
+  - id: city-uk
+    prompt: "Замініть місто в agreement.pdf на Львів."
+    tools: [pdf.edit]
+    pdf_text: ["у місті Львів."]
+  - id: phone
+    prompt: "Change the phone number in agreement.pdf to +380 67 765 4321."
+    tools: [pdf.edit]
+    pdf_text: ["phone +380 67 765 4321."]
+  - id: deadline
+    prompt: "In agreement.pdf the deadline should be 10 working days."
+    tools: [pdf.edit]
+    pdf_text: ["within 10 working days of"]
+  - id: contractor
+    prompt: "Rename the contractor in agreement.pdf to Lingua Pro LLC."
+    tools: [pdf.edit]
+    pdf_text: ["between Lingua Pro LLC (the"]
+  - id: title-red
+    prompt: "Make the title of agreement.pdf red."
+    forbid: [artifact.write, artifact.trash]
+    pdf_none: true
+  - id: new-clause
+    prompt: "Add a clause about confidentiality to agreement.pdf."
+    forbid: [artifact.trash]
+    pdf_none: true
+  - id: number
+    prompt: "Change the agreement number in agreement.pdf to 52/2026."
+    tools: [pdf.edit]
+    pdf_text: ["Agreement No. 52/2026"]
+  - id: instalments
+    prompt: "Payment under agreement.pdf is in three equal instalments instead of two."
+    tools: [pdf.edit]
+    pdf_text: ["payable in three equal instalments"]
+  - id: signatory-uk
+    prompt: "Підписант у agreement.pdf тепер Іван Петренко."
+    tools: [pdf.edit]
+    pdf_text: ["Іван Петренко|Ivan Petrenko"]
+  - id: birth-certificate
+    prompt: >-
+      In agreement.pdf the birth certificate costs EUR 225.00 now; fix the total fee too.
+    tools: [pdf.edit]
+    pdf_text: ["EUR 225.00", "fee is EUR 1,325.00"]
+
+  # --- forms ---
+  - id: fill-form
+    prompt: >-
+      Fill in form.pdf: my name is Olena Shevchenko, the date is 08.11.2026, and tick that
+      I agree.
+    tools: [pdf.fill]
+    pdf_form: {name: Olena Shevchenko, date: "08.11.2026", agree: "yes"}
+  - id: fill-choice
+    prompt: "In form.pdf choose size M and the city Lviv."
+    tools: [pdf.fill]
+    pdf_form: {size: M, city: Lviv}
