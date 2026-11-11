@@ -196,15 +196,15 @@ def _removed(engine: FakeEngine) -> list[str]:
 
 
 def test_a_build_removes_the_older_sandbox_images(tmp_path):
-    engine = FakeEngine(tags=b"1\n2\n<none>\n0\n")
+    engine = FakeEngine(tags=b"2\n3\n<none>\n1\n")
     asyncio.run(sandbox_with(engine).build())
     listing = next(call for call in engine.calls if call[1] == "images")
     assert listing[1:] == ("images", "--format", "{{.Tag}}", "lectern-sandbox")
-    assert _removed(engine) == ["lectern-sandbox:1", "lectern-sandbox:0"]  # never :2 itself
+    assert _removed(engine) == ["lectern-sandbox:2", "lectern-sandbox:1"]  # never :3 itself
 
 
 def test_with_no_older_image_nothing_is_removed(tmp_path):
-    engine = FakeEngine(tags=b"2\n")
+    engine = FakeEngine(tags=b"3\n")
     asyncio.run(sandbox_with(engine).build())
     assert _removed(engine) == []
 

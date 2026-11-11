@@ -69,7 +69,7 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/modules/ocr/doubts.py` | 69 | Flags low-logprob OCR words (`< -3.0`) as unsure | `unsure_words`, `mark_unsure`, `ocr_doubts` |
 | `src/lectern/modules/ocr/review.py` | 104 | Matches and applies stored user decisions (`ocr_decisions`) to assembled blocks | `Decision`, `match_decisions`, `apply_decisions` |
 | `src/lectern/modules/ocr/text.py` | 75 | Detects and trims trailing repetition loops in OCR readings | `normalise`, `looped`, `cut_trailing_loop` |
-| `src/lectern/modules/sandbox/container.py` | 261 | Locked-down Podman/Docker execution (`lectern-sandbox:2`) | `Sandbox`, `RunResult`, `SandboxError`, `LOCKDOWN` |
+| `src/lectern/modules/sandbox/container.py` | 261 | Locked-down Podman/Docker execution (`lectern-sandbox:3`) | `Sandbox`, `RunResult`, `SandboxError`, `LOCKDOWN` |
 | `src/lectern/modules/sandbox/tools.py` | 713 | `code.write` (coding model + test loop) and `code.run` tools | `run_script`, `stored_run`, `coder_request`, `ensure_coder` |
 | `src/lectern/modules/pdf_edit/engine.py` | 709 | In-place PDF text replacement preserving embedded/system fonts (pypdfium2) | `apply_edits`, `Edit`, `Change`, `Result`, `EditFailed` |
 | `src/lectern/modules/pdf_edit/forms.py` | 288 | Reads and fills PDF AcroForm text fields and checkboxes | `form_fields`, `fill_form`, `Field`, `Filled` |
