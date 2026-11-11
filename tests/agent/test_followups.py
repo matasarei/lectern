@@ -772,3 +772,21 @@ def test_a_save_allowed_after_its_session_finished_runs_without_a_second_card(fo
 
     assert "lease-notes.md" in result.text
     assert (project.root / "lease-notes.md").is_file()
+
+
+def test_a_queued_pin_runs_without_a_second_card(follow, cards):
+    """chat.pin asks too when the text isn't the person's own words; allowed on task.after's
+    card, it doesn't ask again."""
+    manager, project, db, ocr_id, _ = follow([text_reply("Pinned.")])
+    _say(db, "Read the scan, please.")
+    followups.add(db, 1, ocr_session_id=ocr_id, tool="chat.pin",
+                  arguments={"text": "Rent is due on the 5th.", "kind": "fact"},
+                  label="after OCR · lease-scan.pdf: pin the due date")  # fmt: skip
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", DONE)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert cards == []
+    assert [p.text for p in state.load(db, 1).pinned] == ["Rent is due on the 5th."]
