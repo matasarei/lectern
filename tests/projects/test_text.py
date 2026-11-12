@@ -80,9 +80,38 @@ def test_odt_keeps_headings_lists_and_tables(tmp_path):
     assert [c.heading for c in got.chunks] == ["Договір оренди"]
     body = got.chunks[0].body
     assert "Орендар сплачує" in body
-    assert "| Сума | 250,00 грн" in body
+    assert "Сума | 250,00 грн" in body  # rows as the DOCX index has them
     assert "Перший пункт" in body
     assert got.note is None
+
+
+def test_odt_text_is_plain_text_not_escaped_markdown(tmp_path):
+    from odfdo import Annotation, Document, Header, List, ListItem, Paragraph, Section, Span, Table
+
+    document = Document("text")
+    document.body.append(Header(2, "Договір 2026-11-12"))
+    paragraph = Paragraph("Пункт #1: file_name, *пеню* і ")
+    paragraph.append(Span("жирний", style="Strong"))
+    paragraph.append(Annotation("A question about it", creator="Lectern"))
+    document.body.append(paragraph)
+    section = Section()
+    section.append(Paragraph("У секції a-b"))
+    document.body.append(section)
+    table = Table("T", width=2, height=1)
+    table.set_value((0, 0), "a|b")
+    table.set_value((1, 0), "c-d")
+    document.body.append(table)
+    items = List()
+    items.append(ListItem("пункт-1"))
+    document.body.append(items)
+    document.save(tmp_path / "plain.odt")
+
+    got = extract(tmp_path / "plain.odt")
+
+    assert [c.heading for c in got.chunks] == ["Договір 2026-11-12"]
+    assert got.chunks[0].body == (
+        "Пункт #1: file_name, *пеню* і жирний\n\nУ секції a-b\n\na|b | c-d\n\n- пункт-1"
+    )  # no escapes, no comment text
 
 
 @pytest.mark.parametrize("name", ["junk.docx", "junk.odt"])

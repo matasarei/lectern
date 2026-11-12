@@ -22,7 +22,7 @@ from lectern.projects.text import (
     MARKDOWN_EXTENSIONS,
     TEXT_EXTENSIONS,
     docx_markdown,
-    odt_markdown,
+    odt_preview_markdown,
     read_document,
 )
 
@@ -72,7 +72,7 @@ def document_markdown(path: Path) -> DocumentPreview:
     if suffix == ".docx":
         markdown = read_document(path, lambda p: docx_markdown(p, limit=DOCUMENT_PREVIEW_CHARS))
     else:
-        markdown = read_document(path, odt_markdown)
+        markdown = read_document(path, odt_preview_markdown)
     if len(markdown) <= DOCUMENT_PREVIEW_CHARS:
         return DocumentPreview(markdown, cut=False)
     end = markdown.rfind("\n", 0, DOCUMENT_PREVIEW_CHARS)

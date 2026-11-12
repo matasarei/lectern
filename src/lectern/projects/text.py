@@ -86,7 +86,7 @@ def extract(path: Path) -> Extracted:
     if suffix == ".docx":
         return _document(path, _docx)
     if suffix == ".odt":
-        return _document(path, odt_markdown)
+        return _document(path, _odt)
     if suffix in TEXT_EXTENSIONS or mime_for(path.name).startswith("text/"):
         text = _read_text(path)
         if text is None:
@@ -328,9 +328,10 @@ def read_document(path: Path, convert: Callable[[Path], str]) -> str:
         ) from None
 
 
-def odt_markdown(path: Path) -> str:
-    """An ODT text document as Markdown (odfdo): headings, paragraphs, lists and pipe tables.
-    Its own Markdown characters come back escaped (`\\*`). Use it through read_document."""
+def odt_preview_markdown(path: Path) -> str:
+    """An ODT as odfdo's Markdown, for the file tab: its own Markdown characters come back
+    escaped (`\\*`, `\\-`) so react-markdown shows them as text, and italic and bold are
+    marked. The index and export read odt_markdown, which has neither."""
     from odfdo import Document
 
     markdown = Document(path).to_markdown()
@@ -384,3 +385,75 @@ def _docx(path: Path, *, pipe_tables: bool = False, limit: int | None = None) ->
             lines.append(text)
         lines.append("")
     return "\n".join(lines)
+
+
+def odt_markdown(path: Path) -> str:
+    """An ODT as Markdown with real pipe tables, for building a Document from it (export):
+    the text as written, with nothing escaped. Use it through read_document."""
+    return _odt(path, pipe_tables=True)
+
+
+def _odt(path: Path, *, pipe_tables: bool = False) -> str:
+    """An ODT text document as _docx makes a DOCX: headings as Markdown headings, paragraphs
+    as they are, table rows as "a | b" (pipe tables with pipe_tables), list items as "- a",
+    sections walked into. A spreadsheet, drawing or presentation saved as .odt raises
+    TypeError."""
+    from odfdo import Document
+
+    document = Document(path)
+    if not document.get_type().startswith("text"):
+        raise TypeError("not a text document")
+    lines: list[str] = []
+    _odt_walk(document.body, lines, pipe_tables=pipe_tables)
+    return "\n".join(lines)
+
+
+def _odt_walk(element, lines: list[str], *, pipe_tables: bool) -> None:  # noqa: ANN001 (odfdo)
+    # Anything else at this level is left out, as python-docx leaves it: tracked changes'
+    # deleted text, a table of contents (the headings again), forms, drawings.
+    for child in element.children:
+        if child.tag == "text:h":
+            text = _odt_text(child)
+            if text:
+                level = min(int(child.get_attribute("text:outline-level") or 1), 6)
+                lines += [f"{'#' * level} {text}", ""]
+        elif child.tag == "text:p":
+            lines += [_odt_text(child), ""]
+        elif child.tag == "text:section":
+            _odt_walk(child, lines, pipe_tables=pipe_tables)
+        elif child.tag == "text:list":
+            lines += [*_odt_items(child), ""]
+        elif child.tag == "table:table":
+            rows = [[_odt_text(cell).replace("\n", " ") for cell in row.get_cells()]
+                    for row in child.get_rows()]  # fmt: skip
+            for n, cells in enumerate(rows):
+                if not pipe_tables:
+                    lines.append(" | ".join(cells))
+                    continue
+                lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+                if n == 0:
+                    lines.append("| " + " | ".join("---" for _ in cells) + " |")
+            lines.append("")
+
+
+def _odt_items(odt_list) -> list[str]:  # noqa: ANN001 (an odfdo List)
+    """A list's items as "- a", a nested list's flattened into it."""
+    items: list[str] = []
+    for item in odt_list.children:
+        for child in item.children:
+            if child.tag == "text:list":
+                items += _odt_items(child)
+            elif text := _odt_text(child):
+                items.append(f"- {text}")
+    return items
+
+
+def _odt_text(element) -> str:  # noqa: ANN001 (an odfdo Element)
+    """An element's text, without its comments (Lectern's own ODT export writes open
+    questions as comments) or footnotes, as python-docx reads a paragraph."""
+    skipped = "descendant::office:annotation | descendant::text:note"
+    if element.get_elements(skipped):
+        element = element.clone
+        for part in element.get_elements(skipped):
+            part.delete()
+    return str(element).strip()
