@@ -38,14 +38,14 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/projects/store.py` | 279 | Project folder creation, rename, trash, and per-project DB sessionmaker | `Project`, `ProjectStore`, `ProjectNotFound`, `NameMismatch`, `touch` |
 | `src/lectern/projects/files.py` | 291 | Path confinement (`inside`), file import/write, text indexing, trash | `inside`, `safe_name`, `free_name`, `import_stream`, `write_bytes`, `trash` |
 | `src/lectern/projects/tables.py` | 277 | Project DB ORM models (`<project>/.lectern/project.sqlite`) | `ProjectBase`, `SessionRow`, `MessageRow`, `ConfirmationRow`, `ArtifactRow`, `OcrSessionRow` |
-| `src/lectern/projects/text.py` | 459 | MIME detection and text/chunk extraction (PDF, DOCX, ODT, text); the guarded DOCX/ODT reader | `mime_for`, `extract`, `pdf_pages`, `scanned_pages`, `read_document`, `DocumentTooLarge`, `docx_markdown`, `odt_markdown`, `odt_preview_markdown` |
+| `src/lectern/projects/text.py` | 470 | MIME detection and text/chunk extraction (PDF, DOCX, ODT, text); the guarded DOCX/ODT reader | `mime_for`, `extract`, `pdf_pages`, `scanned_pages`, `read_document`, `DocumentTooLarge`, `docx_markdown`, `odt_markdown`, `odt_preview_markdown` |
 | `src/lectern/projects/search.py` | 109 | SQLite FTS5 indexing and prefix search over `artifact_text` | `index`, `remove`, `chunks`, `match_expression`, `search` |
 | `src/lectern/projects/preview.py` | 79 | File tab preview classification and DOCX/ODT-to-Markdown conversion | `preview_kind`, `document_markdown` |
 | `src/lectern/projects/html_page.py` | 292 | Bundles a project HTML file's local CSS/images/scripts as `data:` URLs for `/view` | `inline_page` |
 | `src/lectern/agent/loop.py` | 1005 | Agent turn loop, tool execution, confirmation cards, exact-number checks | `TurnRun`, `run_turn`, `run_tool`, `call_model`, `load_history`, `maybe_compact` |
 | `src/lectern/agent/turns.py` | 616 | Concurrent turn manager, SSE/WS replay channels, follow-up scheduling | `TurnManager`, `Channel`, `Busy` |
 | `src/lectern/agent/core_tools.py` | 665 | Core chat tools (`project.*`, `document.*`, `artifact.*`, `session.*`, `tab.*`, `chat.*`) | `core_registry`, `asked_for_file`, `asked_to_delete`, `said_by_person` |
-| `src/lectern/agent/export_tools.py` | 218 | `export.formats` and `export.run` tools | `export_tools`, `write_export` |
+| `src/lectern/agent/export_tools.py` | 217 | `export.formats` and `export.run` tools | `export_tools`, `write_export` |
 | `src/lectern/agent/followups.py` | 315 | Queued post-OCR tool calls (`task.after`) | `FollowUp`, `add`, `mark_held`, `pending`, `task_after_tool` |
 | `src/lectern/agent/context.py` | 267 | Context window assembly (pins, files, summary, turns) and token budgeting | `build`, `split_turns`, `answer_reserve`, `ContextTooSmall` |
 | `src/lectern/agent/compaction.py` | 123 | Summarises older turns when context exceeds 75% | `fold_point`, `write_summary`, `summary_request` |
@@ -55,7 +55,7 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/agent/tools.py` | 170 | `AgentTool` definition, JSON schema validation, result pagination | `AgentTool`, `ToolContext`, `ToolResult`, `Registry`, `page` |
 | `src/lectern/agent/model_download.py` | 51 | Downloads a missing role model inside a tool after card confirmation | `on_disk`, `why_not`, `download` |
 | `src/lectern/documents/document.py` | 200 | `lectern.document/1` schema (`document.json`) and `document.md` rendering | `Document`, `Block`, `Doubt`, `PageInfo`, `render_markdown` |
-| `src/lectern/documents/export.py` | 217 | Exporter protocol, loss calculation, and doubt/figure formatting | `Exporter`, `ExportOptions`, `lost`, `resolved_options`, `segments` |
+| `src/lectern/documents/export.py` | 219 | Exporter protocol, loss calculation, and doubt/figure formatting | `Exporter`, `ExportOptions`, `lost`, `resolved_options`, `segments` |
 | `src/lectern/documents/from_text.py` | 123 | Converts Markdown, plain text, PDF text layer, or DOCX into a `Document` | `parse_markdown`, `parse_text`, `parse_pages` |
 | `src/lectern/modules/__init__.py` | 146 | Entry-point loader (`lectern.modules`) and per-turn tool registry assembly | `Module`, `ToolEnv`, `load_modules`, `tool_registry`, `EnvProbe` |
 | `src/lectern/modules/ocr/jobs.py` | 685 | Background OCR worker queue (rasterise → recognise → clean → assemble) | `OcrJobs`, `page_dict` |
