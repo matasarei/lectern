@@ -84,7 +84,9 @@ def extract(path: Path) -> Extracted:
     if suffix == ".pdf":
         return _pdf(path)
     if suffix == ".docx":
-        return _limited(_docx(path), markdown=True)
+        return _document(path, _docx)
+    if suffix == ".odt":
+        return _document(path, odt_markdown)
     if suffix in TEXT_EXTENSIONS or mime_for(path.name).startswith("text/"):
         text = _read_text(path)
         if text is None:
@@ -93,6 +95,16 @@ def extract(path: Path) -> Extracted:
             return Extracted(chunks=_document_chunks(text[:TEXT_LIMIT]))
         return _limited(text, markdown=suffix in MARKDOWN_EXTENSIONS)
     return Extracted(note="no text to read in this kind of file")
+
+
+def _document(path: Path, convert: Callable[[Path], str]) -> Extracted:
+    """A DOCX or ODT: a broken one, or one too big to open, still imports, with a note."""
+    try:
+        return _limited(read_document(path, convert), markdown=True)
+    except DocumentTooLarge:
+        return Extracted(note="too much text to read")
+    except ValueError:
+        return Extracted(note="couldn't be read as a document")
 
 
 def _read_text(path: Path) -> str | None:
