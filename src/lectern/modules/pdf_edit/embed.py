@@ -61,7 +61,8 @@ def embed_fonts(
 ) -> Embedded:
     """`data` (PDFium's filled form) with each font a widget's appearance uses that isn't
     embedded, and isn't one of the standard 14, given an installed font's file cut down to the
-    letters of `text` it can draw. A font no installed file can stand in for stays as it was
+    letters it draws: those of `text` and of every field shown in it, the ones filled before
+    included, since they share it. A font no installed file can stand in for stays as it was
     and is named in `missing`. `aliases` and `fallbacks` default to ALIASES and FALLBACK_SANS."""
     aliases = ALIASES if aliases is None else aliases
     fallbacks = FALLBACK_SANS if fallbacks is None else fallbacks
@@ -72,9 +73,9 @@ def embed_fonts(
     writer = PdfWriter(reader, incremental=True)
     missing: list[str] = []
     changed = False
-    for number, font in enumerate(_unembedded(writer.pages)):
+    for number, (font, shown) in enumerate(_unembedded(writer.pages)):
         name = str(font["/BaseFont"])[1:]
-        letters = _letters(font, text)
+        letters = _letters(font, text + shown)
         if not letters:
             continue
         found = _installed(fonts, name, aliases, fallbacks)
@@ -99,13 +100,15 @@ def embed_fonts(
     return Embedded(out.getvalue(), missing)
 
 
-def _unembedded(pages: object) -> list[DictionaryObject]:
-    """Each font in a widget's normal appearance that a viewer has to have: not embedded, not
-    one of the standard 14. Once each, however many fields share it."""
-    found: dict[int, DictionaryObject] = {}
+def _unembedded(pages: object) -> list[tuple[DictionaryObject, str]]:
+    """Each font in a widget's normal appearance that a viewer has to have (not embedded, not
+    one of the standard 14), with the values of the fields drawn in it. Once each, however many
+    fields share it."""
+    found: dict[int, tuple[DictionaryObject, str]] = {}
     for page in pages:
         for annot in _resolved(page.get("/Annots")) or []:
-            normal = _resolved((_resolved(annot.get_object().get("/AP")) or {}).get("/N"))
+            annot = annot.get_object()
+            normal = _resolved((_resolved(annot.get("/AP")) or {}).get("/N"))
             if normal is None:
                 continue
             streams = [normal] if isinstance(normal, StreamObject) else list(normal.values())
@@ -114,8 +117,21 @@ def _unembedded(pages: object) -> list[DictionaryObject]:
                 for ref in (_resolved(resources.get("/Font")) or {}).values():
                     font = ref.get_object()
                     if _needs_file(font):
-                        found[ref.idnum] = font
+                        shown = found.get(ref.idnum, (font, ""))[1]
+                        found[ref.idnum] = (font, shown + _value(annot))
     return list(found.values())
+
+
+def _value(annot: DictionaryObject) -> str:
+    """The value a widget shows: its own `/V`, or its field's when it is one of several
+    widgets; a list's chosen options joined."""
+    value = annot.get("/V")
+    if value is None and "/Parent" in annot:
+        value = annot["/Parent"].get_object().get("/V")
+    value = _resolved(value)
+    if isinstance(value, list):
+        return "".join(str(item) for item in value)
+    return str(value) if value is not None else ""
 
 
 def _resolved(value: object) -> object:

@@ -159,3 +159,33 @@ def _codes(font: dict) -> dict[str, int]:
             codes[toUnicode(item[1:])] = code
             code += 1
     return codes
+
+
+def _field_fonts(data: bytes, field: str) -> list[dict]:
+    """The fonts the named field's normal appearance uses."""
+    found = []
+    for page in PdfReader(io.BytesIO(data)).pages:
+        for annot in page.get("/Annots", []):
+            annot = annot.get_object()
+            if annot.get("/T") != field:
+                continue
+            resources = annot["/AP"]["/N"].get_object().get("/Resources", {})
+            found += [ref.get_object() for ref in resources.get("/Font", {}).values()]
+    return found
+
+
+def test_a_font_another_field_is_drawn_in_keeps_that_fields_letters(
+    form, with_fonts, tmp_path
+) -> None:  # noqa: ANN001
+    earlier = tmp_path / "earlier.pdf"  # a form whose "date" was filled before, font unembedded
+    earlier.write_bytes(fill_form(form, {"date": "12 листопада"}, fonts=PDFIUM_ONLY).data)
+    data = fill_form(earlier, {"name": "Jane Doe"}, fonts=PDFIUM_ONLY).data
+
+    done = embed_fonts(data, "Jane Doe", with_fonts, aliases={}, fallbacks=("TestSans",))
+
+    for font in _field_fonts(done.data, "date"):
+        if font["/BaseFont"][1:] in STANDARD_14:
+            continue
+        assert _embedded(font) is not None
+        drawn = {chr(u) for u in TTFont(io.BytesIO(_embedded(font))).getBestCmap()}
+        assert set("листопада") <= drawn  # the date still has every letter it shows
