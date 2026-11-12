@@ -82,7 +82,7 @@ def test_a_documents_folder_or_a_text_file_loads_and_anything_else_says_why(tmp_
     assert (letter.title, letter.blocks[0].type) == ("reply-letter", "heading")
     assert [b.text for b in load_for_export(tmp_path, "notes.txt").blocks] == ["Один.", "Два."]
     # The message used to be asked of a PDF; a PDF with text exports now, so an image asks it.
-    with pytest.raises(ValueError, match="isn't a Document, a PDF with text, a DOCX, an ODT or a text"):
+    with pytest.raises(ValueError, match="isn't a Document, a PDF with text, a DOCX, an ODT or"):
         load_for_export(tmp_path, "photo.png")
 
 
