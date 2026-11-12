@@ -174,3 +174,18 @@ What works is completing PDFium's font afterwards, with pypdf 7.0.1:
   it encrypted. pypdf doesn't write incremental updates to encrypted files, and AES needs the
   `cryptography` package, which isn't installed. So an encrypted form is filled with the font
   not embedded, and the result says so.
+
+As built (`pdf_edit/embed.py`, on `fill_form`), checked with the agent-check form's "name" set
+to "Євген Матасар, вул. Ґонти 5":
+- **This Mac:** PDFium names Arial, and the fill embeds ArialMT (`pdffonts`:
+  `TTEQRQ+ArialMT TrueType Custom emb yes`). The file is 34,417 bytes, against 10,428 from
+  PDFium alone. poppler with no fonts shows the text. A Latin-only fill is unchanged:
+  4,918 bytes, Helvetica only.
+- **Linux** (`python:3.12-slim` in Docker, only `fonts-dejavu-core`): PDFium names
+  "DejaVuSansMono,Bold", which isn't the PostScript name of any installed file. So the
+  fallback embeds DejaVu Sans with its own widths (`FKCYSY+DejaVuSans … emb yes`, 28,717
+  bytes), and poppler there shows the text.
+- **`agent-check --set pdf` on the 4B** (residents qwen3.5-4b and qwen2.5-coder-1.5b): 14/15
+  passed, forms 2/2. The one failure was `instalments`, as in every earlier run. The set's
+  form values are Latin, so this run shows nothing regressed rather than testing the new
+  embedding.
