@@ -171,8 +171,8 @@ def reading_order(doc: Document) -> list[tuple[Block, str | None, int]]:
 def load_for_export(root: Path, path: str) -> Document:
     """The Document an export is made from: an OCR session's (its document.md, whose
     document.json beside it is the source), or a file parsed into one: Markdown or plain
-    text, a PDF's text layer (page by page), a DOCX or an ODT. Raises ValueError with a reason the
-    agent can pass on."""
+    text, a PDF's text layer (page by page), a DOCX or an ODT. Raises ValueError with a
+    reason the agent can pass on."""
     target = files.inside(root, path)
     name = Path(path)
     if name.name == DOCUMENT_MD and (target.parent / DOCUMENT_JSON).is_file():
