@@ -7,13 +7,15 @@ import io
 from pathlib import Path
 
 import pytest
+from fontTools.agl import toUnicode
 from fontTools.ttLib import TTFont
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 
-from lectern.modules.pdf_edit.embed import STANDARD_14, embed_fonts
+from lectern.modules.pdf_edit.embed import ENCRYPTED, STANDARD_14, embed_fonts
+from lectern.modules.pdf_edit.fonts import InstalledFonts
 from lectern.modules.pdf_edit.forms import fill_form
 
-from .conftest import form_pdf
+from .conftest import build_font, form_pdf
 
 NAME = "Євген Матасар, вул. Ґонти 5"
 
@@ -95,3 +97,63 @@ def test_each_embedded_font_has_its_own_subset_tag(tmp_path: Path, with_fonts) -
 
     names = [str(f["/BaseFont"]) for f in _appearance_fonts(done.data) if _embedded(f)]
     assert names and len(names) == len(set(names))
+
+
+def test_a_fallback_stands_in_with_its_own_widths(form, with_fonts, font_files) -> None:  # noqa: ANN001
+    done = embed_fonts(_pdfium_only(form, NAME), NAME, with_fonts, aliases={},
+                       fallbacks=("NotInstalled", "TestSans"))  # fmt: skip
+
+    face = TTFont(font_files / "TestSans.ttf")
+    glyphs, per_em = face.getBestCmap(), face["head"].unitsPerEm
+    embedded = [f for f in _appearance_fonts(done.data) if _embedded(f)]
+    assert embedded and done.missing == []
+    for font in embedded:
+        assert font["/BaseFont"].endswith("+TestSans")
+        first, widths = int(font["/FirstChar"]), font["/Widths"]
+        codes = _codes(font)
+        for letter in {ch for ch in NAME if ord(ch) > 0x7F}:
+            own = round(face["hmtx"][glyphs[ord(letter)]][0] * 1000 / per_em)
+            assert widths[codes[letter] - first] == own
+
+
+def test_with_no_font_to_embed_the_font_is_named_and_the_pdf_left_as_it_is(form, no_fonts) -> None:  # noqa: ANN001
+    data = _pdfium_only(form, NAME)
+
+    done = embed_fonts(data, NAME, no_fonts, fallbacks=("TestSans",))
+
+    assert done.data == data
+    assert done.missing and all(name for name in done.missing)
+
+
+def test_a_font_whose_licence_forbids_embedding_is_named_not_embedded(form, tmp_path) -> None:  # noqa: ANN001
+    folder = tmp_path / "locked"
+    folder.mkdir()
+    build_font(folder / "Locked.ttf", "Locked", fs_type=0x0002)
+    data = _pdfium_only(form, NAME)
+
+    done = embed_fonts(data, NAME, InstalledFonts([folder]), aliases={}, fallbacks=("Locked",))
+
+    assert done.data == data and done.missing
+
+
+def test_an_encrypted_form_is_left_as_it_is_and_says_so(form, with_fonts, tmp_path) -> None:  # noqa: ANN001
+    locked = PdfWriter(clone_from=str(form))
+    locked.encrypt(user_password="", owner_password="owner", algorithm="RC4-128")  # noqa: S106 (a test form)
+    locked.write(str(tmp_path / "locked.pdf"))
+    data = fill_form(tmp_path / "locked.pdf", {"name": NAME}).data
+
+    done = embed_fonts(data, NAME, with_fonts, aliases={}, fallbacks=("TestSans",))
+
+    assert done.data == data and done.missing == [ENCRYPTED]
+
+
+def _codes(font: dict) -> dict[str, int]:
+    """Letter → character code, from the font's /Differences."""
+    codes, code = {}, 0
+    for item in font["/Encoding"].get_object().get("/Differences", []):
+        if isinstance(item, int):
+            code = item
+        else:
+            codes[toUnicode(item[1:])] = code
+            code += 1
+    return codes
