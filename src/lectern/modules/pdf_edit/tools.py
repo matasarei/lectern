@@ -118,6 +118,11 @@ async def _fill(ctx: ToolContext, params: FillParams) -> ToolResult:
     row = await run_in_threadpool(_write, ctx, source, filled.data)
     by_name = {f.name: f for f in filled.fields}
     lines = [_field_line(by_name[name]) for name in params.fields if name in by_name]
+    if filled.unembedded:
+        lines.append(
+            f"The text in these fields uses a font that isn't embedded "
+            f"({', '.join(filled.unembedded)}): it shows only where a viewer has that font."
+        )
     return _saved(row, lines)
 
 

@@ -295,8 +295,13 @@ is asked about before the call runs ("Exact answers", above):
 `pdf.fill` with no fields lists the form's fields (name, kind, value, options); with
 `{name: value}` it fills them through PDFium's form environment, which redraws each field's
 appearance, so the value shows in any viewer. Text, checkbox (yes or no), radio and list
-fields; buttons, signatures and read-only fields are refused. Cyrillic in a field is drawn by
-PDFium with a font it names but doesn't embed, so a viewer substitutes its own.
+fields; buttons, signatures and read-only fields are refused. Letters the field's own font
+can't draw (Cyrillic in a Helvetica field) PDFium draws in a system font it doesn't embed, so
+the fill then embeds an installed font in its place, cut to the letters filled
+(`pdf_edit/embed.py`, with pypdf). That is the font PDFium named (Arial on macOS and Windows),
+or else the first of Liberation Sans, DejaVu Sans and Noto Sans that is installed, with its
+own widths. With none, or for an encrypted form, the form is filled anyway, and the result
+tells the model the text shows only where a viewer has that font.
 
 Both write `<name> (edited).pdf` at the project's top level, made from the original, and open
 it; the original is never changed.
