@@ -87,6 +87,14 @@ With that description, each message asked twice:
 **Not run yet.** It needs the 4 GB and 8 GB PCs. The production host `archive` isn't used for
 it: nothing there is stopped or replaced.
 
+Until then:
+- No real `sd-cli` has made a picture: every test runs a fake one. The `gpu` test
+  `tests/modules/image/test_generate.py::test_a_real_sd_cli_makes_a_picture` runs a real one
+  when `LECTERN_TEST_SD_CLI` (an `sd-cli`) and `LECTERN_TEST_IMAGE_MODELS` (a models folder with
+  `flux2-klein-4b/` in it) are set.
+- The card, its Stop and the Image toggle are checked by page tests only, not in a browser on
+  a real server.
+
 ### How to run it
 
 On each machine, with the default image model of its tier:
@@ -113,5 +121,7 @@ What it should settle in `src/lectern/modules/image/generate.py` and the catalog
 - `COMPUTE_PER_MEGAPIXEL` and `OVERHEAD`, against the peak memory.
 - `FIRST_GUESS_SECONDS` per tier, against the total time at the default size.
 - The tier sizes in `models.yaml`: whether 768² on 4 GB and 1024² on 8 GB are right.
+- Whether an 8 GB Mac, the tightest case (about 5 GiB for the GPU), makes a 768² picture
+  beside the chat's model.
 - Whether a GTX 1050 Ti (Pascal) runs the Vulkan build.
 - Whether the Linux builds (made on Ubuntu 26.04) start on the installed Linux.

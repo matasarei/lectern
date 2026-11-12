@@ -70,7 +70,10 @@ An image model is three pieces, often from three repositories, so each of its fi
 its own repository and pinned revision: the diffusion model, the text encoder (Qwen3-4B) and
 the VAE. Its version on disk is a digest of all three revisions, so a newer pin of any piece
 shows as an update. Its `image:` block gives the steps, the guidance and the sampler, and for
-each tier the default square and the most pixels a picture may have.
+each tier the default square and the most pixels a picture may have. The 4-bit and 8-bit
+builds of the default are two models, each with its own copy of the encoder and the VAE; a
+machine downloads one of them. Not in the catalog, for their licences: FLUX.2 klein 9B
+(non-commercial) and SDXL or SD-Turbo.
 
 ## Languages
 
@@ -145,7 +148,9 @@ handwriting, cleanup and code stay on llama-server.
 An image model doesn't stay loaded. stable-diffusion.cpp's `sd-cli` runs once per picture and
 exits (`modules/image/generate.py`). It has no port, so there's no key to keep, and its memory
 comes back when it ends. The release also has a server, `sd-server`, but it has no API key and
-isn't used.
+isn't used. stable-diffusion.cpp was chosen over ComfyUI or diffusers, a Python and PyTorch
+stack of several GB per backend, because it has llama.cpp's shape: a pinned binary per backend,
+GGUF weights and one process per job.
 
 The build is pinned apart from llama.cpp's (`runners/sdcpp.py`, with each asset's size and
 SHA-256) and downloads the first time a picture is made. It is chosen from the machine:
@@ -154,6 +159,8 @@ SHA-256) and downloads the first time a picture is made. It is chosen from the m
 - Vulkan where a loader is present, which includes NVIDIA on Linux, since there's no Linux CUDA
   build;
 - else CPU.
+
+AMD cards on Linux run the Vulkan build too: the ROCm builds aren't used yet.
 
 The Mac build needs macOS 26 or later.
 
