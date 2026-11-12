@@ -114,6 +114,37 @@ def test_odt_text_is_plain_text_not_escaped_markdown(tmp_path):
     )  # no escapes, no comment text
 
 
+def test_an_odt_table_cell_repeated_many_times_is_read_once(tmp_path):
+    # A cell or row can say it repeats: a few bytes of XML for millions of cells, which the
+    # unzipped-size check can't see. Its text is read once, as written.
+    import zipfile
+
+    from odfdo import Document, Table
+
+    document = Document("text")
+    table = Table("T", width=2, height=1)
+    table.set_value((0, 0), "Сума")
+    table.set_value((1, 0), "250,00 грн")
+    document.body.append(table)
+    document.save(tmp_path / "plain.odt")
+    with zipfile.ZipFile(tmp_path / "plain.odt") as source:
+        parts = {i.filename: source.read(i.filename) for i in source.infolist()}
+    parts["content.xml"] = (
+        parts["content.xml"]
+        .replace(b"<table:table-row>", b'<table:table-row table:number-rows-repeated="3">', 1)
+        .replace(
+            b"<table:table-cell ", b'<table:table-cell table:number-columns-repeated="20000" ', 1
+        )
+    )
+    with zipfile.ZipFile(tmp_path / "bomb.odt", "w") as out:
+        for name, data in parts.items():
+            out.writestr(name, data)
+
+    got = extract(tmp_path / "bomb.odt")
+
+    assert [c.body for c in got.chunks] == ["Сума | 250,00 грн"]
+
+
 @pytest.mark.parametrize("name", ["junk.docx", "junk.odt"])
 def test_a_broken_document_has_a_note_not_an_error(tmp_path, name):
     path = tmp_path / name

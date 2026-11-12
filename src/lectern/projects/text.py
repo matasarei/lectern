@@ -38,6 +38,12 @@ MIME_OVERRIDES = {".md": "text/markdown", ".markdown": "text/markdown", ".docx":
 # of 8 M characters had a 16 MB document.xml, and a small zip can unzip to gigabytes. All its
 # XML parts count, whatever their names: the main part's name is the package's to choose.
 DOCUMENT_XML_LIMIT = 32 * 1024 * 1024
+# An ODT table's rows as written, each once: odfdo's get_rows() and get_cells() expand
+# table:number-rows-repeated and table:number-columns-repeated, a few bytes of XML asking for
+# millions of cells that the unzipped-size check can't see (5,000,000 took 156 s).
+ODT_ROWS = (
+    "table:table-row | table:table-header-rows/table:table-row | table:table-rows/table:table-row"
+)
 
 
 # A Document's block anchor in document.md: {#b3.2 p=3}, {#b3.3 p=3→4}, {#b3.4 p=3 figure}
@@ -424,8 +430,8 @@ def _odt_walk(element, lines: list[str], *, pipe_tables: bool) -> None:  # noqa:
         elif child.tag == "text:list":
             lines += [*_odt_items(child), ""]
         elif child.tag == "table:table":
-            rows = [[_odt_text(cell).replace("\n", " ") for cell in row.get_cells()]
-                    for row in child.get_rows()]  # fmt: skip
+            rows = [[_odt_text(cell).replace("\n", " ") for cell in _odt_cells(row)]
+                    for row in child.get_elements(ODT_ROWS)]  # fmt: skip
             for n, cells in enumerate(rows):
                 if not pipe_tables:
                     lines.append(" | ".join(cells))
@@ -434,6 +440,11 @@ def _odt_walk(element, lines: list[str], *, pipe_tables: bool) -> None:  # noqa:
                 if n == 0:
                     lines.append("| " + " | ".join("---" for _ in cells) + " |")
             lines.append("")
+
+
+def _odt_cells(row) -> list:  # noqa: ANN001 (an odfdo Row)
+    """The row's cells as written, a repeated one once (see ODT_ROWS)."""
+    return [c for c in row.children if c.tag in ("table:table-cell", "table:covered-table-cell")]
 
 
 def _odt_items(odt_list) -> list[str]:  # noqa: ANN001 (an odfdo List)
