@@ -179,7 +179,9 @@ As built (`pdf_edit/embed.py`, on `fill_form`), checked with the agent-check for
 to "Євген Матасар, вул. Ґонти 5":
 - **This Mac:** PDFium names Arial, and the fill embeds ArialMT (`pdffonts`:
   `TTEQRQ+ArialMT TrueType Custom emb yes`). The file is 34,417 bytes, against 10,428 from
-  PDFium alone. poppler with no fonts shows the text. A Latin-only fill is unchanged:
+  PDFium alone. poppler with no fonts shows the Cyrillic. PDFium draws digits and punctuation
+  in the same value in Helvetica, one of the standard 14 every viewer has, so a poppler with no
+  fonts at all leaves those out. A Latin-only fill is unchanged:
   4,918 bytes, Helvetica only.
 - **Linux** (`python:3.12-slim` in Docker, only `fonts-dejavu-core`): PDFium names
   "DejaVuSansMono,Bold", which isn't the PostScript name of any installed file. So the
