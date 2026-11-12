@@ -120,6 +120,17 @@ def test_a_file_called_docx_that_isnt_one_says_so(tmp_path):
         load_for_export(tmp_path, "fake.docx")
 
 
+def test_a_docx_whose_text_unzips_too_big_isnt_exported(tmp_path, monkeypatch):
+    from lectern.projects import text
+
+    from ..projects.conftest import write_docx
+
+    write_docx(tmp_path / "lease.docx")
+    monkeypatch.setattr(text, "DOCUMENT_XML_LIMIT", 100)
+    with pytest.raises(ValueError, match="lease.docx has too much text to export"):
+        load_for_export(tmp_path, "lease.docx")
+
+
 def test_an_odt_loads_with_its_headings_tables_and_lists(tmp_path):
     from ..projects.conftest import write_odt
 
