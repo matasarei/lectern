@@ -189,3 +189,12 @@ def test_a_font_another_field_is_drawn_in_keeps_that_fields_letters(
         assert _embedded(font) is not None
         drawn = {chr(u) for u in TTFont(io.BytesIO(_embedded(font))).getBestCmap()}
         assert set("листопада") <= drawn  # the date still has every letter it shows
+
+
+def test_a_font_missing_a_filled_letter_isnt_embedded_and_is_named(form, with_fonts) -> None:  # noqa: ANN001
+    value = "Ўладзімір"  # Belarusian Ў: in cp1251, so PDFium's Arial has it; the test font doesn't
+    data = fill_form(form, {"name": value}, fonts=PDFIUM_ONLY).data
+
+    done = embed_fonts(data, value, with_fonts, aliases={}, fallbacks=("TestSans",))
+
+    assert done.data == data and done.missing

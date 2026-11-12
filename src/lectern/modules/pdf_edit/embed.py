@@ -91,6 +91,10 @@ def embed_fonts(
             log.info("Left %s unembedded in a filled form: %s", name, exc)
             missing.append(name)
             continue
+        if _lacks(subset, drawn):  # embedded, those letters would show as boxes
+            log.info("Left %s unembedded in a filled form: %s lacks some letters", name, ps_name)
+            missing.append(name)
+            continue
         _complete(writer, font, subset, f"{tag}+{ps_name}", letters)
         changed = True
     if not changed:
@@ -198,6 +202,15 @@ def _installed(
         if found is not None:
             return ps_name, found
     return None
+
+
+def _lacks(subset: bytes, letters: str) -> bool:
+    """Whether the cut-down font has no glyph for one of `letters`."""
+    face = TTFont(io.BytesIO(subset))
+    try:
+        return not {ord(letter) for letter in letters} <= set(face.getBestCmap())
+    finally:
+        face.close()
 
 
 def _complete(
