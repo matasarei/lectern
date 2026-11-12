@@ -23,7 +23,7 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/core/winloop.py` | 91 | Windows ProactorEventLoop wrapper surviving dropped accepts | `gone_before_accepted`, `new_loop` |
 | `src/lectern/api/__init__.py` | 58 | Mounts `open_api_router` (`/api/login`) and `api_router` (`current_user`) | `open_api_router`, `api_router` |
 | `src/lectern/api/accounts.py` | 222 | `/api/login`, `/api/logout`, `/api/password`, `/api/users` | `SignInGate`, `whoami`, `sign_in`, `sign_out`, `change_password`, `list_users`, `add_user` |
-| `src/lectern/api/projects.py` | 365 | Project CRUD, file import/download/markdown preview, items, search, tabs | `list_projects`, `create_project`, `import_file`, `artifact_content`, `project_items`, `search_project` |
+| `src/lectern/api/projects.py` | 366 | Project CRUD, file import/download/markdown preview, items, search, tabs | `list_projects`, `create_project`, `import_file`, `artifact_content`, `project_items`, `search_project` |
 | `src/lectern/api/sessions.py` | 346 | Chat session routes, message send, confirmations, stop, follow-ups, pins | `new_chat`, `get_chat`, `send`, `events`, `decide`, `stop`, `stop_tool`, `run_follow_up` |
 | `src/lectern/api/models.py` | 265 | Model catalog, role assignments, downloads, updates, removal | `list_models`, `set_role_model`, `start_download`, `update_model`, `remove_model` |
 | `src/lectern/api/runtime.py` | 112 | Runtime state, event stream/WS, unload, MLX setting | `get_runtime`, `runtime_events`, `unload`, `get_settings`, `put_settings` |
@@ -38,14 +38,14 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/projects/store.py` | 279 | Project folder creation, rename, trash, and per-project DB sessionmaker | `Project`, `ProjectStore`, `ProjectNotFound`, `NameMismatch`, `touch` |
 | `src/lectern/projects/files.py` | 291 | Path confinement (`inside`), file import/write, text indexing, trash | `inside`, `safe_name`, `free_name`, `import_stream`, `write_bytes`, `trash` |
 | `src/lectern/projects/tables.py` | 277 | Project DB ORM models (`<project>/.lectern/project.sqlite`) | `ProjectBase`, `SessionRow`, `MessageRow`, `ConfirmationRow`, `ArtifactRow`, `OcrSessionRow` |
-| `src/lectern/projects/text.py` | 322 | MIME detection and text/chunk extraction (PDF, DOCX, ODT, text) | `mime_for`, `extract`, `pdf_pages`, `scanned_pages`, `docx_markdown` |
+| `src/lectern/projects/text.py` | 459 | MIME detection and text/chunk extraction (PDF, DOCX, ODT, text); the guarded DOCX/ODT reader | `mime_for`, `extract`, `pdf_pages`, `scanned_pages`, `read_document`, `DocumentTooLarge`, `docx_markdown`, `odt_markdown`, `odt_preview_markdown` |
 | `src/lectern/projects/search.py` | 109 | SQLite FTS5 indexing and prefix search over `artifact_text` | `index`, `remove`, `chunks`, `match_expression`, `search` |
-| `src/lectern/projects/preview.py` | 110 | File tab preview classification and DOCX/ODT-to-Markdown conversion | `preview_kind`, `document_markdown`, `DocumentTooLarge` |
+| `src/lectern/projects/preview.py` | 79 | File tab preview classification and DOCX/ODT-to-Markdown conversion | `preview_kind`, `document_markdown` |
 | `src/lectern/projects/html_page.py` | 292 | Bundles a project HTML file's local CSS/images/scripts as `data:` URLs for `/view` | `inline_page` |
 | `src/lectern/agent/loop.py` | 1005 | Agent turn loop, tool execution, confirmation cards, exact-number checks | `TurnRun`, `run_turn`, `run_tool`, `call_model`, `load_history`, `maybe_compact` |
 | `src/lectern/agent/turns.py` | 616 | Concurrent turn manager, SSE/WS replay channels, follow-up scheduling | `TurnManager`, `Channel`, `Busy` |
 | `src/lectern/agent/core_tools.py` | 665 | Core chat tools (`project.*`, `document.*`, `artifact.*`, `session.*`, `tab.*`, `chat.*`) | `core_registry`, `asked_for_file`, `asked_to_delete`, `said_by_person` |
-| `src/lectern/agent/export_tools.py` | 217 | `export.formats` and `export.run` tools | `export_tools`, `write_export` |
+| `src/lectern/agent/export_tools.py` | 218 | `export.formats` and `export.run` tools | `export_tools`, `write_export` |
 | `src/lectern/agent/followups.py` | 315 | Queued post-OCR tool calls (`task.after`) | `FollowUp`, `add`, `mark_held`, `pending`, `task_after_tool` |
 | `src/lectern/agent/context.py` | 267 | Context window assembly (pins, files, summary, turns) and token budgeting | `build`, `split_turns`, `answer_reserve`, `ContextTooSmall` |
 | `src/lectern/agent/compaction.py` | 123 | Summarises older turns when context exceeds 75% | `fold_point`, `write_summary`, `summary_request` |
@@ -55,7 +55,7 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/agent/tools.py` | 170 | `AgentTool` definition, JSON schema validation, result pagination | `AgentTool`, `ToolContext`, `ToolResult`, `Registry`, `page` |
 | `src/lectern/agent/model_download.py` | 51 | Downloads a missing role model inside a tool after card confirmation | `on_disk`, `why_not`, `download` |
 | `src/lectern/documents/document.py` | 200 | `lectern.document/1` schema (`document.json`) and `document.md` rendering | `Document`, `Block`, `Doubt`, `PageInfo`, `render_markdown` |
-| `src/lectern/documents/export.py` | 204 | Exporter protocol, loss calculation, and doubt/figure formatting | `Exporter`, `ExportOptions`, `lost`, `resolved_options`, `segments` |
+| `src/lectern/documents/export.py` | 217 | Exporter protocol, loss calculation, and doubt/figure formatting | `Exporter`, `ExportOptions`, `lost`, `resolved_options`, `segments` |
 | `src/lectern/documents/from_text.py` | 123 | Converts Markdown, plain text, PDF text layer, or DOCX into a `Document` | `parse_markdown`, `parse_text`, `parse_pages` |
 | `src/lectern/modules/__init__.py` | 146 | Entry-point loader (`lectern.modules`) and per-turn tool registry assembly | `Module`, `ToolEnv`, `load_modules`, `tool_registry`, `EnvProbe` |
 | `src/lectern/modules/ocr/jobs.py` | 685 | Background OCR worker queue (rasterise → recognise → clean → assemble) | `OcrJobs`, `page_dict` |
@@ -194,19 +194,19 @@ All `/api/*` routes except `/api/login` require `current_user` (`src/lectern/api
 | `POST /api/runtime/unload` | `require_admin` | `src/lectern/api/runtime.py:53 (unload)` |
 | `GET /api/runtime/settings` | `current_user` | `src/lectern/api/runtime.py:73 (get_settings)` |
 | `PUT /api/runtime/settings` | `require_admin` | `src/lectern/api/runtime.py:91 (put_settings)` |
-| `GET /api/projects` | `current_user` | `src/lectern/api/projects.py:72 (list_projects)` |
-| `POST /api/projects` | `current_user` | `src/lectern/api/projects.py:77 (create_project)` |
-| `GET /api/projects/{project_id}` | `current_user` | `src/lectern/api/projects.py:85 (get_project)` |
-| `PATCH /api/projects/{project_id}` | `current_user` | `src/lectern/api/projects.py:90 (rename_project)` |
-| `DELETE /api/projects/{project_id}` | `current_user` | `src/lectern/api/projects.py:98 (remove_project)` |
-| `PUT /api/projects/{project_id}/files` | `current_user` | `src/lectern/api/projects.py:141 (import_file)` |
-| `GET /api/projects/{project_id}/artifacts/{artifact_id}/content` | `current_user` | `src/lectern/api/projects.py:190 (artifact_content)` |
-| `GET /api/projects/{project_id}/artifacts/{artifact_id}/markdown` | `current_user` | `src/lectern/api/projects.py:205 (artifact_markdown)` |
-| `POST /api/projects/{project_id}/artifacts/{artifact_id}/view` | `current_user` | `src/lectern/api/projects.py:223 (artifact_view_link)` |
-| `GET /api/projects/{project_id}/items` | `current_user` | `src/lectern/api/projects.py:239 (project_items)` |
-| `GET /api/projects/{project_id}/search` | `current_user` | `src/lectern/api/projects.py:293 (search_project)` |
-| `GET /api/projects/{project_id}/tabs` | `current_user` | `src/lectern/api/projects.py:330 (get_tabs)` |
-| `PUT /api/projects/{project_id}/tabs` | `current_user` | `src/lectern/api/projects.py:357 (put_tabs)` |
+| `GET /api/projects` | `current_user` | `src/lectern/api/projects.py:73 (list_projects)` |
+| `POST /api/projects` | `current_user` | `src/lectern/api/projects.py:78 (create_project)` |
+| `GET /api/projects/{project_id}` | `current_user` | `src/lectern/api/projects.py:86 (get_project)` |
+| `PATCH /api/projects/{project_id}` | `current_user` | `src/lectern/api/projects.py:91 (rename_project)` |
+| `DELETE /api/projects/{project_id}` | `current_user` | `src/lectern/api/projects.py:99 (remove_project)` |
+| `PUT /api/projects/{project_id}/files` | `current_user` | `src/lectern/api/projects.py:142 (import_file)` |
+| `GET /api/projects/{project_id}/artifacts/{artifact_id}/content` | `current_user` | `src/lectern/api/projects.py:191 (artifact_content)` |
+| `GET /api/projects/{project_id}/artifacts/{artifact_id}/markdown` | `current_user` | `src/lectern/api/projects.py:206 (artifact_markdown)` |
+| `POST /api/projects/{project_id}/artifacts/{artifact_id}/view` | `current_user` | `src/lectern/api/projects.py:224 (artifact_view_link)` |
+| `GET /api/projects/{project_id}/items` | `current_user` | `src/lectern/api/projects.py:240 (project_items)` |
+| `GET /api/projects/{project_id}/search` | `current_user` | `src/lectern/api/projects.py:294 (search_project)` |
+| `GET /api/projects/{project_id}/tabs` | `current_user` | `src/lectern/api/projects.py:331 (get_tabs)` |
+| `PUT /api/projects/{project_id}/tabs` | `current_user` | `src/lectern/api/projects.py:358 (put_tabs)` |
 | `GET /api/projects/{project_id}/events` (SSE + WS) | `current_user` | `src/lectern/api/sessions.py:244 (project_events)`, `:260 (project_events_socket)` |
 | `POST /api/projects/{project_id}/sessions` | `current_user` | `src/lectern/api/sessions.py:105 (new_chat)` |
 | `GET /api/projects/{project_id}/sessions/{session_id}` | `current_user` | `src/lectern/api/sessions.py:116 (get_chat)` |

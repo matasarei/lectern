@@ -27,7 +27,7 @@ on.
 | `session.status`, `tab.open` | core | A session's state and last activity; open a file or session in a tab | no |
 | `chat.pin`, `chat.unpin` | core | Pin a standing instruction or a confirmed fact, or remove one | pin: when the words aren't the person's |
 | `task.after` | core | Run a tool when an OCR session finishes | always |
-| `export.formats`, `export.run` | export modules | List the installed formats; export a Document or a text file as a new file | export: when the format would lose something |
+| `export.formats`, `export.run` | export modules | List the installed formats; export a Document, a PDF with text, a DOCX, an ODT or a text file as a new file | export: when the format would lose something |
 | `code.write`, `code.run` | sandbox | Have the coding model write and test a script; run it | no (building the image and downloading the model ask) |
 | `ocr.start`, `ocr.note` | OCR | Start an OCR session, optionally exporting when it's done; set a page note | start: yes |
 | `image.generate` | image | Make a picture from a description and save it to `images/` ([below](#making-pictures)) | always, on a card the person can edit; not with the Image toggle |
@@ -216,7 +216,7 @@ A text's translation is the turn's answer as it stands (`ToolResult.answer`): it
 stored as the reply, and the turn ends without another model call, so the chat model neither
 loads again on a small GPU nor rewords it. A file's is saved as `<name>.<target>.md` beside it,
 from the source file, and opened in a tab; a text file is read as it is on disk, anything else
-(a PDF, a DOCX, an OCR Document) as the project indexed it, without block anchors or front
+(a PDF, a DOCX, an ODT, an OCR Document) as the project indexed it, without block anchors or front
 matter. Up to 40 parts, about 120,000 characters.
 
 When the chat model translated and a language not added has a model on this computer that
