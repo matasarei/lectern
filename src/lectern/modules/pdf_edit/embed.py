@@ -57,13 +57,14 @@ def embed_fonts(
     fonts: font_index.InstalledFonts,
     *,
     aliases: dict[str, str] | None = None,
-    fallbacks: tuple[str, ...] = FALLBACK_SANS,
+    fallbacks: tuple[str, ...] | None = None,
 ) -> Embedded:
     """`data` (PDFium's filled form) with each font a widget's appearance uses that isn't
     embedded, and isn't one of the standard 14, given an installed font's file cut down to the
     letters of `text` it can draw. A font no installed file can stand in for stays as it was
-    and is named in `missing`."""
+    and is named in `missing`. `aliases` and `fallbacks` default to ALIASES and FALLBACK_SANS."""
     aliases = ALIASES if aliases is None else aliases
+    fallbacks = FALLBACK_SANS if fallbacks is None else fallbacks
     reader = PdfReader(io.BytesIO(data))
     if reader.is_encrypted:
         # pypdf writes no incremental update to an encrypted file (docs/acceptance/pdf-edit.md).

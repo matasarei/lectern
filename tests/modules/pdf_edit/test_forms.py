@@ -10,6 +10,7 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 import pytest
 
+from lectern.modules.pdf_edit import embed
 from lectern.modules.pdf_edit.engine import EditFailed
 from lectern.modules.pdf_edit.forms import fill_form, form_fields
 
@@ -134,3 +135,38 @@ def test_something_that_isnt_a_pdf_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(EditFailed, match="couldn't be opened as a PDF"):
         form_fields(path)
+
+
+CYRILLIC = "Євген Матасар, вул. Ґонти 5"
+
+
+def test_a_cyrillic_value_is_drawn_in_an_embedded_font(
+    form: Path,
+    with_fonts,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,  # noqa: ANN001
+) -> None:
+    monkeypatch.setattr(embed, "FALLBACK_SANS", ("TestSans",))  # what this computer has
+
+    filled = fill_form(form, {"name": CYRILLIC}, fonts=with_fonts)
+
+    assert filled.unembedded == []
+    assert b"/FontFile2" in filled.data and b"+TestSans" in filled.data
+    assert _fields(filled.data, tmp_path)["name"] == ("text", CYRILLIC)
+
+
+def test_with_no_font_to_embed_the_form_is_still_filled_and_the_font_named(
+    form: Path,
+    no_fonts,
+    tmp_path: Path,  # noqa: ANN001
+) -> None:
+    filled = fill_form(form, {"name": CYRILLIC}, fonts=no_fonts)
+
+    assert filled.unembedded and b"/FontFile2" not in filled.data
+    assert _fields(filled.data, tmp_path)["name"] == ("text", CYRILLIC)
+
+
+def test_a_latin_fill_embeds_nothing(form: Path, with_fonts) -> None:  # noqa: ANN001
+    filled = fill_form(form, {"name": "Jane Doe"}, fonts=with_fonts)
+
+    assert filled.unembedded == [] and b"/FontFile2" not in filled.data

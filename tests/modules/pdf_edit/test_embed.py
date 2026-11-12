@@ -18,6 +18,8 @@ from lectern.modules.pdf_edit.forms import fill_form
 from .conftest import build_font, form_pdf
 
 NAME = "Євген Матасар, вул. Ґонти 5"
+# fill_form embeds from the computer's fonts; these tests start from what PDFium alone wrote.
+PDFIUM_ONLY = InstalledFonts([Path("/nothing-installed")])
 
 
 @pytest.fixture
@@ -50,7 +52,7 @@ def _embedded(font: dict) -> bytes | None:
 
 def _pdfium_only(form: Path, value: str) -> bytes:
     """The form as PDFium alone fills it."""
-    return fill_form(form, {"name": value}).data
+    return fill_form(form, {"name": value}, fonts=PDFIUM_ONLY).data
 
 
 def test_a_font_pdfium_didnt_embed_gets_the_installed_fonts_file(form, with_fonts) -> None:  # noqa: ANN001
@@ -91,7 +93,7 @@ def test_a_latin_fill_is_left_as_it_is(form, with_fonts) -> None:  # noqa: ANN00
 
 def test_each_embedded_font_has_its_own_subset_tag(tmp_path: Path, with_fonts) -> None:  # noqa: ANN001
     form = form_pdf(tmp_path / "form.pdf")
-    data = fill_form(form, {"name": NAME, "date": "12 листопада"}).data
+    data = fill_form(form, {"name": NAME, "date": "12 листопада"}, fonts=PDFIUM_ONLY).data
 
     done = embed_fonts(data, NAME + "12 листопада", with_fonts, aliases={}, fallbacks=("TestSans",))
 
@@ -140,7 +142,7 @@ def test_an_encrypted_form_is_left_as_it_is_and_says_so(form, with_fonts, tmp_pa
     locked = PdfWriter(clone_from=str(form))
     locked.encrypt(user_password="", owner_password="owner", algorithm="RC4-128")  # noqa: S106 (a test form)
     locked.write(str(tmp_path / "locked.pdf"))
-    data = fill_form(tmp_path / "locked.pdf", {"name": NAME}).data
+    data = fill_form(tmp_path / "locked.pdf", {"name": NAME}, fonts=PDFIUM_ONLY).data
 
     done = embed_fonts(data, NAME, with_fonts, aliases={}, fallbacks=("TestSans",))
 
