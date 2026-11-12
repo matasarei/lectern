@@ -24,7 +24,14 @@ from pydantic import BaseModel
 from lectern.documents.document import DOUBT_MARK, Block, Document, Doubt, removed
 from lectern.documents.from_text import parse_markdown, parse_pages, parse_text
 from lectern.projects import files
-from lectern.projects.text import PDF_PAGE_MIN_CHARS, docx_markdown, pdf_pages
+from lectern.projects.text import (
+    PDF_PAGE_MIN_CHARS,
+    DocumentTooLarge,
+    docx_markdown,
+    odt_markdown,
+    pdf_pages,
+    read_document,
+)
 
 CAPABILITIES = ("tables", "comments", "figures")
 DOCUMENT_JSON = "document.json"
@@ -166,7 +173,7 @@ def reading_order(doc: Document) -> list[tuple[Block, str | None, int]]:
 def load_for_export(root: Path, path: str) -> Document:
     """The Document an export is made from: an OCR session's (its document.md, whose
     document.json beside it is the source), or a file parsed into one: Markdown or plain
-    text, a PDF's text layer (page by page), a DOCX. Raises ValueError with a reason the
+    text, a PDF's text layer (page by page), a DOCX or an ODT. Raises ValueError with a reason the
     agent can pass on."""
     target = files.inside(root, path)
     name = Path(path)
@@ -191,10 +198,16 @@ def load_for_export(root: Path, path: str) -> Document:
         except (OpcError, zipfile.BadZipFile, KeyError) as exc:  # not a Word file inside
             raise ValueError(f"{path} isn't a readable DOCX ({exc}).") from None
         return parse_markdown(name.stem, markdown, source=name.name)
+    if suffix == ".odt" and target.is_file():
+        try:
+            markdown = read_document(target, odt_markdown)
+        except (ValueError, DocumentTooLarge) as exc:
+            raise ValueError(f"{path} isn't a readable ODT ({exc})") from None
+        return parse_markdown(name.stem, markdown, source=name.name)
     raise ValueError(
-        f"{path} isn't a Document, a PDF with text, a DOCX or a text file: export an OCR "
-        "session's document (its folder), a PDF with a text layer, a DOCX, or a Markdown or "
-        "text file."
+        f"{path} isn't a Document, a PDF with text, a DOCX, an ODT or a text file: export an "
+        "OCR session's document (its folder), a PDF with a text layer, a DOCX, an ODT, or a "
+        "Markdown or text file."
     )
 
 

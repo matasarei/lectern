@@ -82,7 +82,7 @@ def test_a_documents_folder_or_a_text_file_loads_and_anything_else_says_why(tmp_
     assert (letter.title, letter.blocks[0].type) == ("reply-letter", "heading")
     assert [b.text for b in load_for_export(tmp_path, "notes.txt").blocks] == ["Один.", "Два."]
     # The message used to be asked of a PDF; a PDF with text exports now, so an image asks it.
-    with pytest.raises(ValueError, match="isn't a Document, a PDF with text, a DOCX or a text"):
+    with pytest.raises(ValueError, match="isn't a Document, a PDF with text, a DOCX, an ODT or a text"):
         load_for_export(tmp_path, "photo.png")
 
 
@@ -118,6 +118,25 @@ def test_a_file_called_docx_that_isnt_one_says_so(tmp_path):
     (tmp_path / "fake.docx").write_bytes(b"not a zip")
     with pytest.raises(ValueError, match="fake.docx isn't a readable DOCX"):
         load_for_export(tmp_path, "fake.docx")
+
+
+def test_an_odt_loads_with_its_headings_tables_and_lists(tmp_path):
+    from ..projects.conftest import write_odt
+
+    write_odt(tmp_path / "lease.odt")
+    doc = load_for_export(tmp_path, "lease.odt")
+    assert doc.title == "lease" and doc.source.artifact == "lease.odt"
+    assert [b.type for b in doc.blocks][:3] == ["heading", "paragraph", "table"]
+    assert doc.blocks[0].text == "Договір оренди"
+    assert doc.blocks[1].text == "Орендар сплачує *пеню* за кожен день."  # its own asterisks
+    assert doc.blocks[2].rows == [["Сума", "250,00 грн"], ["Пеня", "0,5% на день"]]
+    assert "Перший пункт" in doc.blocks[3].text
+
+
+def test_a_file_called_odt_that_isnt_one_says_so(tmp_path):
+    (tmp_path / "fake.odt").write_bytes(b"not a zip")
+    with pytest.raises(ValueError, match="fake.odt isn't a readable ODT"):
+        load_for_export(tmp_path, "fake.odt")
 
 
 def test_a_removed_block_isnt_exported_and_its_pages_note_goes_with_the_next_block():
