@@ -1,7 +1,8 @@
 """Text from a project file, for the chat to read and for search.
 
 Plain text, Markdown and code are read as they are. PDFs give their text layer (a scan
-without one has no text until it goes through OCR), DOCX its paragraphs and tables. The text
+without one has no text until it goes through OCR), DOCX and ODT their paragraphs and tables
+(a broken one, or one too big to open, has a note instead). The text
 comes back in chunks: one per Markdown section, PDF page or ~1,500 characters, each with a
 block reference `#c<n>` that search results and `document.read` use.
 """
@@ -11,6 +12,9 @@ from __future__ import annotations
 import mimetypes
 import re
 import threading
+import zipfile
+import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,6 +34,16 @@ PDFIUM_LOCK = threading.Lock()
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MIME_OVERRIDES = {".md": "text/markdown", ".markdown": "text/markdown", ".docx": DOCX_MIME}
+# A DOCX or ODT whose XML parts unzip to more than this, together, isn't opened: a 1.3 MB DOCX
+# of 8 M characters had a 16 MB document.xml, and a small zip can unzip to gigabytes. All its
+# XML parts count, whatever their names: the main part's name is the package's to choose.
+DOCUMENT_XML_LIMIT = 32 * 1024 * 1024
+# An ODT table's rows as written, each once: odfdo's get_rows() and get_cells() expand
+# table:number-rows-repeated and table:number-columns-repeated, a few bytes of XML asking for
+# millions of cells that the unzipped-size check can't see (5,000,000 took 156 s).
+ODT_ROWS = (
+    "table:table-row | table:table-header-rows/table:table-row | table:table-rows/table:table-row"
+)
 
 
 # A Document's block anchor in document.md: {#b3.2 p=3}, {#b3.3 p=3→4}, {#b3.4 p=3 figure}
@@ -76,7 +90,9 @@ def extract(path: Path) -> Extracted:
     if suffix == ".pdf":
         return _pdf(path)
     if suffix == ".docx":
-        return _limited(_docx(path), markdown=True)
+        return _document(path, _docx)
+    if suffix == ".odt":
+        return _document(path, _odt)
     if suffix in TEXT_EXTENSIONS or mime_for(path.name).startswith("text/"):
         text = _read_text(path)
         if text is None:
@@ -85,6 +101,16 @@ def extract(path: Path) -> Extracted:
             return Extracted(chunks=_document_chunks(text[:TEXT_LIMIT]))
         return _limited(text, markdown=suffix in MARKDOWN_EXTENSIONS)
     return Extracted(note="no text to read in this kind of file")
+
+
+def _document(path: Path, convert: Callable[[Path], str]) -> Extracted:
+    """A DOCX or ODT: a broken one, or one too big to open, still imports, with a note."""
+    try:
+        return _limited(read_document(path, convert), markdown=True)
+    except DocumentTooLarge:
+        return Extracted(note="too much text to read")
+    except ValueError:
+        return Extracted(note="couldn't be read as a document")
 
 
 def _read_text(path: Path) -> str | None:
@@ -275,6 +301,51 @@ def _pdf_text(path: Path) -> Extracted:
     return Extracted(chunks=chunks, note=note)
 
 
+class DocumentTooLarge(Exception):
+    """The document's XML unzips past DOCUMENT_XML_LIMIT: too big to open."""
+
+
+def _is_xml(name: str) -> bool:
+    return name.lower().endswith((".xml", ".rels"))
+
+
+def read_document(path: Path, convert: Callable[[Path], str]) -> str:
+    """`convert(path)` of a DOCX or ODT, once its size is checked. Raises DocumentTooLarge
+    when its XML unzips past DOCUMENT_XML_LIMIT, ValueError when it can't be read."""
+    from docx.opc.exceptions import OpcError
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            unzipped = sum(i.file_size for i in archive.infolist() if _is_xml(i.filename))
+        if unzipped > DOCUMENT_XML_LIMIT:
+            raise DocumentTooLarge(f"{path.name} has too much text to show here.")
+        return convert(path)
+    # What a broken file raises, seen on junk bytes, a zip without the document's part, bad
+    # XML and a damaged or cut-off compressed part: zipfile's BadZipFile, a KeyError for the
+    # missing part, python-docx's OpcError, odfdo's TypeError for a file that isn't a zip,
+    # lxml's syntax errors (a SyntaxError), zlib.error and EOFError from the compressed part,
+    # odfdo's NotImplementedError for a drawing or a presentation saved as .odt.
+    except (
+        OpcError, zipfile.BadZipFile, KeyError, TypeError, SyntaxError, zlib.error, EOFError,
+        NotImplementedError, OSError,
+    ) as exc:  # fmt: skip
+        raise ValueError(
+            f"{path.name} couldn't be read as a document ({type(exc).__name__})."
+        ) from None
+
+
+def odt_preview_markdown(path: Path) -> str:
+    """An ODT as odfdo's Markdown, for the file tab: its own Markdown characters come back
+    escaped (`\\*`, `\\-`) so react-markdown shows them as text, and italic and bold are
+    marked. The index and export read odt_markdown, which has neither."""
+    from odfdo import Document
+
+    markdown = Document(path).to_markdown()
+    if not isinstance(markdown, str):  # a spreadsheet's tables
+        raise TypeError("not a text document")
+    return markdown
+
+
 def docx_markdown(path: Path, *, limit: int | None = None) -> str:
     """A DOCX as Markdown with real pipe tables, for building a Document from it (export) and
     for the file tab. `limit`: stop once past about that many characters (the file tab's
@@ -320,3 +391,80 @@ def _docx(path: Path, *, pipe_tables: bool = False, limit: int | None = None) ->
             lines.append(text)
         lines.append("")
     return "\n".join(lines)
+
+
+def odt_markdown(path: Path) -> str:
+    """An ODT as Markdown with real pipe tables, for building a Document from it (export):
+    the text as written, with nothing escaped. Use it through read_document."""
+    return _odt(path, pipe_tables=True)
+
+
+def _odt(path: Path, *, pipe_tables: bool = False) -> str:
+    """An ODT text document as _docx makes a DOCX: headings as Markdown headings, paragraphs
+    as they are, table rows as "a | b" (pipe tables with pipe_tables), list items as "- a",
+    sections walked into. A spreadsheet, drawing or presentation saved as .odt raises
+    TypeError."""
+    from odfdo import Document
+
+    document = Document(path)
+    if not document.get_type().startswith("text"):
+        raise TypeError("not a text document")
+    lines: list[str] = []
+    _odt_walk(document.body, lines, pipe_tables=pipe_tables)
+    return "\n".join(lines)
+
+
+def _odt_walk(element, lines: list[str], *, pipe_tables: bool) -> None:  # noqa: ANN001 (odfdo)
+    # Anything else at this level is left out, as python-docx leaves it: tracked changes'
+    # deleted text, a table of contents (the headings again), forms, drawings.
+    for child in element.children:
+        if child.tag == "text:h":
+            text = _odt_text(child)
+            if text:
+                level = min(int(child.get_attribute("text:outline-level") or 1), 6)
+                lines += [f"{'#' * level} {text}", ""]
+        elif child.tag == "text:p":
+            lines += [_odt_text(child), ""]
+        elif child.tag == "text:section":
+            _odt_walk(child, lines, pipe_tables=pipe_tables)
+        elif child.tag == "text:list":
+            lines += [*_odt_items(child), ""]
+        elif child.tag == "table:table":
+            rows = [[_odt_text(cell).replace("\n", " ") for cell in _odt_cells(row)]
+                    for row in child.get_elements(ODT_ROWS)]  # fmt: skip
+            for n, cells in enumerate(rows):
+                if not pipe_tables:
+                    lines.append(" | ".join(cells))
+                    continue
+                lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+                if n == 0:
+                    lines.append("| " + " | ".join("---" for _ in cells) + " |")
+            lines.append("")
+
+
+def _odt_cells(row) -> list:  # noqa: ANN001 (an odfdo Row)
+    """The row's cells as written, a repeated one once (see ODT_ROWS)."""
+    return [c for c in row.children if c.tag in ("table:table-cell", "table:covered-table-cell")]
+
+
+def _odt_items(odt_list) -> list[str]:  # noqa: ANN001 (an odfdo List)
+    """A list's items as "- a", a nested list's flattened into it."""
+    items: list[str] = []
+    for item in odt_list.children:
+        for child in item.children:
+            if child.tag == "text:list":
+                items += _odt_items(child)
+            elif text := _odt_text(child):
+                items.append(f"- {text}")
+    return items
+
+
+def _odt_text(element) -> str:  # noqa: ANN001 (an odfdo Element)
+    """An element's text, without its comments (Lectern's own ODT export writes open
+    questions as comments) or footnotes, as python-docx reads a paragraph."""
+    skipped = "descendant::office:annotation | descendant::text:note"
+    if element.get_elements(skipped):
+        element = element.clone
+        for part in element.get_elements(skipped):
+            part.delete()
+    return str(element).strip()

@@ -83,3 +83,22 @@ def write_docx(path: Path) -> Path:
     document.add_paragraph("Ковальчук О. П.")
     document.save(str(path))
     return path
+
+
+def write_odt(path: Path) -> Path:
+    from odfdo import Document, Header, List, ListItem, Paragraph, Table
+
+    document = Document("text")
+    document.body.append(Header(1, "Договір оренди"))
+    document.body.append(Paragraph("Орендар сплачує *пеню* за кожен день."))
+    table = Table("Суми", width=2, height=2)
+    table.set_value((0, 0), "Сума")
+    table.set_value((1, 0), "250,00 грн")
+    table.set_value((0, 1), "Пеня")
+    table.set_value((1, 1), "0,5% на день")
+    document.body.append(table)
+    items = List()
+    items.append(ListItem("Перший пункт"))
+    document.body.append(items)
+    document.save(path)
+    return path

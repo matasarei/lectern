@@ -19,7 +19,7 @@ from starlette.requests import HTTPConnection
 
 from lectern.core.auth import User, current_user
 from lectern.projects import files, search
-from lectern.projects.preview import DocumentTooLarge, document_markdown, preview_kind
+from lectern.projects.preview import document_markdown, preview_kind
 from lectern.projects.store import (
     UNTITLED,
     NameMismatch,
@@ -28,6 +28,7 @@ from lectern.projects.store import (
     ProjectStore,
 )
 from lectern.projects.tables import ArtifactRow, MessageRow, SessionRow, UiStateRow, iso
+from lectern.projects.text import DocumentTooLarge
 
 router = APIRouter()
 

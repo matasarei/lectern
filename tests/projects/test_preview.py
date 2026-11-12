@@ -10,7 +10,7 @@ from lectern.projects import preview, text
 from lectern.projects.preview import document_markdown, preview_kind
 from lectern.projects.text import mime_for
 
-from .conftest import write_docx
+from .conftest import write_docx, write_odt
 
 
 @pytest.mark.parametrize(
@@ -47,25 +47,6 @@ def test_html_is_never_a_plain_text_preview():
     # .html is in TEXT_EXTENSIONS and its type is text/html: still its own kind, so the page
     # offers the sandboxed tab and never treats it as ordinary text.
     assert preview_kind("page.html", "text/html") == "html"
-
-
-def write_odt(path: Path) -> Path:
-    from odfdo import Document, Header, List, ListItem, Paragraph, Table
-
-    document = Document("text")
-    document.body.append(Header(1, "Договір оренди"))
-    document.body.append(Paragraph("Орендар сплачує *пеню* за кожен день."))
-    table = Table("Суми", width=2, height=2)
-    table.set_value((0, 0), "Сума")
-    table.set_value((1, 0), "250,00 грн")
-    table.set_value((0, 1), "Пеня")
-    table.set_value((1, 1), "0,5% на день")
-    document.body.append(table)
-    items = List()
-    items.append(ListItem("Перший пункт"))
-    document.body.append(items)
-    document.save(path)
-    return path
 
 
 def test_a_docx_is_markdown_with_its_headings_and_tables(tmp_path):
@@ -147,10 +128,10 @@ def test_a_docx_walk_stops_once_past_its_limit(tmp_path):
 
 @pytest.mark.parametrize("writer", [write_docx, write_odt])
 def test_a_document_whose_text_unzips_too_big_isnt_opened(tmp_path, monkeypatch, writer):
-    monkeypatch.setattr(preview, "DOCUMENT_XML_LIMIT", 100)
+    monkeypatch.setattr(text, "DOCUMENT_XML_LIMIT", 100)
     suffix = ".docx" if writer is write_docx else ".odt"
 
-    with pytest.raises(preview.DocumentTooLarge, match="has too much text to show here"):
+    with pytest.raises(text.DocumentTooLarge, match="has too much text to show here"):
         document_markdown(writer(tmp_path / f"lease{suffix}"))
 
 
@@ -212,7 +193,7 @@ def test_every_xml_part_counts_toward_the_size_limit(tmp_path, monkeypatch):
     with zipfile.ZipFile(path) as archive:
         sizes = {i.filename: i.file_size for i in archive.infolist()}
     # Room for content.xml alone, not for it and styles.xml together.
-    monkeypatch.setattr(preview, "DOCUMENT_XML_LIMIT", sizes["content.xml"] + 1)
+    monkeypatch.setattr(text, "DOCUMENT_XML_LIMIT", sizes["content.xml"] + 1)
 
-    with pytest.raises(preview.DocumentTooLarge):
+    with pytest.raises(text.DocumentTooLarge):
         document_markdown(path)

@@ -69,6 +69,9 @@ session's Document, an export, a web page saved by the chat, an edited copy of a
   download them.
 - **Search.** Every text file and Document is indexed for full-text search (SQLite FTS5),
   in pieces the chat can cite: `notes.md #c3` for a file, `#b3.2` for a Document's block.
+  A PDF gives its text layer, a DOCX or ODT its headings, paragraphs, lists and tables (not
+  its comments or footnotes). A broken DOCX or ODT, or one whose text unzips past 32 MB,
+  still imports, with a note saying why the chat can't read it.
 
 ## The app's own data
 

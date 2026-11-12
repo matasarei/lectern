@@ -147,11 +147,26 @@ def test_a_broken_document_or_another_kind_of_file_isnt_shown_as_markdown(api):
     )  # fmt: skip
 
 
+def test_a_broken_docx_imports_with_a_note(api):
+    client, headers, _ = api
+    pid = _project(client, headers)
+
+    answer = client.put(
+        f"/api/projects/{pid}/files", params={"name": "lease.docx"}, content=b"not a zip",
+        headers=headers,
+    )  # fmt: skip
+
+    assert answer.status_code == 201
+    assert (answer.json()["text"], answer.json()["text_note"]) == (
+        "none", "couldn't be read as a document"
+    )  # fmt: skip
+
+
 def test_a_document_too_large_to_show_says_so(api, tmp_path, monkeypatch):
     client, headers, _ = api
     pid = _project(client, headers)
     aid = _import(client, headers, pid, "lease.docx", write_docx(tmp_path / "l.docx").read_bytes())
-    monkeypatch.setattr("lectern.projects.preview.DOCUMENT_XML_LIMIT", 100)
+    monkeypatch.setattr("lectern.projects.text.DOCUMENT_XML_LIMIT", 100)
 
     answer = client.get(f"/api/projects/{pid}/artifacts/{aid}/markdown", headers=headers)
 

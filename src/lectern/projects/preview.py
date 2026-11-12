@@ -14,13 +14,17 @@ its own lists of types.
 
 from __future__ import annotations
 
-import zipfile
-import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from lectern.projects.text import MARKDOWN_EXTENSIONS, TEXT_EXTENSIONS, docx_markdown
+from lectern.projects.text import (
+    MARKDOWN_EXTENSIONS,
+    TEXT_EXTENSIONS,
+    docx_markdown,
+    odt_preview_markdown,
+    read_document,
+)
 
 Kind = Literal["markdown", "text", "html", "image", "pdf", "document", "legacy"]
 
@@ -32,14 +36,6 @@ IMAGE_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 # Mac: python-docx walks ~1 M characters a second, so the whole of a long DOCX would keep the
 # page waiting for many seconds; odfdo is quicker, but react-markdown has the same text to draw.
 DOCUMENT_PREVIEW_CHARS = 500_000
-# A document whose XML parts unzip to more than this, together, isn't opened: a 1.3 MB DOCX of
-# 8 M characters had a 16 MB document.xml, and a small zip can unzip to gigabytes. All its XML
-# parts count, whatever their names: the main part's name is the package's to choose.
-DOCUMENT_XML_LIMIT = 32 * 1024 * 1024
-
-
-class DocumentTooLarge(Exception):
-    """The document's text is too big to open for the page."""
 
 
 @dataclass(frozen=True)
@@ -67,43 +63,16 @@ def preview_kind(name: str, mime: str) -> Kind | None:
     return None
 
 
-def _is_xml(name: str) -> bool:
-    return name.lower().endswith((".xml", ".rels"))
-
-
 def document_markdown(path: Path) -> DocumentPreview:
     """A DOCX or ODT as Markdown, for the page, up to DOCUMENT_PREVIEW_CHARS. Raises
     ValueError when it can't be read, DocumentTooLarge when its text is too big to open."""
-    from docx.opc.exceptions import OpcError
-
     suffix = path.suffix.lower()
     if suffix not in DOCUMENT_EXTENSIONS:
         raise ValueError(f"{path.name} isn't a DOCX or ODT file.")
-    try:
-        with zipfile.ZipFile(path) as archive:
-            unzipped = sum(i.file_size for i in archive.infolist() if _is_xml(i.filename))
-        if unzipped > DOCUMENT_XML_LIMIT:
-            raise DocumentTooLarge(f"{path.name} has too much text to show here.")
-        if suffix == ".docx":
-            markdown = docx_markdown(path, limit=DOCUMENT_PREVIEW_CHARS)
-        else:
-            from odfdo import Document
-
-            markdown = Document(path).to_markdown()
-            if not isinstance(markdown, str):  # a spreadsheet's tables
-                raise TypeError("not a text document")
-    # What a broken file raises, seen on junk bytes, a zip without the document's part, bad
-    # XML and a damaged or cut-off compressed part: zipfile's BadZipFile, a KeyError for the
-    # missing part, python-docx's OpcError, odfdo's TypeError for a file that isn't a zip,
-    # lxml's syntax errors (a SyntaxError), zlib.error and EOFError from the compressed part,
-    # odfdo's NotImplementedError for a drawing or a presentation saved as .odt.
-    except (
-        OpcError, zipfile.BadZipFile, KeyError, TypeError, SyntaxError, zlib.error, EOFError,
-        NotImplementedError, OSError,
-    ) as exc:  # fmt: skip
-        raise ValueError(
-            f"{path.name} couldn't be read as a document ({type(exc).__name__})."
-        ) from None
+    if suffix == ".docx":
+        markdown = read_document(path, lambda p: docx_markdown(p, limit=DOCUMENT_PREVIEW_CHARS))
+    else:
+        markdown = read_document(path, odt_preview_markdown)
     if len(markdown) <= DOCUMENT_PREVIEW_CHARS:
         return DocumentPreview(markdown, cut=False)
     end = markdown.rfind("\n", 0, DOCUMENT_PREVIEW_CHARS)
