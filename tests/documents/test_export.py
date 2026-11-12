@@ -146,8 +146,19 @@ def test_an_odt_loads_with_its_headings_tables_and_lists(tmp_path):
 
 def test_a_file_called_odt_that_isnt_one_says_so(tmp_path):
     (tmp_path / "fake.odt").write_bytes(b"not a zip")
-    with pytest.raises(ValueError, match="fake.odt isn't a readable ODT"):
+    with pytest.raises(ValueError, match=r"^fake.odt isn't a readable ODT\.$"):
         load_for_export(tmp_path, "fake.odt")
+
+
+def test_an_odt_whose_text_unzips_too_big_isnt_exported(tmp_path, monkeypatch):
+    from lectern.projects import text
+
+    from ..projects.conftest import write_odt
+
+    write_odt(tmp_path / "lease.odt")
+    monkeypatch.setattr(text, "DOCUMENT_XML_LIMIT", 100)
+    with pytest.raises(ValueError, match=r"^lease.odt has too much text to export\.$"):
+        load_for_export(tmp_path, "lease.odt")
 
 
 def test_a_removed_block_isnt_exported_and_its_pages_note_goes_with_the_next_block():

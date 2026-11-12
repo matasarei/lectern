@@ -201,8 +201,10 @@ def load_for_export(root: Path, path: str) -> Document:
     if suffix == ".odt" and target.is_file():
         try:
             markdown = read_document(target, odt_markdown)
-        except (ValueError, DocumentTooLarge) as exc:
-            raise ValueError(f"{path} isn't a readable ODT ({exc})") from None
+        except DocumentTooLarge:
+            raise ValueError(f"{path} has too much text to export.") from None
+        except ValueError:
+            raise ValueError(f"{path} isn't a readable ODT.") from None
         return parse_markdown(name.stem, markdown, source=name.name)
     raise ValueError(
         f"{path} isn't a Document, a PDF with text, a DOCX, an ODT or a text file: export an "
