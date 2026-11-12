@@ -151,7 +151,7 @@ def test_a_document_too_large_to_show_says_so(api, tmp_path, monkeypatch):
     client, headers, _ = api
     pid = _project(client, headers)
     aid = _import(client, headers, pid, "lease.docx", write_docx(tmp_path / "l.docx").read_bytes())
-    monkeypatch.setattr("lectern.projects.preview.DOCUMENT_XML_LIMIT", 100)
+    monkeypatch.setattr("lectern.projects.text.DOCUMENT_XML_LIMIT", 100)
 
     answer = client.get(f"/api/projects/{pid}/artifacts/{aid}/markdown", headers=headers)
 

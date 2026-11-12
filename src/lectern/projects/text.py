@@ -1,7 +1,8 @@
 """Text from a project file, for the chat to read and for search.
 
 Plain text, Markdown and code are read as they are. PDFs give their text layer (a scan
-without one has no text until it goes through OCR), DOCX its paragraphs and tables. The text
+without one has no text until it goes through OCR), DOCX and ODT their paragraphs and tables
+(a broken one, or one too big to open, has a note instead). The text
 comes back in chunks: one per Markdown section, PDF page or ~1,500 characters, each with a
 block reference `#c<n>` that search results and `document.read` use.
 """
@@ -11,6 +12,9 @@ from __future__ import annotations
 import mimetypes
 import re
 import threading
+import zipfile
+import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,6 +34,10 @@ PDFIUM_LOCK = threading.Lock()
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 MIME_OVERRIDES = {".md": "text/markdown", ".markdown": "text/markdown", ".docx": DOCX_MIME}
+# A DOCX or ODT whose XML parts unzip to more than this, together, isn't opened: a 1.3 MB DOCX
+# of 8 M characters had a 16 MB document.xml, and a small zip can unzip to gigabytes. All its
+# XML parts count, whatever their names: the main part's name is the package's to choose.
+DOCUMENT_XML_LIMIT = 32 * 1024 * 1024
 
 
 # A Document's block anchor in document.md: {#b3.2 p=3}, {#b3.3 p=3→4}, {#b3.4 p=3 figure}
@@ -273,6 +281,50 @@ def _pdf_text(path: Path) -> Extracted:
     if len(pages) < count:
         note = f"only the first {len(pages)} of {count} pages are used"
     return Extracted(chunks=chunks, note=note)
+
+
+class DocumentTooLarge(Exception):
+    """The document's XML unzips past DOCUMENT_XML_LIMIT: too big to open."""
+
+
+def _is_xml(name: str) -> bool:
+    return name.lower().endswith((".xml", ".rels"))
+
+
+def read_document(path: Path, convert: Callable[[Path], str]) -> str:
+    """`convert(path)` of a DOCX or ODT, once its size is checked. Raises DocumentTooLarge
+    when its XML unzips past DOCUMENT_XML_LIMIT, ValueError when it can't be read."""
+    from docx.opc.exceptions import OpcError
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            unzipped = sum(i.file_size for i in archive.infolist() if _is_xml(i.filename))
+        if unzipped > DOCUMENT_XML_LIMIT:
+            raise DocumentTooLarge(f"{path.name} has too much text to show here.")
+        return convert(path)
+    # What a broken file raises, seen on junk bytes, a zip without the document's part, bad
+    # XML and a damaged or cut-off compressed part: zipfile's BadZipFile, a KeyError for the
+    # missing part, python-docx's OpcError, odfdo's TypeError for a file that isn't a zip,
+    # lxml's syntax errors (a SyntaxError), zlib.error and EOFError from the compressed part,
+    # odfdo's NotImplementedError for a drawing or a presentation saved as .odt.
+    except (
+        OpcError, zipfile.BadZipFile, KeyError, TypeError, SyntaxError, zlib.error, EOFError,
+        NotImplementedError, OSError,
+    ) as exc:  # fmt: skip
+        raise ValueError(
+            f"{path.name} couldn't be read as a document ({type(exc).__name__})."
+        ) from None
+
+
+def odt_markdown(path: Path) -> str:
+    """An ODT text document as Markdown (odfdo): headings, paragraphs, lists and pipe tables.
+    Its own Markdown characters come back escaped (`\\*`). Use it through read_document."""
+    from odfdo import Document
+
+    markdown = Document(path).to_markdown()
+    if not isinstance(markdown, str):  # a spreadsheet's tables
+        raise TypeError("not a text document")
+    return markdown
 
 
 def docx_markdown(path: Path, *, limit: int | None = None) -> str:
