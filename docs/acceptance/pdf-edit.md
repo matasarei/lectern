@@ -150,3 +150,27 @@ it:
   and it asks only once.
 - **Other cases:** the failures (instalments in every run, a Ukrainian city edit stopped after
   8 calls, contractor or client failing on `find`) were in turns where no call was held.
+
+## Cyrillic in filled fields (2026-11-12)
+
+`pdf.fill` types a value through PDFium's form environment, and PDFium draws it. For letters
+the field's own font (`/Helv`, WinAnsi) can't draw, PDFium adds a TrueType "Arial" in the
+cp1251 layout, but doesn't embed it. The agent-check form's "name" filled with
+"Євген Матасар, вул. Ґонти 5" gives `pdffonts`: `Arial TrueType Custom emb no`. poppler draws
+it right with this Mac's fonts, as Courier squeezed into Arial's widths with only Courier New,
+and draws nothing with no fonts at all.
+
+PDFium can't be pointed at an embedded font. An embedded Cyrillic font in the form's `/DR`,
+named in the field's `/DA`, didn't change what it drew: it still added its own Arial. That
+held for a cp1251 simple TrueType and for a Type0 Identity-H font with a ToUnicode CMap.
+
+What works is completing PDFium's font afterwards, with pypdf 7.0.1:
+- **Embedding:** pypdf adds ArialMT, cut to the letters in the value, as `/FontFile2` of the
+  font PDFium wrote. `pdffonts` then shows `ArialMT TrueType Custom emb yes`. The field shows the
+  text in poppler with no fonts, in PDFium, and in macOS Quick Look.
+- **Incremental write:** pypdf appends to PDFium's output and leaves its bytes as they were.
+  PDFium's output had neither an xref stream nor object streams.
+- **Encrypted forms:** a form with only an owner password (RC4-128) is filled, and PDFium keeps
+  it encrypted. pypdf doesn't write incremental updates to encrypted files, and AES needs the
+  `cryptography` package, which isn't installed. So an encrypted form is filled with the font
+  not embedded, and the result says so.

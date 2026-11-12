@@ -26,6 +26,7 @@ dependencies = [
     "ddgs>=9.16,<9.17",
     "primp>=2.0,<3",
     "fonttools>=4.60,<5",
+    "pypdf>=7.0.1,<8",
 ]
 
 [project.optional-dependencies]
