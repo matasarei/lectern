@@ -193,6 +193,9 @@ Two ways in:
   toggle goes off once the message is sent. Only a tool that declares `forced_question` can be
   asked for this way; any other ends the turn with a reason.
 
+Every picture is approved by the person: on its card, or by the toggle, which they switch on
+for one message. There's no "always allow", on purpose.
+
 While a picture is made, its line shows the phases and the steps:
 - getting the engine ready;
 - waiting for room;
