@@ -41,6 +41,7 @@ const ROLE_COLOURS: Record<Role, string> = {
   code: "bg-slate-500",
   image: "bg-rose-600",
   translate: "bg-emerald-600",
+  voice: "bg-sky-600",
 };
 
 /** The role a loaded model serves. The runtime also loads a model by name

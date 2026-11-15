@@ -1,5 +1,5 @@
 export type Tier = "below_minimum" | "minimum" | "recommended" | "comfortable";
-export type Role = "main" | "ocr" | "ocr.hand" | "code" | "image" | "translate";
+export type Role = "main" | "ocr" | "ocr.hand" | "code" | "image" | "translate" | "voice";
 /** What a model can be chosen for in Models & memory: a role, or cleanup of scanned pages
  * ("clean"), which a chat model does and which is leased as the chat role's. */
 export type ChoiceRole = Role | "clean";
@@ -243,6 +243,37 @@ export interface LanguagesResponse {
   /** The chat model the options were measured against. */
   chat_model: string | null;
   languages: Language[];
+}
+
+// --- voices (the voice module) -----------------------------------------------------------
+
+/** A voice that speaks a language (GET /api/voice). */
+export interface VoiceOption {
+  id: string;
+  title: string;
+  quant: string;
+  size: number;
+  licence: string;
+  /** A restricted licence: it has to be read and accepted before the download. */
+  licence_notice: boolean;
+  /** The language's voice when an admin picked none. */
+  default: boolean;
+  installed: boolean;
+  download: DownloadState;
+}
+
+export interface VoiceLanguage {
+  /** ISO 639-1; the page names it. */
+  code: string;
+  /** The voice it speaks with now. */
+  voice: string;
+  /** The voice an admin picked; null: the default. */
+  chosen: string | null;
+  voices: VoiceOption[];
+}
+
+export interface VoicesResponse {
+  languages: VoiceLanguage[];
 }
 
 export interface WebSettings {

@@ -28,6 +28,7 @@ import { ExportButtons } from "./export-buttons";
 import { OcrLine } from "./ocr-line";
 import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
+import { ReadAloud } from "../voice/read-aloud";
 
 const ARGS_SHOWN = 80;
 // The Image toggle's shapes (image.generate's `shape`).
@@ -394,6 +395,14 @@ function shows(group: Group): boolean {
   return group.messages.some((m) => m.role === "assistant" && (m.content || m.tool_calls?.length));
 }
 
+/** What a reply says, as Markdown: its messages' text, without the tool lines. */
+function replyText(group: Group): string {
+  return group.messages
+    .filter((m) => m.role === "assistant" && m.content)
+    .map((m) => m.content)
+    .join("\n\n");
+}
+
 /** One reply from the model: its tool lines, its text, and, while it runs, the live part. */
 function Reply({ children }: { children: React.ReactNode }) {
   return (
@@ -515,6 +524,10 @@ function Transcript({
                     </Fragment>
                   ))}
                 {group === last && liveJoins && liveReply}
+                {/* Read aloud once the reply is finished: not while its turn still writes it. */}
+                {!(group === last && liveJoins && live.running) && (
+                  <ReadAloud readingKey={`${chatId}:${group.messages[0].id}`} markdown={replyText(group)} />
+                )}
               </Reply>
             )
           )}

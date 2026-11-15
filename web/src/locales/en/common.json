@@ -638,5 +638,17 @@
     "scoreVsChat": "Scores {{score}} for translating to and from English, where the chat model scores {{chat}} (higher is better).",
     "untested": "Not tested on this computer yet, so no model is offered for them: {{languages}}.",
     "notOffered": "No longer offered on this computer: the chat model translates this language as well now, or the model is more than this computer is meant for. It still translates for this language."
+  },
+  "voice": {
+    "readAloud": "Read aloud",
+    "loading": "Getting the voice ready…",
+    "stop": "Stop reading",
+    "language": "Language to read in",
+    "noLanguage": "Can't tell which language this reply is in. Pick one to read it in.",
+    "noVoice": "There's no voice for {{language}}.",
+    "askAdmin": "There's no {{language}} voice on this computer yet. Ask an admin to add it.",
+    "download": "Download the {{language}} voice ({{size}})",
+    "acceptLicence": "I've read its licence ({{licence}}) and accept it",
+    "failed": "Couldn't read this aloud: {{error}}"
   }
 }

@@ -74,6 +74,7 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
+      if (url === "/api/voice") return new Response(JSON.stringify({ languages: [] }));
       if (url === "/api/exporters") {
         return new Response(JSON.stringify([{ format: "docx", extension: ".docx", capabilities: [] }]));
       }
