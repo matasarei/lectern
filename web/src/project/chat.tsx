@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Fragment, useId, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
@@ -28,7 +28,9 @@ import { ExportButtons } from "./export-buttons";
 import { OcrLine } from "./ocr-line";
 import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
+import { player } from "../voice/player";
 import { ReadAloud } from "../voice/read-aloud";
+import { useAutoRead } from "../voice/use-auto-read";
 
 const ARGS_SHOWN = 80;
 // The Image toggle's shapes (image.generate's `shape`).
@@ -53,7 +55,21 @@ export function ChatTab({
     queryKey: ["chat", projectId, sessionId],
     queryFn: () => apiFetch<Chat>(base),
   });
-  const live = useSessionEvents(projectId, sessionId, onOpen);
+  // Read replies aloud: when a turn ends while the page watches, its reply is read. `readAfter`
+  // is the message that turn answered, so the reply read is the one after it, not an older one
+  // still on screen before the transcript is fetched again.
+  const [autoRead, setAutoRead] = useAutoRead();
+  const [readAfter, setReadAfter] = useState<number | null>(null);
+  const autoReadRef = useRef(autoRead);
+  const turnRef = useRef<number | null>(null);
+  const onTurnEnded = useCallback(() => {
+    if (autoReadRef.current) setReadAfter(turnRef.current ?? 0);
+  }, []);
+  const live = useSessionEvents(projectId, sessionId, onOpen, onTurnEnded);
+  useEffect(() => {
+    autoReadRef.current = autoRead;
+    turnRef.current = live.messageId;
+  }, [autoRead, live.messageId]);
 
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Artifact[]>([]);
@@ -165,6 +181,8 @@ export function ChatTab({
           onOpen={onOpen}
           onDecide={(id, approve, values) => decide.mutate({ id, approve, values })}
           onStopTool={(callId) => stopTool.mutate(callId)}
+          readAfter={readAfter}
+          onReadStarted={() => setReadAfter(null)}
           liveReply={
             hasLiveReply(live) && (
               <LiveReply
@@ -307,6 +325,18 @@ export function ChatTab({
           >
             {t("chat.imageToggle")}
           </button>
+          <button
+            type="button"
+            className={autoRead ? "btn-primary" : "btn-secondary"}
+            aria-pressed={autoRead}
+            title={t("voice.autoReadHint")}
+            onClick={() => {
+              if (autoRead) player.stop();
+              setAutoRead(!autoRead);
+            }}
+          >
+            {t("voice.autoRead")}
+          </button>
           {image && (
             <select
               aria-label={t("chat.imageShape")}
@@ -426,6 +456,8 @@ function Transcript({
   onOpen,
   onDecide,
   onStopTool,
+  readAfter,
+  onReadStarted,
 }: {
   projectId: number;
   chatId: number;
@@ -437,6 +469,8 @@ function Transcript({
   onOpen: (tab: Tab) => void;
   onDecide: Decide;
   onStopTool: (callId: string) => void;
+  readAfter: number | null; // read the newest reply aloud, if it comes after this message
+  onReadStarted: () => void;
 }) {
   const { t } = useTranslation();
   const results = new Map(
@@ -526,7 +560,12 @@ function Transcript({
                 {group === last && liveJoins && liveReply}
                 {/* Read aloud once the reply is finished: not while its turn still writes it. */}
                 {!(group === last && liveJoins && live.running) && (
-                  <ReadAloud readingKey={`${chatId}:${group.messages[0].id}`} markdown={replyText(group)} />
+                  <ReadAloud
+                    readingKey={`${chatId}:${group.messages[0].id}`}
+                    markdown={replyText(group)}
+                    autoStart={group === last && readAfter !== null && group.messages[0].id > readAfter}
+                    onAutoStarted={onReadStarted}
+                  />
                 )}
               </Reply>
             )

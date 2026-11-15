@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, ApiError, apiPost } from "../api/client";
@@ -47,8 +47,19 @@ function installed(language: VoiceLanguage): boolean {
 
 /** Read aloud, under a finished reply: finds the reply's language, reads it with that
  * language's voice, and offers the voice when it isn't on this computer (an admin downloads
- * it; anyone else is told to ask one). The language can be changed for this reply. */
-export function ReadAloud({ readingKey, markdown }: { readingKey: string; markdown: string }) {
+ * it; anyone else is told to ask one). The language can be changed for this reply.
+ * `autoStart`: read it now, unasked (Read replies aloud); `onAutoStarted` says it has begun. */
+export function ReadAloud({
+  readingKey,
+  markdown,
+  autoStart = false,
+  onAutoStarted,
+}: {
+  readingKey: string;
+  markdown: string;
+  autoStart?: boolean;
+  onAutoStarted?: () => void;
+}) {
   const { t } = useTranslation();
   const name = useLanguageName();
   const parts = useSentences(markdown);
@@ -58,10 +69,9 @@ export function ReadAloud({ readingKey, markdown }: { readingKey: string; markdo
   const [missing, setMissing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  if (parts === null || parts.length === 0) return null; // not parsed yet, or only code: nothing to say
-  const said = parts;
-
   async function start(code: string | null) {
+    if (parts === null || parts.length === 0) return;
+    const said = parts;
     setError(null);
     setMissing(null);
     try {
@@ -89,6 +99,21 @@ export function ReadAloud({ readingKey, markdown }: { readingKey: string; markdo
       );
     }
   }
+
+  // Read replies aloud: start once the sentences and the voices are known. Through a ref, so
+  // the effect runs when those change, not on every render that makes a new `start`.
+  const startRef = useRef(start);
+  useEffect(() => {
+    startRef.current = start;
+  });
+  const ready = autoStart && parts !== null && voices.data !== undefined;
+  useEffect(() => {
+    if (!ready) return;
+    onAutoStarted?.();
+    void startRef.current(language);
+  }, [ready, onAutoStarted, language]);
+
+  if (parts === null || parts.length === 0) return null; // not parsed yet, or only code: nothing to say
 
   const missingLanguage = voices.data?.languages.find((l) => l.code === missing);
   return (

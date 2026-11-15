@@ -649,6 +649,8 @@
     "askAdmin": "There's no {{language}} voice on this computer yet. Ask an admin to add it.",
     "download": "Download the {{language}} voice ({{size}})",
     "acceptLicence": "I've read its licence ({{licence}}) and accept it",
-    "failed": "Couldn't read this aloud: {{error}}"
+    "failed": "Couldn't read this aloud: {{error}}",
+    "autoRead": "Read replies aloud",
+    "autoReadHint": "Read each new reply aloud when it's finished, in this browser"
   }
 }

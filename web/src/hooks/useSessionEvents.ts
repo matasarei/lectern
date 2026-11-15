@@ -145,11 +145,13 @@ export function isChatLive(projectId: number, sessionId: number): boolean {
 }
 
 /** Follows a chat's event stream. Refreshes the transcript whenever something is stored,
- * and the project's lists when a turn ends (titles, new files). */
+ * and the project's lists when a turn ends (titles, new files). `onTurnEnded` is told when a
+ * turn ends while the page watches, never for one replayed after a reload or a reconnect. */
 export function useSessionEvents(
   projectId: number,
   sessionId: number,
   onOpen: (tab: Tab, focus?: boolean) => void,
+  onTurnEnded: () => void = () => {},
 ): LiveTurn {
   const queryClient = useQueryClient();
   const [live, dispatch] = useReducer(reduce, IDLE);
@@ -159,6 +161,10 @@ export function useSessionEvents(
   useEffect(() => {
     openRef.current = onOpen;
   }, [onOpen]);
+  const endedRef = useRef(onTurnEnded);
+  useEffect(() => {
+    endedRef.current = onTurnEnded;
+  }, [onTurnEnded]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -198,6 +204,7 @@ export function useSessionEvents(
           if (event.status !== "running") {
             void queryClient.invalidateQueries({ queryKey: ["items", projectId] });
             void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+            if (live) endedRef.current();
           }
         }
       },
