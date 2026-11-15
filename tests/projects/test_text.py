@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
 from lectern.projects import text
 from lectern.projects.text import extract, mime_for
 
-from .conftest import add_pages, write_docx, write_pdf, write_scan_pdf
+from .conftest import add_pages, write_docx, write_odt, write_pdf, write_scan_pdf
 
 
 def test_markdown_is_chunked_by_heading(tmp_path):
@@ -70,6 +72,107 @@ def test_docx_keeps_headings_and_tables(tmp_path):
     assert [c.heading for c in got.chunks] == ["Договір оренди", "Підписи"]
     assert "Пеня | 0,5% на день" in got.chunks[0].body
     assert "прострочення" in got.chunks[0].body
+
+
+def test_odt_keeps_headings_lists_and_tables(tmp_path):
+    got = extract(write_odt(tmp_path / "lease.odt"))
+
+    assert [c.heading for c in got.chunks] == ["Договір оренди"]
+    body = got.chunks[0].body
+    assert "Орендар сплачує" in body
+    assert "Сума | 250,00 грн" in body  # rows as the DOCX index has them
+    assert "Перший пункт" in body
+    assert got.note is None
+
+
+def test_odt_text_is_plain_text_not_escaped_markdown(tmp_path):
+    from odfdo import Annotation, Document, Header, List, ListItem, Paragraph, Section, Span, Table
+
+    document = Document("text")
+    document.body.append(Header(2, "Договір 2026-11-12"))
+    paragraph = Paragraph("Пункт #1: file_name, *пеню* і ")
+    paragraph.append(Span("жирний", style="Strong"))
+    paragraph.append(Annotation("A question about it", creator="Lectern"))
+    document.body.append(paragraph)
+    section = Section()
+    section.append(Paragraph("У секції a-b"))
+    document.body.append(section)
+    table = Table("T", width=2, height=1)
+    table.set_value((0, 0), "a|b")
+    table.set_value((1, 0), "c-d")
+    document.body.append(table)
+    items = List()
+    items.append(ListItem("пункт-1"))
+    document.body.append(items)
+    document.save(tmp_path / "plain.odt")
+
+    got = extract(tmp_path / "plain.odt")
+
+    assert [c.heading for c in got.chunks] == ["Договір 2026-11-12"]
+    assert got.chunks[0].body == (
+        "Пункт #1: file_name, *пеню* і жирний\n\nУ секції a-b\n\na|b | c-d\n\n- пункт-1"
+    )  # no escapes, no comment text
+
+
+def test_an_odt_table_cell_repeated_many_times_is_read_once(tmp_path):
+    # A cell or row can say it repeats: a few bytes of XML for millions of cells, which the
+    # unzipped-size check can't see. Its text is read once, as written.
+    import zipfile
+
+    from odfdo import Document, Table
+
+    document = Document("text")
+    table = Table("T", width=2, height=1)
+    table.set_value((0, 0), "Сума")
+    table.set_value((1, 0), "250,00 грн")
+    document.body.append(table)
+    document.save(tmp_path / "plain.odt")
+    with zipfile.ZipFile(tmp_path / "plain.odt") as source:
+        parts = {i.filename: source.read(i.filename) for i in source.infolist()}
+    parts["content.xml"] = (
+        parts["content.xml"]
+        .replace(b"<table:table-row>", b'<table:table-row table:number-rows-repeated="3">', 1)
+        .replace(
+            b"<table:table-cell ", b'<table:table-cell table:number-columns-repeated="20000" ', 1
+        )
+    )
+    with zipfile.ZipFile(tmp_path / "bomb.odt", "w") as out:
+        for name, data in parts.items():
+            out.writestr(name, data)
+
+    got = extract(tmp_path / "bomb.odt")
+
+    assert [c.body for c in got.chunks] == ["Сума | 250,00 грн"]
+
+
+@pytest.mark.parametrize("name", ["junk.docx", "junk.odt"])
+def test_a_broken_document_has_a_note_not_an_error(tmp_path, name):
+    path = tmp_path / name
+    path.write_bytes(b"not a zip at all")
+
+    got = extract(path)
+
+    assert (got.chunks, got.note) == ([], "couldn't be read as a document")
+
+
+def test_a_spreadsheet_saved_as_odt_has_a_note(tmp_path):
+    from odfdo import Document, Table
+
+    sheet = Document("spreadsheet")
+    sheet.body.append(Table("Hours", width=1, height=1))
+    sheet.save(tmp_path / "hours.odt")
+
+    assert extract(tmp_path / "hours.odt").note == "couldn't be read as a document"
+
+
+@pytest.mark.parametrize("writer", [write_docx, write_odt])
+def test_a_document_whose_text_unzips_too_big_isnt_read(tmp_path, monkeypatch, writer):
+    monkeypatch.setattr(text, "DOCUMENT_XML_LIMIT", 100)
+    suffix = ".docx" if writer is write_docx else ".odt"
+
+    got = extract(writer(tmp_path / f"lease{suffix}"))
+
+    assert (got.chunks, got.note) == ([], "too much text to read")
 
 
 def test_pdf_text_layer_is_read_per_page(tmp_path):
@@ -184,8 +287,6 @@ def test_pdf_pages_gives_every_pages_text_empty_ones_included(tmp_path):
 
 
 def test_pdf_pages_says_when_the_pdf_cant_be_opened(tmp_path):
-    import pytest
-
     from lectern.projects.text import pdf_pages
 
     broken = tmp_path / "broken.pdf"

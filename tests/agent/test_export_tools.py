@@ -82,7 +82,7 @@ def test_an_unknown_format_names_the_installed_ones_and_a_scan_says_what_to_do(c
     with pytest.raises(ToolError, match="No pdf exporter is installed. Installed: docx, md, odt."):
         _call(run, ctx, name="reply-letter.md", format="pdf")
     add_file(ctx, "scan.png", "x")
-    with pytest.raises(ToolError, match="isn't a Document, a PDF with text, a DOCX or a text"):
+    with pytest.raises(ToolError, match="isn't a Document, a PDF with text, a DOCX, an ODT or"):
         _call(run, ctx, name="scan.png", format="odt")
 
 
@@ -156,6 +156,7 @@ def test_a_docx_exports_to_odt_with_its_table(ctx, tmp_path):
     table = content[content.index("<table:table ") : content.index("</table:table>")]
     assert "250,00 грн" in table and "0,5% на день" in table
     assert "keep_layout" not in result.text  # only a PDF's text layer loses its layout
+    assert _row(ctx, result.refs[0]["id"]).text_status == "indexed"  # the chat can read it back
 
 
 def test_a_scanned_page_with_only_a_page_number_still_counts_as_a_scan(ctx, tmp_path):

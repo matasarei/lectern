@@ -104,8 +104,8 @@ def export_tools(exporters: list[Exporter]) -> list[AgentTool]:
         AgentTool(
             name="export.run",
             description="Build a file (odt, docx, md…) from an OCR session's Document, a PDF "
-            "with a text layer, a DOCX, or a Markdown/text file. Always writes a new file; "
-            "keeps the person's answers and marks open questions.",
+            "with a text layer, a DOCX, an ODT, or a Markdown/text file. Always writes a new "
+            "file; keeps the person's answers and marks open questions.",
             params=RunParams,
             run=run,
             max_tokens=300,

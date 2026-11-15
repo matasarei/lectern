@@ -11,7 +11,7 @@ from lectern.projects import files, search
 from lectern.projects.files import BadName, Origin, safe_name
 from lectern.projects.tables import ArtifactRow, now
 
-from .conftest import write_docx, write_pdf, write_scan_pdf
+from .conftest import write_docx, write_odt, write_pdf, write_scan_pdf
 
 
 async def _body(data: bytes, size: int = 7):
@@ -105,6 +105,19 @@ def test_markdown_docx_and_pdf_are_searchable_after_import(store, tmp_path):
         assert [h.artifact_id for h in search.search(session, "late fee")] == [pdf.id]
     assert (md.text_status, docx.text_status, pdf.text_status) == ("indexed",) * 3
     assert scan.text_status == "none" and "no text layer" in scan.text_note
+
+
+def test_an_odt_is_searchable_after_import_and_a_broken_one_still_imports(store, tmp_path):
+    project = store.create(LOCAL_USER, "ODT")
+    odt = _import(store, project, "lease.odt", write_odt(tmp_path / "l.odt").read_bytes())
+    broken = _import(store, project, "broken.docx", b"not a zip at all")
+
+    with store.db(project)() as session:
+        assert [(h.artifact_id, h.ref) for h in search.search(session, "Перший")] == [
+            (odt.id, "#c1")
+        ]
+    assert odt.text_status == "indexed"
+    assert (broken.text_status, broken.text_note) == ("none", "couldn't be read as a document")
 
 
 def test_search_treats_query_syntax_as_plain_words(store):
