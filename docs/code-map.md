@@ -72,9 +72,10 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/modules/sandbox/container.py` | 261 | Locked-down Podman/Docker execution (`lectern-sandbox:3`) | `Sandbox`, `RunResult`, `SandboxError`, `LOCKDOWN` |
 | `src/lectern/modules/sandbox/tools.py` | 713 | `code.write` (coding model + test loop) and `code.run` tools | `run_script`, `stored_run`, `coder_request`, `ensure_coder` |
 | `src/lectern/modules/pdf_edit/engine.py` | 709 | In-place PDF text replacement preserving embedded/system fonts (pypdfium2) | `apply_edits`, `Edit`, `Change`, `Result`, `EditFailed` |
-| `src/lectern/modules/pdf_edit/forms.py` | 288 | Reads and fills PDF AcroForm text fields and checkboxes | `form_fields`, `fill_form`, `Field`, `Filled` |
+| `src/lectern/modules/pdf_edit/forms.py` | 300 | Reads and fills PDF AcroForm text fields and checkboxes | `form_fields`, `fill_form`, `Field`, `Filled` |
+| `src/lectern/modules/pdf_edit/embed.py` | 214 | Embeds an installed font in the fonts PDFium draws filled values in but doesn't embed (pypdf) | `embed_fonts`, `Embedded`, `FALLBACK_SANS` |
 | `src/lectern/modules/pdf_edit/fonts.py` | 180 | System font discovery and TrueType subsetting for PDF edits | `InstalledFonts`, `installed`, `subset_for` |
-| `src/lectern/modules/pdf_edit/tools.py` | 181 | `pdf.edit` and `pdf.fill` chat tools | `pdf_tools`, `EditParams`, `FillParams` |
+| `src/lectern/modules/pdf_edit/tools.py` | 186 | `pdf.edit` and `pdf.fill` chat tools | `pdf_tools`, `EditParams`, `FillParams` |
 | `src/lectern/modules/image/generate.py` | 425 | Runs `sd-cli` per image, tracks step progress, strips PNG metadata | `generate`, `size_settings`, `memory_flags`, `need_bytes` |
 | `src/lectern/modules/image/tools.py` | 233 | `image.generate` chat tool with editable prompt/shape confirmation card | `GenerateParams`, `shape_size`, `wait_text` |
 | `src/lectern/modules/web/fetch.py` | 205 | SSRF-guarded public HTTP/HTTPS fetcher with DNS-pinned IP connection | `fetch`, `check_url`, `is_public`, `FetchRefused` |

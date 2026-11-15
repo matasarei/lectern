@@ -11,6 +11,7 @@ import pytest
 
 from lectern.agent.tools import ToolContext, ToolError
 from lectern.modules import ToolEnv, load_modules
+from lectern.modules.pdf_edit import embed
 from lectern.modules.pdf_edit import fonts as font_index
 from lectern.modules.pdf_edit.fonts import InstalledFonts
 from lectern.projects import files
@@ -188,6 +189,32 @@ def test_fill_writes_a_new_file_with_the_values(make_ctx, tmp_path: Path) -> Non
     assert "“name” · text · p1 · “Olena Shevchenko”" in result.text
     assert "“agree” · checkbox · p1 · “yes”" in result.text
     assert _row(ctx, result.refs[0]["id"]).from_id == source.id
+
+
+def test_fill_says_when_its_text_is_in_a_font_that_isnt_embedded(make_ctx, tmp_path: Path) -> None:  # noqa: ANN001
+    ctx = make_ctx()  # only the test fonts are installed: neither Arial nor a fallback
+    _import(ctx, form_pdf(tmp_path / "form.pdf"))
+
+    result = _call("pdf.fill", ctx, name="form.pdf", fields={"name": "Олена Шевченко"})
+
+    assert "“name” · text · p1 · “Олена Шевченко”" in result.text
+    assert "uses a font that isn't embedded" in result.text
+    assert "it shows only where a viewer has that font" in result.text
+
+
+def test_fill_with_its_fonts_embedded_says_nothing_of_them(
+    make_ctx,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
+) -> None:
+    monkeypatch.setattr(embed, "FALLBACK_SANS", ("TestSans",))
+    ctx = make_ctx()
+    _import(ctx, form_pdf(tmp_path / "form.pdf"))
+
+    cyrillic = _call("pdf.fill", ctx, name="form.pdf", fields={"name": "Олена Шевченко"})
+    latin = _call("pdf.fill", ctx, name="form.pdf", fields={"name": "Olena"})
+
+    assert "isn't embedded" not in cyrillic.text and "isn't embedded" not in latin.text
 
 
 def test_fill_on_a_pdf_without_a_form_points_to_pdf_edit(make_ctx, contract) -> None:  # noqa: ANN001

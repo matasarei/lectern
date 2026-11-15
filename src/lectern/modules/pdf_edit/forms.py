@@ -7,6 +7,9 @@ A text field takes the text; a checkbox yes or no; a radio group or a list one o
 options. Buttons, signatures and read-only fields can't be filled. Like the text engine, every
 value is put in or none is, and the file at `path` is never touched.
 
+PDFium draws letters the field's own font can't (Cyrillic in a Helvetica field) in a system
+font it doesn't embed; embed.embed_fonts then gives that font an installed font's file.
+
 Every function here holds projects.text.PDFIUM_LOCK while it uses PDFium.
 """
 
@@ -22,6 +25,8 @@ from pathlib import Path
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
+from lectern.modules.pdf_edit import embed
+from lectern.modules.pdf_edit import fonts as font_index
 from lectern.modules.pdf_edit.engine import EditFailed
 from lectern.projects.text import PDFIUM_LOCK
 
@@ -54,6 +59,7 @@ class Field:
 class Filled:
     data: bytes  # the filled PDF
     fields: list[Field]  # the fields as they are now, the filled ones included
+    unembedded: list[str] = field(default_factory=list)  # fonts a viewer must have to show it
 
 
 def form_fields(path: Path) -> list[Field]:
@@ -63,9 +69,12 @@ def form_fields(path: Path) -> list[Field]:
         return [f for f, _ in form.fields()]
 
 
-def fill_form(path: Path, values: dict[str, str]) -> Filled:
-    """The PDF with `values` (field name → value) filled in, as new bytes. Raises EditFailed
-    naming every value that can't be filled, and then fills none."""
+def fill_form(
+    path: Path, values: dict[str, str], fonts: font_index.InstalledFonts | None = None
+) -> Filled:
+    """The PDF with `values` (field name → value) filled in, as new bytes, the fonts its
+    values are drawn in embedded from `fonts` (this computer's by default) where they can be.
+    Raises EditFailed naming every value that can't be filled, and then fills none."""
     if not values:
         raise EditFailed("No field values were given.")
     with PDFIUM_LOCK, _form(path) as form:
@@ -86,7 +95,10 @@ def fill_form(path: Path, values: dict[str, str]) -> Filled:
             raise EditFailed(
                 "Nothing was filled. " + " ".join(problems) + f" The form's fields: {names}."
             )
-        return Filled(form.save(), [f for f, _ in form.fields()])
+        data, fields = form.save(), [f for f, _ in form.fields()]
+    # After the lock: the font index may be built here, and that must never block PDFium.
+    done = embed.embed_fonts(data, "".join(values.values()), fonts or font_index.installed())
+    return Filled(done.data, fields, done.missing)
 
 
 @dataclass(frozen=True)
