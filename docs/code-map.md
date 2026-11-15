@@ -86,9 +86,9 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/modules/web/tools.py` | 299 | `web.search`, `wiki.lookup`, and `web.fetch` chat tools | `web_tools`, `search_tool` |
 | `src/lectern/modules/web/api.py` | 67 | `/api/web/settings` and `/api/web/key` admin routes | `get_settings`, `put_settings`, `put_key`, `delete_key` |
 | `src/lectern/modules/voice/__init__.py` | 19 | Voice module: replies read aloud (no agent tool) | `VoiceModule` |
-| `src/lectern/modules/voice/speak.py` | 177 | Piper voices on the CPU, in process: load, keep two, idle drop, one sentence at a time | `Voices`, `load_piper`, `PiperSpeaker`, `VoiceError` |
-| `src/lectern/modules/voice/language.py` | 39 | A reply's language among the voiced ones (uk/ru by letters, else py3langid) | `detect` |
-| `src/lectern/modules/voice/api.py` | 163 | `/api/voice` routes: list, choose a language's voice, a reply's language, speak | `list_voices`, `choose_voice`, `reply_language`, `speak`, `voice_of` |
+| `src/lectern/modules/voice/speak.py` | 180 | Piper voices on the CPU, in process: load, keep two, idle drop, one sentence at a time | `Voices`, `load_piper`, `PiperSpeaker`, `VoiceError` |
+| `src/lectern/modules/voice/language.py` | 40 | A reply's language among the voiced ones (uk/ru by letters, else py3langid) | `detect` |
+| `src/lectern/modules/voice/api.py` | 164 | `/api/voice` routes: list, choose a language's voice, a reply's language, speak | `list_voices`, `choose_voice`, `reply_language`, `speak`, `voice_of` |
 | `src/lectern/modules/export_md/__init__.py` | 81 | Markdown exporter module (`export-md`) | `MarkdownExporter`, `MarkdownModule` |
 | `src/lectern/modules/export_docx/__init__.py` | 103 | DOCX exporter module (`export-docx`, python-docx) | `DocxExporter`, `DocxModule` |
 | `src/lectern/modules/export_odt/__init__.py` | 122 | ODT exporter module (`export-odt`, odfdo) | `OdtExporter`, `OdtModule` |
@@ -248,8 +248,8 @@ All `/api/*` routes except `/api/login` require `current_user` (`src/lectern/api
 | `DELETE /api/web/key` | `require_admin` | `src/lectern/modules/web/api.py:64 (delete_key)` |
 | `GET /api/voice` | `current_user` | `src/lectern/modules/voice/api.py:49 (list_voices)` |
 | `PUT /api/voice/{code}` | `require_admin` | `src/lectern/modules/voice/api.py:67 (choose_voice)` |
-| `POST /api/voice/language` | `current_user` | `src/lectern/modules/voice/api.py:88 (reply_language)` |
-| `POST /api/voice/speak` | `current_user` | `src/lectern/modules/voice/api.py:95 (speak)` |
+| `POST /api/voice/language` | `current_user` | `src/lectern/modules/voice/api.py:89 (reply_language)` |
+| `POST /api/voice/speak` | `current_user` | `src/lectern/modules/voice/api.py:96 (speak)` |
 | `POST /api/chat` | `current_user` | `src/lectern/api/chat.py:51 (chat)` |
 | `POST /api/dev/swap-test`, `GET /api/dev/swap-test` | `require_admin` | `src/lectern/api/dev.py:24 (start_swap_test)`, `:48 (get_swap_test)` |
 
