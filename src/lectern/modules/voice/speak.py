@@ -16,6 +16,7 @@ import asyncio
 import io
 import json
 import logging
+import threading
 import time
 import wave
 from collections import OrderedDict
@@ -108,23 +109,39 @@ class Voices:
         self._idle_seconds = idle_seconds
         # "<id>@<pin>" → (the voice, when it was last used), least recently used first
         self._loaded: OrderedDict[str, tuple[Speaker, float]] = OrderedDict()
+        # Guards _loaded: the idle timer runs on the event loop while a sentence is spoken on
+        # a worker thread.
+        self._table = threading.Lock()
         self._one_at_a_time = asyncio.Lock()
+        self._idle_timer: asyncio.TimerHandle | None = None
 
     async def wav(self, entry: CatalogEntry, text: str, speed: float = 1.0) -> bytes:
         """The text spoken by the voice. Raises VoiceError when it can't be."""
         async with self._one_at_a_time:
-            return await asyncio.to_thread(self._speak, entry, text, speed)
+            try:
+                return await asyncio.to_thread(self._speak, entry, text, speed)
+            finally:
+                self._drop_when_idle()
 
     def loaded(self) -> list[str]:
         """The keys of the voices loaded now, least recently used first."""
-        return list(self._loaded)
+        with self._table:
+            return list(self._loaded)
 
     def drop_idle(self) -> None:
         """Let go of the voices nobody has used for `idle_seconds`."""
         now = self._clock()
-        for key, (_, used) in list(self._loaded.items()):
-            if now - used >= self._idle_seconds:
-                del self._loaded[key]
+        with self._table:
+            for key, (_, used) in list(self._loaded.items()):
+                if now - used >= self._idle_seconds:
+                    del self._loaded[key]
+
+    def _drop_when_idle(self) -> None:
+        """Look again once `idle_seconds` have passed with no sentence: a voice nobody
+        listens to shouldn't wait for the next sentence to be let go."""
+        if self._idle_timer is not None:
+            self._idle_timer.cancel()
+        self._idle_timer = asyncio.get_running_loop().call_later(self._idle_seconds, self.drop_idle)
 
     def _speak(self, entry: CatalogEntry, text: str, speed: float) -> bytes:
         self.drop_idle()
@@ -139,8 +156,10 @@ class Voices:
     def _voice(self, entry: CatalogEntry) -> Speaker:
         # Keyed by the pin as well, so an updated voice is loaded afresh.
         key = f"{entry.id}@{entry.pin}"
-        if key in self._loaded:
-            speaker, _ = self._loaded.pop(key)
+        with self._table:
+            known = self._loaded.pop(key, None)
+        if known is not None:
+            speaker, _ = known
         else:
             if entry.voice is None or entry.files.config is None:
                 raise VoiceError(f"{entry.title} isn't a voice.")
@@ -151,7 +170,8 @@ class Voices:
             except Exception as exc:  # a missing or broken file, or onnxruntime refusing it
                 log.warning("%s didn't load: %s", entry.id, exc)
                 raise VoiceError(f"{entry.title} didn't load.") from exc
+        with self._table:
             while len(self._loaded) >= self._keep:
                 self._loaded.popitem(last=False)
-        self._loaded[key] = (speaker, self._clock())
+            self._loaded[key] = (speaker, self._clock())
         return speaker
