@@ -184,6 +184,17 @@ describe("ReadAloud", () => {
     expect(sent.filter((s) => s.url === "/api/voice/language")).toHaveLength(1); // not asked again
   });
 
+  it("finds a long reply's language from its start, within what the server takes", async () => {
+    const sentence = "The rent is paid on the first of every month by bank transfer. ";
+    renderReply(sentence.repeat(400)); // 25,600 characters: more than one request may carry
+    await readAloud();
+
+    await waitFor(() => expect(sent.some((s) => s.url === "/api/voice/speak")).toBe(true));
+    const asked = sent.find((s) => s.url === "/api/voice/language")!.body!.text as string;
+    expect(asked.length).toBeLessThanOrEqual(5_000);
+    expect(asked.startsWith("The rent is paid")).toBe(true);
+  });
+
   it("has no button for a reply that is only code", async () => {
     renderReply("```\nx = 1\n```");
     await act(async () => {

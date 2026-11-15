@@ -17,10 +17,14 @@ export function useVoices() {
   return useQuery({ queryKey: VOICES, queryFn: () => apiFetch<VoicesResponse>("/api/voice") });
 }
 
+/** How much of a reply its language is told from: plenty for that, and well within the
+ * 20,000 characters the server looks at, so a long reply can be read too. */
+export const LANGUAGE_SAMPLE = 5_000;
+
 /** The language of a reply, among the ones a voice speaks; null when it can't be told. */
 export async function replyLanguage(parts: string[]): Promise<string | null> {
   const body = await apiPost<{ language: string | null }>("/api/voice/language", {
-    text: parts.join(" "),
+    text: parts.join(" ").slice(0, LANGUAGE_SAMPLE),
   });
   return body.language;
 }
