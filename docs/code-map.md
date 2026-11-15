@@ -245,11 +245,11 @@ All `/api/*` routes except `/api/login` require `current_user` (`src/lectern/api
 | `GET /api/web/settings` | `current_user` | `src/lectern/modules/web/api.py:40 (get_settings)` |
 | `PUT /api/web/settings` | `require_admin` | `src/lectern/modules/web/api.py:50 (put_settings)` |
 | `PUT /api/web/key` | `require_admin` | `src/lectern/modules/web/api.py:57 (put_key)` |
+| `DELETE /api/web/key` | `require_admin` | `src/lectern/modules/web/api.py:64 (delete_key)` |
 | `GET /api/voice` | `current_user` | `src/lectern/modules/voice/api.py:49 (list_voices)` |
 | `PUT /api/voice/{code}` | `require_admin` | `src/lectern/modules/voice/api.py:67 (choose_voice)` |
 | `POST /api/voice/language` | `current_user` | `src/lectern/modules/voice/api.py:88 (reply_language)` |
 | `POST /api/voice/speak` | `current_user` | `src/lectern/modules/voice/api.py:95 (speak)` |
-| `DELETE /api/web/key` | `require_admin` | `src/lectern/modules/web/api.py:64 (delete_key)` |
 | `POST /api/chat` | `current_user` | `src/lectern/api/chat.py:51 (chat)` |
 | `POST /api/dev/swap-test`, `GET /api/dev/swap-test` | `require_admin` | `src/lectern/api/dev.py:24 (start_swap_test)`, `:48 (get_swap_test)` |
 
