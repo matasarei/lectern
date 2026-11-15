@@ -269,7 +269,7 @@ Models receive tool names with `_` in place of `.` (e.g. `project_find`).
 | `code.write` | `sandbox` | only to build image / download coder | `src/lectern/modules/sandbox/tools.py:703` |
 | `ocr.start` | `ocr` | always | `src/lectern/modules/ocr/tools.py:207` |
 | `ocr.note` | `ocr` | no | `src/lectern/modules/ocr/tools.py:265` |
-| `pdf.edit` | `pdf_edit` | no | `src/lectern/modules/pdf_edit/tools.py:53` |
+| `pdf.edit` | `pdf_edit` | when the page would look different | `src/lectern/modules/pdf_edit/tools.py:53` |
 | `pdf.fill` | `pdf_edit` | no | `src/lectern/modules/pdf_edit/tools.py:67` |
 | `image.generate` | `image` | always (unless Image toggle used) | `src/lectern/modules/image/tools.py:214` |
 | `web.search` | `web` | always | `src/lectern/modules/web/tools.py:120` |
@@ -288,7 +288,7 @@ Models receive tool names with `_` in place of `.` (e.g. `project_find`).
 | | `image_timings` | `src/lectern/core/tables.py:117 (ImageTimingRow)` | Last generation duration per image model and pixel count |
 | `project.sqlite` (`src/lectern/project_migrations/`) | `sessions` | `src/lectern/projects/tables.py:50 (SessionRow)` | Chat (`kind='chat'`) and OCR (`kind='ocr'`) sessions |
 | | `messages` | `src/lectern/projects/tables.py:66 (MessageRow)` | Chat transcript (`role`, `content`, `tool_calls`, `attachments`) |
-| | `confirmations` | `src/lectern/projects/tables.py:87 (ConfirmationRow)` | Tool confirmation cards (`pending`, `approved`, `denied`) |
+| | `confirmations` | `src/lectern/projects/tables.py:87 (ConfirmationRow)` | Tool confirmation cards (`pending`, `approved`, `declined`) |
 | | `artifacts` | `src/lectern/projects/tables.py:108 (ArtifactRow)` | Project files, MIME, text extraction status, provenance (`from_kind`, `from_id`) |
 | | `script_runs` | `src/lectern/projects/tables.py:136 (ScriptRunRow)` | Sandbox script executions, input SHA-256, stdout/stderr, outputs |
 | | `chat_state` | `src/lectern/projects/tables.py:156 (ChatStateRow)` | Per-chat pins, compaction summary, and queued `follow_ups` JSON |
