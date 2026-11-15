@@ -20,6 +20,7 @@ function voice(id: string, extra: Partial<VoiceOption> = {}): VoiceOption {
     size: 63 * MB,
     licence: "MIT; recordings CC0-1.0",
     licence_notice: false,
+    notes: null,
     default: true,
     installed: true,
     download: { model_id: id, status: "done", bytes_done: 0, bytes_total: 0, rate: 0, error: null },

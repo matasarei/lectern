@@ -256,6 +256,8 @@ export interface VoiceOption {
   licence: string;
   /** A restricted licence: it has to be read and accepted before the download. */
   licence_notice: boolean;
+  /** What the licence limits, in a sentence; null for an open licence. */
+  notes: string | null;
   /** The language's voice when an admin picked none. */
   default: boolean;
   installed: boolean;

@@ -124,6 +124,7 @@ def _option(entry: CatalogEntry, request: Request) -> dict:
         "size": entry.size,
         "licence": entry.licence,
         "licence_notice": entry.licence_notice,
+        "notes": entry.notes,  # what a restricted licence limits, in a sentence
         "default": bool(entry.voice and entry.voice.default),
         "installed": downloads.is_downloaded(entry),
         "download": downloads.state(entry).to_dict(),

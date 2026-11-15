@@ -508,3 +508,516 @@ models:
         - {path: ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx, size: 63221984, sha256: 9ed9941bac7373f2ec1be36627e0e71a349a59ca5522d4363fd50701db05193a}
       config: {path: ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json, size: 5465, sha256: b7ed744f65ec73deb57fc8e419a5db5c0c5532026cf1cd21247f75937b6fbee2}
     voice: {language: ru}
+
+  - id: piper-bg-bg-dimitar
+    title: Piper Dimitar (Bulgarian, BG)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: bg/bg_BG/dimitar/medium/bg_BG-dimitar-medium.onnx, size: 63221984, sha256: 2305bc55def71c799fbfc866d15415f57a3465097b7bf9be41a14a26574ad6f3}
+      config: {path: bg/bg_BG/dimitar/medium/bg_BG-dimitar-medium.onnx.json, size: 5474, sha256: aa3b0cf8236c205ce953d449e112e184ebde325e7db82e769cfcf2926c375631}
+    voice: {language: bg, default: true}
+
+  - id: piper-cs-cz-jirka
+    title: Piper Jirka (Czech, CZ)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium.onnx, size: 63221984, sha256: 9bc0b76bb8f26e1d542bf7ed2ce8a6c764605a5f6edcc7663bd637d0b684c5d9}
+      config: {path: cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium.onnx.json, size: 5465, sha256: 4486971d79354d2f6d376fdd74f90acc6beb4308ba64083cfb03765e2c25cec1}
+    voice: {language: cs, default: true}
+
+  - id: piper-cs-cz-kasandra
+    title: Piper Kasandra (Czech, CZ)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-4.0"
+    permissive: true
+    files:
+      model:
+        - {path: cs/cs_CZ/kasandra/medium/cs_CZ-kasandra-medium.onnx, size: 63511038, sha256: 09d08aa23691ed2d53fb3db242cfe82b189adf9c1812dd5fe928b5789ed76df7}
+      config: {path: cs/cs_CZ/kasandra/medium/cs_CZ-kasandra-medium.onnx.json, size: 3232, sha256: 5039f9e49def4f4f8438db031868800a13bf4c6246b62afdb0947f4c5478770e}
+    voice: {language: cs}
+
+  - id: piper-da-dk-talesyntese
+    title: Piper Talesyntese (Danish, DK)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx, size: 63201294, sha256: b9271efd25f7b8494bbd28d48dd675c8c119daa284f3ee488008935f515f1241}
+      config: {path: da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx.json, size: 4878, sha256: 89fe13bd251406cc0088570d103ea7ac35823211d8466faf913268ab8506f41b}
+    voice: {language: da, default: true}
+
+  - id: piper-de-de-thorsten
+    title: Piper Thorsten (German, DE)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx, size: 63221984, sha256: fd270eb3d1ebf91d763f8a0f949b1b1bebdfefaea18c3aaf8577dd34536e064f}
+      config: {path: de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json, size: 5460, sha256: cf245c91668e74cb6716f38647ae3d6d9bac42965872596f65f9ab2b7d7221ed}
+    voice: {language: de, default: true}
+
+  - id: piper-de-de-kerstin
+    title: Piper Kerstin (German, DE)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx, size: 63221984, sha256: c56d70475fb99248a20e60dafbcd107475e60d7e01deec18ba65201d288d015d}
+      config: {path: de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx.json, size: 5459, sha256: 8e86846ab0c5c5403c25125e3a505841eec4a52eed7d2babf904990883f7e83d}
+    voice: {language: de}
+
+  - id: piper-el-gr-rapunzelina
+    title: Piper Rapunzelina (Greek, GR)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: el/el_GR/rapunzelina/medium/el_GR-rapunzelina-medium.onnx, size: 62950044, sha256: 3ca9fb3092215ee92edfc019b43feb0115ff4dfe638eb34474833ab1de840952}
+      config: {path: el/el_GR/rapunzelina/medium/el_GR-rapunzelina-medium.onnx.json, size: 4973, sha256: 3a6182ec7c7550e14ef15e5d9badbb18f973a434086ac9658a1b10991fd192f8}
+    voice: {language: el, default: true}
+
+  - id: piper-el-gr-joy
+    title: Piper Joy (Greek, GR)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-NC-4.0"
+    permissive: false
+    files:
+      model:
+        - {path: el/el_GR/joy/medium/el_GR-joy-medium.onnx, size: 63516050, sha256: 31b1d51dc72dd43a5429b67798e27599f8cdcfce8a80265bc6f50d932bf144bc}
+      config: {path: el/el_GR/joy/medium/el_GR-joy-medium.onnx.json, size: 7367, sha256: 451a8885a0ea72e4432fffe22e65a75bbd2e65f6757273d1a5a9ed8a3419852e}
+    voice: {language: el}
+    notes: "Non-commercial: the recordings it was trained on are CC BY-NC 4.0."
+
+  - id: piper-en-gb-alba
+    title: Piper Alba (English, GB)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-4.0"
+    permissive: true
+    files:
+      model:
+        - {path: en/en_GB/alba/medium/en_GB-alba-medium.onnx, size: 63221984, sha256: 1f9da809b6da1ef4190bb5dd6cce4f4af803274539e9cf9e0693085150bac3d7}
+      config: {path: en/en_GB/alba/medium/en_GB-alba-medium.onnx.json, size: 5471, sha256: 6214603a0dd60e9dcd05502e23ef07fbe3d9af36d3189c8cc3eb129e1a099d6f}
+    voice: {language: en}
+
+  - id: piper-es-es-davefx
+    title: Piper Davefx (Spanish, ES)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: es/es_ES/davefx/medium/es_ES-davefx-medium.onnx, size: 63221984, sha256: d2c9224e122321aac3c33343957fff4d0f465226cb74c66b0f520ca3f8c0dd07}
+      config: {path: es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json, size: 5458, sha256: 531c4051502e1acbc10b42437f11679bfce9e3919e1796e51fabd73e01e7fd2e}
+    voice: {language: es, default: true}
+
+  - id: piper-es-mx-ald
+    title: Piper Ald (Spanish, MX)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings Unlicense"
+    permissive: true
+    files:
+      model:
+        - {path: es/es_MX/ald/medium/es_MX-ald-medium.onnx, size: 63201294, sha256: 019b3803293c93e34a206dd2e53a3889209a514e786fd7144f7b70196c579b63}
+      config: {path: es/es_MX/ald/medium/es_MX-ald-medium.onnx.json, size: 4878, sha256: 5a71498158e04afc8099bfd019c7e87c68eb9d042505a2b1a87e5c1ac2b1a61d}
+    voice: {language: es}
+
+  - id: piper-et-ee-news
+    title: Piper News (Estonian, EE)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY (META-SHARE, unrestricted use)"
+    permissive: true
+    files:
+      model:
+        - {path: et/et_EE/news/medium/et_EE-news-medium.onnx, size: 76757937, sha256: e4a55ec42364c5a2d060bf51ef7525b141b24cd56426f61a3702b44f68f5f21f}
+      config: {path: et/et_EE/news/medium/et_EE-news-medium.onnx.json, size: 5522, sha256: 2c73557a121e37aba647ad0c430679c7cd80a70bb1284dcf719cacda1054e1fe}
+    voice: {language: et, default: true}
+
+  - id: piper-fi-fi-harri
+    title: Piper Harri (Finnish, FI)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: fi/fi_FI/harri/medium/fi_FI-harri-medium.onnx, size: 63221984, sha256: 315cd970fc5e3dbae98998cbe9926527196c0a3ebdc7e02e21bd9e7325fd085b}
+      config: {path: fi/fi_FI/harri/medium/fi_FI-harri-medium.onnx.json, size: 5456, sha256: b1ed2261d1778ed9aa036cee0ef2811dfe01e8bd44cc2a9804063c7930097d04}
+    voice: {language: fi, default: true}
+
+  - id: piper-fr-fr-siwis
+    title: Piper Siwis (French, FR)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-4.0"
+    permissive: true
+    files:
+      model:
+        - {path: fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx, size: 63221984, sha256: b1d946fd68d0347155fa59bce0a018924abbef3c1561181db45ca463d83963ef}
+      config: {path: fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json, size: 5458, sha256: df814aa3dfedd00510a07144442cc0a220ff21e43d03c3b078444fc0be68fc37}
+    voice: {language: fr, default: true}
+
+  - id: piper-hu-hu-anna
+    title: Piper Anna (Hungarian, HU)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: hu/hu_HU/anna/medium/hu_HU-anna-medium.onnx, size: 63221984, sha256: 134086669d0c0565672a4d9db812d8a8578d8dfc8f675a3f730456cf535bd1f2}
+      config: {path: hu/hu_HU/anna/medium/hu_HU-anna-medium.onnx.json, size: 5458, sha256: 0595e717aa44867bde68434052496d8ee2f47db93d7eeb566d56338c4d3fd80a}
+    voice: {language: hu, default: true}
+
+  - id: piper-hu-hu-imre
+    title: Piper Imre (Hungarian, HU)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx, size: 63221984, sha256: bcec8e6e5404baca0fcaf2895da4d02d414d3340b9f80bd94a2112b5c67061ae}
+      config: {path: hu/hu_HU/imre/medium/hu_HU-imre-medium.onnx.json, size: 5458, sha256: 760857edbd31947a853842df5833bd16aa1f660feabe11fbebb0a378bf8328c5}
+    voice: {language: hu}
+
+  - id: piper-it-it-paola
+    title: Piper Paola (Italian, IT)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: it/it_IT/paola/medium/it_IT-paola-medium.onnx, size: 63221984, sha256: f9b8658aa8c01f8280aa88488f6e7643a639b6225a81514c40440a01f6364a20}
+      config: {path: it/it_IT/paola/medium/it_IT-paola-medium.onnx.json, size: 5457, sha256: 41c062de55b3410bcc01e456ba6d037d56669ecbb68849ab8b330e30fc475c6e}
+    voice: {language: it, default: true}
+
+  - id: piper-it-it-serena
+    title: Piper Serena (Italian, IT)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-4.0"
+    permissive: true
+    files:
+      model:
+        - {path: it/it_IT/serena/medium/it_IT-serena-medium.onnx, size: 63516051, sha256: fe4e26b2c1236e2a44d2e295cad564d94a0d8b0a9fca1ccdfd70dd4af3116eb5}
+      config: {path: it/it_IT/serena/medium/it_IT-serena-medium.onnx.json, size: 5254, sha256: 14cb4995874138b2792ae07753b5540942124761af9ae6609f9b520f28837881}
+    voice: {language: it}
+
+  - id: piper-lt-lt-reginute1
+    title: Piper Reginute1 (Lithuanian, LT)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-4.0"
+    permissive: true
+    files:
+      model:
+        - {path: lt/lt_LT/reginute1/medium/lt_LT-reginute1-medium.onnx, size: 63516051, sha256: 0417c4ef351686ec0b0e7bf63426aefc72faea4a7693cfcb2f01ea8f6ee986ee}
+      config: {path: lt/lt_LT/reginute1/medium/lt_LT-reginute1-medium.onnx.json, size: 5274, sha256: a0b3634fd41c4d2805a65605980471785b0894e7a8f8ee7597a90ce9dbc7a5a8}
+    voice: {language: lt, default: true}
+
+  - id: piper-lv-lv-aivars
+    title: Piper Aivars (Latvian, LV)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: lv/lv_LV/aivars/medium/lv_LV-aivars-medium.onnx, size: 63511038, sha256: 9d855a47c22e2b94795be9e0eb9e8c4c02ce251dc89461dede94de20ff08bd8e}
+      config: {path: lv/lv_LV/aivars/medium/lv_LV-aivars-medium.onnx.json, size: 7242, sha256: 08ae2c297be8aa04f15f3f97b7ffeae0146b30b0bd8f7baebcdc46bc2c2f33dc}
+    voice: {language: lv, default: true}
+
+  - id: piper-nl-nl-pim
+    title: Piper Pim (Dutch, NL)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: nl/nl_NL/pim/medium/nl_NL-pim-medium.onnx, size: 63221984, sha256: 1e1ed370c3b60ca734e525bdcd1f05f71b42bfb0a15693f1e89c012d72052d2a}
+      config: {path: nl/nl_NL/pim/medium/nl_NL-pim-medium.onnx.json, size: 5461, sha256: 30e5689c492f27d9c6cb8e23de78087162d3205fa8e169c33fd80bd80cbb133b}
+    voice: {language: nl, default: true}
+
+  - id: piper-nl-be-nathalie
+    title: Piper Nathalie (Dutch, BE)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: nl/nl_BE/nathalie/medium/nl_BE-nathalie-medium.onnx, size: 63221984, sha256: 2f12aea027806c24a0e9fb00080d2ee4cb0954604cc74e2fcdfe40b5d1015a09}
+      config: {path: nl/nl_BE/nathalie/medium/nl_BE-nathalie-medium.onnx.json, size: 5462, sha256: 862b19c3386b929624169146c3811e643f22e942e15beb2895110af219d9c6fa}
+    voice: {language: nl}
+
+  - id: piper-pl-pl-gosia
+    title: Piper Gosia (Polish, PL)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: pl/pl_PL/gosia/medium/pl_PL-gosia-medium.onnx, size: 63201294, sha256: 38f66464240ed74f186e6b7dc13c6e3b22e023426299f25c2b3cc9dfa9373fbc}
+      config: {path: pl/pl_PL/gosia/medium/pl_PL-gosia-medium.onnx.json, size: 4814, sha256: 1aefb31a9d53ffe44a8163ff73ec833acb7a6253848f6bb0403d8a66f9c7510d}
+    voice: {language: pl, default: true}
+
+  - id: piper-pl-pl-darkman
+    title: Piper Darkman (Polish, PL)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx, size: 63221984, sha256: cf757ee307e3a7c23d5d8f69934deab51683d01c1c6be376d3e13146020f1530}
+      config: {path: pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx.json, size: 5457, sha256: 0d98a67829a1b7ffbce7faacf4ea7bb7a7ce2ebc1598ad0289c0f6c1f352dbd0}
+    voice: {language: pl}
+
+  - id: piper-pt-pt-tugao
+    title: Piper Tugão (Portuguese, PT)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: pt/pt_PT/tugão/medium/pt_PT-tugão-medium.onnx, size: 63221984, sha256: f90d87efaa88ba0d24018f7e74a0ea3feeddeb407bf46332322a3824e9451219}
+      config: {path: pt/pt_PT/tugão/medium/pt_PT-tugão-medium.onnx.json, size: 5466, sha256: bfb193603c4f1454284bd1074060b0dd525f93b9d3e35bcffc1458ae7d48786e}
+    voice: {language: pt, default: true}
+
+  - id: piper-pt-br-faber
+    title: Piper Faber (Portuguese, BR)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx, size: 63221984, sha256: 75e913eb463db0b6ac7ddf68d3e4c9ac19ace36dc3b710a81039b448352b8ffc}
+      config: {path: pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx.json, size: 5466, sha256: fa8a8fecb01ae198bc416381e368d3206f85bad1449a0f11e1f6a9edf85a32f1}
+    voice: {language: pt}
+
+  - id: piper-ro-ro-mihai
+    title: Piper Mihai (Romanian, RO)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx, size: 63221984, sha256: ac9e1be65c059279c53500f11e8c276657c7e48a2d33b733add35dbe75748e29}
+      config: {path: ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx.json, size: 5460, sha256: 9fbd3514535fa11fe01c41f0b7277ac6a32e08b2580c799c4f1fc86bb9c30841}
+    voice: {language: ro, default: true}
+
+  - id: piper-ru-ru-irina
+    title: Piper Irina (Russian, RU)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings unknown (RHVoice)"
+    permissive: false
+    files:
+      model:
+        - {path: ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx, size: 63201294, sha256: 8ff38212d23da300bbe3705c645e6e5b9475f0bfde01558eb17813e22acaaaaa}
+      config: {path: ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json, size: 4765, sha256: c2ec28bb38e2b59e93b959b3e40348c1afebbd272f30fed5d41205d08e98a9d7}
+    voice: {language: ru}
+    notes: "The recordings' licence isn't known (RHVoice's Irina): don't rely on it for work."
+
+  - id: piper-ru-ru-ruslan
+    title: Piper Ruslan (Russian, RU)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-NC-SA-4.0"
+    permissive: false
+    files:
+      model:
+        - {path: ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx, size: 63201294, sha256: 72a5f88e0b20928064eb45d88e1daa21f8af62d18613580d32cbb4aed48dcf7f}
+      config: {path: ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx.json, size: 4882, sha256: 706a4fb17bc304abd07809b552deae615e64dcbffbfbd09854ba37ca59e88117}
+    voice: {language: ru}
+    notes: "Non-commercial: the RUSLAN recordings it was trained on are CC BY-NC-SA 4.0."
+
+  - id: piper-sk-sk-lili
+    title: Piper Lili (Slovak, SK)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: sk/sk_SK/lili/medium/sk_SK-lili-medium.onnx, size: 63221984, sha256: 5e157712483b66d99289e663ca5728bceb4b4e48d84d837c58796b2f9690de16}
+      config: {path: sk/sk_SK/lili/medium/sk_SK-lili-medium.onnx.json, size: 5461, sha256: 2287d57aa421572639d49da68aaa645534e4dc9ae052b0b62f3b6098440c73c7}
+    voice: {language: sk, default: true}
+
+  - id: piper-sl-si-artur
+    title: Piper Artur (Slovenian, SI)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC-BY-4.0"
+    permissive: true
+    files:
+      model:
+        - {path: sl/sl_SI/artur/medium/sl_SI-artur-medium.onnx, size: 63200492, sha256: 9222ed93ef425524ad4be0b083369af8ea8db18455576a6016b154192f4ed38c}
+      config: {path: sl/sl_SI/artur/medium/sl_SI-artur-medium.onnx.json, size: 4970, sha256: 741283430f1fa2be5c61717c6f1fe795a7b9f537491927340dd12f90f3b3cc04}
+    voice: {language: sl, default: true}
+
+  - id: piper-sv-se-nst
+    title: Piper NST (Swedish, SE)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx, size: 63104526, sha256: df011f56825a59dd1efc080c38a65a1ef70407e60f63050e9246f43a3d7e471e}
+      config: {path: sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx.json, size: 4157, sha256: d45dd74cbb4eca58694bf04a97e243044092476f28a55ae26424f0653086980a}
+    voice: {language: sv, default: true}
+
+  - id: piper-uk-ua-ukrainian-tts
+    title: Piper Ukrainian TTS (Ukrainian, UA)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx, size: 76735663, sha256: 7920419ac5f6fd8b6450520f24b52ed5a319cb53dd018fbcd71c9e079cbac84f}
+      config: {path: uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx.json, size: 2002, sha256: 4e96e72917ca9b94edc77d6ccfee03a73f450ba2fc1ca93c2e562bc014e5aa55}
+    voice: {language: uk, default: true}
+
+  - id: piper-uk-ua-tetiana
+    title: Piper Tetiana (Ukrainian, UA)
+    quant: high
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings Apache-2.0"
+    permissive: true
+    files:
+      model:
+        - {path: uk/uk_UA/tetiana/high/uk_UA-tetiana-high.onnx, size: 114204024, sha256: 1206d8447b99632badeb63d6132241f76cf551874e5254eb8836db36aed7c85c}
+      config: {path: uk/uk_UA/tetiana/high/uk_UA-tetiana-high.onnx.json, size: 4905, sha256: c96a051028976afc74269f73470651384deb6872431f890cad3b6424d09e812b}
+    voice: {language: uk}

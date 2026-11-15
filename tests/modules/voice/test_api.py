@@ -117,13 +117,14 @@ def test_every_language_a_voice_speaks_is_listed_with_its_voices(app):
     russian = _language(body, "ru")
     assert {"en", "ru"} <= {language["code"] for language in body["languages"]}
     assert (russian["voice"], russian["chosen"]) == (DENIS, None)  # the default, nothing picked
-    denis, dmitri = russian["voices"]
-    assert (denis["id"], denis["default"], dmitri["id"], dmitri["default"]) == (
-        DENIS,
-        True,
-        DMITRI,
-        False,
-    )
+    marks = {v["id"]: (v["default"], v["licence_notice"]) for v in russian["voices"]}
+    assert marks == {
+        DENIS: (True, False),
+        DMITRI: (False, False),
+        "piper-ru-ru-irina": (False, True),  # the recordings' licence isn't known
+        "piper-ru-ru-ruslan": (False, True),  # non-commercial
+    }
+    denis = russian["voices"][0]
     assert denis["installed"] is False and denis["download"]["status"] == "none"
     assert denis["licence_notice"] is False and denis["size"] > 60_000_000
 

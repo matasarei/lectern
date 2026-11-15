@@ -651,6 +651,18 @@
     "acceptLicence": "I've read its licence ({{licence}}) and accept it",
     "failed": "Couldn't read this aloud: {{error}}",
     "autoRead": "Read replies aloud",
-    "autoReadHint": "Read each new reply aloud when it's finished, in this browser"
+    "autoReadHint": "Read each new reply aloud when it's finished, in this browser",
+    "cardTitle": "Voices",
+    "cardWhat": "Replies are read aloud by a voice for their language, on this computer's processor: no GPU memory, and nothing leaves this computer. A voice downloads the first time a reply in its language is read, or here.",
+    "languageColumn": "Language",
+    "voiceColumn": "Voice",
+    "voiceFor": "Voice for {{language}}",
+    "recommended": "{{title}} (recommended)",
+    "installed": "On this computer",
+    "notInstalled": "Not downloaded",
+    "restricted": "{{title}} is under a restricted licence: {{licence}}.",
+    "acceptAndUse": "Accept the licence and use it",
+    "keep": "Keep the voice it has",
+    "adminOnly": "Only an admin can choose or download a voice."
   }
 }

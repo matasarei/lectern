@@ -29,6 +29,7 @@ import { formatAgo, formatBytes, formatMemory, percent } from "../../format";
 import { useDownloadEvents } from "../../hooks/useDownloadEvents";
 import { useRuntime } from "../../hooks/useRuntime";
 import { formatCountdown, modelWaitText, useCountdown } from "../../status";
+import { VoicesCard } from "../../voice/voices-card";
 import { UPDATE_POLL_MS } from "./polling";
 
 // The rows of "Models by role": the roles, and cleanup of scanned pages after the chat,
@@ -267,6 +268,8 @@ export function ModelsPage() {
       {admin && <SettingsCard />}
 
       <WebSearchCard admin={admin} />
+
+      <VoicesCard admin={admin} live={live} />
     </Page>
   );
 }

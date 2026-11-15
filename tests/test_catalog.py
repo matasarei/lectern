@@ -556,9 +556,17 @@ def test_two_default_voices_for_one_language_are_refused():
         catalog.Catalog.model_validate(raw)
 
 
-def test_the_shipped_voices_speak_english_and_russian_with_permissive_defaults():
+# The EU's official languages Piper has a voice for (none for Croatian, Irish or Maltese yet),
+# Russian and Ukrainian.
+EU_SPOKEN = {"bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hu", "it", "lt", "lv"}
+EU_SPOKEN |= {"nl", "pl", "pt", "ro", "sk", "sl", "sv"}
+SPOKEN = EU_SPOKEN | {"ru", "uk"}
+
+
+def test_the_shipped_voices_speak_every_eu_language_with_a_voice_and_ru_uk():
     cat = catalog.load()
-    for language in ("en", "ru"):
+    assert set(cat.voice_languages()) == SPOKEN
+    for language in SPOKEN:
         default = cat.default_voice(language)
         assert default is not None and default.permissive
         assert default in cat.voices_for(language)
@@ -566,6 +574,9 @@ def test_the_shipped_voices_speak_english_and_russian_with_permissive_defaults()
         for voice in cat.voices_for(language):
             assert voice.files.config is not None
             assert all(f.size > 0 and len(f.sha256) == 64 for f in voice.files.all())
+            assert voice.licence_notice == (not voice.permissive)
+            if not voice.permissive:
+                assert voice.notes, f"{voice.id}: a restricted voice says what its licence limits"
 
 
 def test_voices_are_no_role_choice_and_no_tiers_default():
