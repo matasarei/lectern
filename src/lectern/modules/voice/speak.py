@@ -149,8 +149,11 @@ class Voices:
         try:
             return speaker.wav(text, min(max(speed, MIN_SPEED), MAX_SPEED))
         except Exception as exc:  # whatever piper or onnxruntime raised: the voice failed
-            # The text is the person's: never in the log.
-            log.warning("%s couldn't speak %d characters: %s", entry.id, len(text), exc)
+            # The text is the person's: never in the log, nor the error's message, which may
+            # quote what the engine couldn't read. Its type says enough to look further.
+            log.warning(
+                "%s couldn't speak %d characters: %s", entry.id, len(text), type(exc).__name__
+            )
             raise VoiceError(f"{entry.title} couldn't speak this text.") from exc
 
     def _voice(self, entry: CatalogEntry) -> Speaker:

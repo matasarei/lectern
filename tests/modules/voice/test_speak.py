@@ -178,3 +178,20 @@ def test_a_real_piper_voice_speaks():
 
     assert seconds(normal) > 0.5
     assert seconds(faster) < seconds(normal) * 0.75
+
+
+def test_an_engine_error_that_repeats_the_text_keeps_it_out_of_the_log(caplog):
+    """An engine's message may quote what it couldn't read: only its type is logged."""
+
+    class Echoing(FakeSpeaker):
+        def wav(self, text: str, speed: float) -> bytes:
+            raise ValueError(f"no phonemes for {text!r}")
+
+    voices = Voices(_file_path, load=lambda *_: Echoing(Path("v")), clock=Clock())
+    with (
+        caplog.at_level(logging.WARNING, logger=speak.__name__),
+        pytest.raises(VoiceError, match="couldn't speak"),
+    ):
+        asyncio.run(voices.wav(_voice(DENIS), "секретный текст"))
+    assert "ValueError" in caplog.text
+    assert "секретный" not in caplog.text
