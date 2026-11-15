@@ -246,7 +246,7 @@ stays out of the page's first load.
 
 The reply's language is worked out once, from all of its text (`POST /api/voice/language`,
 `modules/voice/language.py`): Ukrainian and Russian by their own letters first (`і ї є ґ`,
-`ы э ё ъ`), the rest by py3langid among the languages a voice speaks. A short sentence alone is
+`ы э ё`; not `ъ`, which Bulgarian uses far more), the rest by py3langid among the languages a voice speaks. A short sentence alone is
 easily taken for another language, which is why it isn't done sentence by sentence. A menu
 beside the button reads the reply in another language instead.
 

@@ -45,3 +45,15 @@ def test_text_with_too_few_letters_has_no_language(text):
 
 def test_no_language_offered_means_none():
     assert detect("The meeting is moved to Friday.", []) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Договорът изтича на трети май, а наемът се плаща всеки месец.",
+        "Българският език е официален език.",
+    ],
+)
+def test_bulgarian_isnt_taken_for_russian_for_its_hard_sign(text):
+    # "ъ" is one of Bulgarian's commonest letters and rare in Russian: it can't settle Russian.
+    assert detect(text, [*EVERY, "bg"]) == "bg"

@@ -12,7 +12,8 @@ from collections.abc import Sequence
 from functools import cache
 
 UKRAINIAN_LETTERS = frozenset("іїєґІЇЄҐ")
-RUSSIAN_LETTERS = frozenset("ыэёъЫЭЁЪ")
+# Not "ъ": one of Bulgarian's commonest letters, and rare in Russian, so it settles nothing.
+RUSSIAN_LETTERS = frozenset("ыэёЫЭЁ")
 MIN_LETTERS = 3  # fewer than this says nothing about a language
 
 
