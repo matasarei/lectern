@@ -184,6 +184,19 @@ describe("ReadAloud", () => {
     expect(sent.filter((s) => s.url === "/api/voice/language")).toHaveLength(1); // not asked again
   });
 
+  it("lists the languages to read in by name", async () => {
+    languages.push({ code: "de", voice: "piper-de", chosen: null, voices: [voice("piper-de")] });
+    renderReply("The rent is 900.");
+    await readAloud();
+
+    const menu = await screen.findByRole("combobox", { name: "Language to read in" });
+    expect([...menu.querySelectorAll("option")].map((o) => o.textContent)).toEqual([
+      "English",
+      "German",
+      "Russian",
+    ]);
+  });
+
   it("finds a long reply's language from its start, within what the server takes", async () => {
     const sentence = "The rent is paid on the first of every month by bank transfer. ";
     renderReply(sentence.repeat(400)); // 25,600 characters: more than one request may carry

@@ -142,11 +142,13 @@ export function ReadAloud({
               void start(event.target.value);
             }}
           >
-            {voices.data.languages.map((l) => (
-              <option key={l.code} value={l.code}>
-                {name(l.code)}
-              </option>
-            ))}
+            {[...voices.data.languages]
+              .sort((a, b) => name(a.code).localeCompare(name(b.code)))
+              .map((l) => (
+                <option key={l.code} value={l.code}>
+                  {name(l.code)}
+                </option>
+              ))}
           </select>
         )}
       </div>
