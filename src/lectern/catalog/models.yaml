@@ -444,3 +444,67 @@ models:
       languages: [an, ar, ast, bg, ca, cs, cy, da, de, el, en, es, et, eu, fi, fr, ga, gl, hi, hr, hu, is, it, ja, ko, lt, lv, mt, nb, nl, "no", oc, pl, pt, ro, ru, sk, sl, sr, sv, uk, zh]
       prompt: "Translate the following text from {source} into {target}.\n{source}: {text} \n{target}:"
     notes: "GPL-3.0, because its training data is: fine to use, but a model built from it must stay under the GPL."
+
+  # Voices: Piper voices, read on the CPU by piper-tts (lectern.modules.voice). All from
+  # rhasspy/piper-voices at one revision. The voice model is MIT; the licence that matters is the
+  # recordings' it was trained on (each voice's MODEL_CARD), which `licence` names.
+
+  - id: piper-en-us-ljspeech
+    title: Piper LJSpeech (English, US)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings public domain"
+    permissive: true
+    files:
+      model:
+        - {path: en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx, size: 63531379, sha256: 6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22}
+      config: {path: en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json, size: 4972, sha256: 141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860}
+    voice: {language: en, default: true}
+
+  - id: piper-en-us-joe
+    title: Piper Joe (English, US)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: en/en_US/joe/medium/en_US-joe-medium.onnx, size: 63221984, sha256: abf4b998e34045cbd00eaf050de2de620f81ded6eb8b85a24b022a1c2b3f08d2}
+      config: {path: en/en_US/joe/medium/en_US-joe-medium.onnx.json, size: 5465, sha256: 7b5f0293c0bf5bda8e377be1696da84af798befeef31038e43beefc01fe858da}
+    voice: {language: en}
+
+  - id: piper-ru-ru-denis
+    title: Piper Denis (Russian, RU)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx, size: 63221984, sha256: 879bc365cb14d1380e3f5ed6044162ccf54c99f6161871569b7f830aec3ce841}
+      config: {path: ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx.json, size: 5464, sha256: e4fb4ab60262d1ab802c8c39301976c4135e545bc834a33c6eedc1f764df3bd6}
+    voice: {language: ru, default: true}
+
+  - id: piper-ru-ru-dmitri
+    title: Piper Dmitri (Russian, RU)
+    quant: medium
+    roles: [voice]
+    format: piper
+    repo: rhasspy/piper-voices
+    revision: e9ab671f2a0e50a701b34361136ba3e6a3a9eb0c
+    licence: "MIT; recordings CC0-1.0"
+    permissive: true
+    files:
+      model:
+        - {path: ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx, size: 63221984, sha256: 9ed9941bac7373f2ec1be36627e0e71a349a59ca5522d4363fd50701db05193a}
+      config: {path: ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json, size: 5465, sha256: b7ed744f65ec73deb57fc8e419a5db5c0c5532026cf1cd21247f75937b6fbee2}
+    voice: {language: ru}

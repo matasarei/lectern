@@ -457,3 +457,17 @@ def test_the_swap_that_ends_an_update_goes_through_the_runtime(api):
     gate = app.state.downloads.exclusive
     assert gate.func == app.state.runtime.without_model
     assert gate.keywords == {"wait": True}
+
+
+def test_voices_are_listed_as_models_but_are_no_role_to_choose(api):
+    client, headers, app = api
+
+    body = client.get("/api/models", headers=headers).json()
+
+    voices = [m for m in body["models"] if m["format"] == "piper"]
+    assert {"piper-en-us-ljspeech", "piper-ru-ru-denis"} <= {m["id"] for m in voices}
+    assert all(m["roles"] == ["voice"] and m["suits_tier"] for m in voices)
+    assert "voice" not in body["chosen"] and "voice" not in body["choices"]
+    refused = _choose(client, headers, "voice", "piper-ru-ru-denis")
+    assert refused.status_code == 404
+    assert set(_stored(app).values()) == {None}
