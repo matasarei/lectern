@@ -27,6 +27,8 @@ dependencies = [
     "primp>=2.0,<3",
     "fonttools>=4.60,<5",
     "pypdf>=7.0.1,<8",
+    "piper-tts>=1.8,<1.9",
+    "py3langid>=0.4,<0.5",
 ]
 
 [project.optional-dependencies]
