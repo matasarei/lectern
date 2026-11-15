@@ -67,8 +67,9 @@ def list_voices(request: Request) -> dict:
 @router.put("/voice/{code}", dependencies=[Depends(require_admin)])
 async def choose_voice(code: str, body: VoiceChoice, request: Request) -> dict:
     """Give a language this voice, and download it if it isn't on disk yet."""
-    entry = catalog.load().get(body.model_id)
-    if code not in catalog.load().voice_languages():
+    models = catalog.load()
+    entry = models.get(body.model_id)
+    if code not in models.voice_languages():
         raise HTTPException(404, f"No voice speaks {code!r}.")
     if entry is None or entry.voice is None or entry.voice.language != code:
         raise HTTPException(409, f"{body.model_id!r} isn't a voice for {_named(code)}.")
