@@ -1155,6 +1155,28 @@ describe("Read replies aloud", () => {
     expect(await screen.findByText("There's no voice for English.")).toBeTruthy(); // none here
   });
 
+  it("reads a follow-up's reply, not the one before it, whenever the transcript catches up", async () => {
+    window.localStorage.setItem("lectern.voice.autoread", "1");
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events({ type: "replayed" });
+
+    // A follow-up's turn has no message of its own, and ends before its reply is fetched.
+    await events({ type: "turn", status: "running", followup: "Export DOCX" });
+    await act(async () => {
+      push({ seq: 2, type: "turn", status: "done" });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(asked()).toEqual([]); // "Yes: lease.md." was there before the turn
+
+    chat = { ...chat, messages: [...chat.messages, message(7, { role: "assistant", content: "Exported." })] };
+    await act(async () => {
+      push({ seq: 3, type: "assistant", message_id: 7 }); // stored: the transcript is fetched again
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await waitFor(() => expect(asked()).toEqual([{ text: "Exported." }]));
+  });
+
   it("doesn't read a turn replayed after a reload, nor with the toggle off", async () => {
     window.localStorage.setItem("lectern.voice.autoread", "1");
     answered();

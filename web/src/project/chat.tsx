@@ -57,19 +57,23 @@ export function ChatTab({
   });
   // Read replies aloud: when a turn ends while the page watches, its reply is read. `readAfter`
   // is the message that turn answered, so the reply read is the one after it, not an older one
-  // still on screen before the transcript is fetched again.
+  // still on screen before the transcript is fetched again. A follow-up's turn answers no
+  // message: for it, that is the newest message there was when the turn started.
   const [autoRead, setAutoRead] = useAutoRead();
   const [readAfter, setReadAfter] = useState<number | null>(null);
   const autoReadRef = useRef(autoRead);
-  const turnRef = useRef<number | null>(null);
+  const turnRef = useRef(0);
   const onTurnEnded = useCallback(() => {
-    if (autoReadRef.current) setReadAfter(turnRef.current ?? 0);
+    if (autoReadRef.current) setReadAfter(turnRef.current);
   }, []);
   const live = useSessionEvents(projectId, sessionId, onOpen, onTurnEnded);
+  const newest = chat.data?.messages.at(-1)?.id ?? 0;
+  const wasRunning = useRef(false);
   useEffect(() => {
     autoReadRef.current = autoRead;
-    turnRef.current = live.messageId;
-  }, [autoRead, live.messageId]);
+    if (live.running && !wasRunning.current) turnRef.current = live.messageId ?? newest;
+    wasRunning.current = live.running;
+  }, [autoRead, live.running, live.messageId, newest]);
 
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Artifact[]>([]);
@@ -426,11 +430,19 @@ function shows(group: Group): boolean {
 }
 
 /** What a reply says, as Markdown: its messages' text, without the tool lines. */
-function replyText(group: Group): string {
-  return group.messages
+function replyText(messages: ChatMessage[]): string {
+  return messages
     .filter((m) => m.role === "assistant" && m.content)
     .map((m) => m.content)
     .join("\n\n");
+}
+
+/** What a reply's Read aloud reads: the whole reply, or, when Read replies aloud has a new
+ * reply to read, only its messages after `readAfter` and started unasked. A follow-up's reply
+ * joins the card of the reply before it, which was read already. */
+function reading(group: Group, readAfter: number | null): { markdown: string; autoStart: boolean } {
+  const unread = readAfter === null ? "" : replyText(group.messages.filter((m) => m.id > readAfter));
+  return unread ? { markdown: unread, autoStart: true } : { markdown: replyText(group.messages), autoStart: false };
 }
 
 /** One reply from the model: its tool lines, its text, and, while it runs, the live part. */
@@ -562,8 +574,7 @@ function Transcript({
                 {!(group === last && liveJoins && live.running) && (
                   <ReadAloud
                     readingKey={`${chatId}:${group.messages[0].id}`}
-                    markdown={replyText(group)}
-                    autoStart={group === last && readAfter !== null && group.messages[0].id > readAfter}
+                    {...reading(group, group === last ? readAfter : null)}
                     onAutoStarted={onReadStarted}
                   />
                 )}
