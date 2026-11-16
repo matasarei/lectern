@@ -33,9 +33,10 @@
   }
 
   /* With .btn-primary or .btn-secondary: a button that shows only an icon, its name in
-     aria-label and title. Square, and as tall as a text button beside it. */
+     aria-label and title. One fixed square, bordered or not, so Send and Stop swap in place;
+     as tall as a .btn-secondary text button beside it. */
   .btn-icon {
-    @apply inline-flex min-h-9 min-w-9 items-center justify-center px-2;
+    @apply inline-flex size-9.5 items-center justify-center p-0;
   }
 
   /* A link back up the app ("← Projects"): accent-coloured with an arrow, so it reads as
