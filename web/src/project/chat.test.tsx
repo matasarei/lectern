@@ -680,6 +680,52 @@ describe("Pinned items, the summary and the context", () => {
     expect(row.contains(screen.getByTestId("usage"))).toBe(false);
   });
 
+  it("shows the composer's buttons as icons, named for screen readers and in a tooltip", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const tooltips: Record<string, string> = {
+      Attach: "Attach",
+      Image: "Make a picture from this message, without asking first",
+      "Read replies aloud": "Read each new reply aloud when it's finished, in this browser",
+      Send: "Send",
+    };
+    for (const [name, title] of Object.entries(tooltips)) {
+      const button = screen.getByRole("button", { name });
+      expect(button.textContent).toBe(""); // no words on it: the icon says it
+      expect(button.getAttribute("title")).toBe(title);
+      expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    }
+
+    // A toggle that's on still looks pressed, not only says so.
+    const image = screen.getByRole("button", { name: "Image" });
+    expect(image.className).toContain("btn-secondary");
+    fireEvent.click(image);
+    expect(image.getAttribute("aria-pressed")).toBe("true");
+    expect(image.className).toContain("btn-primary");
+
+    // While a turn runs, Stop takes Send's place, an icon of the same kind.
+    await events({ type: "turn", status: "running", message_id: 5, text: "x", attachments: [] });
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    const stop = screen.getByRole("button", { name: "Stop" });
+    expect(stop.textContent).toBe("");
+    expect(stop.getAttribute("title")).toBe("Stop");
+    expect(stop.className).toContain("btn-icon");
+  });
+
+  it("shows a spinner on Attach while files upload, named Attaching…", async () => {
+    const answer = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((url, init) =>
+      String(url).includes("/files?") ? new Promise(() => {}) : answer(url, init),
+    );
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    fireEvent.change(screen.getByTestId("attach-picker"), { target: { files: [new File(["x"], "terms.md")] } });
+
+    const button = await screen.findByRole("button", { name: "Attaching…" });
+    expect(button.getAttribute("title")).toBe("Attaching…");
+    expect(button.querySelector(".spinner")).not.toBeNull();
+  });
+
   it("shows how the context is used, and when it was compacted", async () => {
     renderChat();
     await screen.findByText("Yes: lease.md.");
