@@ -214,7 +214,9 @@ async def build_context(run: TurnRun, history: History, ctx: int, counter: Count
     try:
         return await build(
             system=system_prompt(
-                run.project.name, sandbox=run.registry.get("code_run") is not None
+                run.project.name,
+                sandbox=run.registry.get("code_run") is not None,
+                web=run.registry.get("web_search") is not None,
             ),
             tools=run.registry.schemas(),
             attachments=history.attachments,

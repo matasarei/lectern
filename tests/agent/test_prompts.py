@@ -22,7 +22,8 @@ def test_without_a_sandbox_it_says_not_computed():
 
 
 def test_the_prompt_stays_short():
-    assert len(system_prompt("x" * 40, sandbox=True)) < 2400  # it goes with every call
+    # It goes with every call. The longest one: the sandbox's rule, and web search off.
+    assert len(system_prompt("x" * 40, sandbox=True, web=False)) < 2650
 
 
 def test_the_prompt_asks_to_pin_standing_instructions_and_confirmed_facts():
@@ -54,6 +55,19 @@ def test_the_prompt_lets_general_questions_be_answered_from_what_the_model_knows
     prompt = system_prompt("x", sandbox=True)
     assert "General questions" in prompt and "from your own knowledge" in prompt
     assert "Never make up what a file says" in prompt
+
+
+def test_without_web_search_current_facts_are_answered_from_what_the_model_knows():
+    """Asked "какая последняя версия php" with web search off, the 4B called code_write for
+    it 8 times in 12 (the exact-results check included), and the coding model's download was
+    offered. With this line: 1 in 12 (replayed on the 4B, 2026-11-16)."""
+    prompt = system_prompt("x", sandbox=True, web=False)
+    assert "Web search is off" in prompt and "not even by a script" in prompt
+    assert "switch on Web search in Models & memory" in prompt
+
+
+def test_with_web_search_the_prompt_leaves_current_facts_to_its_tools():
+    assert "Web search is off" not in system_prompt("x", sandbox=True, web=True)
 
 
 def test_exact_results_come_before_general_questions_and_need_no_file():
