@@ -190,14 +190,14 @@ Two ways in:
   for details first, since the person can change it on the card. Measured on the 4B, the model
   called the tool for none of 40 messages that only talked about pictures, and for all 28
   that asked for one, covers and title images included ([acceptance](acceptance/image.md)).
-- **The Image toggle** beside the message box, with a shape. The message asks for a picture
-  itself: the tool runs first, with no card, but for a download. The chat's model writes only
-  the prompt, from the conversation, in one llama-server call held to a JSON schema of the
-  missing arguments. `tool_choice` isn't enforced by llama-server, and the 4B answers in text
-  instead. On MLX, which can't hold an answer to a schema, the typed text is the prompt. The
-  call and its result go into the transcript like any other, then the model replies. The
-  toggle goes off once the message is sent. Only a tool that declares `forced_question` can be
-  asked for this way; any other ends the turn with a reason.
+- **The Image toggle** beside the message box (a picture frame with a sparkle), with a shape.
+  The message asks for a picture itself: the tool runs first, with no card, but for a download.
+  The chat's model writes only the prompt, from the conversation, in one llama-server call held
+  to a JSON schema of the missing arguments. `tool_choice` isn't enforced by llama-server, and
+  the 4B answers in text instead. On MLX, which can't hold an answer to a schema, the typed text
+  is the prompt. The call and its result go into the transcript like any other, then the model
+  replies. The toggle goes off once the message is sent. Only a tool that declares
+  `forced_question` can be asked for this way; any other ends the turn with a reason.
 
 Every picture is approved by the person: on its card, or by the toggle, which they switch on
 for one message. There's no "always allow", on purpose.
@@ -243,12 +243,12 @@ room hands the text to the chat model, as one that can't start does.
 
 ## Reading replies aloud
 
-Every finished reply has **Read aloud** under it (`web/src/voice/`). It isn't a tool: the model
-never hears of it, and nothing is read until a person asks. The page reads the reply's Markdown
-the way the chat shows it: headings, paragraphs, list items and quotes; tables row by row, their
-cells joined with commas; link text, an image's description and inline code; not code blocks,
-nor raw HTML's tags. The parser loads on first use, as the Markdown component does, so it
-stays out of the page's first load.
+Every finished reply has **Read aloud** under it, a speaker button (`web/src/voice/`). It isn't
+a tool: the model never hears of it, and nothing is read until a person asks. The page reads the
+reply's Markdown the way the chat shows it: headings, paragraphs, list items and quotes; tables
+row by row, their cells joined with commas; link text, an image's description and inline code;
+not code blocks, nor raw HTML's tags. The parser loads on first use, as the Markdown component
+does, so it stays out of the page's first load.
 
 The reply's language is worked out once, from all of its text (`POST /api/voice/language`,
 `modules/voice/language.py`): Ukrainian and Russian by their own letters first (`і ї є ґ`,
@@ -263,10 +263,10 @@ while the one before it plays. One reading at a time for the whole page: startin
 this computer offers an admin its download under the reply, its licence first when it has to
 be accepted, and tells anyone else to ask an admin ([Voices](models.md#voices)).
 
-**Read replies aloud**, beside the Image toggle, reads each new reply when its turn ends. It is
-this browser's choice, kept in its storage, off until switched on. Only a turn that ends while
-the page watches is read, never one replayed after a reload or a reconnect, and the reply read
-is the one after the message the turn answered.
+**Read replies aloud**, the speaker toggle beside the Image toggle, reads each new reply when
+its turn ends. It is this browser's choice, kept in its storage, off until switched on. Only a
+turn that ends while the page watches is read, never one replayed after a reload or a reconnect,
+and the reply read is the one after the message the turn answered.
 
 ## Follow-ups
 

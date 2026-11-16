@@ -43,7 +43,8 @@ flowchart TB
   DOCX through python-docx, ODT through odfdo, passwords through argon2-cffi, web search
   through ddgs, replies read aloud through piper-tts (GPL-3.0-or-later, a dependency) with
   py3langid for their language.
-- **Frontend:** TypeScript, React, Vite, TanStack Router and Query, Tailwind, react-markdown
+- **Frontend:** TypeScript, React, Vite, TanStack Router and Query, Tailwind, lucide-react
+  icons (their names kept as each button's label and tooltip), react-markdown
   with remark-gfm (no raw HTML); unified with remark-parse for the text read aloud, Web Audio to
   play it. Every string goes through i18next; English is the one
   language so far.
