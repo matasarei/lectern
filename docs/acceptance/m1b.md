@@ -164,6 +164,20 @@ No prompt was answered without `code.run`. The wrong answers came from scripts: 
 
 The 4B still wrote the range in digits every time, but correctly. Three wrong in 15 isn't far from none, so this may be partly luck. The whole calc set twice after the change: 18 and 20 of 22, `code.run` in 21 and 22. The failures are the known ones (workdays' brief stating March 2027's weekdays from memory; the penalty, durations and csv-count scripts) and one not seen before: stdev's script name ended in `.py` twice, which the name pattern refuses.
 
+### Again on 2026-11-16: with web search off, current facts went to `code.write`
+
+Seen in a chat: asked "какая последняя версия php" with web search off (the default), the 4B called `code.write`. The coding model's download (9.0 GB) was offered, and its script ran `php -v` and, when that failed in the sandbox, returned a hard-coded "8.2.0", which the chat gave as the answer.
+
+Replayed on this Mac, MLX on (`qwen3.5-4b-mlx`): the stored turn's first model call (system prompt, tools, messages 1–9), sent to a second copy of the model server, then, as the loop does, the exact-results check on a text draft with a digit in it.
+
+| System prompt | Tools | Ended in `code.write` | Answered | Searched |
+|---|---|---|---|---|
+| as before | no web tools | 8/12 | 2/12 | — |
+| with the web-off line (`WEB_OFF` in `src/lectern/agent/prompts.py`) | no web tools | 1/12 | 10/12 | — |
+| as before (first call only) | web tools | 0/8 | 2/8 | 6/8 (`web_search` or `wiki_lookup`) |
+
+The rest, 2/12 then 1/12, ended in a stray `chat_unpin` that the check returned; it is not this line's. A date difference ("Сколько дней между 3 марта 2024 и 17 сентября 2025?") went to `code.write` 8/8 with the line as without it. The line is sent only while web search is off.
+
 ## Notes
 
 - **Real-engine tests** (`pytest -m sandbox` with `LECTERN_TEST_SANDBOX_IMAGE=python:3-slim`) pass on this Mac:

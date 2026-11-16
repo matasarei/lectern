@@ -155,6 +155,27 @@ def test_a_language_that_isnt_a_code_is_refused_before_the_card():
     assert LOOKUP.validate({"query": "x", "language": " UK "}).language == "uk"
 
 
+@pytest.mark.parametrize(("offered", "says_off"), [(True, False), (False, True)])
+def test_the_system_prompt_says_web_search_is_off_only_when_it_isnt_offered(
+    store, offered, says_off
+):
+    """The turn reads it from its registry: with web.search offered, current facts are left to
+    the tool; without, the model is told it can't look them up."""
+    handle = FakeHandle([text_reply("PHP 8.4, as far as I know.")])
+    registry = Registry([*CORE_TOOLS, *(WEB_TOOLS if offered else [])])
+    manager = TurnManager(make_runtime(handle), store, registry)
+    project = store.create(LOCAL_USER, "Research")
+
+    async def scenario() -> str:
+        await manager.send(project, LOCAL_USER, 1, "What's the latest PHP version?", [])
+        return await manager.wait((project.id, 1))
+
+    assert asyncio.run(asyncio.wait_for(scenario(), 5)) == "done"
+    system = handle.requests[0]["messages"][0]
+    assert system["role"] == "system"
+    assert ("Web search is off" in system["content"]) is says_off
+
+
 # --- Don't allow: nothing leaves the computer -------------------------------------------------
 
 

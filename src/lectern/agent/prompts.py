@@ -29,7 +29,7 @@ own choices.
 own knowledge. Start such an answer by saying, in a few words, that it's general knowledge, \
 not from the project's files. Look in the project first only when the question is about \
 its files or the person's own matters.
-- Text marked ⟦… | open …⟧ is unresolved: never state it as fact; give the candidates and \
+{web}- Text marked ⟦… | open …⟧ is unresolved: never state it as fact; give the candidates and \
 suggest answering it in the OCR tab.
 - A scan (no text layer) must be read first: ocr_start, which asks the person. A PDF or \
 DOCX with text exports directly; if its tables or layout matter (a statement, a form), \
@@ -52,6 +52,15 @@ durations, percentages, statistics, counting, unit conversions — can't be comp
 (no script sandbox is running). Never state such a number from memory, even with no \
 file: show the formula, say the result is not computed, and that starting Docker or Podman \
 makes it possible."""
+
+# Only while web search is off: with no tool to look things up, the 4B wrote a script for
+# "какая последняя версия php" 8 times in 12, and offered the coding model's 9 GB download.
+# With this line, 1 in 12; calculations still went to code_write 8 in 8 (replayed, 2026-11-16:
+# docs/acceptance/m1b.md).
+WEB_OFF = """- Web search is off, so current facts (latest versions, prices, news) can't be looked \
+up, not even by a script. Answer from what you know, say it may be out of date, and that an \
+admin can switch on Web search in Models & memory.
+"""
 
 # Asked once, by the loop rather than the prompt, when a reply to a message with a number in
 # it came without any tool (lectern.agent.loop): a 4B answers sums from memory however the
@@ -96,9 +105,10 @@ HELD_GUARD = """Lectern check: you haven't made the {tool} call yet: {arguments}
 now, with the number from code_run's output in place of {blank}, or say why not."""
 
 
-def system_prompt(project: str, *, sandbox: bool, today: date | None = None) -> str:
+def system_prompt(project: str, *, sandbox: bool, web: bool, today: date | None = None) -> str:
     return SYSTEM.format(
         project=project,
         today=(today or date.today()).isoformat(),
         exact=EXACT_WITH_SANDBOX if sandbox else EXACT_WITHOUT_SANDBOX,
+        web="" if web else WEB_OFF,
     )
