@@ -118,6 +118,18 @@ def test_the_schema_caps_the_list_of_fixes():
     assert [f.after for f in page.fixes] == ["Оплата"]
 
 
+def test_the_schema_caps_a_doubts_reason_and_a_fixs_why():
+    """The 4B has reasoned aloud in a doubt's reason ("Wait, the instruction says...", 8,000
+    characters) until its reply was cut off, on a 1,368-character form page. Cutting the
+    reason afterwards is too late: the schema stops it, so the page comes back."""
+    seen: list[dict] = []
+    _clean(_client(json.dumps(GOOD), seen=seen))
+
+    items = seen[0]["response_format"]["json_schema"]["schema"]["properties"]
+    assert items["doubts"]["items"]["properties"]["reason"]["maxLength"] == WHY_CHARS
+    assert items["fixes"]["items"]["properties"]["why"]["maxLength"] == WHY_CHARS
+
+
 def test_an_invalid_reply_is_asked_for_again_once():
     seen: list[dict] = []
     page = _clean(_client("{not json", json.dumps(GOOD), seen=seen))
