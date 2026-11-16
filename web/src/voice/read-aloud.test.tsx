@@ -122,6 +122,35 @@ describe("ReadAloud", () => {
     expect(sources[0].stopped).toBe(true);
   });
 
+  it("is an icon in each state, named for screen readers and in a tooltip", async () => {
+    const answer = vi.mocked(fetch).getMockImplementation()!;
+    let speak: (() => void) | null = null;
+    vi.mocked(fetch).mockImplementation((url, init) =>
+      url === "/api/voice/speak"
+        ? new Promise((resolve) => {
+            speak = () => resolve(answer(url, init));
+          })
+        : answer(url, init),
+    );
+    renderReply("The rent is 900.");
+
+    const idle = await screen.findByRole("button", { name: "Read aloud" });
+    expect(idle.textContent).toBe("");
+    expect(idle.getAttribute("title")).toBe("Read aloud");
+    expect(idle.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    await readAloud();
+
+    const loading = await screen.findByRole("button", { name: "Getting the voice ready…" });
+    expect(loading.getAttribute("title")).toBe("Getting the voice ready…");
+    expect(loading.querySelector(".spinner")).not.toBeNull();
+
+    await act(async () => speak!());
+    const playing = await screen.findByRole("button", { name: "Stop reading" });
+    expect(playing.textContent).toBe("");
+    expect(playing.getAttribute("title")).toBe("Stop reading");
+    expect(playing.querySelector("svg")).not.toBeNull();
+  });
+
   it("offers an admin the download of a language's missing voice", async () => {
     detected = "ru";
     renderReply("Аренда 900 рублей.");

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Square, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -120,16 +121,26 @@ export function ReadAloud({
   if (parts === null || parts.length === 0) return null; // not parsed yet, or only code: nothing to say
 
   const missingLanguage = voices.data?.languages.find((l) => l.code === missing);
+  const label =
+    status === "loading" ? t("voice.loading") : status === "playing" ? t("voice.stop") : t("voice.readAloud");
   return (
     <div className="grid gap-2" data-testid="read-aloud">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button
-          className="text-accent hover:underline disabled:text-muted"
+          className="inline-flex rounded p-1 text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent disabled:text-muted"
           disabled={!voices.data}
           aria-pressed={status !== null}
+          aria-label={label}
+          title={label}
           onClick={() => (status !== null ? player.stop() : void start(language))}
         >
-          {status === "loading" ? t("voice.loading") : status === "playing" ? t("voice.stop") : t("voice.readAloud")}
+          {status === "loading" ? (
+            <span className="spinner size-4" />
+          ) : status === "playing" ? (
+            <Square className="size-4" />
+          ) : (
+            <Volume2 className="size-4" />
+          )}
         </button>
         {language !== null && voices.data && (
           <select
