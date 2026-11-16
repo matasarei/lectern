@@ -55,7 +55,8 @@ makes it possible."""
 
 # Only while web search is off: with no tool to look things up, the 4B wrote a script for
 # "какая последняя версия php" 8 times in 12, and offered the coding model's 9 GB download.
-# With this line, 1 in 12; calculations still went to code_write 8 in 8 (replayed, 2026-11-16).
+# With this line, 1 in 12; calculations still went to code_write 8 in 8 (replayed, 2026-11-16:
+# docs/acceptance/m1b.md).
 WEB_OFF = """- Web search is off, so current facts (latest versions, prices, news) can't be looked \
 up, not even by a script. Answer from what you know, say it may be out of date, and that an \
 admin can switch on Web search in Models & memory.
