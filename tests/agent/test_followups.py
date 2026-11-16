@@ -293,6 +293,32 @@ def test_a_notice_posted_late_says_the_session_isnt_finished_while_questions_are
     assert handle.requests == []
 
 
+def test_a_notice_says_not_finished_once_then_finished_when_the_document_clears(follow):
+    """Page 1 failed to clean: the chat heard "isn't finished yet". Cleaned again later, the
+    session is finished, and the chat has to hear that too, or the model, asked to translate
+    the Document, says it waits for the OCR session (seen on a two-page scanned form)."""
+    manager, project, db, ocr_id, handle = follow([])
+    _notice(db, ocr_id)
+    not_yet = "OCR · lease-scan.pdf isn't finished yet: 2 pages read · page 1 couldn't be cleaned."
+    finished = "OCR · lease-scan.pdf finished · 2 pages."
+    manager.ocr_jobs = _Summary(failed_pages=(1,))
+
+    async def go():  # noqa: ANN202
+        await manager.after_session(project, ocr_id, "done", not_yet)
+        await manager.follow_ups_settled()
+        await manager.after_session(project, ocr_id, "done", not_yet)  # told already
+        await manager.resume_follow_ups(project, 1)  # the chat opened: told already
+        await manager.follow_ups_settled()
+        manager.ocr_jobs = _Summary()  # page 1 cleaned again
+        await manager.after_session(project, ocr_id, "done", finished)
+        await manager.follow_ups_settled()
+
+    asyncio.run(go())
+    assert _transcript(db) == [("assistant", not_yet, None), ("assistant", finished, None)]
+    assert followups.pending(db, 1) == []
+    assert handle.requests == []
+
+
 def test_the_model_sees_waiting_exports_but_not_notices(follow):
     manager, project, _, ocr_id, handle = follow([text_reply("ok")])
     db = manager.projects.db(project)

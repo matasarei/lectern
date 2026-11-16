@@ -151,6 +151,21 @@ def take(sessions: sessionmaker[Session], chat_id: int, followup_id: str) -> Fol
         return found
 
 
+def hold(sessions: sessionmaker[Session], chat_id: int, followup_id: str) -> FollowUp | None:
+    """Mark the follow-up held and return it, kept for a later signal; None when it's gone or
+    already held (so the chat is told once)."""
+    with sessions.begin() as session:
+        row = session.get(ChatStateRow, chat_id)
+        pending_now = _load(row)
+        found = next((f for f in pending_now if f.id == followup_id and not f.held), None)
+        if found is None:
+            return None
+        marked = [replace(f, held=True) if f.id == followup_id else f for f in pending_now]
+        row.followups = json.dumps([asdict(f) for f in marked], ensure_ascii=False)
+        row.updated_at = now()
+        return found
+
+
 def stale(sessions: sessionmaker[Session], chat_id: int) -> list[tuple[FollowUp, str, str]]:
     """The chat's follow-ups whose OCR session is over, as (follow-up, status, notice): done
     (run it), failed or gone (drop it). Their session's signal was missed if they're still
