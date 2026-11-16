@@ -33,8 +33,9 @@
   }
 
   /* With .btn-primary or .btn-secondary: a button that shows only an icon, its name in
-     aria-label and title. One fixed square, bordered or not, so Send and Stop swap in place;
-     as tall as a .btn-secondary text button beside it. */
+     aria-label and title. One fixed square, bordered or not, so Send and Stop swap in place.
+     38 px is a .btn-secondary text button's height (py-2, the text-sm line, a 1 px border):
+     change one with the other, or the row's buttons stop lining up. */
   .btn-icon {
     @apply inline-flex size-9.5 items-center justify-center p-0;
   }
