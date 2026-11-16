@@ -41,14 +41,14 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/projects/search.py` | 109 | SQLite FTS5 indexing and prefix search over `artifact_text` | `index`, `remove`, `chunks`, `match_expression`, `search` |
 | `src/lectern/projects/preview.py` | 110 | File tab preview classification and DOCX/ODT-to-Markdown conversion | `preview_kind`, `document_markdown`, `DocumentTooLarge` |
 | `src/lectern/projects/html_page.py` | 292 | Bundles a project HTML file's local CSS/images/scripts as `data:` URLs for `/view` | `inline_page` |
-| `src/lectern/agent/loop.py` | 1005 | Agent turn loop, tool execution, confirmation cards, exact-number checks | `TurnRun`, `run_turn`, `run_tool`, `call_model`, `load_history`, `maybe_compact` |
+| `src/lectern/agent/loop.py` | 1007 | Agent turn loop, tool execution, confirmation cards, exact-number checks | `TurnRun`, `run_turn`, `run_tool`, `call_model`, `load_history`, `maybe_compact` |
 | `src/lectern/agent/turns.py` | 616 | Concurrent turn manager, SSE/WS replay channels, follow-up scheduling | `TurnManager`, `Channel`, `Busy` |
 | `src/lectern/agent/core_tools.py` | 665 | Core chat tools (`project.*`, `document.*`, `artifact.*`, `session.*`, `tab.*`, `chat.*`) | `core_registry`, `asked_for_file`, `asked_to_delete`, `said_by_person` |
 | `src/lectern/agent/export_tools.py` | 217 | `export.formats` and `export.run` tools | `export_tools`, `write_export` |
 | `src/lectern/agent/followups.py` | 315 | Queued post-OCR tool calls (`task.after`) | `FollowUp`, `add`, `mark_held`, `pending`, `task_after_tool` |
 | `src/lectern/agent/context.py` | 267 | Context window assembly (pins, files, summary, turns) and token budgeting | `build`, `split_turns`, `answer_reserve`, `ContextTooSmall` |
 | `src/lectern/agent/compaction.py` | 123 | Summarises older turns when context exceeds 75% | `fold_point`, `write_summary`, `summary_request` |
-| `src/lectern/agent/prompts.py` | 104 | System prompt builder for chat turns | `system_prompt` |
+| `src/lectern/agent/prompts.py` | 114 | System prompt builder for chat turns | `system_prompt` |
 | `src/lectern/agent/numbers.py` | 41 | Extracts numbers from text/tool arguments for the exact-calculation guard | `numbers_in`, `written_numbers` |
 | `src/lectern/agent/state.py` | 118 | Chat session pins and compaction summary persistence | `ChatState`, `load`, `pin`, `unpin`, `save_summary` |
 | `src/lectern/agent/tools.py` | 170 | `AgentTool` definition, JSON schema validation, result pagination | `AgentTool`, `ToolContext`, `ToolResult`, `Registry`, `page` |
@@ -114,11 +114,11 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 
 | File | Line range | Section / symbols |
 |---|---|---|
-| `src/lectern/agent/loop.py` (1005L) | `L73-173` | `TurnRun`, `History`, `load_history`, `as_openai`, `store_message`, `Reply` |
-| | `L176-355` | `call_model`, `build_context`, `maybe_compact`, `_tokenizer`, `_stream` |
-| | `L361-553` | `run_tool`, `_with_card_values`, `_run_stoppable`, `_ask` (confirmation card wait) |
-| | `L559-768` | `run_turn` (8-step loop), `_forced_call` (Image toggle), `_write_arguments` |
-| | `L854-1005` | Exact-number guards: `_may_check`, `_with_check`, `_Held`, `_unchecked`, `_with_call_check` |
+| `src/lectern/agent/loop.py` (1007L) | `L73-173` | `TurnRun`, `History`, `load_history`, `as_openai`, `store_message`, `Reply` |
+| | `L176-357` | `call_model`, `build_context`, `maybe_compact`, `_tokenizer`, `_stream` |
+| | `L363-555` | `run_tool`, `_with_card_values`, `_run_stoppable`, `_ask` (confirmation card wait) |
+| | `L561-770` | `run_turn` (8-step loop), `_forced_call` (Image toggle), `_write_arguments` |
+| | `L856-1007` | Exact-number guards: `_may_check`, `_with_check`, `_Held`, `_unchecked`, `_with_call_check` |
 | `src/lectern/modules/ocr/clean.py` (800L) | `L81-187` | `CleanBlock`, `CleanDoubt`, `CleanFix`, `CleanedPage`, `SCHEMA`, `page_message` |
 | | `L190-269` | `clean_page`, `_what_was_wrong`, `_say_loop_left_out` |
 | | `L332-504` | `keep_this_page` (neighbour-copy drop), `_narrow`, `_widen`, `_place_doubts` |
