@@ -38,7 +38,9 @@ NOT_THIS_PAGE = "For context only, not part of this page."
 # 4 GB tier is asked to reach. A reply given more room is given longer, at the same speed.
 CLEAN_TIMEOUT = 600.0
 CONFIRMED_LIMIT = 30  # readings the person confirmed, newest first, given to a later cleanup
-WHY_CHARS = 300  # a fix's reason; a small model has written its whole reasoning there
+# A fix's or a doubt's reason. A small model has written its whole reasoning there, once
+# until its reply was cut off (a doubt's, 8,000 characters): the schema stops it at this.
+WHY_CHARS = 300
 # Fixes a reply may list. The 4B has listed every line of a short invoice as a fix that
 # changed nothing ("No change needed") until its reply was cut off; the most a cleaned page
 # listed, in 16 sample pages, was 28. A schema can't say a fix must change something, but
@@ -133,7 +135,7 @@ SCHEMA = {
                     "block": {"type": "integer"},
                     "raw": {"type": "string"},
                     "candidates": {"type": "array", "items": {"type": "string"}},
-                    "reason": {"type": "string"},
+                    "reason": {"type": "string", "maxLength": WHY_CHARS},
                 },
                 "required": ["block", "raw"],
             },
@@ -145,7 +147,7 @@ SCHEMA = {
                 "properties": {
                     "before": {"type": "string"},
                     "after": {"type": "string"},
-                    "why": {"type": "string"},
+                    "why": {"type": "string", "maxLength": WHY_CHARS},
                 },
                 "required": ["before", "after"],
             },

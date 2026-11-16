@@ -36,7 +36,9 @@ The job goes through the whole document one phase at a time (`jobs.py`):
    before the page, a small model answered for them instead). It answers in JSON held to a schema
    (`clean.py`): blocks (heading, paragraph, table, list, signature, stamp, figure), the
    fixes it made with the reason for each, and doubts with candidate readings and a reason.
-   An unsure OCR word that cleanup left unchanged becomes a doubt of its own. An invalid
+   The schema holds each reason to 300 characters and the list of fixes to 30: a small model
+   has reasoned aloud in a doubt's reason, and listed fixes that changed nothing, until its
+   reply was cut off. An unsure OCR word that cleanup left unchanged becomes a doubt of its own. An invalid
    reply is retried once. Code then checks the reply: blocks copied from a neighbouring page
    are dropped (a word cleanup corrected counts as the page's own, and so does a number the neighbours don't have, so
    a heading it fixed, "4. Розділ 4", isn't taken for the next page's "5. Розділ 5"; half its
