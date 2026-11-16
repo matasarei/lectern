@@ -277,6 +277,12 @@ as it is*. When the follow-up runs, the chat reports on it in a turn of its own.
 always asks first can't be queued; one that asks only sometimes (`artifact.write`, `chat.pin`) doesn't ask
 again when it runs, since the person allowed it on `task.after`'s card.
 
+`ocr.start` without an export queues a notice instead: no tool and no model, only a message in
+the chat when the session ends. Ending with open questions or a page that failed, it says the
+session isn't finished yet, once, and stays queued (hidden from the Waiting strip); when the
+questions are answered or the page is cleaned again, it says the session finished. Without
+that second message the model, asked about the Document, took the first as still true.
+
 ## Web search
 
 Off until an admin switches it on. Each search, lookup or page is asked for on a card that

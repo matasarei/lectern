@@ -293,7 +293,8 @@ class TurnManager:
                            waiting: list) -> list:  # fmt: skip
         """`waiting` (a done session's follow-ups) if its Document is clear. If not (questions
         open, a page not cleaned), a chat's tool follow-ups wait: the chat is told once, its
-        notice taken (the message says it), and only notice-only chats go on."""
+        notice taken (the message says it), and only notice-only chats go on, to say it isn't
+        finished yet once (a held notice has said so, and waits to say it's finished)."""
         summary = await self._ocr_summary(project, ocr_session_id)
         if summary is None or summary["clear"]:
             return waiting
@@ -302,7 +303,7 @@ class TurnManager:
             mine = [f for chat, f in waiting if chat == chat_id]
             tools = [f for f in mine if not followups.is_notice(f)]
             if not tools:
-                go_on += [(chat_id, f) for f in mine]
+                go_on += [(chat_id, f) for f in mine if not f.held]
                 continue
             for notice in (f for f in mine if followups.is_notice(f)):
                 await run_in_threadpool(followups.take, sessions, chat_id, notice.id)
@@ -416,7 +417,17 @@ class TurnManager:
             await asyncio.sleep(0)
         self._starting.add(key)  # before the first await, so a message can't slip in
         try:
-            taken = await run_in_threadpool(followups.take, sessions, chat_id, follow.id)
+            # A notice for a session that isn't finished yet (a page not cleaned, questions
+            # open) is kept, held: cleaned again or answered, the chat hears it's finished.
+            # Asked now, not when it was scheduled: the chat may have been answering a while.
+            take = followups.take
+            if followups.is_notice(follow) and status == "done":
+                summary = await self._ocr_summary(project, follow.ocr_session_id)
+                if summary is not None and not summary["clear"]:
+                    take = followups.hold
+                if (notice_of := getattr(self.ocr_jobs, "notice", None)) is not None:
+                    notice = (await run_in_threadpool(notice_of, project, follow.ocr_session_id))[1]
+            taken = await run_in_threadpool(take, sessions, chat_id, follow.id)
             if taken is None:  # already run by an earlier signal
                 return
             owner = await run_in_threadpool(_owner, self.projects, sessions, chat_id)
