@@ -44,7 +44,7 @@ flowchart TB
   through ddgs, replies read aloud through piper-tts (GPL-3.0-or-later, a dependency) with
   py3langid for their language.
 - **Frontend:** TypeScript, React, Vite, TanStack Router and Query, Tailwind, lucide-react
-  icons (their names kept as each button's label and tooltip), react-markdown
+  icons (each button keeps its name as its label), react-markdown
   with remark-gfm (no raw HTML); unified with remark-parse for the text read aloud, Web Audio to
   play it. Every string goes through i18next; English is the one
   language so far.
