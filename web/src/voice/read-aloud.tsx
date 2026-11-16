@@ -127,7 +127,7 @@ export function ReadAloud({
     <div className="grid gap-2" data-testid="read-aloud">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button
-          className="inline-flex rounded p-1 text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent disabled:text-muted"
+          className="inline-flex rounded p-1 text-accent enabled:hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent disabled:text-muted"
           disabled={!voices.data}
           aria-pressed={status !== null}
           aria-label={label}
