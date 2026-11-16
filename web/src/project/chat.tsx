@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { TFunction } from "i18next";
+import { AtSign, Paperclip, SendHorizontal, Square, Volume2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
@@ -21,6 +22,7 @@ import { useIsAdmin } from "../api/session";
 import { ErrorNote } from "../components";
 import { FileList, listKey, matchingFiles, optionId } from "./file-picker";
 import { formatTokens } from "../format";
+import { ImageSparkleIcon } from "../icons";
 import { useLanguageName } from "../hooks/useLanguageName";
 import { useRuntime } from "../hooks/useRuntime";
 import { Markdown } from "../lazy-markdown";
@@ -139,6 +141,7 @@ export function ChatTab({
   }
   if (!chat.data) return <p className="p-4 text-muted">{t("common.loading")}</p>;
 
+  const attachLabel = attach.isPending ? t("chat.attaching") : t("chat.attach");
   const choices = pick
     ? matchingFiles(items.data?.artifacts ?? [], pick.query, attached.map((a) => a.id))
     : [];
@@ -305,12 +308,18 @@ export function ChatTab({
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn-secondary" onClick={() => picker.current?.click()}>
-            {attach.isPending ? t("chat.attaching") : t("chat.attach")}
+          <button
+            type="button"
+            className="btn-secondary btn-icon"
+            aria-label={attachLabel}
+            title={attachLabel}
+            onClick={() => picker.current?.click()}
+          >
+            {attach.isPending ? <span className="spinner size-4" /> : <Paperclip className="size-5" />}
           </button>
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-secondary btn-icon"
             aria-label={t("chat.mention")}
             title={t("chat.mention")}
             onClick={() => {
@@ -318,28 +327,30 @@ export function ChatTab({
               setActive(0);
             }}
           >
-            @
+            <AtSign className="size-5" />
           </button>
           <button
             type="button"
-            className={image ? "btn-primary" : "btn-secondary"}
+            className={`${image ? "btn-primary" : "btn-secondary"} btn-icon`}
             aria-pressed={image !== null}
+            aria-label={t("chat.imageToggle")}
             title={t("chat.imageToggleHint")}
             onClick={() => setImage(image ? null : "square")}
           >
-            {t("chat.imageToggle")}
+            <ImageSparkleIcon className="size-5" />
           </button>
           <button
             type="button"
-            className={autoRead ? "btn-primary" : "btn-secondary"}
+            className={`${autoRead ? "btn-primary" : "btn-secondary"} btn-icon`}
             aria-pressed={autoRead}
+            aria-label={t("voice.autoRead")}
             title={t("voice.autoReadHint")}
             onClick={() => {
               if (autoRead) player.stop();
               setAutoRead(!autoRead);
             }}
           >
-            {t("voice.autoRead")}
+            <Volume2 className="size-5" />
           </button>
           {image && (
             <select
@@ -369,12 +380,24 @@ export function ChatTab({
           />
           <span className="ml-auto" />
           {busy ? (
-            <button type="button" className="btn-secondary" onClick={() => stop.mutate()}>
-              {t("chat.stop")}
+            <button
+              type="button"
+              className="btn-secondary btn-icon"
+              aria-label={t("chat.stop")}
+              title={t("chat.stop")}
+              onClick={() => stop.mutate()}
+            >
+              <Square className="size-5" />
             </button>
           ) : (
-            <button type="submit" className="btn-primary" disabled={!canSend}>
-              {t("chat.send")}
+            <button
+              type="submit"
+              className="btn-primary btn-icon"
+              aria-label={t("chat.send")}
+              title={t("chat.send")}
+              disabled={!canSend}
+            >
+              <SendHorizontal className="size-5" />
             </button>
           )}
         </div>
