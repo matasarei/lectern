@@ -685,6 +685,7 @@ describe("Pinned items, the summary and the context", () => {
     await screen.findByText("Yes: lease.md.");
     const tooltips: Record<string, string> = {
       Attach: "Attach",
+      "Mention a file from the project": "Mention a file from the project",
       Image: "Make a picture from this message, without asking first",
       "Read replies aloud": "Read each new reply aloud when it's finished, in this browser",
       Send: "Send",
@@ -820,7 +821,7 @@ describe("Adding files already in the project", () => {
     await screen.findByText("Yes: lease.md.");
 
     const mention = screen.getByRole("button", { name: "Mention a file from the project" });
-    expect(mention.textContent).toBe("@");
+    expect(mention.querySelector("svg")).not.toBeNull(); // the @ icon, like the buttons beside it
     fireEvent.click(mention);
     fireEvent.change(await screen.findByRole("searchbox", { name: "Find a file" }), {
       target: { value: "notes" },

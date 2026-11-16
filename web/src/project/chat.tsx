@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { TFunction } from "i18next";
-import { Paperclip, SendHorizontal, Square, Volume2 } from "lucide-react";
+import { AtSign, Paperclip, SendHorizontal, Square, Volume2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { apiFetch, apiPost, apiRaw, ApiError } from "../api/client";
@@ -319,7 +319,7 @@ export function ChatTab({
           </button>
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-secondary btn-icon"
             aria-label={t("chat.mention")}
             title={t("chat.mention")}
             onClick={() => {
@@ -327,7 +327,7 @@ export function ChatTab({
               setActive(0);
             }}
           >
-            @
+            <AtSign className="size-5" />
           </button>
           <button
             type="button"
