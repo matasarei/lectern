@@ -104,9 +104,7 @@ HELD_GUARD = """Lectern check: you haven't made the {tool} call yet: {arguments}
 now, with the number from code_run's output in place of {blank}, or say why not."""
 
 
-def system_prompt(
-    project: str, *, sandbox: bool, web: bool = False, today: date | None = None
-) -> str:
+def system_prompt(project: str, *, sandbox: bool, web: bool, today: date | None = None) -> str:
     return SYSTEM.format(
         project=project,
         today=(today or date.today()).isoformat(),
