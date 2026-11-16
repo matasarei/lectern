@@ -488,3 +488,98 @@ def test_a_translation_prompt_may_leave_out_the_source_language():
     entry = _translate_entry()
     entry["translate"] = {**entry["translate"], "prompt": "Translate into {target}:\n\n{text}"}
     assert _with(entry).get("test-translate").translate.prompt.endswith("{text}")
+
+
+# --- voices ----------------------------------------------------------------------------------
+
+
+def _voice_entry(**changes):
+    entry = {
+        "id": "test-voice",
+        "title": "Test voice",
+        "quant": "medium",
+        "roles": ["voice"],
+        "format": "piper",
+        "repo": "someone/voices",
+        "revision": _REV,
+        "licence": "MIT; recordings CC0-1.0",
+        "permissive": True,
+        "files": {
+            "model": [{"path": "ru/v.onnx", "size": 10, "sha256": _SHA}],
+            "config": {"path": "ru/v.onnx.json", "size": 5, "sha256": _SHA},
+        },
+        "voice": {"language": "ru"},
+    }
+    entry.update(changes)
+    return entry
+
+
+def test_a_voice_loads_with_its_config_and_suits_every_tier():
+    entry = _with(_voice_entry()).get("test-voice")
+    assert [f.path for f in entry.files.all()] == ["ru/v.onnx", "ru/v.onnx.json"]
+    assert entry.voice.language == "ru" and not entry.voice.default
+    assert all(entry.suits(tier) for tier in Tier)
+
+
+@pytest.mark.parametrize(
+    ("changes", "why"),
+    [
+        ({"voice": None}, "go together"),
+        ({"format": "gguf"}, "go together"),
+        ({"roles": ["main"]}, "go together"),
+        ({"roles": ["voice", "main"]}, "voice role only"),
+        ({"defaults": {"voice": ["minimum"]}}, "a language's own"),
+        ({"files": {"model": [{"path": "v.onnx", "size": 1, "sha256": _SHA}]}}, "its .onnx.json"),
+        ({"voice": {"language": "xx"}}, "without a name"),
+        ({"voice": {"language": "ru", "default": True}, "permissive": False}, "restricted"),
+    ],
+)
+def test_a_voice_that_is_not_whole_is_refused(changes, why):
+    with pytest.raises(ValidationError, match=why):
+        _with(_voice_entry(**changes))
+
+
+def test_a_config_file_on_a_model_that_is_not_a_voice_is_refused():
+    raw = _raw()
+    raw["models"][0]["files"]["config"] = {"path": "c.json", "size": 1, "sha256": _SHA}
+    with pytest.raises(ValidationError, match="only a voice has a `config` file"):
+        catalog.Catalog.model_validate(raw)
+
+
+def test_two_default_voices_for_one_language_are_refused():
+    raw = _raw()
+    raw["models"] += [
+        _voice_entry(id="a", voice={"language": "pl", "default": True}),
+        _voice_entry(id="b", voice={"language": "pl", "default": True}),
+    ]
+    with pytest.raises(ValidationError, match="two default voices for pl"):
+        catalog.Catalog.model_validate(raw)
+
+
+# The EU's official languages Piper has a voice for (none for Croatian, Irish or Maltese yet),
+# Russian and Ukrainian.
+EU_SPOKEN = {"bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "hu", "it", "lt", "lv"}
+EU_SPOKEN |= {"nl", "pl", "pt", "ro", "sk", "sl", "sv"}
+SPOKEN = EU_SPOKEN | {"ru", "uk"}
+
+
+def test_the_shipped_voices_speak_every_eu_language_with_a_voice_and_ru_uk():
+    cat = catalog.load()
+    assert set(cat.voice_languages()) == SPOKEN
+    for language in SPOKEN:
+        default = cat.default_voice(language)
+        assert default is not None and default.permissive
+        assert default in cat.voices_for(language)
+    for language in cat.voice_languages():
+        for voice in cat.voices_for(language):
+            assert voice.files.config is not None
+            assert all(f.size > 0 and len(f.sha256) == 64 for f in voice.files.all())
+            assert voice.licence_notice == (not voice.permissive)
+            if not voice.permissive:
+                assert voice.notes, f"{voice.id}: a restricted voice says what its licence limits"
+
+
+def test_voices_are_no_role_choice_and_no_tiers_default():
+    cat = catalog.load()
+    assert all("voice" not in cat.defaults_for(tier) for tier in Tier)
+    assert cat.default_voice("xx") is None and cat.voices_for("xx") == []

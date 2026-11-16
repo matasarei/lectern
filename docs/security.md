@@ -145,6 +145,14 @@ embeddings folder is ever passed, so a name in a prompt can't make it load a fil
 on no port. What it writes must read as a PNG of the size asked; it is written again without
 the metadata sd-cli embeds before it becomes a project file.
 
+Replies read aloud (`modules/voice/`) are spoken on this computer: the text goes from the page
+to Lectern's own `/api/voice` routes, behind the token like every other, and nowhere else. The
+text sent to be spoken is a person's reply, so it is never logged: a voice that fails logs its
+id and the text's length. A sentence is at most 1,000 characters and a reply looked at for its
+language at most 20,000. The sound comes back as bytes the page plays through Web Audio, so the
+CSP needs no `media-src`. Choosing a language's voice downloads a model, so it is an admin's
+(`require_admin`), with a restricted licence accepted first, as on Models & memory.
+
 ## Data leaving the machine
 
 No telemetry and no cloud models. Lectern connects out to download models (Hugging Face) and

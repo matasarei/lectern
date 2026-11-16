@@ -35,6 +35,9 @@ switches it on.
   the message box, and it is made on your own GPU and saved to the project. The card shows
   the prompt for you to change and how long it should take; a bigger GPU makes larger
   pictures. On a Mac this needs macOS 26 or later.
+- **Replies read aloud.** **Read aloud** under a reply reads it in its own language, on your
+  own computer's processor: English, Russian, Ukrainian and 20 more European languages, a voice
+  each, downloaded the first time it's needed. **Read replies aloud** reads every new one.
 - **Models chosen for your hardware,** one for each job, each downloaded at a fixed version and
   checked against its checksum.
 - **Accounts for a household.** Each person signs in to a workspace of their own, at home or,
@@ -474,6 +477,11 @@ them is on the **Models & memory** page.
   **Update**: the new version is downloaded beside the old one, which stays in use, and takes
   its place when the model is free.
 
+- **Voices.** The "Voices" card lists each language a reply can be read aloud in, and the voice
+  that reads it, about 63 MB each. An admin can pick another voice for a language and download
+  it here; a voice whose licence limits its use (non-commercial recordings) shows that licence
+  first. Voices run on the processor, so they never take the GPU from the chat.
+
 The models are in `~/.lectern/data/models`, one folder each.
 
 ## Security
@@ -483,4 +491,4 @@ privately: [`SECURITY.md`](SECURITY.md).
 
 ## Licence
 
-Apache-2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Models are downloaded separately and keep their own licences; the app shows each model's licence before downloading it.
+Apache-2.0, see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Models are downloaded separately and keep their own licences; the app shows each model's licence before downloading it. Replies are read aloud by [piper-tts](https://github.com/OHF-Voice/piper1-gpl), installed as a dependency under its own licence, GPL-3.0-or-later.

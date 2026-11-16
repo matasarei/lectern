@@ -74,6 +74,11 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/runtime") return new Response(JSON.stringify(runtimeState));
+      if (url === "/api/voice") return new Response(JSON.stringify({ languages: [] }));
+      if (url === "/api/voice/language") {
+        posts.push({ url, body: JSON.parse(String(init?.body ?? "null")) });
+        return new Response(JSON.stringify({ language: "en" }));
+      }
       if (url === "/api/exporters") {
         return new Response(JSON.stringify([{ format: "docx", extension: ".docx", capabilities: [] }]));
       }
@@ -99,6 +104,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.localStorage.clear();
 });
 
 function renderChat(onOpen: (tab: Tab, focus?: boolean) => void = () => {}) {
@@ -1102,3 +1108,94 @@ describe("The hint under a translation", () => {
   });
 });
 
+
+describe("Read replies aloud", () => {
+  const asked = () => posts.filter((p) => p.url === "/api/voice/language").map((p) => p.body);
+
+  /** The model answers message 5 with message 6, stored before its turn ends. */
+  function answered() {
+    chat = {
+      ...chat,
+      messages: [
+        ...chat.messages,
+        message(5, { content: "And the total?" }),
+        message(6, { role: "assistant", content: "The total is 42." }),
+      ],
+    };
+  }
+
+  it("is off until switched on, and stays on in this browser", async () => {
+    const { unmount } = renderChat();
+    const toggle = await screen.findByRole("button", { name: "Read replies aloud" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    unmount();
+
+    renderChat();
+    const again = await screen.findByRole("button", { name: "Read replies aloud" });
+    expect(again.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("reads the new reply when its turn ends", async () => {
+    window.localStorage.setItem("lectern.voice.autoread", "1");
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events({ type: "replayed" });
+
+    await events({ type: "turn", status: "running", message_id: 5, text: "And the total?", attachments: [] });
+    answered();
+    await act(async () => {
+      push({ seq: 2, type: "turn", status: "done" });
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    await waitFor(() => expect(asked()).toEqual([{ text: "The total is 42." }]));
+    expect(await screen.findByText("There's no voice for English.")).toBeTruthy(); // none here
+  });
+
+  it("reads a follow-up's reply, not the one before it, whenever the transcript catches up", async () => {
+    window.localStorage.setItem("lectern.voice.autoread", "1");
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events({ type: "replayed" });
+
+    // A follow-up's turn has no message of its own, and ends before its reply is fetched.
+    await events({ type: "turn", status: "running", followup: "Export DOCX" });
+    await act(async () => {
+      push({ seq: 2, type: "turn", status: "done" });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(asked()).toEqual([]); // "Yes: lease.md." was there before the turn
+
+    chat = { ...chat, messages: [...chat.messages, message(7, { role: "assistant", content: "Exported." })] };
+    await act(async () => {
+      push({ seq: 3, type: "assistant", message_id: 7 }); // stored: the transcript is fetched again
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await waitFor(() => expect(asked()).toEqual([{ text: "Exported." }]));
+  });
+
+  it("doesn't read a turn replayed after a reload, nor with the toggle off", async () => {
+    window.localStorage.setItem("lectern.voice.autoread", "1");
+    answered();
+    renderChat();
+    await screen.findByText("The total is 42.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "And the total?", attachments: [] },
+      { type: "turn", status: "done" },
+    );
+    await events({ type: "replayed" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(asked()).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Read replies aloud" })); // off
+    await act(async () => {
+      push({ seq: 3, type: "turn", status: "running", message_id: 5, text: "x", attachments: [] });
+      push({ seq: 4, type: "turn", status: "done" });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(asked()).toEqual([]);
+  });
+});

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Fragment, useId, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
@@ -28,6 +28,9 @@ import { ExportButtons } from "./export-buttons";
 import { OcrLine } from "./ocr-line";
 import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
+import { player } from "../voice/player";
+import { ReadAloud } from "../voice/read-aloud";
+import { useAutoRead } from "../voice/use-auto-read";
 
 const ARGS_SHOWN = 80;
 // The Image toggle's shapes (image.generate's `shape`).
@@ -52,7 +55,25 @@ export function ChatTab({
     queryKey: ["chat", projectId, sessionId],
     queryFn: () => apiFetch<Chat>(base),
   });
-  const live = useSessionEvents(projectId, sessionId, onOpen);
+  // Read replies aloud: when a turn ends while the page watches, its reply is read. `readAfter`
+  // is the message that turn answered, so the reply read is the one after it, not an older one
+  // still on screen before the transcript is fetched again. A follow-up's turn answers no
+  // message: for it, that is the newest message there was when the turn started.
+  const [autoRead, setAutoRead] = useAutoRead();
+  const [readAfter, setReadAfter] = useState<number | null>(null);
+  const autoReadRef = useRef(autoRead);
+  const turnRef = useRef(0);
+  const onTurnEnded = useCallback(() => {
+    if (autoReadRef.current) setReadAfter(turnRef.current);
+  }, []);
+  const live = useSessionEvents(projectId, sessionId, onOpen, onTurnEnded);
+  const newest = chat.data?.messages.at(-1)?.id ?? 0;
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    autoReadRef.current = autoRead;
+    if (live.running && !wasRunning.current) turnRef.current = live.messageId ?? newest;
+    wasRunning.current = live.running;
+  }, [autoRead, live.running, live.messageId, newest]);
 
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Artifact[]>([]);
@@ -164,6 +185,8 @@ export function ChatTab({
           onOpen={onOpen}
           onDecide={(id, approve, values) => decide.mutate({ id, approve, values })}
           onStopTool={(callId) => stopTool.mutate(callId)}
+          readAfter={readAfter}
+          onReadStarted={() => setReadAfter(null)}
           liveReply={
             hasLiveReply(live) && (
               <LiveReply
@@ -306,6 +329,18 @@ export function ChatTab({
           >
             {t("chat.imageToggle")}
           </button>
+          <button
+            type="button"
+            className={autoRead ? "btn-primary" : "btn-secondary"}
+            aria-pressed={autoRead}
+            title={t("voice.autoReadHint")}
+            onClick={() => {
+              if (autoRead) player.stop();
+              setAutoRead(!autoRead);
+            }}
+          >
+            {t("voice.autoRead")}
+          </button>
           {image && (
             <select
               aria-label={t("chat.imageShape")}
@@ -394,6 +429,22 @@ function shows(group: Group): boolean {
   return group.messages.some((m) => m.role === "assistant" && (m.content || m.tool_calls?.length));
 }
 
+/** What a reply says, as Markdown: its messages' text, without the tool lines. */
+function replyText(messages: ChatMessage[]): string {
+  return messages
+    .filter((m) => m.role === "assistant" && m.content)
+    .map((m) => m.content)
+    .join("\n\n");
+}
+
+/** What a reply's Read aloud reads: the whole reply, or, when Read replies aloud has a new
+ * reply to read, only its messages after `readAfter` and started unasked. A follow-up's reply
+ * joins the card of the reply before it, which was read already. */
+function reading(group: Group, readAfter: number | null): { markdown: string; autoStart: boolean } {
+  const unread = readAfter === null ? "" : replyText(group.messages.filter((m) => m.id > readAfter));
+  return unread ? { markdown: unread, autoStart: true } : { markdown: replyText(group.messages), autoStart: false };
+}
+
 /** One reply from the model: its tool lines, its text, and, while it runs, the live part. */
 function Reply({ children }: { children: React.ReactNode }) {
   return (
@@ -417,6 +468,8 @@ function Transcript({
   onOpen,
   onDecide,
   onStopTool,
+  readAfter,
+  onReadStarted,
 }: {
   projectId: number;
   chatId: number;
@@ -428,6 +481,8 @@ function Transcript({
   onOpen: (tab: Tab) => void;
   onDecide: Decide;
   onStopTool: (callId: string) => void;
+  readAfter: number | null; // read the newest reply aloud, if it comes after this message
+  onReadStarted: () => void;
 }) {
   const { t } = useTranslation();
   const results = new Map(
@@ -515,6 +570,14 @@ function Transcript({
                     </Fragment>
                   ))}
                 {group === last && liveJoins && liveReply}
+                {/* Read aloud once the reply is finished: not while its turn still writes it. */}
+                {!(group === last && liveJoins && live.running) && (
+                  <ReadAloud
+                    readingKey={`${chatId}:${group.messages[0].id}`}
+                    {...reading(group, group === last ? readAfter : null)}
+                    onAutoStarted={onReadStarted}
+                  />
+                )}
               </Reply>
             )
           )}

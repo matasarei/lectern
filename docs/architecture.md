@@ -6,7 +6,7 @@ of its own and talks to it over HTTP on `127.0.0.1`.
 ```mermaid
 flowchart TB
   UI["Web UI · React"] -- "REST, event streams, WebSockets" --> API["FastAPI app"]
-  API --> MODS["Modules: sandbox · ocr · export-md/docx/odt · web · image"]
+  API --> MODS["Modules: sandbox · ocr · export-md/docx/odt · web · image · voice"]
   API --> AGENT["Chat agent loop"]
   AGENT --> MODS
   MODS --> OCRJOB["OCR job worker"]
@@ -16,6 +16,7 @@ flowchart TB
   RT -.-> MLX["mlx_lm.server · Apple Silicon"]
   MODS --> BOX["Podman or Docker · the script sandbox"]
   MODS --> SD["sd-cli · one per picture"]
+  MODS --> VOICE["Piper voices · in process, CPU"]
   API --> DB[("lectern.sqlite + project folders")]
 ```
 
@@ -40,9 +41,11 @@ flowchart TB
 - **Backend:** Python 3.12, FastAPI on Uvicorn, Typer for the CLI, SQLAlchemy 2 and Alembic
   on SQLite (WAL), httpx2 for outgoing HTTP. PDFs through pypdfium2, images through Pillow,
   DOCX through python-docx, ODT through odfdo, passwords through argon2-cffi, web search
-  through ddgs.
+  through ddgs, replies read aloud through piper-tts (GPL-3.0-or-later, a dependency) with
+  py3langid for their language.
 - **Frontend:** TypeScript, React, Vite, TanStack Router and Query, Tailwind, react-markdown
-  with remark-gfm (no raw HTML). Every string goes through i18next; English is the one
+  with remark-gfm (no raw HTML); unified with remark-parse for the text read aloud, Web Audio to
+  play it. Every string goes through i18next; English is the one
   language so far.
 - **Tooling:** uv, ruff and pytest; npm, ESLint and Vitest. CI runs the lints, the web build
   and both test suites on Linux, and both test suites again on Windows, where the Linux and
@@ -69,7 +72,7 @@ a database: it's `catalog/models.yaml`, shipped with the code.
 
 A module is a Python package registered under the `lectern.modules` entry point
 (`pyproject.toml`); one that fails to load is logged and skipped. The built-in ones are
-`sandbox`, `ocr`, `export-md`, `export-docx`, `export-odt`, `web` and `image`. The contract
+`sandbox`, `ocr`, `export-md`, `export-docx`, `export-odt`, `web`, `image` and `voice`. The contract
 (`modules/__init__.py`):
 
 ```python

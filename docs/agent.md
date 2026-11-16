@@ -235,6 +235,33 @@ language the model gives is checked: Ukrainian and Russian are told apart by the
 (the 4B called Russian `uk`). A translation model that repeats itself until it runs out of
 room hands the text to the chat model, as one that can't start does.
 
+## Reading replies aloud
+
+Every finished reply has **Read aloud** under it (`web/src/voice/`). It isn't a tool: the model
+never hears of it, and nothing is read until a person asks. The page reads the reply's Markdown
+the way the chat shows it: headings, paragraphs, list items and quotes; tables row by row, their
+cells joined with commas; link text, an image's description and inline code; not code blocks,
+nor raw HTML's tags. The parser loads on first use, as the Markdown component does, so it
+stays out of the page's first load.
+
+The reply's language is worked out once, from all of its text (`POST /api/voice/language`,
+`modules/voice/language.py`): Ukrainian and Russian by their own letters first (`і ї є ґ`,
+`ы э ё`; not `ъ`, which Bulgarian uses far more), the rest by py3langid among the languages a voice speaks. A short sentence alone is
+easily taken for another language, which is why it isn't done sentence by sentence. A menu
+beside the button reads the reply in another language instead.
+
+Each sentence (cut at a comma under 400 characters when longer) is spoken by the language's
+voice as a WAV (`POST /api/voice/speak`) and played through Web Audio, the next one fetched
+while the one before it plays. One reading at a time for the whole page: starting another, or
+**Stop**, ends it at once, the sentence being fetched included. A language whose voice isn't on
+this computer offers an admin its download under the reply, its licence first when it has to
+be accepted, and tells anyone else to ask an admin ([Voices](models.md#voices)).
+
+**Read replies aloud**, beside the Image toggle, reads each new reply when its turn ends. It is
+this browser's choice, kept in its storage, off until switched on. Only a turn that ends while
+the page watches is read, never one replayed after a reload or a reconnect, and the reply read
+is the one after the message the turn answered.
+
 ## Follow-ups
 
 `task.after`, and `ocr.start` with `then_export`, queue a tool call to run when an OCR session

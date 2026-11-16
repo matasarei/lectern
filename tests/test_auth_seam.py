@@ -157,6 +157,7 @@ ADMIN_ONLY = [
     ("post", "/api/first-run"),
     ("post", "/api/dev/swap-test"),
     ("get", "/api/dev/swap-test"),
+    ("put", "/api/voice/ru"),
 ]
 EVERYBODYS = [
     "/api/models",
@@ -164,6 +165,7 @@ EVERYBODYS = [
     "/api/runtime/settings",
     "/api/system",
     "/api/first-run",
+    "/api/voice",
 ]
 # Install-wide routes that change something and are a member's too.
 A_MEMBERS_TOO = {
@@ -171,6 +173,9 @@ A_MEMBERS_TOO = {
     ("post", "/api/login"),
     ("post", "/api/logout"),
     ("post", "/api/password"),
+    # Reading a reply aloud changes nothing: POST only because a reply is too long for a URL.
+    ("post", "/api/voice/language"),
+    ("post", "/api/voice/speak"),
 }
 
 

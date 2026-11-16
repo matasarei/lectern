@@ -85,6 +85,10 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/modules/web/page.py` | 163 | HTML-to-Markdown conversion for fetched web pages | `decode`, `to_text`, `Page` |
 | `src/lectern/modules/web/tools.py` | 299 | `web.search`, `wiki.lookup`, and `web.fetch` chat tools | `web_tools`, `search_tool` |
 | `src/lectern/modules/web/api.py` | 67 | `/api/web/settings` and `/api/web/key` admin routes | `get_settings`, `put_settings`, `put_key`, `delete_key` |
+| `src/lectern/modules/voice/__init__.py` | 19 | Voice module: replies read aloud (no agent tool) | `VoiceModule` |
+| `src/lectern/modules/voice/speak.py` | 180 | Piper voices on the CPU, in process: load, keep two, idle drop, one sentence at a time | `Voices`, `load_piper`, `PiperSpeaker`, `VoiceError` |
+| `src/lectern/modules/voice/language.py` | 40 | A reply's language among the voiced ones (uk/ru by letters, else py3langid) | `detect` |
+| `src/lectern/modules/voice/api.py` | 164 | `/api/voice` routes: list, choose a language's voice, a reply's language, speak | `list_voices`, `choose_voice`, `reply_language`, `speak`, `voice_of` |
 | `src/lectern/modules/export_md/__init__.py` | 81 | Markdown exporter module (`export-md`) | `MarkdownExporter`, `MarkdownModule` |
 | `src/lectern/modules/export_docx/__init__.py` | 103 | DOCX exporter module (`export-docx`, python-docx) | `DocxExporter`, `DocxModule` |
 | `src/lectern/modules/export_odt/__init__.py` | 122 | ODT exporter module (`export-odt`, odfdo) | `OdtExporter`, `OdtModule` |
@@ -242,6 +246,10 @@ All `/api/*` routes except `/api/login` require `current_user` (`src/lectern/api
 | `PUT /api/web/settings` | `require_admin` | `src/lectern/modules/web/api.py:50 (put_settings)` |
 | `PUT /api/web/key` | `require_admin` | `src/lectern/modules/web/api.py:57 (put_key)` |
 | `DELETE /api/web/key` | `require_admin` | `src/lectern/modules/web/api.py:64 (delete_key)` |
+| `GET /api/voice` | `current_user` | `src/lectern/modules/voice/api.py:49 (list_voices)` |
+| `PUT /api/voice/{code}` | `require_admin` | `src/lectern/modules/voice/api.py:67 (choose_voice)` |
+| `POST /api/voice/language` | `current_user` | `src/lectern/modules/voice/api.py:89 (reply_language)` |
+| `POST /api/voice/speak` | `current_user` | `src/lectern/modules/voice/api.py:96 (speak)` |
 | `POST /api/chat` | `current_user` | `src/lectern/api/chat.py:51 (chat)` |
 | `POST /api/dev/swap-test`, `GET /api/dev/swap-test` | `require_admin` | `src/lectern/api/dev.py:24 (start_swap_test)`, `:48 (get_swap_test)` |
 
@@ -308,10 +316,11 @@ Models receive tool names with `_` in place of `.` (e.g. `project_find`).
 | `/first-run` | `web/src/routes/first-run.tsx` | `/api/first-run`, `useDownloadEvents.ts` | `web/src/routes/first-run.test.tsx` |
 | `/projects` | `web/src/routes/projects.tsx` | `/api/projects`, `useRuntime.ts` | `web/src/routes/projects.test.tsx` |
 | `/projects/$projectId` | `web/src/routes/project.tsx` | `web/src/project/tabs.ts`, `useProjectEvents.ts` | `web/src/routes/project.test.tsx` |
-| `/settings/models` | `web/src/routes/settings/models.tsx` | `/api/models`, `/api/runtime`, `/api/web/*` | `web/src/routes/settings/models.test.tsx` |
+| `/settings/models` | `web/src/routes/settings/models.tsx` | `/api/models`, `/api/runtime`, `/api/web/*`, `/api/voice` (`web/src/voice/voices-card.tsx`) | `web/src/routes/settings/models.test.tsx`, `web/src/voice/voices-card.test.tsx` |
 | `/settings/users` | `web/src/routes/settings/users.tsx` | `/api/users` | `web/src/routes/settings/users.test.tsx` |
 | Tab: Overview | `web/src/project/overview.tsx` | `/api/projects/{id}/items`, `web/src/api/upload.ts` | `web/src/project/overview.test.tsx` |
 | Tab: Chat session | `web/src/project/chat.tsx` | `useSessionEvents.ts`, `web/src/project/file-picker.tsx` | `web/src/project/chat.test.tsx` |
+| Read aloud (chat replies) | `web/src/voice/read-aloud.tsx`, `player.ts`, `speech-text.ts`, `use-auto-read.ts` | `/api/voice/language`, `/api/voice/speak`, Web Audio | `web/src/voice/*.test.ts(x)` |
 | Tab: OCR session | `web/src/project/ocr.tsx` | `web/src/project/ocr-api.ts`, `ocr-steps.tsx`, `ocr-line.tsx` | `web/src/project/ocr.test.tsx` |
 | Tab: OCR review | `web/src/project/review.tsx` | `PUT /doubts/{id}`, `POST /doubts/{id}/others` | `web/src/project/review.test.tsx` |
 | Tab: Document | `web/src/project/document.tsx` | `web/src/project/export-buttons.tsx` | `web/src/project/document.test.tsx` |

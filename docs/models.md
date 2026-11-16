@@ -1,7 +1,7 @@
 # Models and memory
 
 Lectern runs every model on the machine it's installed on, each in a runner process of its
-own, and decides which ones stay in memory. On a small GPU, swapping models is the normal way
+own (a voice is the exception, [below](#voices)), and decides which ones stay in memory. On a small GPU, swapping models is the normal way
 it works. The code is in `src/lectern/hardware/`, `catalog/`, `runtime/`, `runners/` and
 `downloads/`.
 
@@ -17,13 +17,14 @@ A module asks for a **role**, not a model:
 | `code` | writes the scripts the chat runs in the [sandbox](agent.md#the-script-sandbox) |
 | `image` | makes pictures for the chat's [`image.generate`](agent.md#making-pictures) |
 | `translate` | translates to and from the languages added on the Languages page ([below](#languages)) |
+| `voice` | reads the chat's replies aloud, a voice per language ([below](#voices)) |
 
 Cleaning up OCR pages has a choice of its own, `clean`: the chat's model unless another is
 picked. When the chat runs on MLX, cleanup uses the minimum tier's GGUF chat model, since it
 needs llama-server's JSON-schema output.
 
-An admin picks a model for each role on the **Models & memory** page, except `translate`,
-whose model is picked per language. Any model the catalog
+An admin picks a model for each role on the **Models & memory** page, except `translate` and
+`voice`, whose models are picked per language. Any model the catalog
 lists for that role can be chosen; one meant for a bigger tier is marked as more than this
 computer is meant for. A change applies from the next reply.
 
@@ -107,6 +108,44 @@ comfortable ones. Changing a language's model keeps the one it had translating u
 one is on disk; removing a language leaves its model on disk, for Models & memory to remove.
 Translation models run on llama-server, MLX or not.
 
+## Voices
+
+A chat reply can be read aloud ([The chat](agent.md#reading-replies-aloud)) by a **Piper**
+voice for its language, run by [piper-tts](https://github.com/OHF-Voice/piper1-gpl) on the CPU
+(`modules/voice/`). A voice is a language's own, like a translation model: on Models & memory's
+**Voices** card an admin picks one per language, and the download starts then; with none
+picked, the language's default reads. Members see the card and change nothing. A reply in a
+language whose voice isn't on disk offers an admin its download under the reply, and tells
+anyone else to ask one.
+
+The catalog has 38 voices for 23 languages: every official EU language Piper has a voice for
+(Bulgarian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hungarian,
+Italian, Latvian, Lithuanian, Polish, Portuguese, Romanian, Slovak, Slovenian, Spanish,
+Swedish), Russian and Ukrainian. Croatian, Irish and Maltese have no Piper voice yet. All come
+from `rhasspy/piper-voices` at one pinned revision: each is a `.onnx` and its `.onnx.json`
+(`files.config`), about 63 MB (77 MB for the Estonian and default Ukrainian voices, which have
+several speakers; 114 MB for Ukrainian Tetiana, a `high` voice). A voice's `voice:` block names
+its language and whether it is the language's `default`, one per language, which must be
+permissive. The voice model is MIT; what limits its use is the licence of the recordings it was
+trained on (its `MODEL_CARD`), which `licence` names. Defaults are CC0 or public-domain
+recordings where the language has one, else CC-BY. Three restricted voices can be chosen, their
+licence shown and accepted first: Greek Joy and Russian Ruslan (non-commercial recordings), and
+Russian Irina (the recordings' licence isn't known). Voices under CC-BY-SA or AGPL aren't listed.
+
+Unlike every other model, a voice runs **inside the Lectern process**, on a worker thread: it is
+about 63 MB of RAM, runs on the CPU and loads in a fraction of a second, so a runner process, a
+port and a key would protect less than they cost. It takes no GPU memory and no lease, so
+reading never makes the chat model swap out on a small card, and it isn't counted in the
+budget. One sentence is spoken at a time, with two onnxruntime threads, so a llama-server on
+the CPU keeps the rest; at most two voices stay loaded, and one nobody used for ten minutes is
+let go. On this Mac a sentence takes about 0.2 s, its first load included
+([acceptance](acceptance/voice.md)).
+
+piper-tts is GPL-3.0-or-later (it carries espeak-ng, which turns text into the phonemes a voice
+reads), installed from PyPI as a dependency of Lectern (Apache-2.0); nothing of it is copied
+into Lectern. sherpa-onnx, which runs Piper voices under Apache-2.0, dropped espeak-ng in 2.0
+(k2-fsa/sherpa-onnx#4055) and can't read them by itself any more.
+
 ## Downloads
 
 Models download from Hugging Face at their pinned revision, with resumable `.part` files,
@@ -135,6 +174,7 @@ certain to come back, and a crashed runner is started again on the next request.
   JSON-schema output.
 - **mlx_lm.server** runs the chat model on Apple Silicon (see below).
 - **sd-cli** (stable-diffusion.cpp) makes pictures: see [Image models](#image-models).
+- A Piper voice has no runner: it is read in the Lectern process (see [Voices](#voices)).
 
 ### MLX
 

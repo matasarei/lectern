@@ -29,6 +29,7 @@ import { formatAgo, formatBytes, formatMemory, percent } from "../../format";
 import { useDownloadEvents } from "../../hooks/useDownloadEvents";
 import { useRuntime } from "../../hooks/useRuntime";
 import { formatCountdown, modelWaitText, useCountdown } from "../../status";
+import { VoicesCard } from "../../voice/voices-card";
 import { UPDATE_POLL_MS } from "./polling";
 
 // The rows of "Models by role": the roles, and cleanup of scanned pages after the chat,
@@ -41,6 +42,7 @@ const ROLE_COLOURS: Record<Role, string> = {
   code: "bg-slate-500",
   image: "bg-rose-600",
   translate: "bg-emerald-600",
+  voice: "bg-sky-600",
 };
 
 /** The role a loaded model serves. The runtime also loads a model by name
@@ -266,6 +268,8 @@ export function ModelsPage() {
       {admin && <SettingsCard />}
 
       <WebSearchCard admin={admin} />
+
+      <VoicesCard admin={admin} live={live} />
     </Page>
   );
 }

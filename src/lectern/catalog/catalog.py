@@ -14,6 +14,11 @@ the VAE, so each of those files may name its own `repo` and `revision`.
 A translation model (the `translate` role) is a language's own: an admin adds a language and picks
 its model on the Languages page (lectern.modules.translate). So it is never a default, whatever its
 licence: nothing picks one unasked.
+
+A voice (`format: piper`, the `voice` role) reads the chat's replies aloud
+(lectern.modules.voice). It is a language's own too: a Piper voice file and its config, run on the
+CPU by piper-tts. A language's voice is the one an admin picked, else the one marked `default` in
+its `voice:` block, which must be permissively licensed like any default.
 """
 
 from __future__ import annotations
@@ -29,10 +34,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from lectern.catalog.languages import LANGUAGE_NAMES
 from lectern.hardware.tiers import Tier
 
-Role = Literal["main", "ocr", "ocr.hand", "code", "image", "translate"]
+Role = Literal["main", "ocr", "ocr.hand", "code", "image", "translate", "voice"]
 OCR_ROLES = frozenset({"ocr", "ocr.hand"})
 IMAGE_ROLE = "image"
 TRANSLATE_ROLE = "translate"
+VOICE_ROLE = "voice"
 PROMPT_FIELDS = ("{target}", "{text}")  # and `{source}` where the model's prompt names it
 
 
@@ -71,9 +77,10 @@ class ModelFiles(BaseModel):
     mmproj: ModelFile | None = None
     text_encoder: ModelFile | None = None  # an image model's
     vae: ModelFile | None = None  # an image model's
+    config: ModelFile | None = None  # a voice's `.onnx.json`
 
     def all(self) -> list[ModelFile]:
-        extra = (self.mmproj, self.text_encoder, self.vae)
+        extra = (self.mmproj, self.text_encoder, self.vae, self.config)
         return [*self.model, *(f for f in extra if f is not None)]
 
     @model_validator(mode="after")
@@ -150,12 +157,28 @@ class TranslateSettings(BaseModel):
         return all(code in self.languages for code in codes)
 
 
+class VoiceSettings(BaseModel):
+    """The language a voice speaks, whether it is that language's voice when none is picked,
+    and, for a voice with several speakers, which one speaks."""
+
+    language: str
+    default: bool = False
+    speaker: int | None = Field(default=None, ge=0)
+
+    @field_validator("language")
+    @classmethod
+    def _known(cls, language: str) -> str:
+        if language not in LANGUAGE_NAMES:
+            raise ValueError(f"a language without a name in catalog/languages.py: {language!r}")
+        return language
+
+
 class CatalogEntry(BaseModel):
     id: str
     title: str
     quant: str
     roles: list[Role]
-    format: Literal["gguf", "mlx", "sd"]
+    format: Literal["gguf", "mlx", "sd", "piper"]
     repo: str
     revision: str = Field(pattern=r"^[0-9a-f]{40}$")
     licence: str
@@ -166,6 +189,7 @@ class CatalogEntry(BaseModel):
     ocr: OcrSettings | None = None  # for models with an OCR role
     image: ImageSettings | None = None  # for an image model
     translate: TranslateSettings | None = None  # for a translation model
+    voice: VoiceSettings | None = None  # for a voice
     replaces: str | None = None  # an MLX build: the id of the GGUF model it stands in for
     notes: str | None = None
 
@@ -194,8 +218,13 @@ class CatalogEntry(BaseModel):
         return hashlib.sha256("|".join([self.revision, *own]).encode()).hexdigest()[:40]
 
     def suits(self, tier: Tier) -> bool:
-        """Listed for that tier: a context for it, or an image size."""
-        return tier in self.ctx or (self.image is not None and tier in self.image.sizes)
+        """Listed for that tier: a context for it, or an image size. A voice runs on the CPU,
+        so every tier can have it."""
+        return (
+            tier in self.ctx
+            or (self.image is not None and tier in self.image.sizes)
+            or self.voice is not None
+        )
 
     @model_validator(mode="after")
     def _defaults_are_permissive_and_in_role(self) -> CatalogEntry:
@@ -251,6 +280,25 @@ class CatalogEntry(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _a_voice_has_its_pieces(self) -> CatalogEntry:
+        speaks = VOICE_ROLE in self.roles
+        if speaks != (self.format == "piper") or speaks != (self.voice is not None):
+            raise ValueError(f"{self.id}: the voice role, `format: piper` and `voice:` go together")
+        if not speaks:
+            if self.files.config is not None:
+                raise ValueError(f"{self.id}: only a voice has a `config` file")
+            return self
+        if self.roles != [VOICE_ROLE]:
+            raise ValueError(f"{self.id}: a voice has the voice role only")
+        if self.defaults:
+            raise ValueError(f"{self.id}: a voice is a language's own: `default` in `voice:`")
+        if self.voice.default and not self.permissive:
+            raise ValueError(f"{self.id}: a restricted-licence model can't be a default")
+        if len(self.files.model) != 1 or self.files.config is None or self.files.mmproj:
+            raise ValueError(f"{self.id}: a voice is one .onnx file and its .onnx.json config")
+        return self
+
+    @model_validator(mode="after")
     def _an_mlx_build_stands_in_for_a_model(self) -> CatalogEntry:
         if self.format != "mlx":
             if self.replaces is not None:
@@ -287,6 +335,18 @@ class Catalog(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _one_default_voice_per_language(self) -> Catalog:
+        seen: dict[str, str] = {}
+        for entry in self.models:
+            if entry.voice is None or not entry.voice.default:
+                continue
+            language = entry.voice.language
+            if language in seen:
+                raise ValueError(f"two default voices for {language}: {seen[language]}, {entry.id}")
+            seen[language] = entry.id
+        return self
+
+    @model_validator(mode="after")
     def _each_mlx_build_replaces_its_own_gguf_model(self) -> Catalog:
         replaced: dict[str, str] = {}
         for build in self.models:
@@ -317,6 +377,18 @@ class Catalog(BaseModel):
         """The models a role can be given, in catalog order. An MLX build isn't one: it
         comes with its model."""
         return [m for m in self.models if role in m.roles and m.replaces is None]
+
+    def voices_for(self, language: str) -> list[CatalogEntry]:
+        """The voices that speak a language, in catalog order."""
+        return [m for m in self.models if m.voice is not None and m.voice.language == language]
+
+    def default_voice(self, language: str) -> CatalogEntry | None:
+        """The language's voice when an admin picked none."""
+        return next((m for m in self.voices_for(language) if m.voice.default), None)
+
+    def voice_languages(self) -> list[str]:
+        """The languages some voice speaks, in catalog order."""
+        return list(dict.fromkeys(m.voice.language for m in self.models if m.voice is not None))
 
     def defaults_for(self, tier: Tier) -> dict[str, CatalogEntry]:
         """Role → default model for this tier."""

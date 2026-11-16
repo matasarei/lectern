@@ -39,6 +39,10 @@ LANGUAGES_KEY = "languages"
 # one uses its model; `previous` is the one it had before its last change, used until the new
 # one is on disk.
 LANGUAGE_DEFAULTS: dict[str, Any] = {"added": {}}
+VOICE_KEY = "voice"
+# The voice an admin picked for a language (lectern.modules.voice), by code: {"ru": "<catalog
+# id>"}. A language with none picked speaks with its catalog default.
+VOICE_DEFAULTS: dict[str, Any] = {"chosen": {}}
 HARDWARE_KEY = "hardware"
 # The tier this computer had at the last start, to notice that its hardware changed. Never
 # used to decide anything else: the tier itself is worked out from the hardware at each start.
