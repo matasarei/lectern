@@ -111,12 +111,19 @@ class ImageSize(BaseModel):
 
 class ImageSettings(BaseModel):
     """How stable-diffusion.cpp runs an image model: steps, guidance and sampler, and the
-    sizes per tier. A tier missing here isn't one the model is meant for."""
+    sizes per tier. A tier missing here isn't one the model is meant for.
+
+    `references` is how many pictures it takes to work from (sd-cli's `-r`); 0 for a model
+    that only makes pictures from text. `prompt_guide` is how this model wants its prompt
+    written: the prompt gate (modules/image/prompt_gate.py) rewrites the chat's prompt by it
+    before the card, and falls back to a general guide without one."""
 
     steps: int = Field(ge=1, le=100)
     cfg: float = Field(ge=0.0, le=30.0)
     sampler: str = Field(pattern=r"^[a-z0-9_+]+$")
     sizes: dict[Tier, ImageSize] = Field(min_length=1)
+    references: int = Field(0, ge=0, le=8)
+    prompt_guide: str | None = Field(None, min_length=1)
 
     @model_validator(mode="after")
     def _the_default_fits(self) -> ImageSettings:

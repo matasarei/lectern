@@ -311,6 +311,18 @@ models:
       steps: 4
       cfg: 1.0
       sampler: euler
+      references: 4
+      # Written from Black Forest Labs' FLUX.2 prompting guide (docs.bfl.ai/guides/prompting_guide_flux2).
+      prompt_guide: >-
+        The image model is FLUX.2 klein. Write one paragraph of plain English prose, 30 to 80
+        words. Put the main subject first, then what it is doing, then the style, then the
+        setting, the light and the colours: the words that come first count most. Name a
+        medium or a camera when it helps (watercolour, oil painting, 35 mm photo, flat vector
+        illustration). Say what should be there, never what shouldn't: this model ignores
+        "no" and "without". Put any words that must appear in the picture in quotes, with where
+        they go and how they look. When reference pictures are given, call them image 1,
+        image 2 and so on, and say what to take from each: the subject, the style, the layout
+        or the background, and what should change.
       sizes:
         below_minimum: {default: 512, max_pixels: 589824}  # 768 x 768
         minimum: {default: 768, max_pixels: 1048576}  # 1024 x 1024
@@ -337,6 +349,18 @@ models:
       steps: 4
       cfg: 1.0
       sampler: euler
+      references: 4
+      # Written from Black Forest Labs' FLUX.2 prompting guide (docs.bfl.ai/guides/prompting_guide_flux2).
+      prompt_guide: >-
+        The image model is FLUX.2 klein. Write one paragraph of plain English prose, 30 to 80
+        words. Put the main subject first, then what it is doing, then the style, then the
+        setting, the light and the colours: the words that come first count most. Name a
+        medium or a camera when it helps (watercolour, oil painting, 35 mm photo, flat vector
+        illustration). Say what should be there, never what shouldn't: this model ignores
+        "no" and "without". Put any words that must appear in the picture in quotes, with where
+        they go and how they look. When reference pictures are given, call them image 1,
+        image 2 and so on, and say what to take from each: the subject, the style, the layout
+        or the background, and what should change.
       sizes:
         recommended: {default: 1024, max_pixels: 1572864}
         comfortable: {default: 1024, max_pixels: 2097152}
@@ -361,6 +385,16 @@ models:
       steps: 8
       cfg: 1.0
       sampler: euler
+      references: 0
+      prompt_guide: >-
+        The image model is Z-Image-Turbo. Write one detailed paragraph of plain English prose,
+        50 to 120 words: the main subject first, then its appearance and what it is doing, the
+        setting, the style or medium, the light, the colours and the mood. Be concrete; it
+        follows long, specific descriptions well. Say what should be there, never what
+        shouldn't. Put any words that must appear in the picture in quotes, with where they go
+        and how they look. This model can't see reference pictures: when some are given,
+        describe in the prompt everything that must be taken from them (the subject's looks,
+        the style, the layout), as if for someone who has never seen them.
       sizes:
         minimum: {default: 768, max_pixels: 1048576}
         recommended: {default: 1024, max_pixels: 1572864}
