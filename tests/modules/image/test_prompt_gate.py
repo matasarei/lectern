@@ -45,7 +45,9 @@ def test_without_references_the_chats_model_rewrites_the_draft_by_the_guide():
     assert roles == ["main"]
     body = handle.requests[0]
     assert GUIDE in body["messages"][0]["content"]
-    assert body["messages"][1]["content"] == "The request: a cat on a roof"
+    assert body["messages"][1]["content"] == (
+        "The request: a cat on a roof\nNo reference pictures are given: mention none."
+    )
     assert body["temperature"] == 0 and body["stream"] is False
     assert "response_format" not in body  # plain text, so MLX can answer it too
 
@@ -65,6 +67,8 @@ def test_with_references_it_sees_follows_the_vision_model_and_gets_the_pictures(
     sent = Image.open(io.BytesIO(base64.b64decode(first.split(",", 1)[1])))
     assert max(sent.size) == prompt_gate.VISION_SIDE  # scaled down for the vision model
     assert "Image 1 is photos/cat.jpg.\nImage 2 is art/style.png." in parts[2]["text"]
+    assert "say what to take from each" in parts[2]["text"]
+    assert "mention none" not in parts[2]["text"]
 
 
 def test_references_it_cant_see_are_named_by_number_for_the_chats_model():

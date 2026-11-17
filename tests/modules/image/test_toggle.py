@@ -191,5 +191,5 @@ def test_on_mlx_the_typed_text_is_the_prompt(chat, store, tmp_path):
     assert argv[argv.index("-p") + 1] == "A red barn in deep snow, winter morning."
     gate = handle.requests[0]  # no schema call; the gate's plain one, which MLX can answer
     assert "response_format" not in gate
-    assert gate["messages"][1]["content"] == "The request: a red barn in snow"
+    assert gate["messages"][1]["content"].startswith("The request: a red barn in snow\n")
     assert len(handle.requests) == 2

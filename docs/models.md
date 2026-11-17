@@ -216,9 +216,33 @@ Every tier gets the same pipeline; a bigger GPU gets the 8-bit build and larger 
 These are starting values until measured on 4 GB and 8 GB machines
 ([acceptance](acceptance/image.md)). The room a picture needs is estimated as:
 - the largest piece when the weights wait in RAM, or all three pieces when they don't;
-- plus 1 GiB per megapixel and 300 MiB.
+- plus 1 GiB per megapixel, the reference pictures' megapixels included, and 300 MiB.
 
 On the minimum and recommended tiers `sd-cli` is told the same figure (`--max-vram`).
+
+An image model's `image:` block also says:
+- **`references`**: how many pictures to work from it takes itself, each passed as `-r`. It is
+  4 for FLUX.2 klein and 0 for Z-Image-Turbo, which only makes pictures from text.
+  stable-diffusion.cpp's FLUX.2 preset takes a reference at its own size and attends to its
+  pixels at every step, so Lectern scales the references to share the picture's own pixel
+  count (`modules/image/references.py`).
+  - The expected wait counts each step longer by the references' share of the pixels.
+  - A picture made with references keeps its step time scaled back to the picture alone, so
+    later estimates aren't inflated.
+  - The cap of 4 and both estimates are first figures, until measured
+    ([acceptance](acceptance/image.md)).
+- **`prompt_guide`**: how the model wants its prompt written, which the prompt gate rewrites by
+  ([Making pictures](agent.md#making-pictures)). Klein's is written from Black Forest Labs'
+  FLUX.2 prompting guide:
+  - subject first;
+  - 30 to 80 words of prose;
+  - no negatives;
+  - lettering in quotes, when the request asks for some.
+
+  Z-Image-Turbo's asks for a longer description. What to do with reference pictures isn't in
+  a guide: the gate says it only when there are some (name them by number and role, or
+  describe them for a model that can't take them). Told about references with none given, the
+  4B invented them ([acceptance](acceptance/image.md#part-3-reference-pictures-and-the-prompt-gate)).
 
 ## Fitting a model
 

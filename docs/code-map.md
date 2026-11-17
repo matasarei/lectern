@@ -42,7 +42,7 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/projects/search.py` | 109 | SQLite FTS5 indexing and prefix search over `artifact_text` | `index`, `remove`, `chunks`, `match_expression`, `search` |
 | `src/lectern/projects/preview.py` | 79 | File tab preview classification and DOCX/ODT-to-Markdown conversion | `preview_kind`, `document_markdown` |
 | `src/lectern/projects/html_page.py` | 292 | Bundles a project HTML file's local CSS/images/scripts as `data:` URLs for `/view` | `inline_page` |
-| `src/lectern/agent/loop.py` | 1007 | Agent turn loop, tool execution, confirmation cards, exact-number checks | `TurnRun`, `run_turn`, `run_tool`, `call_model`, `load_history`, `maybe_compact` |
+| `src/lectern/agent/loop.py` | 1049 | Agent turn loop, tool execution, confirmation cards, exact-number checks | `TurnRun`, `run_turn`, `run_tool`, `call_model`, `load_history`, `maybe_compact` |
 | `src/lectern/agent/turns.py` | 616 | Concurrent turn manager, SSE/WS replay channels, follow-up scheduling | `TurnManager`, `Channel`, `Busy` |
 | `src/lectern/agent/core_tools.py` | 665 | Core chat tools (`project.*`, `document.*`, `artifact.*`, `session.*`, `tab.*`, `chat.*`) | `core_registry`, `asked_for_file`, `asked_to_delete`, `said_by_person` |
 | `src/lectern/agent/export_tools.py` | 217 | `export.formats` and `export.run` tools | `export_tools`, `write_export` |
@@ -52,7 +52,7 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/agent/prompts.py` | 114 | System prompt builder for chat turns | `system_prompt` |
 | `src/lectern/agent/numbers.py` | 41 | Extracts numbers from text/tool arguments for the exact-calculation guard | `numbers_in`, `written_numbers` |
 | `src/lectern/agent/state.py` | 118 | Chat session pins and compaction summary persistence | `ChatState`, `load`, `pin`, `unpin`, `save_summary` |
-| `src/lectern/agent/tools.py` | 170 | `AgentTool` definition, JSON schema validation, result pagination | `AgentTool`, `ToolContext`, `ToolResult`, `Registry`, `page` |
+| `src/lectern/agent/tools.py` | 193 | `AgentTool` definition (`prepare`, card fields, `card_when_forced`), JSON schema validation, result pagination | `AgentTool`, `ToolContext`, `ToolResult`, `Registry`, `CardValue`, `page` |
 | `src/lectern/agent/model_download.py` | 51 | Downloads a missing role model inside a tool after card confirmation | `on_disk`, `why_not`, `download` |
 | `src/lectern/documents/document.py` | 200 | `lectern.document/1` schema (`document.json`) and `document.md` rendering | `Document`, `Block`, `Doubt`, `PageInfo`, `render_markdown` |
 | `src/lectern/documents/export.py` | 219 | Exporter protocol, loss calculation, and doubt/figure formatting | `Exporter`, `ExportOptions`, `lost`, `resolved_options`, `segments` |
@@ -76,8 +76,10 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | `src/lectern/modules/pdf_edit/embed.py` | 214 | Embeds an installed font in the fonts PDFium draws filled values in but doesn't embed (pypdf) | `embed_fonts`, `Embedded`, `FALLBACK_SANS` |
 | `src/lectern/modules/pdf_edit/fonts.py` | 180 | System font discovery and TrueType subsetting for PDF edits | `InstalledFonts`, `installed`, `subset_for` |
 | `src/lectern/modules/pdf_edit/tools.py` | 186 | `pdf.edit` and `pdf.fill` chat tools | `pdf_tools`, `EditParams`, `FillParams` |
-| `src/lectern/modules/image/generate.py` | 425 | Runs `sd-cli` per image, tracks step progress, strips PNG metadata | `generate`, `size_settings`, `memory_flags`, `need_bytes` |
-| `src/lectern/modules/image/tools.py` | 233 | `image.generate` chat tool with editable prompt/shape confirmation card | `GenerateParams`, `shape_size`, `wait_text` |
+| `src/lectern/modules/image/generate.py` | 467 | Runs `sd-cli` per image (reference pictures with `-r`), tracks step progress, strips PNG metadata | `generate`, `Reference`, `size_settings`, `memory_flags`, `need_bytes` |
+| `src/lectern/modules/image/references.py` | 117 | Finds reference pictures among the person's files, checks them by content, rewrites them as scaled PNGs | `find`, `load`, `Found` |
+| `src/lectern/modules/image/prompt_gate.py` | 182 | Rewrites the chat's prompt by the image model's guide before the card (vision model with references) | `rewrite`, `clean`, `Shown`, `Gated` |
+| `src/lectern/modules/image/tools.py` | 418 | `image.generate` chat tool: `prepare` (references, the gate), card with prompt, pictures and shape | `GenerateParams`, `Prepared`, `shape_size`, `wait_text` |
 | `src/lectern/modules/web/fetch.py` | 205 | SSRF-guarded public HTTP/HTTPS fetcher with DNS-pinned IP connection | `fetch`, `check_url`, `is_public`, `FetchRefused` |
 | `src/lectern/modules/web/sources.py` | 190 | DuckDuckGo and Yahoo search engines with 30s rate-limit cooldown | `DuckDuckGo`, `Yahoo`, `ScrapedEngine` |
 | `src/lectern/modules/web/brave.py` | 68 | Brave Search API client | `BraveApi` |
@@ -122,8 +124,8 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 |---|---|---|
 | `src/lectern/agent/loop.py` (1007L) | `L73-173` | `TurnRun`, `History`, `load_history`, `as_openai`, `store_message`, `Reply` |
 | | `L176-357` | `call_model`, `build_context`, `maybe_compact`, `_tokenizer`, `_stream` |
-| | `L363-555` | `run_tool`, `_with_card_values`, `_run_stoppable`, `_ask` (confirmation card wait) |
-| | `L561-770` | `run_turn` (8-step loop), `_forced_call` (Image toggle), `_write_arguments` |
+| | `L364-575` | `run_tool` (a tool's `prepare`, then its card), `_with_card_values`, `_run_stoppable`, `_ask` (confirmation card wait) |
+| | `L578-814` | `run_turn` (8-step loop), `_forced_call` (Image toggle), `_write_arguments` |
 | | `L856-1007` | Exact-number guards: `_may_check`, `_with_check`, `_Held`, `_unchecked`, `_with_call_check` |
 | `src/lectern/modules/ocr/clean.py` (800L) | `L81-187` | `CleanBlock`, `CleanDoubt`, `CleanFix`, `CleanedPage`, `SCHEMA`, `page_message` |
 | | `L190-269` | `clean_page`, `_what_was_wrong`, `_say_loop_left_out` |
@@ -279,7 +281,7 @@ Models receive tool names with `_` in place of `.` (e.g. `project_find`).
 | `ocr.note` | `ocr` | no | `src/lectern/modules/ocr/tools.py:265` |
 | `pdf.edit` | `pdf_edit` | when the page would look different | `src/lectern/modules/pdf_edit/tools.py:53` |
 | `pdf.fill` | `pdf_edit` | no | `src/lectern/modules/pdf_edit/tools.py:67` |
-| `image.generate` | `image` | always (unless Image toggle used) | `src/lectern/modules/image/tools.py:214` |
+| `image.generate` | `image` | always, with the Image toggle too | `src/lectern/modules/image/tools.py:397` |
 | `web.search` | `web` | always | `src/lectern/modules/web/tools.py:120` |
 | `wiki.lookup` | `web` | always | `src/lectern/modules/web/tools.py:176` |
 | `web.fetch` | `web` | always | `src/lectern/modules/web/tools.py:280` |

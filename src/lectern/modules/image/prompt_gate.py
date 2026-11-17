@@ -35,21 +35,25 @@ MAX_TOKENS = 400
 MAX_PROMPT = 1500  # GenerateParams.prompt's own limit
 VISION_SIDE = 768  # the longest side of a reference shown to the vision model
 
+# A model's guide says how it wants its prompt written; what to do with reference pictures is
+# said here, and only when there are some: told about them with none given, the 4B wrote "take
+# the style from image 1" into half its prompts (docs/acceptance/image.md, Part 3).
 GENERAL_GUIDE = (
     "Write one paragraph of plain English prose, 30 to 80 words: the main subject first, then "
     "what it is doing, the style or medium, the setting, the light and the colours. Say what "
-    "should be there, never what shouldn't. Put any words that must appear in the picture in "
-    "quotes. When reference pictures are given, call them image 1, image 2 and so on, and say "
-    "what to take from each."
+    "should be there, never what shouldn't. When the request asks for words in the picture, "
+    "put them in quotes."
 )
 
 INSTRUCTIONS = (
     "You write the prompt an image model is given, from a request for a picture. {guide}\n\n"
-    "Keep everything the request asks for: its subject, its style, any words in quotes, what "
-    "it says to take from a reference picture. Where it leaves something open, choose it, so "
-    "the picture is concrete. Write in English whatever language the request is in. Reply "
-    "with the prompt only: no heading, no quotes around it, no explanation."
+    "Keep everything the request asks for: its subject, its style, any words in quotes. Where "
+    "it leaves something open, choose it, so the picture is concrete. Add no words, letters "
+    "or signs to the picture that the request doesn't ask for. Write in English whatever "
+    "language the request is in. Reply with the prompt only: no heading, no quotes around it, "
+    "no explanation."
 )
+NO_REFERENCES = "No reference pictures are given: mention none."
 
 _FENCE = re.compile(r"^```[a-z]*\n?(.*?)\n?```$", re.S)
 _THINKING = re.compile(r"<think>.*?</think>", re.S)
@@ -130,6 +134,13 @@ def _request(
     lines = [f"The request: {draft}"]
     for number, reference in enumerate(references, start=1):
         lines.append(f"Image {number} is {reference.path}.")
+    if not references:
+        lines.append(NO_REFERENCES)
+    elif can_take_references:
+        lines.append(
+            "Call them image 1, image 2 and so on in the prompt, and say what to take from each "
+            "(the subject, the style, the layout or the background) and what should change."
+        )
     if references and not can_take_references:
         lines.append(
             "This image model can't be given the reference pictures: describe in the prompt "
