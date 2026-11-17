@@ -53,7 +53,7 @@ class ToolContext:
     session_id: int  # the chat running the tool
     # How the chat is doing: "idle" | "running" | "waiting", by session id.
     turn_state: Callable[[int], str] = lambda _session_id: "idle"
-    # For tools that wait: ask the person with a card (True = Allow), and report progress
+    # For tools that wait: ask the person with a card (True = Run), and report progress
     # to the chat ({"type": "progress", ...}). Outside a turn, nobody can answer: refuse.
     # The card's kind names its buttons: "allow" (Run / Cancel) or "retry" (Try
     # again / Stop); True is the first either way.
