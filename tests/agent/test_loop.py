@@ -251,6 +251,27 @@ def test_a_card_cut_off_is_kept_as_cancelled_and_the_model_told_why(
     assert (project.root / "old.md").exists()
 
 
+def test_a_card_cut_off_for_a_reason_with_no_words_is_kept_as_stopped(setup, store):
+    """A stop reason nothing here knows (a caller added later) mustn't lose the card's record
+    or the call's result: it's kept as a Stop."""
+    manager, project, _, _ = setup([tool_reply("artifact_trash", {"name": "old.md"})])
+    add_file(store, project, "old.md", "old")
+
+    async def scenario():  # noqa: ANN202
+        key = (project.id, 1)
+        await manager.send(project, LOCAL_USER, 1, "Delete old.md", [])
+        await until(lambda: manager.state(key) == "waiting")
+        await manager.stop(key, "removed")
+        await manager.wait(key)
+
+    asyncio.run(scenario())
+
+    with store.db(project)() as session:
+        card = session.scalars(select(ConfirmationRow)).one()
+    assert (card.status, card.reason) == ("cancelled", "stopped")
+    assert transcript(store, project)[-1] == ("tool", loop.CUT_OFF["stopped"], "artifact.trash")
+
+
 def test_bad_arguments_are_sent_back_once_then_the_turn_ends(setup, store):
     manager, project, handle, _ = setup(
         [tool_reply("project_find", {"q": "x"}), tool_reply("project_find", {"q": "y"}, "call_2")]

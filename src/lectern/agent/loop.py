@@ -596,7 +596,8 @@ async def _cut_off(run: TurnRun, call: dict, confirmation_id: int) -> None:
     """The turn ended while the card waited: the card is kept, cancelled with why, and the
     call gets a result saying so. Without it the card vanished on a reload, and the model's
     history held a call with no answer."""
-    reason = run.stop_reason
+    # A reason with no words here (a stop added later) is kept as a Stop, not lost on a KeyError
+    reason = run.stop_reason if run.stop_reason in CUT_OFF else "stopped"
     await run_in_threadpool(_record_decision, run, confirmation_id, False, reason)
     run.emit(
         {
