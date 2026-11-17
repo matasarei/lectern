@@ -31,13 +31,18 @@ class ToolError(Exception):
     """A failure the model should see and can react to (unknown file, bad range…)."""
 
 
+# What the person left in one of a card's fields: a text or a choice, or the pictures of an
+# "images" field they kept.
+CardValue = str | list[str]
+
+
 @dataclass(frozen=True)
 class Decision:
     """The person's answer to a card: yes or no, and on a card with fields, the values they
     left there (field name → value), which the tool runs with instead of the model's."""
 
     approved: bool
-    values: dict[str, str] | None = None
+    values: dict[str, CardValue] | None = None
 
 
 @dataclass
@@ -64,6 +69,9 @@ class ToolContext:
     # The person already allowed this call, on task.after's card: a tool that asks only
     # sometimes (artifact.write, when the message asked for no file) doesn't ask again.
     allowed: bool = False
+    # What the tool's `prepare` found out, for its card and its run in this same call (the
+    # context is made once per call): image.generate keeps why its prompt wasn't rewritten.
+    prepared: Any = None
 
 
 @dataclass
@@ -99,13 +107,21 @@ class AgentTool:
     # write a number no message or tool result gave (docs/agent.md, "Exact answers").
     writes: Callable[[Any], tuple[str, str]] | None = None
     # Fields the person can change on that card, each a parameter of the tool:
-    # {"name": "prompt", "kind": "text" | "choice", "value": "…", "choices": [{"value": …}]}.
+    # {"name": "prompt", "kind": "text" | "choice", "value": "…", "choices": [{"value": …}]},
+    # or {"kind": "images", "value": [path, …]}: pictures the person can only take away.
     # Runs after confirm_text. The tool then runs with the values the card sends back.
     confirm_fields: Callable[[ToolContext, Any], list[dict]] | None = None
     # A tool the person can ask for directly (the chat's Image toggle): the model writes only
     # the arguments the person didn't give, and no card asks first, but for this question
     # when it has one (something to download first). None: the tool can't be asked for so.
     forced_question: Callable[[ToolContext, Any], str | None] | None = None
+    # Asked for directly, it still shows its card (with confirm): the person approves what
+    # `prepare` made of the request, not only that they wanted one.
+    card_when_forced: bool = False
+    # Runs before anything is asked, on every path: returns the parameters the card shows
+    # and the tool runs with (image.generate rewrites its prompt for the image model here).
+    # A ToolError ends the call, as from `run`.
+    prepare: Callable[[ToolContext, Any], Awaitable[Any]] | None = None
 
     @property
     def wire_name(self) -> str:

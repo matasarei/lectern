@@ -2,12 +2,14 @@
 
 Image generation adds an `image` role, run by stable-diffusion.cpp's `sd-cli` once per picture
 (see [Models and memory](../models.md#image-models)), and the chat's `image.generate` tool
-with its card and the Image toggle (see [The chat](../agent.md#making-pictures)). This file
-has two parts:
+with its card, the Image toggle, reference pictures and the prompt gate (see
+[The chat](../agent.md#making-pictures)). This file
+has three parts:
 - **Part 1:** false triggers. These are measured, below.
 - **Part 2:** time and memory per picture on the 4 GB and 8 GB PCs and on a Mac. Not run yet:
   the tier sizes, the memory estimate and the first-guess waits in the code are starting
   values until it is.
+- **Part 3:** reference pictures and the prompt gate.
 
 ## Part 1: false triggers on the 4B
 
@@ -125,3 +127,59 @@ What it should settle in `src/lectern/modules/image/generate.py` and the catalog
   beside the chat's model.
 - Whether a GTX 1050 Ti (Pascal) runs the Vulkan build.
 - Whether the Linux builds (made on Ubuntu 26.04) start on the installed Linux.
+
+## Part 3: reference pictures and the prompt gate
+
+Reference pictures (`-r` to FLUX.2 klein) and the prompt gate (`modules/image/prompt_gate.py`)
+are covered by tests with a fake `sd-cli` and a fake model server:
+- `tests/modules/image/test_references.py`
+- `test_prompt_gate.py`
+- `test_tools.py`
+- `test_toggle.py`
+- `test_generate.py`
+
+### The gate on the real models
+
+#### MacBook Pro, Apple M4 Max, 48 GB, macOS 27.0 · llama.cpp b11236 · minimum tier
+
+Run on 2026-11-17 with Qwen3.5-4B Q4_K_M (`main`) and Qwen3-VL 4B Instruct Q4_K_M
+(`ocr.hand`), at temperature 0. The script calls `prompt_gate.rewrite` on a scratch home that
+links `models/` and `runners/` from the dev data. It was a scratch file and isn't in the
+repository. There were 12 drafts:
+- 8 without references: a lighthouse, a rent report's cover, a lectern logo, a Ukrainian
+  "a cat on a roof at night, watercolour", an "OPEN DAY" poster, a forest, a red barn, and a
+  robot for Z-Image-Turbo's guide;
+- 3 with `docs/lectern-icon.png` and a drawn red-and-blue shapes picture as references;
+- 1 with a reference for Z-Image-Turbo, which has it described.
+
+**First run, with the reference rules inside the model's guide:** 4 of the 8 prompts without
+references were wrong.
+- 3 named references nobody gave: "use image 1 for the cat's fluffy texture and image 2 for
+  the starry background"; "takes the subject and style from image 1, the layout from image 2".
+- 2 added lettering nobody asked for: "Good Night" and "Hello".
+
+What changed:
+- The guides now keep only how the model wants its prompt written.
+- The gate tells the model about references only when there are some, and says "mention
+  none" when there aren't.
+- The instructions say to add no words to the picture that weren't asked for.
+
+**Second run:**
+- **Without references:** 0 of 8 named a reference or added lettering. The Ukrainian request
+  came back as an English prompt, and "OPEN DAY" stayed in quotes. The prompts were 45 to 125
+  words, and Z-Image-Turbo's guide gave the longest.
+- **With references:** Qwen3-VL saw the pictures. It called the icon "an open book icon"
+  with "a bold red capital 'L'", and the shapes "bold red and blue shapes … a central blue
+  circle … vibrant yellow background". For klein it named them as image 1 and image 2 with
+  their roles. For Z-Image-Turbo it described the icon in full.
+- **Time:** about 1 s a prompt with the model loaded; 4–5 s when it loaded first.
+
+One flaw is left: the 4B keeps a request's own "no people, no clutter" in the prompt, which
+FLUX.2 doesn't follow.
+
+What hasn't run yet, by the developer:
+- **A real picture from a reference**, on this Mac and the PCs, with Part 2's runbook plus a
+  photo attached to the message. Note the peak memory and the time against the same picture
+  without one. That settles the `[assumed]` figures: 4 references at most, and the references
+  sharing the picture's own pixels.
+- **The card in a browser:** thumbnails, taking one off, and the toggle's card.

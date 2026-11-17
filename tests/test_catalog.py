@@ -583,3 +583,26 @@ def test_voices_are_no_role_choice_and_no_tiers_default():
     cat = catalog.load()
     assert all("voice" not in cat.defaults_for(tier) for tier in Tier)
     assert cat.default_voice("xx") is None and cat.voices_for("xx") == []
+
+
+def test_an_image_model_takes_no_references_and_has_no_guide_unless_listed():
+    image = _with(_image_entry()).get("test-image").image
+    assert image.references == 0
+    assert image.prompt_guide is None
+
+
+def test_an_image_models_references_cant_be_negative():
+    entry = _image_entry()
+    entry["image"]["references"] = -1
+    with pytest.raises(ValidationError):
+        _with(entry)
+
+
+def test_the_shipped_image_models_have_a_prompt_guide_and_say_what_they_take():
+    shipped = catalog.load()
+    images = [e for e in shipped.models if "image" in e.roles]
+    assert images
+    for entry in images:
+        assert entry.image.prompt_guide, entry.id
+    assert shipped.get("flux2-klein-4b").image.references > 0
+    assert shipped.get("z-image-turbo").image.references == 0

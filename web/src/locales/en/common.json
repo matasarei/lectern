@@ -413,8 +413,10 @@
     "aboutSeconds": "about {{seconds}} s",
     "aboutMinutes": "about {{minutes}} min",
     "choiceSize": "{{width}}×{{height}} · {{wait}}",
+    "picturesTakenOff": "The prompt may still name a picture you took off: change it to match.",
     "field": {
       "prompt": "What the picture shows",
+      "references": "Pictures to work from",
       "shape": "Shape"
     },
     "choice": {
@@ -426,7 +428,7 @@
       }
     },
     "imageToggle": "Image",
-    "imageToggleHint": "Make a picture from this message, without asking first",
+    "imageToggleHint": "Make a picture from this message: you see the prompt before it runs",
     "imageShape": "Picture shape",
     "imagePlaceholder": "Describe the picture…",
     "languageHint": "{{language}} gets better translations from a model made for translation.",

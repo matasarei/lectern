@@ -3,6 +3,7 @@ share: the runtime, the downloads and the installer it needs."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -23,6 +24,9 @@ value = lambda flag: args[args.index(flag) + 1]
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, "argv.json"), "w") as f:
     json.dump(args, f)
+refs = [args[i + 1] for i, a in enumerate(args) if a == "-r"]
+with open(os.path.join(here, "refs.json"), "w") as f:
+    json.dump([{"path": r, "size": Image.open(r).size} for r in refs], f)
 prompt = value("-p")
 print("[INFO ] loading models", flush=True)
 if "FAIL" in prompt:
@@ -119,3 +123,8 @@ def images(tmp_path: Path, runtime, *, timeout: float = 60.0) -> tuple[Images, F
 
 def klein(model_id: str = "flux2-klein-4b") -> catalog.CatalogEntry:
     return catalog.load().get(model_id)
+
+
+def gate_reply(prompt: str) -> bytes:
+    """The prompt gate's answer (modules/image/prompt_gate.py): one plain completion."""
+    return json.dumps({"choices": [{"message": {"content": prompt}}]}).encode()

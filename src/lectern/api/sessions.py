@@ -20,6 +20,7 @@ from starlette.requests import HTTPConnection
 from lectern.agent import followups
 from lectern.agent import state as pins
 from lectern.agent.state import load as chat_state_of
+from lectern.agent.tools import CardValue
 from lectern.agent.turns import Busy, TurnManager
 from lectern.api.projects import CurrentUser, open_project, store
 from lectern.api.sse import event_response, pump
@@ -98,7 +99,7 @@ class Send(BaseModel):
 class Decision(BaseModel):
     approve: bool
     # On a card with fields: what the person left in them (field name → value).
-    values: dict[str, str] | None = None
+    values: dict[str, CardValue] | None = None
 
 
 @router.post("/projects/{project_id}/sessions", status_code=201)

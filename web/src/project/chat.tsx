@@ -27,6 +27,7 @@ import { useLanguageName } from "../hooks/useLanguageName";
 import { useRuntime } from "../hooks/useRuntime";
 import { Markdown } from "../lazy-markdown";
 import { ExportButtons } from "./export-buttons";
+import { ImagePreview } from "./file";
 import { OcrLine } from "./ocr-line";
 import { modelWaitText } from "../status";
 import { type LiveTurn, useSessionEvents } from "../hooks/useSessionEvents";
@@ -885,8 +886,9 @@ function hasLiveReply(live: LiveTurn): boolean {
   return live.running || live.cards.length > 0 || live.text !== "" || Boolean(live.stats?.tps);
 }
 
-/** What the person left in a card's fields, by field name. */
-type CardValues = Record<string, string>;
+/** What the person left in a card's fields, by field name: a text or a choice, or the pictures
+ * of an "images" field they kept. */
+type CardValues = Record<string, string | string[]>;
 type Decide = (confirmationId: number, approve: boolean, values?: CardValues) => void;
 
 /** "about 40 s", "about 3 min": an estimate, said as one. */
@@ -896,7 +898,60 @@ export function waitText(t: TFunction, seconds: number): string {
     : t("chat.aboutMinutes", { minutes: Math.round(seconds / 60) });
 }
 
-/** The fields of a card the person can change before allowing it: a text, or a choice. */
+/** The pictures a card offers to work from, each with a thumbnail: the person can take one off
+ * (and put it back) before allowing it, not add another. */
+function CardPictures({
+  field,
+  kept,
+  onChange,
+}: {
+  field: Extract<CardField, { kind: "images" }>;
+  kept: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <fieldset className="grid gap-1">
+      <legend className="text-xs text-muted">{t(`chat.field.${field.name}`)}</legend>
+      <div className="flex flex-wrap gap-2">
+        {field.choices.map((choice) => {
+          const on = kept.includes(choice.value);
+          return (
+            <div key={choice.value} className="grid w-24 gap-1 text-xs">
+              <ImagePreview
+                url={choice.url}
+                name={choice.value}
+                className={`h-24 w-24 rounded border border-line object-cover ${on ? "" : "opacity-40"}`}
+              />
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() =>
+                    onChange(
+                      on
+                        ? kept.filter((path) => path !== choice.value)
+                        : field.value.filter((path) => path === choice.value || kept.includes(path)),
+                    )
+                  }
+                />
+                <span className="truncate" title={choice.value}>
+                  {choice.value.split("/").pop()}
+                </span>
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      {kept.length < field.value.length && (
+        <p className="text-xs text-muted">{t("chat.picturesTakenOff")}</p>
+      )}
+    </fieldset>
+  );
+}
+
+/** The fields of a card the person can change before allowing it: a text, a choice, or the
+ * pictures to work from. */
 function CardFields({
   fields,
   values,
@@ -904,19 +959,30 @@ function CardFields({
 }: {
   fields: CardField[];
   values: CardValues;
-  onChange: (name: string, value: string) => void;
+  onChange: (name: string, value: string | string[]) => void;
 }) {
   const { t } = useTranslation();
+  const text = (name: string): string => {
+    const value = values[name];
+    return typeof value === "string" ? value : "";
+  };
   return (
     <div className="grid gap-2">
       {fields.map((field) =>
-        field.kind === "text" ? (
+        field.kind === "images" ? (
+          <CardPictures
+            key={field.name}
+            field={field}
+            kept={Array.isArray(values[field.name]) ? (values[field.name] as string[]) : []}
+            onChange={(kept) => onChange(field.name, kept)}
+          />
+        ) : field.kind === "text" ? (
           <label key={field.name} className="grid gap-1">
             <span className="text-xs text-muted">{t(`chat.field.${field.name}`)}</span>
             <textarea
               className="input min-h-16 font-normal"
               rows={3}
-              value={values[field.name] ?? ""}
+              value={text(field.name)}
               onChange={(e) => onChange(field.name, e.target.value)}
             />
           </label>
@@ -929,7 +995,7 @@ function CardFields({
                   type="radio"
                   name={field.name}
                   value={choice.value}
-                  checked={values[field.name] === choice.value}
+                  checked={text(field.name) === choice.value}
                   onChange={() => onChange(field.name, choice.value)}
                 />
                 <span>{t(`chat.choice.${field.name}.${choice.value}`)}</span>
@@ -982,7 +1048,13 @@ function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDe
         <div className="flex gap-2">
           <button
             className="btn-primary"
-            disabled={editable && card.fields.some((f) => f.kind === "text" && !values[f.name]?.trim())}
+            disabled={
+              editable &&
+              card.fields.some((f) => {
+                const value = values[f.name];
+                return f.kind === "text" && !(typeof value === "string" && value.trim());
+              })
+            }
             onClick={() => onDecide(card.confirmation_id, true, editable ? values : undefined)}
           >
             {t(yes)}

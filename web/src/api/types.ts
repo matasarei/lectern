@@ -473,14 +473,23 @@ export type ChatEvent = { seq: number } & (
     }
 );
 
-/** A field on a confirmation card: the tool runs with the value the person leaves in it. */
-export interface CardField {
-  name: string; // the tool's parameter
-  kind: "text" | "choice";
-  value: string;
-  // For a choice: each option, with what it means here (an image shape's size and wait).
-  choices?: { value: string; width?: number; height?: number; seconds?: number }[];
-}
+/** A field on a confirmation card: the tool runs with the value the person leaves in it. A
+ * text or a choice holds one value; "images" holds the pictures to work from, which the person
+ * can only take off (the server refuses any it didn't offer). */
+export type CardField =
+  | {
+      name: string; // the tool's parameter
+      kind: "text" | "choice";
+      value: string;
+      // For a choice: each option, with what it means here (an image shape's size and wait).
+      choices?: { value: string; width?: number; height?: number; seconds?: number }[];
+    }
+  | {
+      name: string;
+      kind: "images";
+      value: string[]; // the pictures' paths in the project
+      choices: { value: string; artifact_id: number; url: string }[];
+    };
 
 // --- OCR sessions ---------------------------------------------------------------------
 

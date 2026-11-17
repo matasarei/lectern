@@ -717,3 +717,129 @@ def test_two_calls_with_answers_make_one_reply(store):
     assert asyncio.run(turn(manager, project, "say both")) == "done"
     assert transcript(store, project)[-1] == ("assistant", "ONE\n\nTWO", None)
     assert len(handle.requests) == 1
+
+
+# --- prepare, and a card when asked for directly --------------------------------------------
+
+
+class _DrawParams(BaseModel):
+    prompt: str
+
+
+async def _rewrite(ctx, params):  # noqa: ANN001
+    ctx.emit({"type": "progress", "label": "rewriting"})
+    if params.prompt == "refuse":
+        raise ToolError("That can't be drawn.")
+    return _DrawParams(prompt=f"{params.prompt}, rewritten")
+
+
+def _draw_tool(*, card_when_forced: bool) -> AgentTool:
+    return AgentTool(
+        name="demo.draw",
+        description="Draw something.",
+        params=_DrawParams,
+        run=lambda ctx, params: ToolResult(f"Drew {params.prompt}."),
+        confirm=True,
+        confirm_text=lambda ctx, params: f"Draw {params.prompt}?",
+        confirm_fields=lambda ctx, params: [
+            {"name": "prompt", "kind": "text", "value": params.prompt}
+        ],
+        forced_question=lambda ctx, params: None,
+        card_when_forced=card_when_forced,
+        prepare=_rewrite,
+    )
+
+
+def _draw_chat(store, replies, *, card_when_forced: bool = True):  # noqa: ANN001, ANN202
+    handle = FakeHandle(replies)
+    tool = _draw_tool(card_when_forced=card_when_forced)
+    manager = TurnManager(make_runtime(handle), store, Registry([*CORE_TOOLS, tool]))
+    return manager, store.create(LOCAL_USER, "Drawings"), handle
+
+
+async def _answer_card(manager, project, approve=True, values=None):  # noqa: ANN001, ANN202
+    key = (project.id, 1)
+    await until(lambda: manager.state(key) in ("waiting", "idle"))
+    card = next((e for e in events(manager, project) if e["type"] == "confirm"), None)
+    if card is not None:
+        manager.decide(key, card["confirmation_id"], approve, values)
+    await manager.wait(key)
+    return card
+
+
+def test_prepare_runs_before_the_card_and_the_tool_runs_with_what_it_returned(store):
+    manager, project, handle = _draw_chat(
+        store, [tool_reply("demo_draw", {"prompt": "a cat"}), text_reply("ok")]
+    )
+
+    async def scenario():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "draw a cat", [])
+        return await _answer_card(manager, project)
+
+    card = asyncio.run(scenario())
+
+    assert card["text"] == "Draw a cat, rewritten?"
+    assert card["fields"][0]["value"] == "a cat, rewritten"
+    seen = [e["type"] for e in events(manager, project)]
+    assert seen.index("progress") < seen.index("confirm")
+    assert handle.requests[1]["messages"][-1]["content"] == "Drew a cat, rewritten."
+    with store.db(project)() as session:
+        row = session.scalars(select(ConfirmationRow)).one()
+    assert json.loads(row.arguments) == {"prompt": "a cat, rewritten"}  # what was approved
+
+
+def test_what_the_person_leaves_on_the_card_still_wins_over_prepare(store):
+    manager, project, handle = _draw_chat(
+        store, [tool_reply("demo_draw", {"prompt": "a cat"}), text_reply("ok")]
+    )
+
+    async def scenario():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "draw a cat", [])
+        await _answer_card(manager, project, values={"prompt": "a dog"})
+
+    asyncio.run(scenario())
+    assert handle.requests[1]["messages"][-1]["content"] == "Drew a dog."
+
+
+def test_prepare_refusing_ends_the_call_with_its_reason_and_no_card(store):
+    manager, project, handle = _draw_chat(
+        store, [tool_reply("demo_draw", {"prompt": "refuse"}), text_reply("ok")]
+    )
+
+    status = asyncio.run(turn(manager, project, "draw"))
+
+    assert status == "done"
+    assert not any(e["type"] == "confirm" for e in events(manager, project))
+    assert handle.requests[1]["messages"][-1]["content"] == "Error: That can't be drawn."
+
+
+@pytest.mark.parametrize("approve", [True, False])
+def test_a_tool_asked_for_directly_shows_its_card_when_it_says_so(store, approve):
+    manager, project, handle = _draw_chat(store, [text_reply("ok")])
+    force = {"name": "demo.draw", "arguments": {"prompt": "a fox"}}
+
+    async def scenario():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "a fox", [], force)
+        return await _answer_card(manager, project, approve)
+
+    card = asyncio.run(scenario())
+
+    assert card is not None and card["text"] == "Draw a fox, rewritten?"
+    result = handle.requests[0]["messages"][-1]["content"]
+    if approve:
+        assert result == "Drew a fox, rewritten."
+    else:
+        assert result.startswith("The person declined")
+
+
+def test_a_tool_asked_for_directly_without_a_card_still_gets_prepared(store):
+    manager, project, handle = _draw_chat(store, [text_reply("ok")], card_when_forced=False)
+    force = {"name": "demo.draw", "arguments": {"prompt": "a fox"}}
+
+    async def scenario():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, "a fox", [], force)
+        return await manager.wait((project.id, 1))
+
+    assert asyncio.run(scenario()) == "done"
+    assert not any(e["type"] == "confirm" for e in events(manager, project))
+    assert handle.requests[0]["messages"][-1]["content"] == "Drew a fox, rewritten."

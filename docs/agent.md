@@ -30,7 +30,7 @@ on.
 | `export.formats`, `export.run` | export modules | List the installed formats; export a Document, a PDF with text, a DOCX, an ODT or a text file as a new file | export: when the format would lose something |
 | `code.write`, `code.run` | sandbox | Have the coding model write and test a script; run it | no (building the image and downloading the model ask) |
 | `ocr.start`, `ocr.note` | OCR | Start an OCR session, optionally exporting when it's done; set a page note | start: yes |
-| `image.generate` | image | Make a picture from a description and save it to `images/` ([below](#making-pictures)) | always, on a card the person can edit; not with the Image toggle |
+| `image.generate` | image | Make a picture from a description, and from pictures in the project, and save it to `images/` ([below](#making-pictures)) | always, on a card the person can edit, with the Image toggle too |
 | `web.search`, `wiki.lookup`, `web.fetch` | web | Search the web, look a subject up on Wikipedia, save a page into the project | yes, each time |
 | `pdf.edit`, `pdf.fill` | PDF editing | Change text in a PDF in place, keeping its fonts, sizes and layout; list or fill its form. Each writes `<name> (edited).pdf` | edit: when the page would look different |
 | `translate` | translate | Translate text (the translation is the reply) or a file (into a new file beside it) ([below](#translating)) | no |
@@ -172,8 +172,34 @@ and exporters read `document.json`.
 
 `image.generate` (`modules/image/tools.py`) makes a picture with the `image` role's model
 ([Image models](models.md#image-models)). It takes a prompt and a shape: square, portrait,
-landscape, or large, a bigger square. It saves the picture to `images/<name>.png`, with the
-chat as its From and the seed and prompt as its note, and opens it in a tab.
+landscape, or large, a bigger square, and up to 4 **reference pictures** from the project. It
+saves the picture to `images/<name>.png`, with the chat as its From and the seed, the
+references and the prompt as its note, and opens it in a tab.
+
+**Reference pictures** (`modules/image/references.py`) are pictures in the project to make
+the new one from: a person or a thing to keep, a style, a layout.
+- They are the paths the call names, else the pictures attached to the message that asked.
+- Each is one of the person's own files, opened as an image: the content decides, not the
+  name, and only PNG, JPEG, WebP, GIF, BMP or TIFF.
+- What `sd-cli` gets is a copy Lectern writes again: upright, RGB, without the source's
+  metadata. It is scaled so the references together have no more pixels than the picture.
+- FLUX.2 klein takes them itself (`-r`). Z-Image-Turbo takes none: they are described in the
+  prompt instead, and the card says so.
+
+**The prompt gate** (`modules/image/prompt_gate.py`) rewrites the chat's prompt the way the
+image model wants it, before the card, so the person approves the prompt that will run.
+- It is one plain-text call: the image model's guide (`prompt_guide` in the catalog) and the
+  draft.
+- With references, it goes to the vision model (`ocr.hand`), which sees them and says what to
+  take from each ("the cat from image 1"). Without, it goes to the chat's model.
+- If the vision model isn't on disk, a card asks to download it first. Without it, the chat's
+  model writes the prompt by the pictures' numbers. Z-Image-Turbo can't use pictures nobody
+  looked at, so there the call is refused with the reason.
+- On any failure (no model, an error, a timeout, an empty reply), the draft stays and the
+  card says why.
+
+The gate runs in the tool's `prepare` hook (`AgentTool.prepare`), which the loop awaits before
+anything is asked.
 
 Two ways in:
 
@@ -181,7 +207,8 @@ Two ways in:
   always asks first: on a 4 GB card a picture takes minutes and unloads the chat's model.
   The card shows:
   - the model, and what downloads first;
-  - the prompt, which the person can change;
+  - the prompt, rewritten by the gate, which the person can change;
+  - the reference pictures, each a thumbnail the person can take off (not add to);
   - the shapes, each with its size and expected wait.
 
   The wait comes from this computer's own last picture of that model at the nearest size (the
@@ -191,16 +218,18 @@ Two ways in:
   called the tool for none of 40 messages that only talked about pictures, and for all 28
   that asked for one, covers and title images included ([acceptance](acceptance/image.md)).
 - **The Image toggle** beside the message box (a picture frame with a sparkle), with a shape.
-  The message asks for a picture itself: the tool runs first, with no card, but for a download.
-  The chat's model writes only the prompt, from the conversation, in one llama-server call held
-  to a JSON schema of the missing arguments. `tool_choice` isn't enforced by llama-server, and
-  the 4B answers in text instead. On MLX, which can't hold an answer to a schema, the typed text
-  is the prompt. The call and its result go into the transcript like any other, then the model
-  replies. The toggle goes off once the message is sent. Only a tool that declares
-  `forced_question` can be asked for this way; any other ends the turn with a reason.
+  The message asks for a picture itself: the model doesn't decide. The chat's model writes only
+  the prompt, from the conversation, in one llama-server call held to a JSON schema of the
+  missing arguments. `tool_choice` isn't enforced by llama-server, and the 4B answers in text
+  instead. On MLX, which can't hold an answer to a schema, the typed text is the prompt. The
+  gate then rewrites it and the same card asks (`card_when_forced`). The pictures attached to
+  the message are its references. The call and its result go into the transcript like any
+  other, then the model replies. The toggle goes off once the message is sent. Only a tool
+  that declares `forced_question` can be asked for this way; any other ends the turn with a
+  reason.
 
-Every picture is approved by the person: on its card, or by the toggle, which they switch on
-for one message. There's no "always allow", on purpose.
+Every picture is approved by the person on its card, after the gate. There's no "always
+allow", on purpose.
 
 While a picture is made, its line shows the phases and the steps:
 - getting the engine ready;

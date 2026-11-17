@@ -343,6 +343,50 @@ describe("Chat", () => {
     });
   });
 
+  it("shows the pictures to work from on an image's card and sends only those kept", async () => {
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = () => "blob:thumb";
+      static revokeObjectURL = () => {};
+    });
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const picture = (path: string, id: number) => ({
+      value: path, artifact_id: id, url: `/api/projects/1/artifacts/${id}/content`,
+    });
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "draw", attachments: [] },
+      {
+        type: "confirm", confirmation_id: 9, call_id: "i1", name: "image.generate", text: "Make a picture?",
+        fields: [
+          { name: "prompt", kind: "text", value: "The cat from image 1 as a watercolour." },
+          {
+            name: "references", kind: "images", value: ["photos/cat.jpg", "art/style.png"],
+            choices: [picture("photos/cat.jpg", 21), picture("art/style.png", 22)],
+          },
+        ],
+      },
+    );
+
+    const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+    const pictures = within(card).getByRole("group", { name: "Pictures to work from" });
+    await waitFor(() => expect(within(pictures).getAllByRole("img")).toHaveLength(2));
+    const style = within(pictures).getByRole("checkbox", { name: "style.png" }) as HTMLInputElement;
+    expect(style.checked).toBe(true);
+    const hint = "The prompt may still name a picture you took off: change it to match.";
+    expect(within(card).queryByText(hint)).toBeNull();
+    fireEvent.click(style); // taken off
+    expect(style.checked).toBe(false);
+    expect(within(card).getByText(hint)).toBeTruthy();
+    fireEvent.click(within(pictures).getByRole("checkbox", { name: "cat.jpg" }));
+    fireEvent.click(within(pictures).getByRole("checkbox", { name: "cat.jpg" })); // and back on
+    fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0].body).toEqual({
+      approve: true,
+      values: { prompt: "The cat from image 1 as a watercolour.", references: ["photos/cat.jpg"] },
+    });
+  });
+
   it("won't allow an image card whose prompt was emptied", async () => {
     renderChat();
     await screen.findByText("Yes: lease.md.");
@@ -686,7 +730,7 @@ describe("Pinned items, the summary and the context", () => {
     const tooltips: Record<string, string> = {
       Attach: "Attach",
       "Mention a file from the project": "Mention a file from the project",
-      Image: "Make a picture from this message, without asking first",
+      Image: "Make a picture from this message: you see the prompt before it runs",
       "Read replies aloud": "Read each new reply aloud when it's finished, in this browser",
       Send: "Send",
     };

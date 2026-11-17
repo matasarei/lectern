@@ -18,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from lectern.agent import followups
 from lectern.agent.loop import TurnRun, run_tool, run_turn, store_message
-from lectern.agent.tools import Decision, Registry
+from lectern.agent.tools import CardValue, Decision, Registry
 from lectern.core.auth import User
 from lectern.projects.store import NEW_CHAT, UNTITLED, Project, ProjectStore
 from lectern.projects.tables import ArtifactRow, SessionRow
@@ -487,7 +487,11 @@ class TurnManager:
         return future
 
     def decide(
-        self, key: Key, confirmation_id: int, approve: bool, values: dict[str, str] | None = None
+        self,
+        key: Key,
+        confirmation_id: int,
+        approve: bool,
+        values: dict[str, CardValue] | None = None,
     ) -> bool:
         """The person's answer to a card, with what they left in its fields if it has any.
         False when nothing is waiting for it."""

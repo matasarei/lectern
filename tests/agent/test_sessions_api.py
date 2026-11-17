@@ -441,12 +441,19 @@ def test_stopping_a_tool_that_isnt_running_or_isnt_yours_is_not_found(api):
     )  # no token: refused before anything else
 
 
-def test_a_cards_values_must_be_text(api):
+@pytest.mark.parametrize("value", [5, {"a": "x"}, [1], [["x"]], None])
+def test_a_cards_values_must_be_a_text_or_a_list_of_texts(api, value):
     client, headers, _, pid, _ = api([])
     url = f"/api/projects/{pid}/sessions/1/confirmations/1"
-    bad = client.post(url, json={"approve": True, "values": {"prompt": ["x"]}}, headers=headers)
+    bad = client.post(url, json={"approve": True, "values": {"prompt": value}}, headers=headers)
     assert bad.status_code == 422
-    none = client.post(url, json={"approve": True, "values": {"prompt": "x"}}, headers=headers)
+
+
+@pytest.mark.parametrize("value", ["x", ["photos/cat.jpg"], []])
+def test_a_text_or_the_pictures_kept_are_well_formed_values(api, value):
+    client, headers, _, pid, _ = api([])
+    url = f"/api/projects/{pid}/sessions/1/confirmations/1"
+    none = client.post(url, json={"approve": True, "values": {"f": value}}, headers=headers)
     assert none.status_code == 404  # well formed; nothing is waiting for it
 
 

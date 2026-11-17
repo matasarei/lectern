@@ -46,6 +46,7 @@ from lectern.agent.prompts import (
 from lectern.agent.state import ChatState
 from lectern.agent.tools import (
     AgentTool,
+    CardValue,
     Decision,
     Registry,
     ToolContext,
@@ -417,17 +418,24 @@ async def run_tool(
         registry=run.registry,
         allowed=allowed,
     )
-    if forced and tool.forced_question is not None:
+    arguments = function["arguments"]
+    if tool.prepare is not None:
+        # Before anything is asked: the card shows, and the tool runs with, what it returns
+        try:
+            params = await tool.prepare(context, params)
+        except ToolError as exc:
+            return _failure(failed, key, exc)
+        arguments = params.model_dump_json()
+    card = tool.confirm and (not forced or tool.card_when_forced)
+    if forced and not card and tool.forced_question is not None:
         # The person asked for it themselves: a card only for what they couldn't have known
         try:
             question = await run_in_threadpool(tool.forced_question, context, params)
         except ToolError as exc:
             return _failure(failed, key, exc)
-        if question is not None and not await _confirm(
-            run, call, tool.name, question, function["arguments"]
-        ):
+        if question is not None and not await _confirm(run, call, tool.name, question, arguments):
             return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
-    elif tool.confirm:
+    elif card:
         try:
             question = (
                 await run_in_threadpool(tool.confirm_text, context, params)
@@ -441,7 +449,7 @@ async def run_tool(
             )
         except ToolError as exc:
             return _failure(failed, key, exc)
-        decision = await _ask(run, call, tool.name, question, function["arguments"], fields=fields)
+        decision = await _ask(run, call, tool.name, question, arguments, fields=fields)
         if not decision.approved:
             return ToolResult(f"The person declined: {tool.name} was not run. Don't retry it.")
         if fields and decision.values:
@@ -458,12 +466,19 @@ async def run_tool(
 
 
 def _with_card_values(
-    tool: AgentTool, params: BaseModel, fields: list[dict], values: dict[str, str]
+    tool: AgentTool, params: BaseModel, fields: list[dict], values: dict[str, CardValue]
 ) -> BaseModel:
     """The tool's parameters with what the person left on the card: only the card's fields,
-    validated as the model's arguments are."""
-    names = {f["name"] for f in fields}
-    changed = {name: value for name, value in values.items() if name in names}
+    validated as the model's arguments are. An "images" field can only lose pictures: what
+    comes back is some of those it showed, never another path."""
+    by_name = {f["name"]: f for f in fields}
+    changed = {name: value for name, value in values.items() if name in by_name}
+    for name, value in changed.items():
+        if by_name[name]["kind"] == "images":
+            if not isinstance(value, list) or not set(value) <= set(by_name[name]["value"]):
+                raise ToolError(f"{name} can only keep pictures the card showed.")
+        elif not isinstance(value, str):
+            raise ToolError(f"{name} takes a text.")
     return tool.validate({**params.model_dump(), **changed})
 
 
