@@ -161,3 +161,21 @@ def test_a_long_reply_is_cut_at_a_sentence_to_fit():
     cut = clean(sentence * 40)
     assert len(cut) <= prompt_gate.MAX_PROMPT
     assert cut.endswith("grey sea.")
+
+
+def test_the_pictures_are_encoded_off_the_event_loop(monkeypatch):
+    import threading
+
+    threads: list[threading.Thread] = []
+    encode = prompt_gate._data_url
+
+    def watched(picture: Reference) -> str:
+        threads.append(threading.current_thread())
+        return encode(picture)
+
+    monkeypatch.setattr(prompt_gate, "_data_url", watched)
+    handle = FakeHandle([reply("The cat from image 1.")])
+
+    _gate(handle, "my cat", references=[Shown("photos/cat.jpg", _picture())])
+
+    assert threads and threading.main_thread() not in threads

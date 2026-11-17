@@ -92,7 +92,13 @@ async def rewrite(
     see = any(r.picture is not None for r in references)
     messages = [
         {"role": "system", "content": INSTRUCTIONS.format(guide=guide or GENERAL_GUIDE)},
-        {"role": "user", "content": _request(draft, references, see, can_take_references)},
+        # Decoding and encoding the pictures is Pillow's work: not on the event loop
+        {
+            "role": "user",
+            "content": await asyncio.to_thread(
+                _request, draft, references, see, can_take_references
+            ),
+        },
     ]
     body = {
         "messages": messages,
