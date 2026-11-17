@@ -1,5 +1,6 @@
-"""The Image toggle: the person asks for a picture with their message. The tool runs first,
-with no card (but for a download), the model writing only the prompt."""
+"""The Image toggle: the person asks for a picture with their message. The tool runs first, the
+model writing only the prompt; the prompt gate rewrites it and the card asks, as for any
+picture, so the person approves the prompt that will run."""
 
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from lectern.projects.tables import MessageRow
 from lectern.runtime.supervisor import ModelChoice, ModelRuntime
 
 from ...agent.fake_model import SHAPE, FakeHandle, FakeRunner, make_runtime, text_reply
-from .fakes import images
+from .fakes import gate_reply, images
 from .test_tools import Downloads
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the fake sd-cli is a script")
@@ -60,25 +61,50 @@ def _argv(tmp_path) -> list[str]:  # noqa: ANN001
     return json.loads((tmp_path / "bin" / "argv.json").read_text())
 
 
-async def _send(manager, project, text, force):  # noqa: ANN001, ANN202
-    await manager.send(project, LOCAL_USER, 1, text, [], force)
-    return await manager.wait((project.id, 1))
+async def _send(manager, project, text, force, approve=True, attachments=()):  # noqa: ANN001, ANN202
+    """Send, approve the picture's card when one comes, and wait for the turn."""
+    key = (project.id, 1)
+    await manager.send(project, LOCAL_USER, 1, text, list(attachments), force)
+    for _ in range(500):
+        card = next((e for e in manager.channel(key).events if e["type"] == "confirm"), None)
+        if card is not None:
+            manager.decide(key, card["confirmation_id"], approve)
+            break
+        if manager.state(key) == "idle":
+            break
+        await asyncio.sleep(0.01)
+    return await manager.wait(key)
 
 
-def test_the_toggle_makes_one_picture_without_a_card_from_a_prompt_held_to_a_schema(
+def _card(manager, project) -> dict | None:  # noqa: ANN001
+    return next(
+        (e for e in manager.channel((project.id, 1)).events if e["type"] == "confirm"), None
+    )
+
+
+def test_the_toggle_makes_one_picture_after_its_card_from_a_prompt_held_to_a_schema(
     chat, store, tmp_path
 ):
     manager, project, handle = chat(
-        [json_reply({"prompt": "a lighthouse in fog, oil painting"}), text_reply("Here it is.")]
+        [
+            json_reply({"prompt": "a lighthouse in fog, oil painting"}),
+            gate_reply("A white lighthouse in thick fog, oil painting, grey dawn light."),
+            text_reply("Here it is."),
+        ]
     )
 
     status = asyncio.run(_send(manager, project, "a lighthouse in the fog", IMAGE))
 
     assert status == "done"
-    events = manager.channel((project.id, 1)).events
-    assert not any(e["type"] == "confirm" for e in events)
+    card = _card(manager, project)
+    assert card is not None and card["text"] == "Make a picture with FLUX.2 klein 4B?"
+    assert card["fields"][0]["value"] == (
+        "A white lighthouse in thick fog, oil painting, grey dawn light."
+    )
     argv = _argv(tmp_path)
-    assert argv[argv.index("-p") + 1] == "a lighthouse in fog, oil painting"
+    assert argv[argv.index("-p") + 1] == (
+        "A white lighthouse in thick fog, oil painting, grey dawn light."
+    )
     assert (argv[argv.index("-W") + 1], argv[argv.index("-H") + 1]) == ("880", "656")
     asked = handle.requests[0]
     assert asked["response_format"]["json_schema"]["schema"] == {
@@ -104,25 +130,18 @@ def test_the_toggle_makes_one_picture_without_a_card_from_a_prompt_held_to_a_sch
     assert (project_images := project.root / "images").is_dir() and any(project_images.iterdir())
 
 
-def test_a_download_the_person_couldnt_know_about_is_still_asked(chat, store, tmp_path):
+def test_the_card_says_what_downloads_first_and_declining_makes_nothing(chat, store, tmp_path):
     manager, project, _ = chat(
-        [json_reply({"prompt": "a lighthouse"}), text_reply("Not made.")], downloaded=False
+        [json_reply({"prompt": "a lighthouse"}), gate_reply("A lighthouse."), text_reply("No.")],
+        downloaded=False,
     )
-    key = (project.id, 1)
 
-    async def scenario() -> str:
-        await manager.send(project, LOCAL_USER, 1, "a lighthouse", [], IMAGE)
-        for _ in range(500):
-            await asyncio.sleep(0.01)
-            card = next((e for e in manager.channel(key).events if e["type"] == "confirm"), None)
-            if card:
-                break
-        assert card["text"].startswith("Making pictures needs FLUX.2 klein 4B (")
-        assert "fields" not in card
-        manager.decide(key, card["confirmation_id"], False)
-        return await manager.wait(key)
+    status = asyncio.run(_send(manager, project, "a lighthouse", IMAGE, approve=False))
 
-    assert asyncio.run(scenario()) == "done"
+    assert status == "done"
+    card = _card(manager, project)
+    assert "First FLUX.2 klein 4B downloads (" in card["text"]
+    assert [f["name"] for f in card["fields"]] == ["prompt", "shape"]
     assert _transcript(store, project)[2][1].startswith("The person declined: image.generate")
     assert not (tmp_path / "bin" / "argv.json").exists()
 
@@ -162,9 +181,15 @@ def test_on_mlx_the_typed_text_is_the_prompt(chat, store, tmp_path):
             runner_for=lambda choice: FakeRunner(handle),
         )  # fmt: skip
 
-    manager, project, handle = chat([text_reply("Here it is.")], runtime=mlx_runtime)
+    manager, project, handle = chat(
+        [gate_reply("A red barn in deep snow, winter morning."), text_reply("Here it is.")],
+        runtime=mlx_runtime,
+    )
 
     assert asyncio.run(_send(manager, project, "a red barn in snow", IMAGE)) == "done"
     argv = _argv(tmp_path)
-    assert argv[argv.index("-p") + 1] == "a red barn in snow"
-    assert len(handle.requests) == 1  # only the reply after it: no schema call
+    assert argv[argv.index("-p") + 1] == "A red barn in deep snow, winter morning."
+    gate = handle.requests[0]  # no schema call; the gate's plain one, which MLX can answer
+    assert "response_format" not in gate
+    assert gate["messages"][1]["content"] == "The request: a red barn in snow"
+    assert len(handle.requests) == 2

@@ -46,6 +46,7 @@ from lectern.agent.prompts import (
 from lectern.agent.state import ChatState
 from lectern.agent.tools import (
     AgentTool,
+    CardValue,
     Decision,
     Registry,
     ToolContext,
@@ -465,12 +466,19 @@ async def run_tool(
 
 
 def _with_card_values(
-    tool: AgentTool, params: BaseModel, fields: list[dict], values: dict[str, str]
+    tool: AgentTool, params: BaseModel, fields: list[dict], values: dict[str, CardValue]
 ) -> BaseModel:
     """The tool's parameters with what the person left on the card: only the card's fields,
-    validated as the model's arguments are."""
-    names = {f["name"] for f in fields}
-    changed = {name: value for name, value in values.items() if name in names}
+    validated as the model's arguments are. An "images" field can only lose pictures: what
+    comes back is some of those it showed, never another path."""
+    by_name = {f["name"]: f for f in fields}
+    changed = {name: value for name, value in values.items() if name in by_name}
+    for name, value in changed.items():
+        if by_name[name]["kind"] == "images":
+            if not isinstance(value, list) or not set(value) <= set(by_name[name]["value"]):
+                raise ToolError(f"{name} can only keep pictures the card showed.")
+        elif not isinstance(value, str):
+            raise ToolError(f"{name} takes a text.")
     return tool.validate({**params.model_dump(), **changed})
 
 

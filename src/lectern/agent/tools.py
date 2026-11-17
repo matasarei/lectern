@@ -31,13 +31,18 @@ class ToolError(Exception):
     """A failure the model should see and can react to (unknown file, bad range…)."""
 
 
+# What the person left in one of a card's fields: a text or a choice, or the pictures of an
+# "images" field they kept.
+CardValue = str | list[str]
+
+
 @dataclass(frozen=True)
 class Decision:
     """The person's answer to a card: yes or no, and on a card with fields, the values they
     left there (field name → value), which the tool runs with instead of the model's."""
 
     approved: bool
-    values: dict[str, str] | None = None
+    values: dict[str, CardValue] | None = None
 
 
 @dataclass
@@ -102,7 +107,8 @@ class AgentTool:
     # write a number no message or tool result gave (docs/agent.md, "Exact answers").
     writes: Callable[[Any], tuple[str, str]] | None = None
     # Fields the person can change on that card, each a parameter of the tool:
-    # {"name": "prompt", "kind": "text" | "choice", "value": "…", "choices": [{"value": …}]}.
+    # {"name": "prompt", "kind": "text" | "choice", "value": "…", "choices": [{"value": …}]},
+    # or {"kind": "images", "value": [path, …]}: pictures the person can only take away.
     # Runs after confirm_text. The tool then runs with the values the card sends back.
     confirm_fields: Callable[[ToolContext, Any], list[dict]] | None = None
     # A tool the person can ask for directly (the chat's Image toggle): the model writes only

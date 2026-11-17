@@ -18,7 +18,7 @@ from lectern.projects.tables import MessageRow
 
 from ...agent.fake_model import FakeHandle, make_runtime, text_reply, tool_reply
 from ..conftest import FakeDownloads as DownloadsWithEvents
-from .fakes import images, klein
+from .fakes import gate_reply, images, klein
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the fake sd-cli is a script")
 
@@ -36,8 +36,11 @@ class Downloads(DownloadsWithEvents):
 
 @pytest.fixture
 def image_ctx(store, tmp_path):
-    def make(*, downloaded: bool = True, user: User = LOCAL_USER) -> ToolContext:
-        runtime = make_runtime(FakeHandle([]))
+    def make(
+        *, downloaded: bool = True, user: User = LOCAL_USER, replies: list[bytes] | None = None
+    ) -> ToolContext:
+        handle = FakeHandle(list(replies or []))
+        runtime = make_runtime(handle, per_role=True)
         made_by, _ = images(tmp_path, runtime)
         made_by.downloads = Downloads(tmp_path / "models", downloaded=downloaded)
         project = store.create(LOCAL_USER, "Pictures")
@@ -47,6 +50,7 @@ def image_ctx(store, tmp_path):
             emit=events.append, runtime=runtime, downloads=made_by.downloads, images=made_by,
         )  # fmt: skip
         ctx.events = events  # type: ignore[attr-defined]
+        ctx.handle = handle  # type: ignore[attr-defined]
         return ctx
 
     return make
@@ -168,8 +172,12 @@ def test_a_download_that_fails_says_so_and_makes_nothing(image_ctx):
 
 @pytest.fixture
 def chat(store, tmp_path):
-    def make(arguments: dict, then: str = "Done."):  # noqa: ANN202
-        handle = FakeHandle([tool_reply("image_generate", arguments), text_reply(then)])
+    def make(arguments: dict, then: str = "Done.", rewritten: str | None = None):  # noqa: ANN202
+        # The model's call, the prompt gate's rewrite before the card, the reply after it
+        rewritten = rewritten or f"{arguments['prompt']}, rewritten"
+        handle = FakeHandle(
+            [tool_reply("image_generate", arguments), gate_reply(rewritten), text_reply(then)]
+        )
         runtime = make_runtime(handle)
         made_by, _ = images(tmp_path, runtime)
         made_by.downloads = Downloads(tmp_path / "models")
@@ -210,6 +218,7 @@ def test_the_picture_is_made_with_what_the_person_left_on_the_card(chat, store, 
         await manager.send(project, LOCAL_USER, 1, "Draw a lighthouse", [])
         card = await _card(manager, project)
         assert [f["name"] for f in card["fields"]] == ["prompt", "shape"]
+        assert card["fields"][0]["value"] == "a lighthouse, rewritten"  # the gate's, to approve
         values = {"prompt": "a lighthouse in fog, oil painting", "shape": "landscape", "seed": "9"}
         assert manager.decide((project.id, 1), card["confirmation_id"], True, values)
         return await manager.wait((project.id, 1))
@@ -286,3 +295,238 @@ def test_the_image_tool_is_offered_by_its_module():
     module = next(m for m in load_modules() if m.id == "image")
     assert module.tools(None) == [tools.GENERATE]
     assert shape_size  # imported for the sizes test above
+
+
+# --- reference pictures and the prompt gate ----------------------------------------------------
+
+
+def _photo(width: int = 640, height: int = 480) -> bytes:
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), (120, 80, 40)).save(out, format="JPEG")
+    return out.getvalue()
+
+
+def _add_photo(ctx, name: str = "cat.jpg") -> int:  # noqa: ANN001
+    with ctx.sessions.begin() as session:
+        return files.write_bytes(
+            ctx.project.root, session, owner_id=LOCAL_USER.id, name=name, data=_photo(),
+            origin=files.Origin("import"), folder="photos",
+        ).id  # fmt: skip
+
+
+class _VisionMissing(Downloads):
+    """The image model is on disk; the vision model that reads references isn't."""
+
+    def is_downloaded(self, entry) -> bool:  # noqa: ANN001
+        return "ocr.hand" not in entry.roles
+
+
+def _prepare(ctx, **params):  # noqa: ANN001, ANN003, ANN202
+    return asyncio.run(GENERATE.prepare(ctx, _params(**params)))
+
+
+def _roles(ctx) -> list[str]:  # noqa: ANN001
+    return [r["role"] for r in ctx.runtime.state()["residents"]]
+
+
+def test_the_prompt_is_rewritten_before_the_card_by_the_chats_model(image_ctx):
+    ctx = image_ctx(replies=[gate_reply("A red lighthouse on a cliff at dusk, oil painting.")])
+
+    prepared = _prepare(ctx)
+
+    assert prepared.prompt == "A red lighthouse on a cliff at dusk, oil painting."
+    assert prepared.references == []
+    assert _roles(ctx) == ["main"]
+    guide = klein().image.prompt_guide
+    assert guide in ctx.handle.requests[0]["messages"][0]["content"]
+    assert GENERATE.confirm_text(ctx, prepared) == "Make a picture with FLUX.2 klein 4B?"
+
+
+def test_a_failed_rewrite_keeps_the_prompt_and_the_card_says_why(image_ctx):
+    ctx = image_ctx(replies=[gate_reply("")])
+
+    prepared = _prepare(ctx)
+
+    assert prepared.prompt == "a red lighthouse on a cliff at dusk"
+    assert GENERATE.confirm_text(ctx, prepared).endswith(
+        "The prompt wasn't rewritten for the image model: the model's rewrite was empty."
+    )
+
+
+def test_named_references_are_seen_by_the_vision_model_and_offered_on_the_card(image_ctx):
+    ctx = image_ctx(replies=[gate_reply("The cat from image 1 as a watercolour.")])
+    artifact_id = _add_photo(ctx)
+
+    prepared = _prepare(ctx, references=["photos/CAT.jpg"])
+
+    assert prepared.references == ["photos/cat.jpg"]  # as it is stored
+    assert prepared.prompt == "The cat from image 1 as a watercolour."
+    assert _roles(ctx) == ["ocr.hand"]
+    parts = ctx.handle.requests[0]["messages"][1]["content"]
+    assert [p["type"] for p in parts] == ["image_url", "text"]
+    fields = GENERATE.confirm_fields(ctx, prepared)
+    assert [f["name"] for f in fields] == ["prompt", "references", "shape"]
+    assert fields[1] == {
+        "name": "references",
+        "kind": "images",
+        "value": ["photos/cat.jpg"],
+        "choices": [{"value": "photos/cat.jpg", "artifact_id": artifact_id}],
+    }
+    ctx.prepared = None  # as if prepare had found none
+    without = GENERATE.confirm_fields(ctx, prepared.model_copy(update={"references": []}))
+    plain = {c["value"]: c["seconds"] for c in without[-1]["choices"]}
+    waits = {c["value"]: c["seconds"] for c in fields[-1]["choices"]}
+    assert waits["square"] > plain["square"]  # references lengthen the wait
+
+
+def test_a_reference_that_isnt_there_is_refused_before_any_card(image_ctx):
+    ctx = image_ctx()
+    with pytest.raises(ToolError, match="No picture called 'photos/dog.jpg'"):
+        _prepare(ctx, references=["photos/dog.jpg"])
+    assert ctx.handle.requests == []
+
+
+def test_more_references_than_a_call_takes_are_refused_by_the_arguments():
+    with pytest.raises(ToolError, match="Invalid arguments"):
+        _params(references=[f"photos/{n}.jpg" for n in range(tools.MAX_REFERENCES + 1)])
+
+
+def test_a_missing_vision_model_is_asked_for_and_without_it_the_pictures_still_go(image_ctx):
+    ctx = image_ctx(replies=[gate_reply("The cat from image 1 in a garden.")])
+    ctx.downloads = ctx.images.downloads = _VisionMissing(ctx.project.root)
+    asked: list[str] = []
+
+    async def say_no(question: str, kind: str = "allow") -> bool:
+        asked.append(question)
+        return False
+
+    ctx.confirm = say_no
+    _add_photo(ctx)
+
+    prepared = _prepare(ctx, references=["photos/cat.jpg"])
+
+    assert asked and asked[0].startswith("Reading the reference pictures needs Qwen3-VL")
+    assert _roles(ctx) == ["main"]  # the chat's model wrote it, by the pictures' numbers
+    assert "you can't see them" in ctx.handle.requests[0]["messages"][1]["content"]
+    assert prepared.references == ["photos/cat.jpg"]
+    assert "The pictures weren't looked at to write the prompt" in GENERATE.confirm_text(
+        ctx, prepared
+    )
+
+
+def test_someone_who_cant_download_the_vision_model_isnt_asked(image_ctx):
+    ctx = image_ctx(
+        user=User(id=LOCAL_USER.id, name="m", role=MEMBER),
+        replies=[gate_reply("The cat from image 1 in a garden.")],
+    )
+    ctx.downloads = ctx.images.downloads = _VisionMissing(ctx.project.root)
+    _add_photo(ctx)
+
+    prepared = _prepare(ctx, references=["photos/cat.jpg"])
+
+    assert "only an admin can download models" in GENERATE.confirm_text(ctx, prepared)
+
+
+def test_on_a_model_that_takes_no_references_they_are_described(image_ctx, monkeypatch):
+    monkeypatch.setattr(tools, "_model", lambda ctx: klein("z-image-turbo"))
+    ctx = image_ctx(replies=[gate_reply("A ginger cat with white paws in a garden.")])
+    _add_photo(ctx)
+
+    prepared = _prepare(ctx, references=["photos/cat.jpg"])
+
+    text = ctx.handle.requests[0]["messages"][1]["content"][-1]["text"]
+    assert "describe in the prompt everything" in text
+    assert "described in the prompt, not copied" in GENERATE.confirm_text(ctx, prepared)
+
+
+def test_on_a_model_that_takes_no_references_unseen_ones_are_refused(image_ctx, monkeypatch):
+    monkeypatch.setattr(tools, "_model", lambda ctx: klein("z-image-turbo"))
+    ctx = image_ctx()
+    ctx.downloads = ctx.images.downloads = _VisionMissing(ctx.project.root)
+    _add_photo(ctx)
+
+    with pytest.raises(ToolError, match="can't be given reference pictures"):
+        _prepare(ctx, references=["photos/cat.jpg"])
+
+
+def test_a_picture_made_from_references_passes_them_to_sd_cli_and_says_so(image_ctx, tmp_path):
+    ctx = image_ctx()
+    _add_photo(ctx)
+
+    result = asyncio.run(GENERATE.run(ctx, _params(references=["photos/cat.jpg"], seed=3)))
+
+    assert result.text.startswith("Made images/")
+    seen = json.loads((tmp_path / "bin" / "refs.json").read_text())
+    width, height = seen[0]["size"]
+    assert width * height <= 768 * 768 and abs(width / height - 4 / 3) < 0.05
+    with ctx.sessions() as session:
+        made = [r for r in files.live(session) if r.path.startswith("images/")][0]
+    assert made.from_note == "seed 3, from photos/cat.jpg: a red lighthouse on a cliff at dusk"
+
+
+def _send_with(manager, project, text, attachments, values=None, approve=True):  # noqa: ANN001, ANN202
+    async def scenario():  # noqa: ANN202
+        await manager.send(project, LOCAL_USER, 1, text, list(attachments))
+        card = await _card(manager, project)
+        manager.decide((project.id, 1), card["confirmation_id"], approve, values)
+        await manager.wait((project.id, 1))
+        return card
+
+    return asyncio.run(scenario())
+
+
+def _add_to(store, project, name: str, data: bytes) -> int:  # noqa: ANN001
+    with store.db(project).begin() as session:
+        return files.write_bytes(
+            project.root, session, owner_id=LOCAL_USER.id, name=name, data=data,
+            origin=files.Origin("import"), folder="photos",
+        ).id  # fmt: skip
+
+
+def test_the_pictures_attached_to_the_message_are_the_references(chat, store, tmp_path):
+    manager, project, _ = chat({"prompt": "my cat as a watercolour"})
+    photo = _add_to(store, project, "cat.jpg", _photo())
+    notes = _add_to(store, project, "notes.txt", b"not a picture")
+
+    card = _send_with(manager, project, "my cat as a watercolour", [photo, notes])
+
+    refs = next(f for f in card["fields"] if f["name"] == "references")
+    assert refs["value"] == ["photos/cat.jpg"]  # the text file isn't a picture
+    argv = _argv(tmp_path)
+    assert argv.count("-r") == 1
+
+
+def test_a_reference_taken_off_the_card_isnt_used(chat, store, tmp_path):
+    manager, project, _ = chat({"prompt": "my cat", "references": ["photos/cat.jpg"]})
+    _add_to(store, project, "cat.jpg", _photo())
+
+    _send_with(manager, project, "my cat", [], values={"references": []})
+
+    assert "-r" not in _argv(tmp_path)
+    assert _tool_result(store, project).startswith("Made images/")
+
+
+def test_the_card_cant_add_a_picture_it_didnt_show(chat, store, tmp_path):
+    manager, project, _ = chat({"prompt": "my cat", "references": ["photos/cat.jpg"]})
+    _add_to(store, project, "cat.jpg", _photo())
+    _add_to(store, project, "dog.jpg", _photo())
+
+    _send_with(manager, project, "my cat", [], values={"references": ["photos/dog.jpg"]})
+
+    assert _tool_result(store, project) == (
+        "Error: references can only keep pictures the card showed."
+    )
+    assert not (tmp_path / "bin" / "argv.json").exists()
+
+
+def test_a_text_field_cant_be_sent_back_as_a_list(chat, store, tmp_path):
+    manager, project, _ = chat({"prompt": "a lighthouse"})
+
+    _send_with(manager, project, "a lighthouse", [], values={"prompt": ["a", "b"]})
+
+    assert _tool_result(store, project) == "Error: prompt takes a text."
+    assert not (tmp_path / "bin" / "argv.json").exists()
