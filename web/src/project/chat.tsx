@@ -25,6 +25,7 @@ import { formatTokens } from "../format";
 import { ImageSparkleIcon } from "../icons";
 import { useLanguageName } from "../hooks/useLanguageName";
 import { useRuntime } from "../hooks/useRuntime";
+import { useStickToBottom } from "../hooks/useStickToBottom";
 import { Markdown } from "../lazy-markdown";
 import { ExportButtons } from "./export-buttons";
 import { OcrLine } from "./ocr-line";
@@ -77,6 +78,9 @@ export function ChatTab({
     wasRunning.current = live.running;
   }, [autoRead, live.running, live.messageId, newest]);
 
+  // The transcript follows what's added to it, unless the person has scrolled up to read.
+  const { ref: stickToBottom, follow: followTranscript } = useStickToBottom<HTMLDivElement>();
+
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Artifact[]>([]);
   // The Image toggle: the next message asks for a picture, in this shape. It goes off once
@@ -106,6 +110,7 @@ export function ChatTab({
       setAttached([]);
       setImage(null);
       setPick(null); // a list left open belongs to the text that just went
+      followTranscript(); // what was sent, and its reply, are what they want to see
       void queryClient.invalidateQueries({ queryKey: ["chat", projectId, sessionId] });
     },
   });
@@ -174,7 +179,11 @@ export function ChatTab({
 
   return (
     <div className="mx-auto grid h-full max-h-full max-w-3xl grid-rows-[minmax(0,1fr)_auto] gap-3 p-4">
-      <div className="grid content-start gap-3 overflow-y-auto" data-testid="transcript">
+      <div
+        ref={stickToBottom}
+        className="grid content-start gap-3 overflow-y-auto"
+        data-testid="transcript"
+      >
         {chat.data.messages.length === 0 && !live.running && (
           <p className="py-16 text-center text-xl text-muted">{t("chat.empty")}</p>
         )}

@@ -158,7 +158,7 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 | | `L93-239` | `TurnManager`: `send`, `_start`, `_new_run` |
 | | `L243-471` | Follow-ups: `after_session`, `resume_follow_ups`, `run_follow_up_now`, `_hold`, `_follow_up` |
 | | `L478-551` | `decide` (card answer), `stop_tool`, `stop`, `stop_project` |
-| `web/src/project/chat.tsx` (997L) | `L35-360` | `ChatTab` (message input, `@file` autocomplete, Image toggle, attachments) |
+| `web/src/project/chat.tsx` (997L) | `L35-360` | `ChatTab` (message input, `@file` autocomplete, Image toggle, attachments, transcript kept at its bottom) |
 | | `L363-610` | `groupReplies`, `Transcript`, `FinishedActions` (export buttons & OCR step links) |
 | | `L617-880` | `UserMessage`, `ToolLine`, `Progress`, `ScriptCode`, `CardFields`, `ConfirmCard` |
 | | `L883-997` | `LiveReply`, `PinnedStrip`, `UsageLine`, `CompactionNote`, `ModelWait` |
@@ -319,7 +319,7 @@ Models receive tool names with `_` in place of `.` (e.g. `project_find`).
 | `/settings/models` | `web/src/routes/settings/models.tsx` | `/api/models`, `/api/runtime`, `/api/web/*`, `/api/voice` (`web/src/voice/voices-card.tsx`) | `web/src/routes/settings/models.test.tsx`, `web/src/voice/voices-card.test.tsx` |
 | `/settings/users` | `web/src/routes/settings/users.tsx` | `/api/users` | `web/src/routes/settings/users.test.tsx` |
 | Tab: Overview | `web/src/project/overview.tsx` | `/api/projects/{id}/items`, `web/src/api/upload.ts` | `web/src/project/overview.test.tsx` |
-| Tab: Chat session | `web/src/project/chat.tsx` | `useSessionEvents.ts`, `web/src/project/file-picker.tsx` | `web/src/project/chat.test.tsx` |
+| Tab: Chat session | `web/src/project/chat.tsx` | `useSessionEvents.ts`, `useStickToBottom.ts`, `web/src/project/file-picker.tsx` | `web/src/project/chat.test.tsx` |
 | Read aloud (chat replies) | `web/src/voice/read-aloud.tsx`, `player.ts`, `speech-text.ts`, `use-auto-read.ts` | `/api/voice/language`, `/api/voice/speak`, Web Audio | `web/src/voice/*.test.ts(x)` |
 | Tab: OCR session | `web/src/project/ocr.tsx` | `web/src/project/ocr-api.ts`, `ocr-steps.tsx`, `ocr-line.tsx` | `web/src/project/ocr.test.tsx` |
 | Tab: OCR review | `web/src/project/review.tsx` | `PUT /doubts/{id}`, `POST /doubts/{id}/others` | `web/src/project/review.test.tsx` |

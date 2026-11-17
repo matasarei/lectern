@@ -10,6 +10,10 @@ A turn runs as a server task, so it carries on with the tab closed; the page fol
 an event stream that replays what it missed. One turn runs per chat at a time. **Stop** keeps
 the part of the reply already written.
 
+The transcript keeps its newest part in view as the reply streams in, a card asks something or
+a picture loads, unless the person has scrolled up to read: then it stays where they are until
+they scroll back to the bottom or send a message (`web/src/hooks/useStickToBottom.ts`).
+
 ## Tools
 
 Core tools are in `agent/core_tools.py`; modules add their own. The model sees the names with
