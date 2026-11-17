@@ -943,6 +943,9 @@ function CardPictures({
           );
         })}
       </div>
+      {kept.length < field.value.length && (
+        <p className="text-xs text-muted">{t("chat.picturesTakenOff")}</p>
+      )}
     </fieldset>
   );
 }

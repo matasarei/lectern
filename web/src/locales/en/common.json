@@ -413,6 +413,7 @@
     "aboutSeconds": "about {{seconds}} s",
     "aboutMinutes": "about {{minutes}} min",
     "choiceSize": "{{width}}×{{height}} · {{wait}}",
+    "picturesTakenOff": "The prompt may still name a picture you took off: change it to match.",
     "field": {
       "prompt": "What the picture shows",
       "references": "Pictures to work from",

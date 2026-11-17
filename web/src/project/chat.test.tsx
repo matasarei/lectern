@@ -372,8 +372,11 @@ describe("Chat", () => {
     await waitFor(() => expect(within(pictures).getAllByRole("img")).toHaveLength(2));
     const style = within(pictures).getByRole("checkbox", { name: "style.png" }) as HTMLInputElement;
     expect(style.checked).toBe(true);
+    const hint = "The prompt may still name a picture you took off: change it to match.";
+    expect(within(card).queryByText(hint)).toBeNull();
     fireEvent.click(style); // taken off
     expect(style.checked).toBe(false);
+    expect(within(card).getByText(hint)).toBeTruthy();
     fireEvent.click(within(pictures).getByRole("checkbox", { name: "cat.jpg" }));
     fireEvent.click(within(pictures).getByRole("checkbox", { name: "cat.jpg" })); // and back on
     fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
