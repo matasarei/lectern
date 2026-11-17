@@ -22,7 +22,7 @@ import re
 import shutil
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -75,6 +75,20 @@ class Timing:
     load: float
     step: float
     decode: float
+
+
+@dataclass(frozen=True)
+class Reference:
+    """A picture to work from, made ready for sd-cli (modules/image/references.py): a PNG
+    written again by Lectern, already scaled down."""
+
+    png: bytes
+    width: int
+    height: int
+
+    @property
+    def pixels(self) -> int:
+        return self.width * self.height
 
 
 @dataclass(frozen=True)
@@ -135,14 +149,17 @@ def memory_flags(tier: Tier) -> list[str]:
     return []
 
 
-def need_bytes(entry: CatalogEntry, width: int, height: int, *, offload: bool) -> int:
+def need_bytes(
+    entry: CatalogEntry, width: int, height: int, *, offload: bool, reference_pixels: int = 0
+) -> int:
     """GPU memory to hold for a picture. Offloading, the largest piece is on the GPU at a time
     (the text encoder, then the diffusion model, then the VAE); otherwise all three. Plus the
-    working memory for its pixels."""
+    working memory for its pixels, and for its reference pictures' pixels, which the model
+    attends to at every step beside the picture's own (a first estimate, until measured)."""
     files = entry.files
     pieces = [files.model[0].size, files.text_encoder.size, files.vae.size]  # type: ignore[union-attr]
     weights = max(pieces) if offload else sum(pieces)
-    compute = int(COMPUTE_PER_MEGAPIXEL * width * height / 1_000_000)
+    compute = int(COMPUTE_PER_MEGAPIXEL * (width * height + reference_pixels) / 1_000_000)
     return weights + compute + OVERHEAD
 
 
@@ -159,8 +176,10 @@ def build_args(
     output: Path,
     max_vram_bytes: int,
     tier: Tier,
+    references: Sequence[Path] = (),
 ) -> list[str]:
-    """sd-cli's arguments, after the program. Never through a shell."""
+    """sd-cli's arguments, after the program. Never through a shell. Each reference picture is
+    one `-r`, and always a PNG Lectern wrote in the picture's own work folder."""
     args = [
         "--diffusion-model", str(model),
         "--llm", str(text_encoder),
@@ -175,6 +194,8 @@ def build_args(
         "-o", str(output),
         "--flash-attn", "off,diffusion=on",
     ]  # fmt: skip
+    for reference in references:
+        args += ["-r", str(reference)]
     if offloads(tier):  # the budget its graph is cut to; not on the CPU, nor where all fits
         args += ["--max-vram", f"{max_vram_bytes / GIB:.2f}"]
     return args + memory_flags(tier)
@@ -247,12 +268,16 @@ class Images:
 
     # --- the expected wait ---------------------------------------------------------------
 
-    def estimate(self, entry: CatalogEntry, width: int, height: int) -> float:
+    def estimate(
+        self, entry: CatalogEntry, width: int, height: int, reference_pixels: int = 0
+    ) -> float:
         """Seconds the picture should take: from this computer's last picture of this model at
         the nearest size, its steps and decoding scaled by the pixels; before there is one,
-        the tier's first guess scaled the same way."""
+        the tier's first guess scaled the same way. Reference pictures make each step longer
+        by their pixels (a first estimate, until measured)."""
         image = _image(entry)
         pixels = width * height
+        steps_scale = (pixels + reference_pixels) / pixels
         with self.sessions() as session:
             rows = session.scalars(
                 select(ImageTimingRow).where(ImageTimingRow.model_id == entry.id)
@@ -260,10 +285,11 @@ class Images:
         if rows:
             row = min(rows, key=lambda r: abs(r.width * r.height - pixels))
             scale = pixels / (row.width * row.height)
-            return row.load_seconds + (row.step_seconds * image.steps + row.decode_seconds) * scale
+            steps = row.step_seconds * image.steps * steps_scale
+            return row.load_seconds + (steps + row.decode_seconds) * scale
         default = size_settings(entry, self.tier).default
         guess = FIRST_GUESS_SECONDS[self.tier] * image.steps / GUESS_STEPS
-        return guess * pixels / (default * default)
+        return guess * pixels * steps_scale / (default * default)
 
     def _remember(self, entry: CatalogEntry, width: int, height: int, timing: Timing) -> None:
         with self.sessions.begin() as session:
@@ -288,12 +314,20 @@ class Images:
         *,
         priority: Priority = Priority.CHAT,
         since: float | None = None,
+        references: Sequence[Reference] = (),
     ) -> Made:
-        """Make one picture. Raises ImageFailed with a reason the chat can show; cancelled
-        (Stop), sd-cli is killed and the room given back before the cancellation goes on."""
+        """Make one picture, from its reference pictures when it has some (the model must take
+        them: ImageSettings.references). Raises ImageFailed with a reason the chat can show;
+        cancelled (Stop), sd-cli is killed and the room given back before the cancellation
+        goes on. The work folder, references included, is removed whatever happens."""
         image = _image(entry)
+        if len(references) > image.references:
+            raise ImageFailed(f"{entry.title} takes at most {image.references} reference pictures.")
         files = entry.files
-        need = need_bytes(entry, width, height, offload=offloads(self.tier))
+        reference_pixels = sum(r.pixels for r in references)
+        need = need_bytes(
+            entry, width, height, offload=offloads(self.tier), reference_pixels=reference_pixels
+        )
         if self.tier is Tier.BELOW_MINIMUM:
             # On the CPU the room held only keeps it from running beside a loaded model; a
             # small GPU's budget mustn't refuse it.
@@ -303,6 +337,7 @@ class Images:
         work = self.run_dir / "image" / uuid.uuid4().hex
         work.mkdir(parents=True)
         output = work / "picture.png"
+        reference_files = [work / f"reference-{n}.png" for n in range(1, len(references) + 1)]
         args = build_args(
             model=self.downloads.file_path(entry, files.model[0]),
             text_encoder=self.downloads.file_path(entry, files.text_encoder),
@@ -315,8 +350,11 @@ class Images:
             output=output,
             max_vram_bytes=need,
             tier=self.tier,
+            references=reference_files,
         )
         try:
+            for path, reference in zip(reference_files, references, strict=True):
+                path.write_bytes(reference.png)
             on_progress({"phase": "waiting"})
             async with self.runtime.reserve(
                 IMAGE_ROLE, need, priority, since=since, model_id=entry.id
@@ -327,6 +365,10 @@ class Images:
             png = await run_in_threadpool(_checked_png, output, width, height)
         finally:
             shutil.rmtree(work, ignore_errors=True)
+        if reference_pixels:  # kept as a step without references takes, for the estimates
+            pixels = width * height
+            timing = Timing(timing.load, timing.step * pixels / (pixels + reference_pixels),
+                            timing.decode)  # fmt: skip
         await run_in_threadpool(self._remember, entry, width, height, timing)
         return Made(png, width, height, seed, timing)
 

@@ -23,6 +23,9 @@ value = lambda flag: args[args.index(flag) + 1]
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, "argv.json"), "w") as f:
     json.dump(args, f)
+refs = [args[i + 1] for i, a in enumerate(args) if a == "-r"]
+with open(os.path.join(here, "refs.json"), "w") as f:
+    json.dump([{"path": r, "size": Image.open(r).size} for r in refs], f)
 prompt = value("-p")
 print("[INFO ] loading models", flush=True)
 if "FAIL" in prompt:

@@ -15,6 +15,7 @@ from lectern.modules.image import generate
 from lectern.modules.image.generate import (
     GIB,
     ImageFailed,
+    Reference,
     build_args,
     clamp_size,
     need_bytes,
@@ -126,6 +127,22 @@ def test_a_prompt_is_one_argument_whatever_it_holds():
     assert args[args.index("-p") + 1] == hostile
     assert args.count("-o") == 1
     assert not any(a in args for a in ("--lora-model-dir", "--embd-dir"))
+
+
+def test_each_reference_is_one_r_after_the_prompt_and_size():
+    from pathlib import Path
+
+    refs = [Path("/w/reference-1.png"), Path("/w/reference-2.png")]
+    args = _args(references=refs)
+    assert [args[i + 1] for i, a in enumerate(args) if a == "-r"] == [str(r) for r in refs]
+    assert "-r" not in _args()
+
+
+def test_reference_pixels_add_working_memory():
+    entry = klein()
+    without = need_bytes(entry, 1000, 1000, offload=True)
+    with_one = need_bytes(entry, 1000, 1000, offload=True, reference_pixels=1_000_000)
+    assert with_one - without == generate.COMPUTE_PER_MEGAPIXEL
 
 
 def test_progress_lines_are_read_in_either_unit():
@@ -329,3 +346,70 @@ def test_below_the_minimum_a_small_gpus_budget_doesnt_refuse_a_picture_on_the_cp
     assert made.width == 512
     argv = json.loads((tmp_path / "bin" / "argv.json").read_text())
     assert argv[argv.index("--backend") + 1] == "cpu" and "--max-vram" not in argv
+
+
+# --- reference pictures ----------------------------------------------------------------------
+
+
+def _reference(width: int, height: int) -> Reference:
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), (200, 100, 50)).save(out, format="PNG")
+    return Reference(out.getvalue(), width, height)
+
+
+def test_references_are_written_to_the_work_folder_passed_with_r_and_removed(tmp_path):
+    runtime = _runtime()
+    made_by, _ = images(tmp_path, runtime)
+    references = [_reference(256, 256), _reference(320, 240)]
+
+    asyncio.run(made_by.make(klein(), "a cat", 512, 512, 1, references=references))
+
+    seen = json.loads((tmp_path / "bin" / "refs.json").read_text())
+    assert [r["size"] for r in seen] == [[256, 256], [320, 240]]  # each was there, readable
+    work = tmp_path / "run" / "image"
+    assert all(r["path"].startswith(str(work)) for r in seen)
+    assert list(work.iterdir()) == []  # gone with the work folder
+
+
+def test_references_are_removed_when_the_picture_fails(tmp_path):
+    made_by, _ = images(tmp_path, _runtime())
+    with pytest.raises(ImageFailed):
+        asyncio.run(made_by.make(klein(), "FAIL", 512, 512, 1, references=[_reference(64, 64)]))
+    assert list((tmp_path / "run" / "image").iterdir()) == []
+
+
+def test_the_room_held_grows_with_the_references(tmp_path):
+    runtime = _runtime()
+    made_by, _ = images(tmp_path, runtime)
+    seen: list[list[dict]] = []
+
+    def watch(event: dict) -> None:
+        if event["phase"] == "loading":
+            seen.append(runtime.state()["reserved"])
+
+    references = [_reference(512, 512)]
+    asyncio.run(made_by.make(klein(), "a cat", 768, 768, 1, watch, references=references))
+
+    need = need_bytes(klein(), 768, 768, offload=True, reference_pixels=512 * 512)
+    assert seen[0][0]["bytes"] == need
+
+
+def test_a_model_that_takes_no_references_refuses_them_before_anything_runs(tmp_path):
+    made_by, installer = images(tmp_path, _runtime())
+    z = klein("z-image-turbo")
+    with pytest.raises(ImageFailed, match="at most 0 reference"):
+        asyncio.run(made_by.make(z, "a cat", 512, 512, 1, references=[_reference(64, 64)]))
+    assert installer.installs == 0
+
+
+def test_references_lengthen_the_estimate_but_not_the_timing_kept(tmp_path):
+    made_by, _ = images(tmp_path, _runtime())
+    asyncio.run(made_by.make(klein(), "a cat", 512, 512, 1))
+    plain = made_by.estimate(klein(), 512, 512)
+    assert made_by.estimate(klein(), 512, 512, reference_pixels=512 * 512) > plain
+
+    made = asyncio.run(
+        made_by.make(klein(), "a cat", 512, 512, 1, references=[_reference(512, 512)])
+    )
+    assert made.timing.step == pytest.approx(2.5 / 2)  # the fake's 2.5 s, half for the pixels
+    assert made_by.estimate(klein(), 512, 512) < plain  # kept as a step without references
