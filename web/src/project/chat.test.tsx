@@ -361,6 +361,28 @@ describe("Chat", () => {
     expect(posts[0].body).toEqual({ approve: false });
   });
 
+  it("unfolds a call to its whole arguments, before it has a result too", async () => {
+    const prompt =
+      "A purple elephant with the PHP logo design, featuring the distinctive PHP elephant " +
+      "mascot standing on a white background, flat vector illustration";
+    chat.messages.push(
+      message(5, { content: "Draw the PHP elephant" }),
+      message(6, {
+        role: "assistant",
+        tool_calls: [
+          { id: "i1", type: "function", function: { name: "image_generate", arguments: JSON.stringify({ prompt, shape: "square" }) } },
+        ],
+      }),
+    );
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const line = screen.getAllByTestId("tool-line").at(-1)!;
+    expect(line.querySelector("summary")!.textContent).not.toContain("flat vector"); // cut on the line
+    const unfolded = within(line).getByTestId("tool-arguments");
+    expect(unfolded.textContent).toContain(prompt); // whole, inside the fold
+    expect(unfolded.textContent).toContain('"shape": "square"');
+  });
+
   it("shows an image's steps with a Stop that stops only that tool", async () => {
     chat.messages.push(
       message(5, { content: "Draw a lighthouse" }),

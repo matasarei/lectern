@@ -762,6 +762,10 @@ function ToolLine({
         <summary className="cursor-pointer font-mono">
           {t("chat.toolCall", { name, args })} → {first.slice(0, RESULT_SHOWN)}
         </summary>
+        {/* The whole call, which the line cuts short: there before the result is (a card waits) */}
+        <pre className="mt-1 whitespace-pre-wrap rounded bg-paper p-2 font-mono" data-testid="tool-arguments">
+          {fullArgs(call.function.arguments)}
+        </pre>
         {result && <pre className="mt-1 whitespace-pre-wrap rounded bg-paper p-2">{result.content}</pre>}
       </details>
       {!result && progress && <Progress progress={progress} onStop={onStop} />}
@@ -861,6 +865,15 @@ function ScriptCode({ projectId, path }: { projectId: number; path: string }) {
       </pre>
     </details>
   );
+}
+
+/** A call's arguments in full, one per line: the JSON indented, or as it came when it isn't. */
+export function fullArgs(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json || "{}"), null, 2);
+  } catch {
+    return json;
+  }
 }
 
 /** `{"query": "lease"}` → `"lease"`; several arguments → `query="lease", kind="files"`. */
