@@ -364,6 +364,10 @@
     "cancel": "Cancel",
     "ran": "Ran",
     "cancelled": "Cancelled",
+    "cutOff": {
+      "stopped": "Cancelled: stopped before you answered",
+      "shutdown": "Cancelled: Lectern shut down before you answered"
+    },
     "tryAgain": "Try again",
     "triedAgain": "Trying again",
     "searchStopped": "Stopped",

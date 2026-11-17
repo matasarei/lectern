@@ -43,7 +43,7 @@ const RESPONSES: Record<string, unknown> = {
     error: null, pages_total: 0, source_artifact_id: 7, updated_at: "", pages: [],
   },
   "/api/projects/1/sessions/1": {
-    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [], followups: [],
+    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], cards: [], pinned: [], followups: [],
     summary: { upto: 0, version: 0, messages: 0 }, messages: [],
   },
   "/api/runtime": {

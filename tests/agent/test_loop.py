@@ -204,6 +204,74 @@ def test_dont_allow_tells_the_model_and_moves_nothing(setup, store):
     assert handle.requests[1]["messages"][-1]["content"].startswith("The person declined")
 
 
+@pytest.mark.parametrize(
+    ("ending", "reason", "said"),
+    [
+        ("stop", "stopped", "Not run: the turn was stopped before the person answered the card."),
+        ("shutdown", "shutdown", "Not run: Lectern shut down before the person answered the card."),
+    ],
+)
+def test_a_card_cut_off_is_kept_as_cancelled_and_the_model_told_why(
+    setup, store, ending, reason, said
+):
+    """Stop, or Lectern shutting down, while a card waits: the card is kept, cancelled with
+    why, and the call gets a result, so the chat shows it and the next turn's model knows."""
+    manager, project, handle, _ = setup(
+        [tool_reply("artifact_trash", {"name": "old.md"}), text_reply("Kept it.")]
+    )
+    add_file(store, project, "old.md", "old")
+
+    async def scenario():  # noqa: ANN202
+        key = (project.id, 1)
+        await manager.send(project, LOCAL_USER, 1, "Delete old.md", [])
+        await until(lambda: manager.state(key) == "waiting")
+        if ending == "stop":
+            await manager.stop(key)
+        else:
+            await manager.stop_all()
+        await manager.wait(key)
+        confirmed = [e for e in events(manager, project) if e["type"] == "confirmed"]
+        await turn(manager, project, "Go on")
+        return confirmed
+
+    confirmed = asyncio.run(scenario())
+
+    assert [(e["approved"], e.get("reason")) for e in confirmed] == [(False, reason)]
+    with store.db(project)() as session:
+        card = session.scalars(select(ConfirmationRow)).one()
+    assert (card.status, card.reason, card.text) == (
+        "cancelled", reason, "Move old.md to the trash?"
+    )  # fmt: skip
+    assert [m for m in transcript(store, project) if m[0] == "tool"] == [
+        ("tool", said, "artifact.trash")
+    ]
+    assert {"role": "tool", "content": said} in [
+        {"role": m["role"], "content": m["content"]} for m in handle.requests[1]["messages"]
+    ]
+    assert (project.root / "old.md").exists()
+
+
+def test_a_card_cut_off_for_a_reason_with_no_words_is_kept_as_stopped(setup, store):
+    """A stop reason nothing here knows (a caller added later) mustn't lose the card's record
+    or the call's result: it's kept as a Stop."""
+    manager, project, _, _ = setup([tool_reply("artifact_trash", {"name": "old.md"})])
+    add_file(store, project, "old.md", "old")
+
+    async def scenario():  # noqa: ANN202
+        key = (project.id, 1)
+        await manager.send(project, LOCAL_USER, 1, "Delete old.md", [])
+        await until(lambda: manager.state(key) == "waiting")
+        await manager.stop(key, "removed")
+        await manager.wait(key)
+
+    asyncio.run(scenario())
+
+    with store.db(project)() as session:
+        card = session.scalars(select(ConfirmationRow)).one()
+    assert (card.status, card.reason) == ("cancelled", "stopped")
+    assert transcript(store, project)[-1] == ("tool", loop.CUT_OFF["stopped"], "artifact.trash")
+
+
 def test_bad_arguments_are_sent_back_once_then_the_turn_ends(setup, store):
     manager, project, handle, _ = setup(
         [tool_reply("project_find", {"q": "x"}), tool_reply("project_find", {"q": "y"}, "call_2")]
