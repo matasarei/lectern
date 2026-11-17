@@ -179,3 +179,16 @@ def test_the_pictures_are_encoded_off_the_event_loop(monkeypatch):
     _gate(handle, "my cat", references=[Shown("photos/cat.jpg", _picture())])
 
     assert threads and threading.main_thread() not in threads
+
+
+def test_a_rewrite_cut_off_at_the_token_cap_keeps_the_draft():
+    # Seen on Qwen3-VL (docs/acceptance/image.md, Part 3): a list of "no …" that ran to the cap
+    runaway = "A neon sign. " + ", ".join(f"no thing{n}" for n in range(300))
+    cut = json.dumps(
+        {"choices": [{"message": {"content": runaway}, "finish_reason": "length"}]}
+    ).encode()
+
+    gated, _ = _gate(FakeHandle([cut]), "a neon sign")
+
+    assert gated.prompt == "a neon sign"
+    assert "ran on without ending" in gated.kept_because

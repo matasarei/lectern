@@ -123,9 +123,14 @@ async def rewrite(
         log.warning("the prompt gate's model answered %s", response.status_code)
         return Gated(draft, f"the model rewriting it answered {response.status_code}")
     try:
-        text = response.json()["choices"][0]["message"].get("content") or ""
+        choice = response.json()["choices"][0]
+        text = choice["message"].get("content") or ""
     except (ValueError, KeyError, IndexError, TypeError, AttributeError):
         return Gated(draft, "the model's rewrite wasn't readable")
+    if choice.get("finish_reason") == "length":
+        # A prompt is a paragraph: one that runs to the cap has gone into a loop (seen on
+        # Qwen3-VL: "no brick, no wall, no neon, …"), not said more
+        return Gated(draft, "the model's rewrite ran on without ending")
     prompt = clean(text)
     if len(prompt) < 3:
         return Gated(draft, "the model's rewrite was empty")
