@@ -1090,8 +1090,8 @@ const CUT_OFF: Record<CutOff, string> = {
 };
 
 /** A card that asks before a tool runs: Run or Cancel, then which it was (greyed), or why it
- * ended unanswered. A card with
- * fields lets the person change them first; the tool runs with what they leave there. */
+ * ended unanswered. A card with fields lets the person change them first; the tool runs with
+ * what they leave there. */
 function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDecide: Decide }) {
   const { t } = useTranslation();
   const [values, setValues] = useState<CardValues>(() =>
