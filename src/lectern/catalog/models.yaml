@@ -313,7 +313,7 @@ models:
       sampler: euler
       references: 4
       # Written from Black Forest Labs' FLUX.2 prompting guide (docs.bfl.ai/guides/prompting_guide_flux2).
-      prompt_guide: >-
+      prompt_guide: &klein_guide >-
         The image model is FLUX.2 klein. Write one paragraph of plain English prose, 30 to 80
         words. Put the main subject first, then what it is doing, then the style, then the
         setting, the light and the colours: the words that come first count most. Name a
@@ -348,15 +348,7 @@ models:
       cfg: 1.0
       sampler: euler
       references: 4
-      # Written from Black Forest Labs' FLUX.2 prompting guide (docs.bfl.ai/guides/prompting_guide_flux2).
-      prompt_guide: >-
-        The image model is FLUX.2 klein. Write one paragraph of plain English prose, 30 to 80
-        words. Put the main subject first, then what it is doing, then the style, then the
-        setting, the light and the colours: the words that come first count most. Name a
-        medium or a camera when it helps (watercolour, oil painting, 35 mm photo, flat vector
-        illustration). Say what should be there, never what shouldn't: this model ignores
-        "no" and "without". When the request asks for words in the picture, put them in quotes,
-        with where they go and how they look.
+      prompt_guide: *klein_guide  # the same model, so the same guide
       sizes:
         recommended: {default: 1024, max_pixels: 1572864}
         comfortable: {default: 1024, max_pixels: 2097152}
