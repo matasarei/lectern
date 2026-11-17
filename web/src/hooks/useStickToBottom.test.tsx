@@ -87,6 +87,15 @@ describe("useStickToBottom", () => {
     expect(box.top).toBe(1100);
   });
 
+  it("stops watching a box once it's gone", async () => {
+    const { el, box } = await mount();
+    cleanup(); // unmounted: the element lives on, detached, and could still be watched
+    box.content = 1400;
+    await act(async () => el.appendChild(document.createElement("p")));
+    el.dispatchEvent(new Event("load"));
+    expect(box.top).toBe(700);
+  });
+
   it("follows an image that loads after it was added", async () => {
     const { el, box } = await mount();
     const img = document.createElement("img");
