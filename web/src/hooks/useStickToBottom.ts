@@ -13,10 +13,15 @@ export function useStickToBottom<T extends HTMLElement>(): {
 } {
   const stick = useRef(true);
   const box = useRef<T | null>(null);
+  // Where the box was last seen: only a move up from there is the person scrolling away. Being
+  // far from the bottom alone isn't: what's in the box may have grown before the scroll event.
+  const last = useRef(0);
 
   const toBottom = useCallback(() => {
     const el = box.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
+    if (!el || !stick.current) return;
+    el.scrollTop = el.scrollHeight;
+    last.current = el.scrollTop;
   }, []);
 
   const ref = useCallback(
@@ -26,7 +31,9 @@ export function useStickToBottom<T extends HTMLElement>(): {
       stick.current = true;
       toBottom();
       const onScroll = () => {
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM;
+        if (el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM) stick.current = true;
+        else if (el.scrollTop < last.current) stick.current = false;
+        last.current = el.scrollTop;
       };
       el.addEventListener("scroll", onScroll);
       // An image grows the box when it loads, which changes nothing in the DOM; load doesn't

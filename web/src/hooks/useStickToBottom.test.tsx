@@ -22,6 +22,7 @@ async function mount(onFollow?: (follow: () => void) => void) {
   const el = view.getByTestId("box");
   const box = fakeScrollBox(el, 1000, 300);
   el.scrollTop = 700; // at the bottom, as the hook leaves a box it has just been given
+  el.dispatchEvent(new Event("scroll")); // as a browser does when scrollTop changes
   const grow = async (lines: string[], content: number) => {
     box.content = content;
     await act(async () => view.rerender(<Box lines={lines} onFollow={onFollow} />));
@@ -53,6 +54,16 @@ describe("useStickToBottom", () => {
     el.dispatchEvent(new Event("scroll"));
     await grow(["one", "two"], 1400);
     expect(box.top).toBe(200);
+  });
+
+  it("keeps following when the box grew before a scroll it didn't ask for", async () => {
+    const { el, box, grow } = await mount();
+    // A card's height settling, with nothing in the DOM changing: 400px below the bottom
+    // before the next scroll event (scroll anchoring, the end of a momentum scroll) arrives.
+    box.content = 1400;
+    el.dispatchEvent(new Event("scroll"));
+    await grow(["one", "two"], 1500);
+    expect(box.top).toBe(1200);
   });
 
   it("follows again once they scroll back to the bottom", async () => {
