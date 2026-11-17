@@ -343,6 +343,34 @@ describe("Chat", () => {
     });
   });
 
+  it("grows an image card's prompt box to fit its text", async () => {
+    // jsdom lays nothing out: here a text is 24 px a line, one line a sentence
+    const lines = (box: HTMLTextAreaElement) => box.value.split(". ").length;
+    const scrollHeight = vi
+      .spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get")
+      .mockImplementation(function (this: HTMLTextAreaElement) { return lines(this) * 24; });
+    try {
+      renderChat();
+      await screen.findByText("Yes: lease.md.");
+      await events(
+        { type: "turn", status: "running", message_id: 5, text: "draw", attachments: [] },
+        {
+          type: "confirm", confirmation_id: 9, call_id: "i1", name: "image.generate",
+          text: "Make a picture?",
+          fields: [{ name: "prompt", kind: "text", value: "A lighthouse. On a cliff" }],
+        },
+      );
+      const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+      const prompt = within(card).getByLabelText("What the picture shows") as HTMLTextAreaElement;
+      expect(prompt.style.height).toBe("48px");
+
+      fireEvent.change(prompt, { target: { value: "A lighthouse. On a cliff. In fog. At dusk. Gulls" } });
+      expect(prompt.style.height).toBe("120px");
+    } finally {
+      scrollHeight.mockRestore();
+    }
+  });
+
   it("shows the pictures to work from on an image's card and sends only those kept", async () => {
     vi.stubGlobal("URL", class extends URL {
       static createObjectURL = () => "blob:thumb";

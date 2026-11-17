@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { AtSign, Paperclip, SendHorizontal, Square, Volume2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -970,6 +970,35 @@ function CardPictures({
   );
 }
 
+/** A card's text box, as tall as its text up to its max-h (then it scrolls), so a long prompt
+ * is read whole, not three lines at a time. It fits again as the text changes and as the window
+ * does, since a narrower box wraps the same text onto more lines. */
+function CardText({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const fit = () => {
+      element.style.height = "auto";
+      // scrollHeight is the text and padding; the border-box height adds the border
+      const border = element.offsetHeight - element.clientHeight;
+      element.style.height = `${element.scrollHeight + border}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [value]);
+  return (
+    <textarea
+      ref={box}
+      className="input max-h-80 min-h-16 font-normal"
+      rows={3}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
 /** The fields of a card the person can change before allowing it: a text, a choice, or the
  * pictures to work from. */
 function CardFields({
@@ -999,12 +1028,7 @@ function CardFields({
         ) : field.kind === "text" ? (
           <label key={field.name} className="grid gap-1">
             <span className="text-xs text-muted">{t(`chat.field.${field.name}`)}</span>
-            <textarea
-              className="input min-h-16 font-normal"
-              rows={3}
-              value={text(field.name)}
-              onChange={(e) => onChange(field.name, e.target.value)}
-            />
+            <CardText value={text(field.name)} onChange={(value) => onChange(field.name, value)} />
           </label>
         ) : (
           <fieldset key={field.name} className="grid gap-1">
