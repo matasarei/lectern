@@ -192,3 +192,24 @@ def test_a_rewrite_cut_off_at_the_token_cap_keeps_the_draft():
 
     assert gated.prompt == "a neon sign"
     assert "ran on without ending" in gated.kept_because
+
+
+def test_the_persons_own_words_lead_and_the_draft_follows():
+    handle = FakeHandle([reply("A neon sign of image 1 on a red brick wall.")])
+
+    _gate(handle, "neon 'Lectern' --ar 1:1 --no blur, cartoon", asked="make this logo a neon sign")
+
+    text = handle.requests[0]["messages"][1]["content"]
+    assert text.startswith(
+        "The person asked: make this logo a neon sign\n"
+        "The chat's draft: neon 'Lectern' --ar 1:1 --no blur, cartoon\n"
+    )
+    assert "leave out its flags" in text
+
+
+def test_a_draft_that_is_the_persons_own_words_is_given_once():
+    handle = FakeHandle([reply("A red barn in deep snow.")])
+    _gate(handle, "a red barn in snow", asked="a red barn in snow")
+    text = handle.requests[0]["messages"][1]["content"]
+    assert text.startswith("The request: a red barn in snow\n")
+    assert "The person asked" not in text

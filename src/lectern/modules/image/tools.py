@@ -134,9 +134,10 @@ def _takes(ctx: ToolContext) -> int:
     return image.references if image is not None else 0
 
 
-def _attached_pictures(ctx: ToolContext) -> list[str]:
-    """The pictures attached to the person's last message in this chat: the reference pictures
-    when the call names none (the Image toggle never does)."""
+def _last_message(ctx: ToolContext) -> tuple[str | None, list[str]]:
+    """The person's last message in this chat, and the pictures attached to it: what the
+    prompt gate writes from, and the reference pictures when the call names none (the Image
+    toggle never does)."""
     with ctx.sessions() as session:
         message = session.scalars(
             select(MessageRow)
@@ -144,9 +145,12 @@ def _attached_pictures(ctx: ToolContext) -> list[str]:
             .order_by(MessageRow.id.desc())
             .limit(1)
         ).first()
-        ids = json.loads(message.attachments or "[]") if message is not None else []
+        if message is None:
+            return None, []
+        ids = json.loads(message.attachments or "[]")
         rows = [session.get(ArtifactRow, i) for i in ids]
-    return [
+        text = message.content or None
+    pictures = [
         r.path
         for r in rows
         if r is not None
@@ -154,6 +158,7 @@ def _attached_pictures(ctx: ToolContext) -> list[str]:
         and r.owner_id == ctx.user.id
         and r.mime in PICTURE_TYPES
     ]
+    return text, pictures
 
 
 async def _vision_ready(ctx: ToolContext) -> str | None:
@@ -188,7 +193,8 @@ async def _prepare(ctx: ToolContext, params: GenerateParams) -> GenerateParams:
     entry = _model(ctx)
     takes = _takes(ctx)
     named = bool(params.references)
-    paths = params.references or await run_in_threadpool(_attached_pictures, ctx)
+    asked, attached = await run_in_threadpool(_last_message, ctx)
+    paths = params.references or attached
     found = await run_in_threadpool(references.find, ctx, paths)
     limit = takes or MAX_REFERENCES
     if len(found) > limit:
@@ -214,6 +220,7 @@ async def _prepare(ctx: ToolContext, params: GenerateParams) -> GenerateParams:
         guide=entry.image.prompt_guide if entry.image else None,
         references=shown,
         can_take_references=takes > 0,
+        asked=asked,
     )
     prepared.kept_because = gated.kept_because
     ctx.prepared = prepared

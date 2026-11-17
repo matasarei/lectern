@@ -54,6 +54,12 @@ INSTRUCTIONS = (
     "no explanation."
 )
 NO_REFERENCES = "No reference pictures are given: mention none."
+# The chat's draft can be far from what was asked: on the Image toggle the 4B wrote 1500
+# characters of "--ar 1:1 --no …" flags and lettering it made up from a file's name.
+FROM_THE_ASKING = (
+    "Write the prompt from what the person asked. Take from the draft only details that fit "
+    "it, and leave out its flags (--ar, --no, --v) and its lists of things to avoid."
+)
 
 _FENCE = re.compile(r"^```[a-z]*\n?(.*?)\n?```$", re.S)
 _THINKING = re.compile(r"<think>.*?</think>", re.S)
@@ -85,8 +91,10 @@ async def rewrite(
     guide: str | None,
     references: Sequence[Shown] = (),
     can_take_references: bool = True,
+    asked: str | None = None,
 ) -> Gated:
-    """The draft rewritten by the image model's guide, or the draft and why it was kept."""
+    """The draft rewritten by the image model's guide, from what the person `asked` (their
+    message) when it is known; or the draft and why it was kept."""
     if runtime is None:
         return Gated(draft, "no model could rewrite it here")
     see = any(r.picture is not None for r in references)
@@ -96,7 +104,7 @@ async def rewrite(
         {
             "role": "user",
             "content": await asyncio.to_thread(
-                _request, draft, references, see, can_take_references
+                _request, draft, references, see, can_take_references, asked
             ),
         },
     ]
@@ -138,11 +146,18 @@ async def rewrite(
 
 
 def _request(
-    draft: str, references: Sequence[Shown], see: bool, can_take_references: bool
+    draft: str,
+    references: Sequence[Shown],
+    see: bool,
+    can_take_references: bool,
+    asked: str | None = None,
 ) -> str | list[dict]:
-    """The user message: the request, then the references by number, with their pixels when
-    the model can see them."""
-    lines = [f"The request: {draft}"]
+    """The user message: what the person asked and the chat's draft (or the draft alone), then
+    the references by number, with their pixels when the model can see them."""
+    if asked and asked.strip() != draft.strip():  # on MLX the typed text is the draft
+        lines = [f"The person asked: {asked}", f"The chat's draft: {draft}", FROM_THE_ASKING]
+    else:
+        lines = [f"The request: {draft}"]
     for number, reference in enumerate(references, start=1):
         lines.append(f"Image {number} is {reference.path}.")
     if not references:

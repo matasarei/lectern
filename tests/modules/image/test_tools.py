@@ -233,6 +233,21 @@ def test_the_picture_is_made_with_what_the_person_left_on_the_card(chat, store, 
     )
 
 
+def test_the_gate_is_given_what_the_person_typed_beside_the_draft(chat, store, tmp_path):
+    manager, project, runtime = chat({"prompt": "a lighthouse --ar 16:9"})
+
+    async def scenario() -> None:
+        await manager.send(project, LOCAL_USER, 1, "Draw a lighthouse in fog", [])
+        card = await _card(manager, project)
+        manager.decide((project.id, 1), card["confirmation_id"], False)
+        await manager.wait((project.id, 1))
+
+    asyncio.run(scenario())
+    handle = runtime.runner_for(None).handle  # every role's model is the one fake
+    gate = handle.requests[1]["messages"][1]["content"]
+    assert gate.startswith("The person asked: Draw a lighthouse in fog\n")
+
+
 def test_a_value_the_tool_cant_take_is_an_error_and_nothing_runs(chat, store, tmp_path):
     manager, project, _ = chat({"prompt": "a lighthouse"})
 
