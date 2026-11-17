@@ -122,11 +122,11 @@ database tables, and frontend components. Narrative documentation: [`docs/README
 
 | File | Line range | Section / symbols |
 |---|---|---|
-| `src/lectern/agent/loop.py` (1007L) | `L73-173` | `TurnRun`, `History`, `load_history`, `as_openai`, `store_message`, `Reply` |
-| | `L176-357` | `call_model`, `build_context`, `maybe_compact`, `_tokenizer`, `_stream` |
+| `src/lectern/agent/loop.py` (1049L) | `L74-182` | `TurnRun`, `History`, `load_history`, `as_openai`, `store_message`, `Reply` |
+| | `L185-358` | `call_model`, `build_context`, `maybe_compact`, `_tokenizer`, `_stream` |
 | | `L364-575` | `run_tool` (a tool's `prepare`, then its card), `_with_card_values`, `_run_stoppable`, `_ask` (confirmation card wait) |
 | | `L578-814` | `run_turn` (8-step loop), `_forced_call` (Image toggle), `_write_arguments` |
-| | `L856-1007` | Exact-number guards: `_may_check`, `_with_check`, `_Held`, `_unchecked`, `_with_call_check` |
+| | `L898-1049` | Exact-number guards: `_may_check`, `_with_check`, `_Held`, `_unchecked`, `_with_call_check` |
 | `src/lectern/modules/ocr/clean.py` (800L) | `L81-187` | `CleanBlock`, `CleanDoubt`, `CleanFix`, `CleanedPage`, `SCHEMA`, `page_message` |
 | | `L190-269` | `clean_page`, `_what_was_wrong`, `_say_loop_left_out` |
 | | `L332-504` | `keep_this_page` (neighbour-copy drop), `_narrow`, `_widen`, `_place_doubts` |
