@@ -194,7 +194,50 @@ def test_a_card_is_answered_through_the_api(api):
 
     assert [m["role"] for m in chat["messages"]] == ["user", "assistant", "tool", "assistant"]
     assert chat["messages"][2]["tool_name"] == "artifact.trash"
+    # Answered, it's still there to draw under its call after a reload
+    assert chat["cards"] == [
+        {"confirmation_id": card["confirmation_id"], "call_id": card["call_id"],
+         "name": "artifact.trash", "text": "Move old.md to the trash?", "status": "approved",
+         "reason": None}
+    ]  # fmt: skip
     assert client.get(f"/api/projects/{pid}/items", headers=headers).json()["artifacts"] == []
+
+
+def test_a_card_cut_off_by_a_shutdown_is_there_after_lectern_starts_again(paths):
+    app, _ = _app(paths, [tool_reply("artifact_trash", {"name": "old.md"})])
+    client = TestClient(app, base_url=BASE)
+    headers = {"X-Lectern-Token": app.state.token, "Origin": BASE}
+    with client:
+        pid = client.post("/api/projects", json={"name": "Chat"}, headers=headers).json()["id"]
+        client.put(
+            f"/api/projects/{pid}/files", params={"name": "old.md"}, content=b"x", headers=headers
+        )
+        client.post(
+            f"/api/projects/{pid}/sessions/1/messages", json={"text": "delete old.md"},
+            headers=headers,
+        )  # fmt: skip
+        for _ in range(250):
+            chat = client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()
+            if chat["pending"]:
+                break
+            time.sleep(0.02)
+        card = chat["pending"][0]
+    # Leaving the block shut the app down with the card waiting, as quitting Lectern does
+
+    again, _ = _app(paths, [])
+    with TestClient(again, base_url=BASE) as client:
+        headers = {"X-Lectern-Token": again.state.token, "Origin": BASE}
+        chat = client.get(f"/api/projects/{pid}/sessions/1", headers=headers).json()
+
+    assert (chat["state"], chat["pending"]) == ("idle", [])
+    assert chat["cards"] == [
+        {"confirmation_id": card["confirmation_id"], "call_id": card["call_id"],
+         "name": "artifact.trash", "text": "Move old.md to the trash?", "status": "cancelled",
+         "reason": "shutdown"}
+    ]  # fmt: skip
+    assert chat["messages"][-1]["content"] == (
+        "Not run: Lectern shut down before the person answered the card."
+    )
 
 
 def test_attachments_are_listed_with_their_names(api):

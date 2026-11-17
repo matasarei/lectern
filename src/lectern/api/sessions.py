@@ -132,11 +132,12 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             a.id: a.path
             for a in session.scalars(select(ArtifactRow).where(ArtifactRow.id.in_(attached)))
         }
-        pending = session.scalars(
-            select(ConfirmationRow).where(
-                ConfirmationRow.session_id == session_id, ConfirmationRow.status == "pending"
-            )
+        confirmations = session.scalars(
+            select(ConfirmationRow)
+            .where(ConfirmationRow.session_id == session_id)
+            .order_by(ConfirmationRow.id)
         ).all()
+    pending = [c for c in confirmations if c.status == "pending"]
     chat_state = chat_state_of(store(request).db(project), session_id)
     return {
         **session_dict(row, state),
@@ -170,6 +171,14 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             "version": chat_state.summary_version,
             "messages": sum(1 for m in messages if m.id <= chat_state.summary_upto),
         },
+        # The cards already answered, or cut off by Stop or a shutdown (reason): drawn under
+        # their call, as they were left. One from before p0012 has no text.
+        "cards": [
+            {"confirmation_id": c.id, "call_id": c.tool_call_id, "name": c.tool, "text": c.text,
+             "status": c.status, "reason": c.reason}
+            for c in confirmations
+            if c.status != "pending"
+        ],
         # A card only counts while its turn is still waiting on it.
         "pending": [
             {"confirmation_id": p.id, "call_id": p.tool_call_id, "name": p.tool}
