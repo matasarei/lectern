@@ -984,19 +984,19 @@ function CardPictures({
  * does, since a narrower box wraps the same text onto more lines. */
 function CardText({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const box = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
+  const fit = useCallback(() => {
     const element = box.current;
     if (!element) return;
-    const fit = () => {
-      element.style.height = "auto";
-      // scrollHeight is the text and padding; the border-box height adds the border
-      const border = element.offsetHeight - element.clientHeight;
-      element.style.height = `${element.scrollHeight + border}px`;
-    };
-    fit();
+    element.style.height = "auto";
+    // scrollHeight is the text and padding; the border-box height adds the border
+    const border = element.offsetHeight - element.clientHeight;
+    element.style.height = `${element.scrollHeight + border}px`;
+  }, []);
+  useLayoutEffect(fit, [fit, value]); // again whenever the text changes
+  useEffect(() => {
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
-  }, [value]);
+  }, [fit]);
   return (
     <textarea
       ref={box}
