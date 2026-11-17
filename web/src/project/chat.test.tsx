@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetSession, setSession } from "../api/session";
 import type { Chat, ChatMessage, Tab } from "../api/types";
 import { installFakeSockets } from "../test/fake-socket";
+import { fakeScrollBox } from "../test/scroll-box";
 import { ChatTab, groupReplies, shortArgs, writtenScript } from "./chat";
 
 // The hint under a translation links to Languages; the chat is tested without a router.
@@ -175,6 +176,19 @@ describe("Chat", () => {
     const replies = screen.getAllByTestId("reply");
     expect(replies).toHaveLength(2);
     expect(within(replies[1]).getByTestId("streaming").textContent).toBe("Ten years.");
+  });
+
+  it("keeps the newest of the transcript in view as a reply streams in", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    const box = fakeScrollBox(screen.getByTestId("transcript"), 1000, 300);
+    box.top = 700;
+    box.content = 1400;
+    await events(
+      { type: "turn", status: "running", message_id: 4, text: "", attachments: [] },
+      { type: "delta", text: "Ten years." },
+    );
+    expect(box.top).toBe(1100);
   });
 
   it("doesn't stream into the previous reply's card before the new message is in the transcript", async () => {
