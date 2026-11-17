@@ -374,7 +374,13 @@ def test_named_references_are_seen_by_the_vision_model_and_offered_on_the_card(i
         "name": "references",
         "kind": "images",
         "value": ["photos/cat.jpg"],
-        "choices": [{"value": "photos/cat.jpg", "artifact_id": artifact_id}],
+        "choices": [
+            {
+                "value": "photos/cat.jpg",
+                "artifact_id": artifact_id,
+                "url": f"/api/projects/{ctx.project.id}/artifacts/{artifact_id}/content",
+            }
+        ],
     }
     ctx.prepared = None  # as if prepare had found none
     without = GENERATE.confirm_fields(ctx, prepared.model_copy(update={"references": []}))

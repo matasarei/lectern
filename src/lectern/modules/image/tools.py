@@ -293,7 +293,15 @@ def _fields(ctx: ToolContext, params: GenerateParams) -> list[dict]:
                 "name": "references",
                 "kind": "images",
                 "value": [f.path for f in found],
-                "choices": [{"value": f.path, "artifact_id": f.artifact_id} for f in found],
+                "choices": [
+                    {
+                        "value": f.path,
+                        "artifact_id": f.artifact_id,
+                        # the card's thumbnail, through the same route as the file's preview
+                        "url": f"/api/projects/{ctx.project.id}/artifacts/{f.artifact_id}/content",
+                    }
+                    for f in found
+                ],
             }
         )
     fields.append(

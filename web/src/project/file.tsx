@@ -240,7 +240,15 @@ function useObjectUrl(blob: Blob | undefined): string | null {
 }
 
 /** Images need the token, so they're fetched and shown from a blob URL. */
-export function ImagePreview({ url, name }: { url: string; name: string }) {
+export function ImagePreview({
+  url,
+  name,
+  className = "max-h-[80vh] rounded-lg border border-line",
+}: {
+  url: string;
+  name: string;
+  className?: string;
+}) {
   const { t } = useTranslation();
   const blob = useQuery({
     queryKey: ["file-blob", url],
@@ -249,7 +257,7 @@ export function ImagePreview({ url, name }: { url: string; name: string }) {
   const src = useObjectUrl(blob.data);
   if (blob.isError) return <ErrorNote message={t("common.loadFailed")} />;
   if (!src) return <p className="text-muted">{t("common.loading")}</p>;
-  return <img src={src} alt={t("file.imageAlt", { name })} className="max-h-[80vh] rounded-lg border border-line" />;
+  return <img src={src} alt={t("file.imageAlt", { name })} className={className} />;
 }
 
 function Origin({
