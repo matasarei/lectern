@@ -87,6 +87,7 @@ class Channel:
 @dataclass
 class Turn:
     task: asyncio.Task[str]
+    run: TurnRun | None = None  # told why, before its task is cancelled
     waiting: dict[int, asyncio.Future[Decision]] = field(default_factory=dict)
 
 
@@ -214,7 +215,7 @@ class TurnManager:
             await self.resume_follow_ups(project, session_id)  # any whose session ended meanwhile
             return status
 
-        self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"))
+        self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"), run)
         return message_id
 
     def _new_run(
@@ -477,7 +478,7 @@ class TurnManager:
                 await self.resume_follow_ups(project, chat_id)
                 return result
 
-            self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"))
+            self._turns[key] = Turn(asyncio.create_task(turn(), name=f"turn-{key}"), run)
         finally:
             self._starting.discard(key)
 
@@ -511,18 +512,23 @@ class TurnManager:
         task.cancel()
         return True
 
-    async def stop(self, key: Key) -> bool:
+    async def stop(self, key: Key, reason: str = "stopped") -> bool:
+        """`reason` is kept with a card the stop cuts off: "stopped" (the person's Stop) or
+        "shutdown" (Lectern shutting down)."""
         turn = self._turns.get(key)
         if turn is None or turn.task.done():
             return False
+        if turn.run is not None:
+            turn.run.stop_reason = reason
         turn.task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await turn.task
         return True
 
     async def stop_all(self) -> None:
+        """Lectern shutting down."""
         for key in list(self._turns):
-            await self.stop(key)
+            await self.stop(key, "shutdown")
 
     async def stop_project(self, project_id: int) -> None:
         """A removed project: its chats' turns are stopped, then its follow-ups that haven't

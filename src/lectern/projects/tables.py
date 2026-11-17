@@ -98,7 +98,7 @@ class ConfirmationRow(ProjectBase):
     arguments: Mapped[str] = mapped_column(Text)  # JSON
     text: Mapped[str | None] = mapped_column(Text, nullable=True)  # the card's question
     status: Mapped[str] = mapped_column(String(16), default="pending")
-    reason: Mapped[str | None] = mapped_column(String(16), nullable=True)  # why cancelled
+    reason: Mapped[str | None] = mapped_column(String(16), nullable=True)  # stopped, shutdown
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -97,6 +97,9 @@ class TurnRun:
     stats: dict = field(default_factory=dict)
     # The chat's token counts, by model: kept from call to call and turn to turn
     token_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Why the turn's task is cancelled, set before it is: the person's Stop ("stopped"), or
+    # Lectern shutting down ("shutdown"). A card it cuts off is kept with this.
+    stop_reason: str = "stopped"
 
 
 class TurnFailed(Exception):
@@ -531,7 +534,11 @@ async def _ask(
     def create() -> int:
         with run.sessions.begin() as session:
             row = ConfirmationRow(
-                session_id=run.session_id, tool_call_id=call["id"], tool=name, arguments=arguments
+                session_id=run.session_id,
+                tool_call_id=call["id"],
+                tool=name,
+                arguments=arguments,
+                text=text,
             )
             session.add(row)
             session.flush()
@@ -555,7 +562,8 @@ async def _ask(
         async with run.runtime.waiting_for_person():
             decision = await future
     except asyncio.CancelledError:
-        await run_in_threadpool(_record_decision, run, confirmation_id, False)
+        # Shielded, as a partial reply is: what the chat and the model are told must land
+        await asyncio.shield(_cut_off(run, call, confirmation_id))
         raise
     await run_in_threadpool(_record_decision, run, confirmation_id, decision.approved)
     run.emit(
@@ -564,12 +572,40 @@ async def _ask(
     return decision
 
 
-def _record_decision(run: TurnRun, confirmation_id: int, approved: bool) -> None:
+def _record_decision(
+    run: TurnRun, confirmation_id: int, approved: bool, cut_off: str | None = None
+) -> None:
+    """The person's answer; or, with `cut_off`, why the card ended unanswered."""
     with run.sessions.begin() as session:
         row = session.get(ConfirmationRow, confirmation_id)
         if row is not None and row.status == "pending":
-            row.status = "approved" if approved else "declined"
+            row.status = "cancelled" if cut_off else "approved" if approved else "declined"
+            row.reason = cut_off
             row.decided_at = now()
+
+
+# What the model reads for a call whose card the turn ended on, by TurnRun.stop_reason
+CUT_OFF = {
+    "stopped": "Not run: the turn was stopped before the person answered the card.",
+    "shutdown": "Not run: Lectern shut down before the person answered the card.",
+}
+
+
+async def _cut_off(run: TurnRun, call: dict, confirmation_id: int) -> None:
+    """The turn ended while the card waited: the card is kept, cancelled with why, and the
+    call gets a result saying so. Without it the card vanished on a reload, and the model's
+    history held a call with no answer."""
+    reason = run.stop_reason
+    await run_in_threadpool(_record_decision, run, confirmation_id, False, reason)
+    run.emit(
+        {
+            "type": "confirmed",
+            "confirmation_id": confirmation_id,
+            "approved": False,
+            "reason": reason,
+        }
+    )
+    await _record(run, call, ToolResult(CUT_OFF[reason]))
 
 
 # --- the turn ------------------------------------------------------------------------------
