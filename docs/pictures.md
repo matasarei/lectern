@@ -63,6 +63,8 @@ whichever image model you use). It shows:
 Choose **Run** to make it, or **Cancel** to make nothing. Every picture is asked about:
 there's no "always run", because on a small GPU a picture can take minutes and unloads the
 chat's model while it runs. Once decided, the card says **Ran** or **Cancelled**.
+If you press Stop, or Lectern shuts down (an update, say), before you answer, nothing is
+made and the card stays in the chat saying so.
 
 To see exactly what the chat asked for, click the grey line above the card. It unfolds to the
 whole call. That's the chat's own request: the card shows the prompt after it was rewritten.

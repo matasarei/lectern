@@ -35,8 +35,14 @@ on.
 | `pdf.edit`, `pdf.fill` | PDF editing | Change text in a PDF in place, keeping its fonts, sizes and layout; list or fill its form. Each writes `<name> (edited).pdf` | edit: when the page would look different |
 | `translate` | translate | Translate text (the translation is the reply) or a file (into a new file beside it) ([below](#translating)) | no |
 
-A card is answered with **Run** or **Cancel**. A card can have fields the person
-changes before running it (`AgentTool.confirm_fields`); the tool then runs with what they
+A card is answered with **Run** or **Cancel**. A card still waiting when its turn ends (the
+person's Stop, or Lectern shutting down: `TurnRun.stop_reason`) is kept as `cancelled` with
+that reason, and its call gets a result saying it wasn't run and why (`loop._cut_off`), so the
+next turn's model knows. The chat's answered and cut-off cards come back with it
+(`GET …/sessions/{id}`'s `cards`) and are drawn greyed under their call after a reload, as they
+were left: "Ran", "Cancelled", or "Cancelled: Lectern shut down before you answered".
+
+A card can have fields the person changes before running it (`AgentTool.confirm_fields`); the tool then runs with what they
 left there, checked like the model's arguments, and only those fields can change. Only `artifact.trash` deletes anything,
 and nothing overwrites a file. A tool's result is capped (800 tokens unless the tool says
 otherwise); `project.list`, `document.read` and `code.run` hand out the rest a page at a time
