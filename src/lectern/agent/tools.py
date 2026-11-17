@@ -64,6 +64,9 @@ class ToolContext:
     # The person already allowed this call, on task.after's card: a tool that asks only
     # sometimes (artifact.write, when the message asked for no file) doesn't ask again.
     allowed: bool = False
+    # What the tool's `prepare` found out, for its card and its run in this same call (the
+    # context is made once per call): image.generate keeps why its prompt wasn't rewritten.
+    prepared: Any = None
 
 
 @dataclass
