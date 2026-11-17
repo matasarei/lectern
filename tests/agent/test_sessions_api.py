@@ -197,7 +197,8 @@ def test_a_card_is_answered_through_the_api(api):
     # Answered, it's still there to draw under its call after a reload
     assert chat["cards"] == [
         {"confirmation_id": card["confirmation_id"], "call_id": card["call_id"],
-         "name": "artifact.trash", "text": "Move old.md to the trash?", "status": "approved",
+         "name": "artifact.trash", "text": "Move old.md to the trash?", "kind": "allow",
+         "status": "approved",
          "reason": None}
     ]  # fmt: skip
     assert client.get(f"/api/projects/{pid}/items", headers=headers).json()["artifacts"] == []
@@ -232,7 +233,8 @@ def test_a_card_cut_off_by_a_shutdown_is_there_after_lectern_starts_again(paths)
     assert (chat["state"], chat["pending"]) == ("idle", [])
     assert chat["cards"] == [
         {"confirmation_id": card["confirmation_id"], "call_id": card["call_id"],
-         "name": "artifact.trash", "text": "Move old.md to the trash?", "status": "cancelled",
+         "name": "artifact.trash", "text": "Move old.md to the trash?", "kind": "allow",
+         "status": "cancelled",
          "reason": "shutdown"}
     ]  # fmt: skip
     assert chat["messages"][-1]["content"] == (

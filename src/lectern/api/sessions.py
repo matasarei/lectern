@@ -172,10 +172,10 @@ def get_chat(project_id: int, session_id: int, request: Request, user: CurrentUs
             "messages": sum(1 for m in messages if m.id <= chat_state.summary_upto),
         },
         # The cards already answered, or cut off by Stop or a shutdown (reason): drawn under
-        # their call, as they were left. One from before p0012 has no text.
+        # their call, as they were left. One from before p0012 has no text or kind.
         "cards": [
             {"confirmation_id": c.id, "call_id": c.tool_call_id, "name": c.tool, "text": c.text,
-             "status": c.status, "reason": c.reason}
+             "kind": c.kind, "status": c.status, "reason": c.reason}
             for c in confirmations
             if c.status != "pending"
         ],

@@ -549,7 +549,7 @@ def test_a_project_at_p0011_keeps_its_cards_and_can_store_a_cancelled_one(store,
     fresh = ProjectStore(paths, store.app_sessions)
     with fresh.db(project).begin() as session:
         old = session.scalars(select(ConfirmationRow)).one()
-        assert (old.status, old.text, old.reason) == ("declined", None, None)
+        assert (old.status, old.text, old.kind, old.reason) == ("declined", None, None, None)
         session.add(ConfirmationRow(session_id=1, tool_call_id="c2", tool="image.generate",
                                     arguments="{}", text="Make a picture?",
                                     status="cancelled", reason="restarted"))  # fmt: skip

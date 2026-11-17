@@ -539,6 +539,7 @@ async def _ask(
                 tool=name,
                 arguments=arguments,
                 text=text,
+                kind=kind,
             )
             session.add(row)
             session.flush()
