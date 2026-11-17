@@ -106,6 +106,13 @@ class AgentTool:
     # the arguments the person didn't give, and no card asks first, but for this question
     # when it has one (something to download first). None: the tool can't be asked for so.
     forced_question: Callable[[ToolContext, Any], str | None] | None = None
+    # Asked for directly, it still shows its card (with confirm): the person approves what
+    # `prepare` made of the request, not only that they wanted one.
+    card_when_forced: bool = False
+    # Runs before anything is asked, on every path: returns the parameters the card shows
+    # and the tool runs with (image.generate rewrites its prompt for the image model here).
+    # A ToolError ends the call, as from `run`.
+    prepare: Callable[[ToolContext, Any], Awaitable[Any]] | None = None
 
     @property
     def wire_name(self) -> str:
