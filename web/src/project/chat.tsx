@@ -758,11 +758,17 @@ function ToolLine({
   const language =
     name === "translate" ? result?.refs.find((r) => r.kind === "language") : undefined;
   return (
-    <div className="grid gap-1">
-      <details className="text-xs text-muted" data-testid="tool-line">
-        <summary className="cursor-pointer font-mono">
-          {t("chat.toolCall", { name, args })} → {first.slice(0, RESULT_SHOWN)}
+    // min-w-0: the one-row line mustn't widen the reply past its bubble; it is cut with … instead
+    <div className="grid min-w-0 gap-1">
+      <details className="min-w-0 text-xs text-muted" data-testid="tool-line">
+        {/* One row, cut with … where it doesn't fit: the whole call and result are in the fold */}
+        <summary className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap font-mono">
+          {t("chat.toolCall", { name, args })} → {cut(first, RESULT_SHOWN)}
         </summary>
+        {/* The whole call, which the line cuts short: there before the result is (a card waits) */}
+        <pre className="mt-1 whitespace-pre-wrap rounded bg-paper p-2 font-mono" data-testid="tool-arguments">
+          {fullArgs(call.function.arguments)}
+        </pre>
         {result && <pre className="mt-1 whitespace-pre-wrap rounded bg-paper p-2">{result.content}</pre>}
       </details>
       {!result && progress && <Progress progress={progress} onStop={onStop} />}
@@ -862,6 +868,20 @@ function ScriptCode({ projectId, path }: { projectId: number; path: string }) {
       </pre>
     </details>
   );
+}
+
+/** `text` up to `limit` characters, with … when it was longer. */
+function cut(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+/** A call's arguments in full, one per line: the JSON indented, or as it came when it isn't. */
+export function fullArgs(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json || "{}"), null, 2);
+  } catch {
+    return json;
+  }
 }
 
 /** `{"query": "lease"}` → `"lease"`; several arguments → `query="lease", kind="files"`. */
