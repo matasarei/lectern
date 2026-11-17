@@ -746,7 +746,7 @@ def test_the_runtime_hears_of_turns_and_only_a_persons_message_counts_as_one(fol
 
 @pytest.fixture
 def cards(monkeypatch) -> list[str]:
-    """Every card a turn shows, each answered Don't allow at once."""
+    """Every card a turn shows, each answered Cancel at once."""
     from lectern.agent import loop
 
     shown: list[str] = []
