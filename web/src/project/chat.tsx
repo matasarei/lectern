@@ -928,7 +928,7 @@ export function waitText(t: TFunction, seconds: number): string {
 }
 
 /** The pictures a card offers to work from, each with a thumbnail: the person can take one off
- * (and put it back) before allowing it, not add another. */
+ * (and put it back) before running it, not add another. */
 function CardPictures({
   field,
   kept,
@@ -1008,7 +1008,7 @@ function CardText({ value, onChange }: { value: string; onChange: (value: string
   );
 }
 
-/** The fields of a card the person can change before allowing it: a text, a choice, or the
+/** The fields of a card the person can change before running it: a text, a choice, or the
  * pictures to work from. */
 function CardFields({
   fields,

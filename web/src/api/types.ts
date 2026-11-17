@@ -456,7 +456,7 @@ export type ChatEvent = { seq: number } & (
       text: string;
       /** Which buttons: Run / Cancel, or Try again / Stop. Older servers send none. */
       kind?: CardKind;
-      /** What the person can change before allowing it (image.generate: prompt, shape). */
+      /** What the person can change before running it (image.generate: prompt, shape). */
       fields?: CardField[];
     }
   /** reason: the turn ended before the person answered (Stop, or a shutdown). */
