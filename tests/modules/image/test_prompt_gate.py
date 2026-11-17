@@ -146,6 +146,10 @@ def test_no_runtime_keeps_the_draft():
         ("```\nA red barn in snow.\n```", "A red barn in snow."),
         ("<think>hmm</think>\nA red barn in snow.", "A red barn in snow."),
         ('A sign that says "OPEN" above a door.', 'A sign that says "OPEN" above a door.'),
+        # two quoted words at its ends are lettering, not quotes around the prompt
+        ('"OPEN" in red above a door, and "DAY"', '"OPEN" in red above a door, and "DAY"'),
+        ("'OPEN' above and 'DAY'", "'OPEN' above and 'DAY'"),
+        ("“OPEN” above and “DAY”", "“OPEN” above and “DAY”"),
     ],
 )
 def test_the_prompt_is_taken_from_the_reply_without_its_wrapping(text, prompt):

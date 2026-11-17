@@ -181,10 +181,18 @@ def clean(text: str) -> str:
     if fenced:
         text = fenced.group(1).strip()
     text = _LABEL.sub("", text).strip()
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'“”":
-        text = text[1:-1].strip()
-    if text[:1] == "“" and text[-1:] == "”":
-        text = text[1:-1].strip()
+    for opening, closing in (('"', '"'), ("'", "'"), ("“", "”"), ("”", "”")):
+        inner = text[1:-1]
+        # Quotes around the whole prompt, not two quoted words at its ends ("OPEN" … "DAY")
+        if (
+            len(text) >= 2
+            and text[0] == opening
+            and text[-1] == closing
+            and opening not in inner
+            and closing not in inner
+        ):
+            text = inner.strip()
+            break
     text = " ".join(text.split())
     if len(text) > MAX_PROMPT:
         cut = text[:MAX_PROMPT]
