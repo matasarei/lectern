@@ -438,7 +438,7 @@ export type ChatEvent = { seq: number } & (
       call_id: string;
       name: string;
       text: string;
-      /** Which buttons: Allow / Don't allow, or Try again / Stop. Older servers send none. */
+      /** Which buttons: Run / Cancel, or Try again / Stop. Older servers send none. */
       kind?: CardKind;
       /** What the person can change before allowing it (image.generate: prompt, shape). */
       fields?: CardField[];

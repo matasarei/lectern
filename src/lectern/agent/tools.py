@@ -55,7 +55,7 @@ class ToolContext:
     turn_state: Callable[[int], str] = lambda _session_id: "idle"
     # For tools that wait: ask the person with a card (True = Allow), and report progress
     # to the chat ({"type": "progress", ...}). Outside a turn, nobody can answer: refuse.
-    # The card's kind names its buttons: "allow" (Allow / Don't allow) or "retry" (Try
+    # The card's kind names its buttons: "allow" (Run / Cancel) or "retry" (Try
     # again / Stop); True is the first either way.
     confirm: Callable[..., Awaitable[bool]] = field(default=_nobody_to_ask)
     emit: Callable[[dict], None] = lambda _event: None

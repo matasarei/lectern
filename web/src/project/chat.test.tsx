@@ -255,9 +255,9 @@ describe("Chat", () => {
       { type: "confirm", confirmation_id: 7, call_id: "c9", name: "artifact.trash", text: "Move old.md to the trash?" },
     );
 
-    const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+    const card = screen.getByRole("alertdialog", { name: "Run this?" });
     expect(within(card).getByText("Move old.md to the trash?")).toBeTruthy();
-    fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Run" }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toEqual({ url: "/api/projects/1/sessions/1/confirmations/7", body: { approve: true } });
 
@@ -265,7 +265,7 @@ describe("Chat", () => {
       push({ seq: 3, type: "confirmed", confirmation_id: 7, approved: true });
       await new Promise((r) => setTimeout(r, 10));
     });
-    expect(within(card).getByText("Allowed")).toBeTruthy();
+    expect(within(card).getByText("Ran")).toBeTruthy();
   });
 
   it("asks Try again or Stop when a search couldn't be done, and sends the answer", async () => {
@@ -278,7 +278,7 @@ describe("Chat", () => {
     );
 
     const card = screen.getByRole("alertdialog", { name: "Try again?" });
-    expect(within(card).queryByRole("button", { name: "Allow" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Run" })).toBeNull();
     expect(within(card).getByRole("button", { name: "Stop" })).toBeTruthy();
     fireEvent.click(within(card).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(posts).toHaveLength(1));
@@ -327,7 +327,7 @@ describe("Chat", () => {
       },
     );
 
-    const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+    const card = screen.getByRole("alertdialog", { name: "Run this?" });
     const prompt = within(card).getByLabelText("What the picture shows") as HTMLTextAreaElement;
     expect(prompt.value).toBe("a lighthouse");
     expect(within(card).getByText("768×768 · about 2 min")).toBeTruthy();
@@ -335,12 +335,40 @@ describe("Chat", () => {
 
     fireEvent.change(prompt, { target: { value: "a lighthouse in fog" } });
     fireEvent.click(within(card).getByLabelText(/Landscape/));
-    fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Run" }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toEqual({
       url: "/api/projects/1/sessions/1/confirmations/9",
       body: { approve: true, values: { prompt: "a lighthouse in fog", shape: "landscape" } },
     });
+  });
+
+  it("grows an image card's prompt box to fit its text", async () => {
+    // jsdom lays nothing out: here a text is 24 px a line, one line a sentence
+    const lines = (box: HTMLTextAreaElement) => box.value.split(". ").length;
+    const scrollHeight = vi
+      .spyOn(HTMLTextAreaElement.prototype, "scrollHeight", "get")
+      .mockImplementation(function (this: HTMLTextAreaElement) { return lines(this) * 24; });
+    try {
+      renderChat();
+      await screen.findByText("Yes: lease.md.");
+      await events(
+        { type: "turn", status: "running", message_id: 5, text: "draw", attachments: [] },
+        {
+          type: "confirm", confirmation_id: 9, call_id: "i1", name: "image.generate",
+          text: "Make a picture?",
+          fields: [{ name: "prompt", kind: "text", value: "A lighthouse. On a cliff" }],
+        },
+      );
+      const card = screen.getByRole("alertdialog", { name: "Run this?" });
+      const prompt = within(card).getByLabelText("What the picture shows") as HTMLTextAreaElement;
+      expect(prompt.style.height).toBe("48px");
+
+      fireEvent.change(prompt, { target: { value: "A lighthouse. On a cliff. In fog. At dusk. Gulls" } });
+      expect(prompt.style.height).toBe("120px");
+    } finally {
+      scrollHeight.mockRestore();
+    }
   });
 
   it("shows the pictures to work from on an image's card and sends only those kept", async () => {
@@ -367,7 +395,7 @@ describe("Chat", () => {
       },
     );
 
-    const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+    const card = screen.getByRole("alertdialog", { name: "Run this?" });
     const pictures = within(card).getByRole("group", { name: "Pictures to work from" });
     await waitFor(() => expect(within(pictures).getAllByRole("img")).toHaveLength(2));
     const style = within(pictures).getByRole("checkbox", { name: "style.png" }) as HTMLInputElement;
@@ -379,7 +407,7 @@ describe("Chat", () => {
     expect(within(card).getByText(hint)).toBeTruthy();
     fireEvent.click(within(pictures).getByRole("checkbox", { name: "cat.jpg" }));
     fireEvent.click(within(pictures).getByRole("checkbox", { name: "cat.jpg" })); // and back on
-    fireEvent.click(within(card).getByRole("button", { name: "Allow" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Run" }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0].body).toEqual({
       approve: true,
@@ -397,10 +425,10 @@ describe("Chat", () => {
         fields: [{ name: "prompt", kind: "text", value: "a lighthouse" }],
       },
     );
-    const card = screen.getByRole("alertdialog", { name: "Allow this?" });
+    const card = screen.getByRole("alertdialog", { name: "Run this?" });
     fireEvent.change(within(card).getByLabelText("What the picture shows"), { target: { value: "  " } });
-    expect((within(card).getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(within(card).getByRole("button", { name: "Don't allow" }));
+    expect((within(card).getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(card).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0].body).toEqual({ approve: false });
   });
@@ -501,7 +529,7 @@ describe("Chat", () => {
       { type: "confirm", confirmation_id: 7, call_id: "c9", name: "artifact.trash", text: "Move old.md to the trash?" },
     );
 
-    const cards = screen.getAllByRole("alertdialog", { name: "Allow this?" });
+    const cards = screen.getAllByRole("alertdialog", { name: "Run this?" });
     expect(cards).toHaveLength(1); // not again in the live part of the reply
     expect(screen.getAllByTestId("tool-line").at(-1)!.parentElement!.nextElementSibling).toBe(cards[0]);
     const text = screen.getByText("Moving it now.");

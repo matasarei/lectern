@@ -176,7 +176,7 @@ def test_the_system_prompt_says_web_search_is_off_only_when_it_isnt_offered(
     assert ("Web search is off" in system["content"]) is says_off
 
 
-# --- Don't allow: nothing leaves the computer -------------------------------------------------
+# --- Cancel: nothing leaves the computer ------------------------------------------------------
 
 
 @pytest.mark.parametrize(

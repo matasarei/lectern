@@ -32,6 +32,14 @@
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  /* A box to type in: white with a border, as the app's other text fields are, so it reads as
+     editable on a tinted card too (the picture card's prompt). Without it, Tailwind's reset
+     leaves a textarea with no border and the background behind it: plain text to the eye. */
+  .input {
+    @apply rounded-md border border-line bg-surface px-3 py-1.5 text-ink;
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+  }
+
   /* With .btn-primary or .btn-secondary: a button that shows only an icon, its name in
      aria-label and title. One fixed square, bordered or not, so Send and Stop swap in place.
      38 px is a .btn-secondary text button's height (py-2, the text-sm line, a 1 px border):
