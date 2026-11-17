@@ -31,10 +31,12 @@ switches it on.
 - **Scanned pages to text.** An OCR session reads a PDF or a page image page by page, printed
   or handwritten, asks you about the words it isn't sure of, and builds a Document you can
   export as Markdown, DOCX or ODT.
-- **Pictures from a description.** Ask the chat for a picture, or switch on **Image** beside
-  the message box, and it is made on your own GPU and saved to the project. The card shows
+- **Pictures from a description, or from your own pictures.** Ask the chat for a picture, or
+  switch on **Image** beside the message box, and it is made on your own GPU and saved to the
+  project. Attach pictures of your own to work from: a logo, a photo, a style. The card shows
   the prompt for you to change and how long it should take; a bigger GPU makes larger
-  pictures. On a Mac this needs macOS 26 or later.
+  pictures. On a Mac this needs macOS 26 or later: see
+  [Making pictures](docs/pictures.md).
 - **Replies read aloud.** **Read aloud** under a reply reads it in its own language, on your
   own computer's processor: English, Russian, Ukrainian and 20 more European languages, a voice
   each, downloaded the first time it's needed. **Read replies aloud** reads every new one.

@@ -1,0 +1,60 @@
+# The GitHub Pages site, built from this folder (Settings → Pages → Deploy from a branch:
+# main, /docs). The pages below are the same Markdown files GitHub shows in the repository;
+# their titles and their place in the menu are set here, so the files need no front matter.
+title: Lectern
+description: A local AI workbench that runs models on your own computer.
+remote_theme: just-the-docs/just-the-docs@v0.10.1
+plugins:
+  - jekyll-remote-theme
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-titles-from-headings
+
+relative_links:
+  enabled: true
+  collections: false
+
+aux_links:
+  Lectern on GitHub: https://github.com/matasarei/lectern
+aux_links_new_tab: true
+gh_edit_link: true
+gh_edit_repository: https://github.com/matasarei/lectern
+gh_edit_branch: main
+gh_edit_source: docs
+gh_edit_view_mode: tree
+search_enabled: true
+heading_anchors: true
+back_to_top: true
+back_to_top_text: Back to top
+footer_content: Lectern is open source under the Apache-2.0 licence.
+
+# The repository's own index of this folder; index.md is the site's front page
+exclude:
+  - README.md
+
+defaults:
+  - scope: {path: ""}
+    values: {layout: default}
+  # Using Lectern: what a person does with it, the first thing in the menu
+  - scope: {path: "pictures.md"}
+    values: {title: Making pictures, nav_order: 2}
+  # How it works: the design pages, as they are in the repository
+  - scope: {path: "how-it-works.md"}
+    values: {title: How it works, nav_order: 10, has_children: true}
+  - scope: {path: "concepts.md"}
+    values: {title: "Projects, sessions and files", parent: How it works, nav_order: 1}
+  - scope: {path: "agent.md"}
+    values: {title: The chat, parent: How it works, nav_order: 2}
+  - scope: {path: "ocr.md"}
+    values: {title: OCR sessions and Documents, parent: How it works, nav_order: 3}
+  - scope: {path: "models.md"}
+    values: {title: Models and memory, parent: How it works, nav_order: 4}
+  - scope: {path: "architecture.md"}
+    values: {title: Architecture, parent: How it works, nav_order: 5}
+  - scope: {path: "code-map.md"}
+    values: {title: Code map, parent: How it works, nav_order: 6}
+  - scope: {path: "security.md"}
+    values: {title: Security design, parent: How it works, nav_order: 7}
+  # Test records: reachable from How it works, not listed in the menu
+  - scope: {path: "acceptance"}
+    values: {nav_exclude: true}
