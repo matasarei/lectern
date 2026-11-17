@@ -214,6 +214,9 @@ async def _prepare(ctx: ToolContext, params: GenerateParams) -> GenerateParams:
                 f"{entry.title} can't be given reference pictures, and they can't be described "
                 f"for it: {prepared.unseen_because}."
             )
+    sees = any(s.picture is not None for s in shown)
+    # Loading the model that writes it can take a while: say what the wait is for
+    ctx.emit({"type": "progress", "label": GATE_LABELS[sees]})
     gated = await prompt_gate.rewrite(
         ctx.runtime,
         params.prompt,
@@ -321,6 +324,11 @@ def _fields(ctx: ToolContext, params: GenerateParams) -> list[dict]:
     )
     return fields
 
+
+GATE_LABELS = {  # by whether the vision model looks at the reference pictures
+    True: "Looking at the reference pictures",
+    False: "Writing the prompt for the image model",
+}
 
 PHASE_LABELS = {
     "engine": "Getting the image engine ready",

@@ -566,3 +566,16 @@ def test_a_picture_from_described_references_says_so_in_its_note(image_ctx, monk
     assert made.from_note == (
         "seed 3, described from photos/cat.jpg: a red lighthouse on a cliff at dusk"
     )
+
+
+def test_the_chat_says_what_the_gate_is_doing_while_it_works(image_ctx):
+    ctx = image_ctx(replies=[gate_reply("A red lighthouse."), gate_reply("The cat from image 1.")])
+    _prepare(ctx)
+    _add_photo(ctx)
+    _prepare(ctx, references=["photos/cat.jpg"])
+
+    labels = [e["label"] for e in ctx.events if e["type"] == "progress"]
+    assert labels == [
+        "Writing the prompt for the image model",
+        "Looking at the reference pictures",
+    ]
