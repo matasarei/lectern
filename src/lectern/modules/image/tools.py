@@ -375,7 +375,8 @@ async def _generate(ctx: ToolContext, params: GenerateParams) -> ToolResult:
         row = files.write_bytes(
             ctx.project.root, session, owner_id=ctx.user.id, name=_file_name(params),
             data=made.png, origin=files.Origin("session", id=ctx.session_id,
-                                               note=_note(seed, found, params.prompt)),
+                                               note=_note(seed, found, params.prompt,
+                                                          described=not given)),
             folder=FOLDER,
         )  # fmt: skip
         path, artifact_id = row.path, row.id
@@ -388,9 +389,11 @@ async def _generate(ctx: ToolContext, params: GenerateParams) -> ToolResult:
     )
 
 
-def _note(seed: int, found: list[references.Found], prompt: str) -> str:
-    """The picture's note in its From column: the seed, the references, the prompt."""
-    made_from = f", from {', '.join(f.path for f in found)}" if found else ""
+def _note(seed: int, found: list[references.Found], prompt: str, *, described: bool) -> str:
+    """The picture's note in its From column: the seed, the references (described in the
+    prompt, for a model that can't be given them), the prompt."""
+    how = "described from" if described else "from"
+    made_from = f", {how} {', '.join(f.path for f in found)}" if found else ""
     return f"seed {seed}{made_from}: {prompt}"[:500]
 
 

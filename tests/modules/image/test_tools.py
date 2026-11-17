@@ -536,3 +536,18 @@ def test_a_text_field_cant_be_sent_back_as_a_list(chat, store, tmp_path):
 
     assert _tool_result(store, project) == "Error: prompt takes a text."
     assert not (tmp_path / "bin" / "argv.json").exists()
+
+
+def test_a_picture_from_described_references_says_so_in_its_note(image_ctx, monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "_model", lambda ctx: klein("z-image-turbo"))
+    ctx = image_ctx()
+    _add_photo(ctx)
+
+    asyncio.run(GENERATE.run(ctx, _params(references=["photos/cat.jpg"], seed=3)))
+
+    assert "-r" not in _argv(tmp_path)  # the model can't take it
+    with ctx.sessions() as session:
+        made = [r for r in files.live(session) if r.path.startswith("images/")][0]
+    assert made.from_note == (
+        "seed 3, described from photos/cat.jpg: a red lighthouse on a cliff at dusk"
+    )
