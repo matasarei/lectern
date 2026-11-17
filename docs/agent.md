@@ -42,11 +42,11 @@ next turn's model knows. The chat's answered and cut-off cards come back with it
 (`GET …/sessions/{id}`'s `cards`) and are drawn greyed under their call after a reload, as they
 were left: "Ran", "Cancelled", or "Cancelled: Lectern shut down before you answered".
 
-A card can have fields the person changes before running it (`AgentTool.confirm_fields`); the tool then runs with what they
-left there, checked like the model's arguments, and only those fields can change. Only `artifact.trash` deletes anything,
-and nothing overwrites a file. A tool's result is capped (800 tokens unless the tool says
-otherwise); `project.list`, `document.read` and `code.run` hand out the rest a page at a time
-with a cursor.
+A card can have fields the person changes before running it (`AgentTool.confirm_fields`); the
+tool then runs with what they left there, checked like the model's arguments, and only those
+fields can change. Only `artifact.trash` deletes anything, and nothing overwrites a file. A
+tool's result is capped (800 tokens unless the tool says otherwise); `project.list`,
+`document.read` and `code.run` hand out the rest a page at a time with a cursor.
 
 Arguments are checked against the same JSON schema the model is sent. A first invalid call
 gets the error back to fix; a second one to the same tool ends the turn. A call that already
