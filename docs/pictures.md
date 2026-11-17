@@ -53,17 +53,16 @@ Before anything runs, a card in the chat asks **Make a picture with FLUX.2 klein
 whichever image model you use). It shows:
 
 - **What the picture shows:** the rewritten prompt. Change anything you like before you
-  allow it.
+  run it.
 - **Pictures to work from:** a thumbnail of each of your pictures. Untick one to leave it
   out. If you do, check the prompt doesn't still name it.
 - **Shape:** square, portrait, landscape or a large square, each with its size and how long
   it should take on this computer.
 - Anything that has to download first.
 
-Choose **Allow** to make it, or **Don't allow** to make nothing. Every picture is asked
-about: there's no "always allow", because on a small GPU a picture can take minutes and
-unloads the chat's model while it runs. Once decided, the card says **Allowed** or **Not
-allowed**.
+Choose **Run** to make it, or **Cancel** to make nothing. Every picture is asked about:
+there's no "always run", because on a small GPU a picture can take minutes and unloads the
+chat's model while it runs. Once decided, the card says **Ran** or **Cancelled**.
 
 To see exactly what the chat asked for, click the grey line above the card. It unfolds to the
 whole call. That's the chat's own request: the card shows the prompt after it was rewritten.
@@ -82,7 +81,7 @@ right](assets/screenshots/pictures-result.jpg)
 
 ## The first time
 
-The first picture downloads what it needs, and the card lists it before you allow it:
+The first picture downloads what it needs, and the card lists it before you run it:
 
 - the image program, stable-diffusion.cpp, built for your computer;
 - the image model. FLUX.2 klein 4B is about 5 GB on smaller GPUs and 7 GB on larger ones,

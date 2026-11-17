@@ -85,7 +85,7 @@ CONFIRMATION_STATUSES = ("pending", "approved", "declined")
 
 
 class ConfirmationRow(ProjectBase):
-    """A tool call waiting for the person's Allow / Don't allow."""
+    """A tool call waiting for the person's Run / Cancel."""
 
     __tablename__ = "confirmations"
     __table_args__ = (CheckConstraint(one_of("status", CONFIRMATION_STATUSES), name="status"),)

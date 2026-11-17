@@ -1061,7 +1061,7 @@ function CardFields({
   );
 }
 
-/** A card that asks before a tool runs: Allow or Don't allow, then which it was. A card with
+/** A card that asks before a tool runs: Run or Cancel, then which it was. A card with
  * fields lets the person change them first; the tool runs with what they leave there. */
 function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDecide: Decide }) {
   const { t } = useTranslation();
@@ -1073,7 +1073,7 @@ function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDe
   const [title, yes, no, said, unsaid] =
     card.kind === "retry"
       ? ["chat.retryTitle", "chat.tryAgain", "chat.stop", "chat.triedAgain", "chat.searchStopped"]
-      : ["chat.confirmTitle", "chat.allow", "chat.deny", "chat.allowed", "chat.denied"];
+      : ["chat.confirmTitle", "chat.run", "chat.cancel", "chat.ran", "chat.cancelled"];
   return (
     <div
       className="grid gap-2 rounded-lg border border-accent bg-accent-soft p-3 text-sm"

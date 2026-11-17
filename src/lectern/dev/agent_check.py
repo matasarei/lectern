@@ -251,7 +251,7 @@ def answer_matches(case: Case, answer: str) -> bool:
 def run_set(client, name: str, *, allow_cards: bool, only: list[str] | None = None,
             echo=print) -> list[Outcome]:  # noqa: ANN001  # fmt: skip
     """Run the set against a running server through `client` (an httpx2.Client with the
-    token and Origin headers). Cards are answered Allow when `allow_cards`, else Don't allow."""
+    token and Origin headers). Cards are answered Run when `allow_cards`, else Cancel."""
     prompt_set = load(name)
     cases = [c for c in prompt_set.cases if not only or c.id in only]
     project = client.post("/api/projects", json={"name": f"agent-check {name}"}).json()
