@@ -81,7 +81,8 @@ class MessageRow(ProjectBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
-CONFIRMATION_STATUSES = ("pending", "approved", "declined")
+# cancelled: the turn ended before the person answered (Stop, or Lectern shutting down)
+CONFIRMATION_STATUSES = ("pending", "approved", "declined", "cancelled")
 
 
 class ConfirmationRow(ProjectBase):
@@ -95,7 +96,9 @@ class ConfirmationRow(ProjectBase):
     tool_call_id: Mapped[str] = mapped_column(String(128))
     tool: Mapped[str] = mapped_column(String(64))
     arguments: Mapped[str] = mapped_column(Text)  # JSON
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)  # the card's question
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    reason: Mapped[str | None] = mapped_column(String(16), nullable=True)  # why cancelled
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
