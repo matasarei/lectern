@@ -11,7 +11,9 @@ import type {
   CardField,
   Chat,
   ChatMessage,
+  CutOff,
   ProjectItems,
+  StoredCard,
   Tab,
   ToolCall,
   ToolRef,
@@ -183,6 +185,7 @@ export function ChatTab({
           projectId={projectId}
           chatId={sessionId}
           messages={chat.data.messages}
+          stored={chat.data.cards}
           summarised={chat.data.summary.messages}
           live={live}
           followups={chat.data.followups}
@@ -485,6 +488,7 @@ function Transcript({
   projectId,
   chatId,
   messages,
+  stored,
   summarised,
   live,
   liveReply,
@@ -498,6 +502,7 @@ function Transcript({
   projectId: number;
   chatId: number;
   messages: ChatMessage[];
+  stored: StoredCard[]; // the chat's cards no longer waiting, as they were left
   summarised: number; // how many of the first messages the summary stands in for
   live: LiveTurn;
   liveReply: React.ReactNode; // the reply as it streams in; it joins the last reply's card
@@ -512,8 +517,12 @@ function Transcript({
   const results = new Map(
     messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m] as const),
   );
-  // A card shows under the line of the call it asks about (the live reply has the others).
-  const cards = new Map(live.cards.map((card) => [card.call_id, card] as const));
+  // A card shows under the line of the call it asks about (the live reply has the others):
+  // the live turn's as it goes, else the stored one, so it's still there after a reload.
+  const cards = new Map<string, LiveTurn["cards"][number]>(
+    stored.map((card) => [card.call_id, fromStored(card)] as const),
+  );
+  for (const card of live.cards) cards.set(card.call_id, card);
   const newest = newestAboutSession(messages);
   // The markers go where the model's view starts: after the messages covered by the summary,
   // and after any it had to leave out of the last call (counted from the summary on).
@@ -1061,7 +1070,27 @@ function CardFields({
   );
 }
 
-/** A card that asks before a tool runs: Run or Cancel, then which it was. A card with
+/** A stored card in the live card's shape: answered, so no fields to show. */
+function fromStored(card: StoredCard): LiveTurn["cards"][number] {
+  return {
+    confirmation_id: card.confirmation_id,
+    call_id: card.call_id,
+    name: card.name,
+    text: card.text ?? card.name, // kept from p0012 on; the tool's name stands in before
+    kind: card.kind ?? "allow",
+    fields: [],
+    approved: card.status === "approved",
+    reason: card.status === "cancelled" ? card.reason : null,
+  };
+}
+
+const CUT_OFF: Record<CutOff, string> = {
+  stopped: "chat.cutOff.stopped",
+  shutdown: "chat.cutOff.shutdown",
+};
+
+/** A card that asks before a tool runs: Run or Cancel, then which it was (greyed), or why it
+ * ended unanswered. A card with
  * fields lets the person change them first; the tool runs with what they leave there. */
 function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDecide: Decide }) {
   const { t } = useTranslation();
@@ -1076,7 +1105,9 @@ function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDe
       : ["chat.confirmTitle", "chat.run", "chat.cancel", "chat.ran", "chat.cancelled"];
   return (
     <div
-      className="grid gap-2 rounded-lg border border-accent bg-accent-soft p-3 text-sm"
+      className={`grid gap-2 rounded-lg border p-3 text-sm ${
+        card.approved === null ? "border-accent bg-accent-soft" : "border-line bg-paper"
+      }`}
       role="alertdialog"
       aria-label={t(title)}
     >
@@ -1108,7 +1139,9 @@ function ConfirmCard({ card, onDecide }: { card: LiveTurn["cards"][number]; onDe
           </button>
         </div>
       ) : (
-        <p className="text-muted">{card.approved ? t(said) : t(unsaid)}</p>
+        <p className="text-muted">
+          {card.approved ? t(said) : card.reason ? t(CUT_OFF[card.reason]) : t(unsaid)}
+        </p>
       )}
     </div>
   );

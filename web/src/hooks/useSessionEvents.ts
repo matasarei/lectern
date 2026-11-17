@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useReducer, useRef } from "react";
 
 import { followEvents } from "../api/client";
-import type { CardField, CardKind, ChatEvent, Tab } from "../api/types";
+import type { CardField, CardKind, ChatEvent, CutOff, Tab } from "../api/types";
 
 /** What the chat shows about the turn in progress, on top of the stored transcript. */
 export interface LiveTurn {
@@ -19,6 +19,7 @@ export interface LiveTurn {
     kind: CardKind;
     fields: CardField[];
     approved: boolean | null;
+    reason: CutOff | null; // why it ended unanswered, if it did
   }[];
   // The latest progress of each tool at work, by tool call.
   progress: Record<
@@ -93,6 +94,7 @@ export function reduce(state: LiveTurn, event: ChatEvent | typeof CONNECTED): Li
             kind: event.kind ?? "allow",
             fields: event.fields ?? [],
             approved: null,
+            reason: null,
           },
         ],
       };
@@ -100,7 +102,9 @@ export function reduce(state: LiveTurn, event: ChatEvent | typeof CONNECTED): Li
       return {
         ...next,
         cards: state.cards.map((c) =>
-          c.confirmation_id === event.confirmation_id ? { ...c, approved: event.approved } : c,
+          c.confirmation_id === event.confirmation_id
+            ? { ...c, approved: event.approved, reason: event.reason ?? null }
+            : c,
         ),
       };
     case "progress": {

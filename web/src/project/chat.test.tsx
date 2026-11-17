@@ -45,7 +45,7 @@ beforeEach(() => {
   };
   ocrSession = {};
   chat = {
-    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], pinned: [], followups: [],
+    id: 1, kind: "chat", title: "Payment terms", state: "idle", pending: [], cards: [], pinned: [], followups: [],
     summary: { upto: 0, version: 0, messages: 0 },
     messages: [
       message(1, { content: "Is there a lease file?", attachments: [{ id: 3, name: "notes.md" }] }),
@@ -341,6 +341,66 @@ describe("Chat", () => {
       url: "/api/projects/1/sessions/1/confirmations/9",
       body: { approve: true, values: { prompt: "a lighthouse in fog", shape: "landscape" } },
     });
+  });
+
+  it("keeps a card cut off by a shutdown under its call after a reload, and says why", async () => {
+    chat.messages = [
+      message(1, { content: "Delete old.md" }),
+      message(2, {
+        role: "assistant",
+        tool_calls: [{ id: "t1", type: "function", function: { name: "artifact_trash", arguments: '{"name":"old.md"}' } }],
+      }),
+      message(3, {
+        role: "tool", tool_call_id: "t1", tool_name: "artifact.trash",
+        content: "Not run: Lectern shut down before the person answered the card.",
+      }),
+    ];
+    chat.cards = [
+      { confirmation_id: 7, call_id: "t1", name: "artifact.trash", text: "Move old.md to the trash?",
+        kind: "allow", status: "cancelled", reason: "shutdown" },
+    ];
+    renderChat();
+
+    const card = await screen.findByRole("alertdialog", { name: "Run this?" });
+    expect(within(card).getByText("Move old.md to the trash?")).toBeTruthy();
+    expect(within(card).getByText("Cancelled: Lectern shut down before you answered")).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
+  });
+
+  it("shows answered cards as they were left after a reload", async () => {
+    const call = (id: string, name: string) => ({ id, type: "function" as const, function: { name, arguments: "{}" } });
+    chat.messages = [
+      message(1, { content: "Search, then delete old.md" }),
+      message(2, { role: "assistant", tool_calls: [call("w1", "web_search"), call("t1", "artifact_trash"), call("t2", "artifact_trash")] }),
+    ];
+    chat.cards = [
+      { confirmation_id: 1, call_id: "w1", name: "web.search", text: "Try again?", kind: "retry", status: "approved", reason: null },
+      { confirmation_id: 2, call_id: "t1", name: "artifact.trash", text: "Move old.md to the trash?", kind: "allow", status: "approved", reason: null },
+      // From before cards kept their question: the tool's name stands in
+      { confirmation_id: 3, call_id: "t2", name: "artifact.trash", text: null, kind: null, status: "declined", reason: null },
+    ];
+    renderChat();
+
+    const retry = await screen.findByRole("alertdialog", { name: "Try again?" });
+    expect(within(retry).getByText("Trying again")).toBeTruthy();
+    const [ran, old] = screen.getAllByRole("alertdialog", { name: "Run this?" });
+    expect(within(ran).getByText("Ran")).toBeTruthy();
+    expect(within(old).getByText("artifact.trash")).toBeTruthy();
+    expect(within(old).getByText("Cancelled")).toBeTruthy();
+  });
+
+  it("says why a card was cut off when the turn is stopped", async () => {
+    renderChat();
+    await screen.findByText("Yes: lease.md.");
+    await events(
+      { type: "turn", status: "running", message_id: 5, text: "delete old.md", attachments: [] },
+      { type: "confirm", confirmation_id: 9, call_id: "t9", name: "artifact.trash", text: "Move old.md to the trash?" },
+      { type: "confirmed", confirmation_id: 9, approved: false, reason: "stopped" },
+    );
+
+    const card = screen.getByRole("alertdialog", { name: "Run this?" });
+    expect(within(card).getByText("Cancelled: stopped before you answered")).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
   });
 
   it("grows an image card's prompt box to fit its text", async () => {

@@ -202,6 +202,21 @@ export interface RuntimeSettings {
 
 export type CardKind = "allow" | "retry";
 
+/** Why a card ended unanswered: the person's Stop, or Lectern shutting down. */
+export type CutOff = "stopped" | "shutdown";
+
+/** A card no longer waiting, kept with its chat to draw under its call. Cards from before
+ * they kept their question and kind have neither. */
+export interface StoredCard {
+  confirmation_id: number;
+  call_id: string;
+  name: string;
+  text: string | null;
+  kind: CardKind | null;
+  status: "approved" | "declined" | "cancelled";
+  reason: CutOff | null;
+}
+
 // --- languages (the translate module) ---------------------------------------------------
 
 /** A model a language can be given on this computer (GET /api/languages). */
@@ -389,6 +404,7 @@ export interface Chat {
   state: "idle" | "running" | "waiting";
   messages: ChatMessage[];
   pending: { confirmation_id: number; call_id: string; name: string }[];
+  cards: StoredCard[]; // answered, or cut off by Stop or a shutdown
   pinned: { id: string; kind: "instruction" | "fact"; text: string }[];
   // Waiting for an OCR session to finish. tool "": a notice (a message when it ends), not a step.
   followups: { id: string; label: string; ocr_session_id: number; tool: string; what: string }[];
@@ -443,7 +459,8 @@ export type ChatEvent = { seq: number } & (
       /** What the person can change before allowing it (image.generate: prompt, shape). */
       fields?: CardField[];
     }
-  | { type: "confirmed"; confirmation_id: number; approved: boolean }
+  /** reason: the turn ended before the person answered (Stop, or a shutdown). */
+  | { type: "confirmed"; confirmation_id: number; approved: boolean; reason?: CutOff }
   | {
       type: "tool_result";
       call_id: string;
